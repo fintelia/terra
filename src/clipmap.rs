@@ -21,6 +21,7 @@ use self::vertex::Vertex;
 gfx_pipeline!( pipe {
     vbuf: gfx::VertexBuffer<Vertex> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
+    resolution: gfx::Global<i32> = "resolution",
     t_color: gfx::TextureSampler<[f32; 4]> = "t_color",
     out_color: gfx::RenderTarget<::gfx::format::Srgba8> = "OutColor",
     out_depth: gfx::DepthTarget<::gfx::format::DepthStencil> =
@@ -37,8 +38,10 @@ impl Terrain {
     pub fn new(window: &mut PistonWindow<Sdl2Window>) -> Self {
         let ref mut factory = window.factory;
 
+        let resolution = 16;
+
         let mut vertex_data = Vec::new();
-        vertex_data.resize(4, Vertex{});
+        vertex_data.resize(4 * resolution * resolution, Vertex{});
 
         let vbuf = factory.create_vertex_buffer(&vertex_data);
         let slice = gfx::Slice {
@@ -66,6 +69,7 @@ impl Terrain {
         let data = pipe::Data {
             vbuf: vbuf.clone(),
             model_view_projection: [[0.0; 4]; 4],
+            resolution: resolution as i32,
             t_color: (texture_view, factory.create_sampler(sinfo)),
             out_color: window.output_color.clone(),
             out_depth: window.output_stencil.clone(),

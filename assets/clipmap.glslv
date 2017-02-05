@@ -1,10 +1,14 @@
 #version 450 core
 
+uniform int resolution;
+
 out vec3 vPosition;
 
 void main() {
-  if(gl_VertexID == 0) vPosition = vec3(-3, 0, 3);
-  if(gl_VertexID == 1) vPosition = vec3(3, 0, 3);
-  if(gl_VertexID == 2) vPosition = vec3(-3, 0, -3);
-  if(gl_VertexID == 3) vPosition = vec3(3, 0, -3);
+  uint quad = gl_VertexID / 4;
+  uint v = gl_VertexID % 4;
+  float x = (quad % (resolution + 1) + (v % 2)) / float(resolution);
+  float y = (quad / (resolution + 1) + (v / 2)) / float(resolution);
+
+  vPosition = vec3(-3 + 6*x, 0, -3 + 6*y);
 }
