@@ -11,8 +11,6 @@ extern crate shader_version;
 
 mod clipmap;
 
-pub use clipmap::Vertex;
-pub use clipmap::pipe;
 pub use clipmap::Terrain;
 
 //----------------------------------------

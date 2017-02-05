@@ -7,17 +7,16 @@ use piston_window::*;
 use gfx::traits::*;
 use sdl2_window::Sdl2Window;
 
-gfx_vertex_struct!( Vertex {
-    pos: [i8; 4] = "pos",
-});
-
-impl Vertex {
-    pub fn new(pos: [i8; 3]) -> Vertex {
-        Vertex {
-            pos: [pos[0], pos[1], pos[2], 1],
-        }
-    }
+// Boilerplate to suppress warning about unused variables/imports
+// within gfx_vertex_struct macro, caused by using an empty vertex
+// type.
+#[allow(unused_imports)]
+#[allow(unused_variables)]
+mod vertex {
+    gfx_vertex_struct!( V {});
+    pub type Vertex = V;
 }
+use self::vertex::Vertex;
 
 gfx_pipeline!( pipe {
     vbuf: gfx::VertexBuffer<Vertex> = (),
@@ -38,19 +37,17 @@ impl Terrain {
     pub fn new(window: &mut PistonWindow<Sdl2Window>) -> Self {
         let ref mut factory = window.factory;
 
-        let vertex_data = vec![
-            Vertex::new([-3, 0, 3]),
-            Vertex::new([ 3, 0, 3]),
-            Vertex::new([ 3, 0, -3]),
-            Vertex::new([-3, 0, -3]),
-        ];
-        
-        let index_data:Vec<u16> = vec![
-            0,  1,  3,  2,//2,  3,  0, // top
-        ];
+        let mut vertex_data = Vec::new();
+        vertex_data.resize(4, Vertex{});
 
-        let (vbuf, slice) = factory.create_vertex_buffer_with_slice
-            (&vertex_data, &index_data[..]);
+        let vbuf = factory.create_vertex_buffer(&vertex_data);
+        let slice = gfx::Slice {
+            start: 0,
+            end: vertex_data.len() as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
 
         let texels = [
             [0xff, 0xff, 0xff, 0x00],

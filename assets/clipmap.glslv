@@ -1,9 +1,10 @@
 #version 450 core
 
-in ivec3 pos;
-
 out vec3 vPosition;
 
 void main() {
-    vPosition = pos;
+  if(gl_VertexID == 0) vPosition = vec3(-3, 0, 3);
+  if(gl_VertexID == 1) vPosition = vec3(3, 0, 3);
+  if(gl_VertexID == 2) vPosition = vec3(-3, 0, -3);
+  if(gl_VertexID == 3) vPosition = vec3(3, 0, -3);
 }
