@@ -1,0 +1,24 @@
+[package]
+name = "gfx_terrain"
+version = "0.1.0"
+authors = ["jonathan"]
+
+[[bin]]
+name = "preview"
+path = "src/preview.rs"
+
+[dependencies]
+piston_window = "0.64.0"
+find_folder = "0.3.0"
+piston-ai_behavior = "0.19.0"
+piston2d-sprite = "0.34.0"
+image = "0.12.1"
+piston2d-drag_controller = "0.18.0"
+gfx = "0.14.0"
+gfx_core = "0.6.0"
+gfx_device_gl = "0.13.0"
+vecmath = "0.3.0"
+camera_controllers = "0.20.0"
+pistoncore-sdl2_window = "0.40.0"
+rand = "0.3.14"
+shader_version = "0.2.1"

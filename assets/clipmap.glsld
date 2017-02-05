@@ -1,0 +1,15 @@
+#version 450 core
+
+layout(quads, equal_spacing, cw) in;
+
+in vec3 tcPosition[];
+
+uniform mat4 modelViewProjection;
+
+void main() {
+  vec3 a = mix(tcPosition[0], tcPosition[1], gl_TessCoord.x);
+  vec3 b = mix(tcPosition[2], tcPosition[3], gl_TessCoord.x);
+  vec3 position = mix(a, b, gl_TessCoord.y);
+  
+  gl_Position = modelViewProjection * vec4(position, 1);
+}
