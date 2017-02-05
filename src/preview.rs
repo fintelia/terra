@@ -1,7 +1,6 @@
 
 extern crate camera_controllers;
 extern crate gfx;
-extern crate gfx_device_gl;
 extern crate gfx_terrain;
 extern crate piston_window;
 extern crate sdl2_window;
@@ -30,7 +29,9 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let mut terrain = Terrain::new(&mut window);
+    let mut terrain = Terrain::new(&mut window.factory,
+                                   window.output_color.clone(),
+                                   window.output_stencil.clone());
     
     let get_projection = |w: &PistonWindow<Sdl2Window>| {
         let draw_size = w.window.draw_size();

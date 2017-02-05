@@ -1,11 +1,8 @@
 
 use gfx;
-use gfx_device_gl;
-use vecmath;
-
-use piston_window::*;
+use gfx_core;
 use gfx::traits::*;
-use sdl2_window::Sdl2Window;
+use vecmath;
 
 // Boilerplate to suppress warning about unused variables/imports
 // within gfx_vertex_struct macro, caused by using an empty vertex
@@ -18,27 +15,31 @@ mod vertex {
 }
 use self::vertex::Vertex;
 
+type RenderTarget = gfx::RenderTarget<::gfx::format::Srgba8>;
+type DepthTarget = gfx::DepthTarget<::gfx::format::DepthStencil>;
+
 gfx_pipeline!( pipe {
     vbuf: gfx::VertexBuffer<Vertex> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     resolution: gfx::Global<i32> = "resolution",
     t_color: gfx::TextureSampler<[f32; 4]> = "t_color",
-    out_color: gfx::RenderTarget<::gfx::format::Srgba8> = "OutColor",
-    out_depth: gfx::DepthTarget<::gfx::format::DepthStencil> =
-        gfx::preset::depth::LESS_EQUAL_WRITE,
+    out_color: RenderTarget = "OutColor",
+    out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
 
-pub struct Terrain {
-    pso: gfx::PipelineState<gfx_device_gl::Resources, pipe::Meta>,
-    slice: gfx::Slice<gfx_device_gl::Resources>,
-    data: pipe::Data<gfx_device_gl::Resources>,
+pub struct Terrain <R> where R: gfx::Resources{
+    pso: gfx::PipelineState<R, pipe::Meta>,
+    slice: gfx::Slice<R>,
+    data: pipe::Data<R>,
 }
 
-impl Terrain {
-    pub fn new(window: &mut PistonWindow<Sdl2Window>) -> Self {
-        let ref mut factory = window.factory;
-
-        let resolution = 16;
+impl<R> Terrain <R> where R: gfx::Resources {
+    pub fn new<F, >(factory: &mut F,
+                    out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
+                    out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data) -> Self
+        where F: gfx::Factory<R>,
+    {
+        let resolution = 8;
 
         let mut vertex_data = Vec::new();
         vertex_data.resize(4 * resolution * resolution, Vertex{});
@@ -66,13 +67,14 @@ impl Terrain {
             gfx::texture::FilterMethod::Bilinear,
             gfx::texture::WrapMode::Clamp);
 
+
         let data = pipe::Data {
             vbuf: vbuf.clone(),
             model_view_projection: [[0.0; 4]; 4],
             resolution: resolution as i32,
             t_color: (texture_view, factory.create_sampler(sinfo)),
-            out_color: window.output_color.clone(),
-            out_depth: window.output_stencil.clone(),
+            out_color: out_color,
+            out_depth: out_stencil,
         };
 
         let shaders = gfx::ShaderSet::Tessellated(
@@ -110,7 +112,9 @@ impl Terrain {
         self.data.model_view_projection = mvp_mat;
     }
     
-    pub fn render(&self, encoder: &mut GfxEncoder) {
+    pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)
+        where C: gfx_core::command::Buffer<R>
+    {
         encoder.draw(&self.slice, &self.pso, &self.data);
     }
 }
