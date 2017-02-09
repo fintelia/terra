@@ -15,6 +15,7 @@ gfx_pipeline!( pipe {
     resolution: gfx::Global<i32> = "resolution",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
+    shadows: gfx::TextureSampler<f32> = "shadows",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -23,6 +24,7 @@ gfx_pipeline!( generate_textures {
     y_scale: gfx::Global<f32> = "yScale",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::RenderTarget<Rgba8> = "normals",
+    shadows: gfx::RenderTarget<(R16, Unorm)> = "shadows",
 });
 
 pub struct Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R>{
@@ -34,6 +36,10 @@ pub struct Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R>{
     normals: (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
               gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
               gfx_core::handle::RenderTargetView<R, Rgba8>),
+
+    shadows: (gfx_core::handle::Texture<R, gfx_core::format::R16>,
+              gfx_core::handle::ShaderResourceView<R, f32>,
+              gfx_core::handle::RenderTargetView<R, (R16, Unorm)>),
 }
 
 impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
@@ -64,12 +70,14 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
         let sampler = factory.create_sampler(sinfo);
 
         let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
+        let shadows = factory.create_render_target::<(R16, Unorm)>(w, h).unwrap();
 
         let data = pipe::Data {
             model_view_projection: [[0.0; 4]; 4],
             resolution: resolution as i32,
             heights: (texture_view, sampler.clone()),
-            normals: (normals.1.clone(), sampler),
+            normals: (normals.1.clone(), sampler.clone()),
+            shadows: (shadows.1.clone(), sampler),
             out_color: out_color,
             out_depth: out_stencil,
         };
@@ -104,6 +112,7 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
             slice: slice,
             data: data,
             normals: normals,
+            shadows: shadows,
         }
     }
 
@@ -121,6 +130,7 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
         let data = generate_textures::Data {
             heights: self.data.heights.clone(),
             normals: self.normals.2.clone(),
+            shadows: self.shadows.2.clone(),
             y_scale: 320.0,
         };
 
