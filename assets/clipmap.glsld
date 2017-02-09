@@ -2,14 +2,20 @@
 
 layout(quads, equal_spacing, cw) in;
 
-in vec3 tcPosition[];
+in vec2 tcPosition[];
+out vec2 teTexCoord;
 
+uniform sampler2D heights;
 uniform mat4 modelViewProjection;
 
 void main() {
-  vec3 a = mix(tcPosition[0], tcPosition[1], gl_TessCoord.x);
-  vec3 b = mix(tcPosition[2], tcPosition[3], gl_TessCoord.x);
-  vec3 position = mix(a, b, gl_TessCoord.y);
-  
-  gl_Position = modelViewProjection * vec4(position, 1);
+  vec2 a = mix(tcPosition[0], tcPosition[1], gl_TessCoord.x);
+  vec2 b = mix(tcPosition[2], tcPosition[3], gl_TessCoord.x);
+  vec2 position = mix(a, b, gl_TessCoord.y);
+
+  float y = texture(heights, position).r * 5;
+
+  gl_Position = modelViewProjection * vec4(-3 + 6*position.x, y, -3+6*position.y, 1);
+
+  teTexCoord = position;
 }

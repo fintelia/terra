@@ -6,8 +6,10 @@ extern crate gfx_core;
 extern crate shader_version;
 
 mod clipmap;
+mod heightmap;
 
 pub use clipmap::Terrain;
+pub use heightmap::Heightmap;
 
 #[cfg(test)]
 mod tests {
