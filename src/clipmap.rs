@@ -10,9 +10,16 @@ use heightmap::Heightmap;
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
 
+gfx_defines!{
+    vertex Vertex {
+        pos: [f32; 2] = "vPosition",
+    }
+}
 gfx_pipeline!( pipe {
+    vertex: gfx::VertexBuffer<Vertex> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
-    resolution: gfx::Global<i32> = "resolution",
+    position: gfx::Global<[f32; 3]> = "position",
+    scale: gfx::Global<[f32; 3]> = "scale",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     shadows: gfx::TextureSampler<f32> = "shadows",
@@ -158,15 +165,25 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
                out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data) -> Self
     {
-        let resolution = 32;
+        let resolution = 64;
 
-        let slice = gfx::Slice {
-            start: 0,
-            end: resolution * resolution * 4,
-            base_vertex: 0,
-            instances: None,
-            buffer: gfx::IndexBuffer::Auto,
-        };
+        let denom = (resolution + 1) as f32;
+        let mut vertices = Vec::new();
+        for x in 0..resolution {
+            for y in 0..resolution {
+                let fx = x as f32;
+                let fy = y as f32;
+
+                vertices.push(Vertex{pos: [fx / denom, fy / denom]});
+                vertices.push(Vertex{pos: [(fx+1.0) / denom, fy / denom]});
+                vertices.push(Vertex{pos: [fx / denom, (fy+1.0) / denom]});
+
+                vertices.push(Vertex{pos: [(fx+1.0) / denom, (fy+1.0) / denom]});
+                vertices.push(Vertex{pos: [(fx+1.0) / denom, fy / denom]});
+                vertices.push(Vertex{pos: [fx / denom, (fy+1.0) / denom]});
+            }
+        }
+        let (vertex_buffer, slice) = factory.create_vertex_buffer_with_slice(&vertices, ());
 
         let w = heightmap.width;
         let h = heightmap.height;
@@ -179,13 +196,9 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
             gfx::texture::WrapMode::Clamp);
         let sampler = factory.create_sampler(sinfo);
 
-        let shaders = gfx::ShaderSet::Tessellated(
+        let shaders = gfx::ShaderSet::Simple(
             factory.create_shader_vertex(
                 include_str!("../assets/clipmap.glslv").as_bytes()).unwrap(),
-            factory.create_shader_hull(
-                include_str!("../assets/clipmap.glslh").as_bytes()).unwrap(),
-            factory.create_shader_domain(
-                include_str!("../assets/clipmap.glsld").as_bytes()).unwrap(),
             factory.create_shader_pixel(
                 include_str!("../assets/clipmap.glslf").as_bytes()).unwrap()
         );
@@ -198,7 +211,7 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
         };
         let pso = factory.create_pipeline_state(
             &shaders,
-            gfx::Primitive::PatchList(4),
+            gfx::Primitive::TriangleList,
             rasterizer,
             pipe::new()
         ).unwrap();
@@ -217,8 +230,10 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
         clipmap.layers.push(ClipmapLayer::Static{
             x: 0, y: 0,
             pipeline_data: pipe::Data {
+                vertex: vertex_buffer,
                 model_view_projection: [[0.0; 4]; 4],
-                resolution: resolution as i32,
+                position: [0.0, 0.0, 0.0],
+                scale: [3.0, 3.0, 3.0],
                 heights: (texture_view, sampler.clone()),
                 normals: (normals.1.clone(), sampler.clone()),
                 shadows: (shadows.1.clone(), sampler),
