@@ -6,18 +6,20 @@ use gfx::format::*;
 use vecmath;
 
 use heightmap::Heightmap;
+use vertex_buffer;
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
 
 gfx_defines!{
     vertex Vertex {
-        pos: [f32; 2] = "vPosition",
+        pos: [i8; 2] = "vPosition",
     }
 }
 gfx_pipeline!( pipe {
     vertex: gfx::VertexBuffer<Vertex> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
+    resolution: gfx::Global<i32> = "resolution",
     position: gfx::Global<[f32; 3]> = "position",
     scale: gfx::Global<[f32; 3]> = "scale",
     heights: gfx::TextureSampler<f32> = "heights",
@@ -151,7 +153,6 @@ impl<R> Clipmap <R> where R: gfx::Resources {
             }
         }
     }
-
 }
 
 pub struct Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R>{
@@ -165,24 +166,8 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
                out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data) -> Self
     {
-        let resolution = 64;
-
-        let denom = (resolution + 1) as f32;
-        let mut vertices = Vec::new();
-        for x in 0..resolution {
-            for y in 0..resolution {
-                let fx = x as f32;
-                let fy = y as f32;
-
-                vertices.push(Vertex{pos: [fx / denom, fy / denom]});
-                vertices.push(Vertex{pos: [(fx+1.0) / denom, fy / denom]});
-                vertices.push(Vertex{pos: [fx / denom, (fy+1.0) / denom]});
-
-                vertices.push(Vertex{pos: [(fx+1.0) / denom, (fy+1.0) / denom]});
-                vertices.push(Vertex{pos: [(fx+1.0) / denom, fy / denom]});
-                vertices.push(Vertex{pos: [fx / denom, (fy+1.0) / denom]});
-            }
-        }
+        let resolution:i8 = 63;
+        let vertices = vertex_buffer::generate(resolution);
         let (vertex_buffer, slice) = factory.create_vertex_buffer_with_slice(&vertices, ());
 
         let w = heightmap.width;
@@ -225,24 +210,28 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
             layers: Vec::new(),
         };
 
-        let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
-        let shadows = factory.create_render_target::<(R16, Unorm)>(w, h).unwrap();
-        clipmap.layers.push(ClipmapLayer::Static{
-            x: 0, y: 0,
-            pipeline_data: pipe::Data {
-                vertex: vertex_buffer,
-                model_view_projection: [[0.0; 4]; 4],
-                position: [0.0, 0.0, 0.0],
-                scale: [3.0, 3.0, 3.0],
-                heights: (texture_view, sampler.clone()),
-                normals: (normals.1.clone(), sampler.clone()),
-                shadows: (shadows.1.clone(), sampler),
-                out_color: out_color,
-                out_depth: out_stencil,
-            },
-            normals: normals.clone(),
-            shadows: shadows.clone(),
-        });
+        let num_layers = 1;
+        for layer in 0..num_layers {
+            let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
+            let shadows = factory.create_render_target::<(R16, Unorm)>(w, h).unwrap();
+            clipmap.layers.push(ClipmapLayer::Static{
+                x: 0, y: 0,
+                pipeline_data: pipe::Data {
+                    vertex: vertex_buffer.clone(),
+                    model_view_projection: [[0.0; 4]; 4],
+                    resolution: resolution as i32,
+                    position: [0.0, 0.0, 0.0],
+                    scale: [3.0 / (1 << layer) as f32, 3.0, 3.0 / (1 << layer) as f32],
+                    heights: (texture_view.clone(), sampler.clone()),
+                    normals: (normals.1.clone(), sampler.clone()),
+                    shadows: (shadows.1.clone(), sampler.clone()),
+                    out_color: out_color.clone(),
+                    out_depth: out_stencil.clone(),
+                },
+                normals: normals.clone(),
+                shadows: shadows.clone(),
+            });
+        }
 
         Terrain {
             factory: factory,

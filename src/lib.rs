@@ -5,6 +5,7 @@ extern crate gfx;
 extern crate gfx_core;
 extern crate shader_version;
 
+mod vertex_buffer;
 mod clipmap;
 mod heightmap;
 
