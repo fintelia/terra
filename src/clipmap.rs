@@ -3,7 +3,7 @@ use gfx;
 use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
-use vecmath;
+use vecmath::*;
 
 use heightmap::Heightmap;
 use vertex_buffer;
@@ -22,6 +22,7 @@ gfx_pipeline!( pipe {
     resolution: gfx::Global<i32> = "resolution",
     position: gfx::Global<[f32; 3]> = "position",
     scale: gfx::Global<[f32; 3]> = "scale",
+    flip_axis: gfx::Global<[i32; 2]> = "flipAxis",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     shadows: gfx::TextureSampler<f32> = "shadows",
@@ -37,33 +38,40 @@ gfx_pipeline!( generate_textures {
 });
 
 type HeightMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R16>,
-                  gfx_core::handle::ShaderResourceView<R, f32>,
-                  gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
+                     gfx_core::handle::ShaderResourceView<R, f32>,
+                     gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
 
 type ColorMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
-                 gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
-                 gfx_core::handle::RenderTargetView<R, Rgba8>);
+                    gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
+                    gfx_core::handle::RenderTargetView<R, Rgba8>);
 
 type NormalMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
-                  gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
-                  gfx_core::handle::RenderTargetView<R, Rgba8>);
+                     gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
+                     gfx_core::handle::RenderTargetView<R, Rgba8>);
 
 type ShadowMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R16>,
-                  gfx_core::handle::ShaderResourceView<R, f32>,
-                  gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
+                     gfx_core::handle::ShaderResourceView<R, f32>,
+                     gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
 
-struct Clipmap <R> where R: gfx::Resources {
+struct Clipmap<R>
+    where R: gfx::Resources
+{
+    size: f32,
     side_length: i64,
-    vertex_resolution: i64,
-    texture_resolution: i64,
+    resolution: i64,
+    block_step: i64,
 
     pso: gfx::PipelineState<R, pipe::Meta>,
-    slice: gfx::Slice<R>,
+    ring_slice: gfx::Slice<R>,
+    center_slice: gfx::Slice<R>,
 
     layers: Vec<ClipmapLayer<R>>,
 }
 
-enum ClipmapLayer <R> where R: gfx::Resources {
+enum ClipmapLayer<R>
+    where R: gfx::Resources
+{
+    #[allow(unused)]
     Precomputed {
         x: i64,
         y: i64,
@@ -79,6 +87,7 @@ enum ClipmapLayer <R> where R: gfx::Resources {
         normals: NormalMap<R>,
         shadows: ShadowMap<R>,
     },
+    #[allow(unused)]
     Generated {
         x: i64,
         y: i64,
@@ -86,10 +95,12 @@ enum ClipmapLayer <R> where R: gfx::Resources {
         heights: HeightMap<R>,
         normals: NormalMap<R>,
         shadows: ShadowMap<R>,
-    }
+    },
 }
 
-impl<R> Clipmap <R> where R: gfx::Resources {
+impl<R> Clipmap<R>
+    where R: gfx::Resources
+{
     pub fn generate_textures<F, C>(&mut self, factory: &mut F, encoder: &mut gfx::Encoder<R, C>)
         where C: gfx_core::command::Buffer<R>,
               F: gfx::Factory<R>
@@ -104,10 +115,12 @@ impl<R> Clipmap <R> where R: gfx::Resources {
 
         for layer in self.layers.iter_mut() {
             match layer {
-                &mut ClipmapLayer::Static {x, y,
-                                      ref mut pipeline_data,
-                                      ref mut normals,
-                                      ref mut shadows} => {
+                &mut ClipmapLayer::Static {
+                         ref mut pipeline_data,
+                         ref mut normals,
+                         ref mut shadows,
+                         ..
+                     } => {
                     let data = generate_textures::Data {
                         heights: pipeline_data.heights.clone(),
                         normals: normals.2.clone(),
@@ -115,11 +128,13 @@ impl<R> Clipmap <R> where R: gfx::Resources {
                         y_scale: 320.0,
                     };
 
-                    let pso = factory.create_pipeline_simple(
-                        include_str!("../assets/generate_textures.glslv").as_bytes(),
-                        include_str!("../assets/generate_textures.glslf").as_bytes(),
-                        generate_textures::new()
-                    ).unwrap();
+                    let pso = factory
+                        .create_pipeline_simple(include_str!("../assets/generate_textures.glslv")
+                                                    .as_bytes(),
+                                                include_str!("../assets/generate_textures.glslf")
+                                                    .as_bytes(),
+                                                generate_textures::new())
+                        .unwrap();
 
                     encoder.draw(&slice, &pso, &data);
                 }
@@ -127,48 +142,106 @@ impl<R> Clipmap <R> where R: gfx::Resources {
             }
         }
     }
-    pub fn update(&mut self, mvp_mat: vecmath::Matrix4<f32>) {
-        for layer in self.layers.iter_mut() {
-            match layer {
-                &mut ClipmapLayer::Precomputed {ref mut pipeline_data, ..} =>
-                    pipeline_data.model_view_projection = mvp_mat,
-                &mut ClipmapLayer::Static {ref mut pipeline_data, ..} =>
-                    pipeline_data.model_view_projection = mvp_mat,
-                &mut ClipmapLayer::Generated {ref mut pipeline_data, ..} =>
-                    pipeline_data.model_view_projection = mvp_mat,
+    pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
+
+        let center = ((center[0] * (self.side_length as f32 / self.size)) as i64,
+                      (center[1] * (self.side_length as f32 / self.size)) as i64);
+        // TODO: clamp center to bound
+
+        let num_layers = self.layers.len();
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            let layer_scale = 1 << (num_layers - i - 1);
+            let step = self.block_step * layer_scale * 2;
+            let half_step = step / 2;
+
+            let target_center = ((center.0 / step) * step + half_step,
+                                 (center.1 / step) * step + half_step);
+
+            let flip_axis = [((((center.0 / half_step + 1) % 2) + 2) % 2) as i32,
+                             ((((center.1 / half_step + 1) % 2) + 2) % 2) as i32];
+
+            match *layer {
+                ClipmapLayer::Precomputed {
+                    ref mut pipeline_data,
+                    ref mut x,
+                    ref mut y,
+                    ..
+                } |
+                ClipmapLayer::Static {
+                    ref mut pipeline_data,
+                    ref mut x,
+                    ref mut y,
+                    ..
+                } |
+                ClipmapLayer::Generated {
+                    ref mut pipeline_data,
+                    ref mut x,
+                    ref mut y,
+                    ..
+                } => {
+                    *x = target_center.0 - self.resolution / 2 * layer_scale;
+                    *y = target_center.1 - self.resolution / 2 * layer_scale;
+
+                    pipeline_data.position = [self.size * (*x as f32 / self.side_length as f32),
+                                              0.0,
+                                              self.size * (*y as f32 / self.side_length as f32)];
+                    pipeline_data.model_view_projection = mvp_mat;
+                    pipeline_data.flip_axis = flip_axis;
+                }
             }
         }
     }
     pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)
         where C: gfx_core::command::Buffer<R>
     {
-        for layer in self.layers.iter() {
+        for (i, layer) in self.layers.iter().enumerate() {
+            let ref slice = if i == self.layers.len() - 1 {
+                &self.center_slice
+            } else {
+                &self.ring_slice
+            };
+
             match layer {
-                &ClipmapLayer::Precomputed {ref pipeline_data, ..} =>
-                    encoder.draw(&self.slice, &self.pso, pipeline_data),
-                &ClipmapLayer::Static {ref pipeline_data, ..} =>
-                    encoder.draw(&self.slice, &self.pso, pipeline_data),
-                &ClipmapLayer::Generated {ref pipeline_data, ..} =>
-                    encoder.draw(&self.slice, &self.pso, pipeline_data),
+                &ClipmapLayer::Precomputed { ref pipeline_data, .. } => {
+                    encoder.draw(slice, &self.pso, pipeline_data)
+                }
+                &ClipmapLayer::Static { ref pipeline_data, .. } => {
+                    encoder.draw(slice, &self.pso, pipeline_data)
+                }
+                &ClipmapLayer::Generated { ref pipeline_data, .. } => {
+                    encoder.draw(slice, &self.pso, pipeline_data)
+                }
             }
         }
     }
 }
 
-pub struct Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R>{
+pub struct Terrain<R, F>
+    where R: gfx::Resources,
+          F: gfx::Factory<R>
+{
     factory: F,
     clipmap: Clipmap<R>,
 }
 
-impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
+impl<R, F> Terrain<R, F>
+    where R: gfx::Resources,
+          F: gfx::Factory<R>
+{
     pub fn new(heightmap: Heightmap<u16>,
                mut factory: F,
                out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
-               out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data) -> Self
-    {
-        let resolution:i8 = 63;
-        let vertices = vertex_buffer::generate(resolution);
-        let (vertex_buffer, slice) = factory.create_vertex_buffer_with_slice(&vertices, ());
+               out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
+               -> Self {
+        let block_step: i64 = 64;
+        let mesh_resolution: i8 = 31;
+
+        let ring_vertices = vertex_buffer::generate(mesh_resolution, false);
+        let center_vertices = vertex_buffer::generate(mesh_resolution, true);
+        let (ring_vertex_buffer, ring_slice) =
+            factory.create_vertex_buffer_with_slice(&ring_vertices, ());
+        let (center_vertex_buffer, center_slice) =
+            factory.create_vertex_buffer_with_slice(&center_vertices, ());
 
         let w = heightmap.width;
         let h = heightmap.height;
@@ -176,9 +249,8 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
             gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
             &[&heightmap.heights[..]]).unwrap();
 
-        let sinfo = gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Bilinear,
-            gfx::texture::WrapMode::Clamp);
+        let sinfo = gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Bilinear,
+                                                   gfx::texture::WrapMode::Clamp);
         let sampler = factory.create_sampler(sinfo);
 
         let shaders = gfx::ShaderSet::Simple(
@@ -194,43 +266,59 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
             offset: None,
             samples: None,
         };
-        let pso = factory.create_pipeline_state(
-            &shaders,
-            gfx::Primitive::TriangleList,
-            rasterizer,
-            pipe::new()
-        ).unwrap();
+        let pso = factory
+            .create_pipeline_state(&shaders,
+                                   gfx::Primitive::TriangleList,
+                                   rasterizer,
+                                   pipe::new())
+            .unwrap();
 
+        let num_layers = 6;
         let mut clipmap = Clipmap {
-            side_length: 1024,
-            vertex_resolution: 64,
-            texture_resolution: 1024,
-            pso: pso,
-            slice: slice,
+            size: 20.0,
+            side_length: block_step * (mesh_resolution as i64 - 1) << (num_layers - 1),
+            resolution: block_step * (mesh_resolution as i64 - 1),
+            block_step,
+            pso,
+            ring_slice,
+            center_slice,
             layers: Vec::new(),
         };
 
-        let num_layers = 1;
         for layer in 0..num_layers {
+            let side_length = clipmap.side_length >> layer;
             let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
-            let shadows = factory.create_render_target::<(R16, Unorm)>(w, h).unwrap();
-            clipmap.layers.push(ClipmapLayer::Static{
-                x: 0, y: 0,
-                pipeline_data: pipe::Data {
-                    vertex: vertex_buffer.clone(),
-                    model_view_projection: [[0.0; 4]; 4],
-                    resolution: resolution as i32,
-                    position: [0.0, 0.0, 0.0],
-                    scale: [3.0 / (1 << layer) as f32, 3.0, 3.0 / (1 << layer) as f32],
-                    heights: (texture_view.clone(), sampler.clone()),
-                    normals: (normals.1.clone(), sampler.clone()),
-                    shadows: (shadows.1.clone(), sampler.clone()),
-                    out_color: out_color.clone(),
-                    out_depth: out_stencil.clone(),
-                },
-                normals: normals.clone(),
-                shadows: shadows.clone(),
-            });
+            let shadows = factory
+                .create_render_target::<(R16, Unorm)>(w, h)
+                .unwrap();
+            clipmap
+                .layers
+                .push(ClipmapLayer::Static {
+                          x: clipmap.side_length / 2 - side_length / 2,
+                          y: clipmap.side_length / 2 - side_length / 2,
+                          pipeline_data: pipe::Data {
+                              vertex: if layer == num_layers - 1 {
+                                  // Clone is sad, but this is only a handle
+                                  center_vertex_buffer.clone()
+                              } else {
+                                  ring_vertex_buffer.clone()
+                              },
+                              model_view_projection: [[0.0; 4]; 4],
+                              resolution: mesh_resolution as i32,
+                              position: [0.0, 0.0, 0.0],
+                              scale: [clipmap.size / (1 << layer) as f32,
+                                      3.0,
+                                      clipmap.size / (1 << layer) as f32],
+                              flip_axis: [0, 0],
+                              heights: (texture_view.clone(), sampler.clone()),
+                              normals: (normals.1.clone(), sampler.clone()),
+                              shadows: (shadows.1.clone(), sampler.clone()),
+                              out_color: out_color.clone(),
+                              out_depth: out_stencil.clone(),
+                          },
+                          normals: normals.clone(),
+                          shadows: shadows.clone(),
+                      });
         }
 
         Terrain {
@@ -242,11 +330,12 @@ impl<R, F> Terrain <R, F> where R: gfx::Resources, F: gfx::Factory<R> {
     pub fn generate_textures<C>(&mut self, encoder: &mut gfx::Encoder<R, C>)
         where C: gfx_core::command::Buffer<R>
     {
-        self.clipmap.generate_textures(&mut self.factory, encoder);
+        self.clipmap
+            .generate_textures(&mut self.factory, encoder);
     }
 
-    pub fn update(&mut self, mvp_mat: vecmath::Matrix4<f32>) {
-        self.clipmap.update(mvp_mat);
+    pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
+        self.clipmap.update(mvp_mat, center);
     }
 
     pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)

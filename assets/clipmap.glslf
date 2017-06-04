@@ -17,4 +17,5 @@ void main() {
   vec3 normal = texture(normals, texCoord).rgb;
   float nDotL = dot(normalize(normal), normalize(vec3(0,1,1)));
   OutColor = vec4(shadow * vec3(nDotL) * color, 1);
+  OutColor.rgb = vec3(0);
 }
