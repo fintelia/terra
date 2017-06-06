@@ -23,6 +23,8 @@ gfx_pipeline!( pipe {
     position: gfx::Global<[f32; 3]> = "position",
     scale: gfx::Global<[f32; 3]> = "scale",
     flip_axis: gfx::Global<[i32; 2]> = "flipAxis",
+    texture_step: gfx::Global<i32> = "textureStep",
+    texture_offset: gfx::Global<[i32; 2]> = "textureOffset",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     shadows: gfx::TextureSampler<f32> = "shadows",
@@ -142,8 +144,8 @@ impl<R> Clipmap<R>
             }
         }
     }
-    pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
 
+    pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
         let center = ((center[0] * (self.side_length as f32 / self.size)) as i64,
                       (center[1] * (self.side_length as f32 / self.size)) as i64);
         // TODO: clamp center to bound
@@ -157,8 +159,12 @@ impl<R> Clipmap<R>
             let target_center = ((center.0 / step) * step + half_step,
                                  (center.1 / step) * step + half_step);
 
-            let flip_axis = [((((center.0 / half_step + 1) % 2) + 2) % 2) as i32,
-                             ((((center.1 / half_step + 1) % 2) + 2) % 2) as i32];
+            let flip_axis = if i < num_layers - 1 {
+                [((((center.0 / half_step + 1) % 2) + 2) % 2) as i32,
+                 ((((center.1 / half_step + 1) % 2) + 2) % 2) as i32]
+            } else {
+                [0, 0]
+            };
 
             match *layer {
                 ClipmapLayer::Precomputed {
@@ -187,10 +193,14 @@ impl<R> Clipmap<R>
                                               self.size * (*y as f32 / self.side_length as f32)];
                     pipeline_data.model_view_projection = mvp_mat;
                     pipeline_data.flip_axis = flip_axis;
+                    pipeline_data.texture_offset =
+                        [((*x as i32) * pipeline_data.texture_step / half_step as i32),
+                         ((*y as i32) * pipeline_data.texture_step / half_step as i32)];
                 }
             }
         }
     }
+
     pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)
         where C: gfx_core::command::Buffer<R>
     {
@@ -253,27 +263,39 @@ impl<R, F> Terrain<R, F>
                                                    gfx::texture::WrapMode::Clamp);
         let sampler = factory.create_sampler(sinfo);
 
-        let shaders = gfx::ShaderSet::Simple(
-            factory.create_shader_vertex(
-                include_str!("../assets/clipmap.glslv").as_bytes()).unwrap(),
-            factory.create_shader_pixel(
-                include_str!("../assets/clipmap.glslf").as_bytes()).unwrap()
-        );
+        let v = match factory.create_shader_vertex(include_str!("../assets/clipmap.glslv")
+                                                       .as_bytes()) {
+            Ok(s) => s,
+            Err(msg) => {
+                println!("{}", msg);
+                panic!("Failed to compile clipmap.glslv");
+            }
+        };
+
+        let f = match factory.create_shader_pixel(include_str!("../assets/clipmap.glslf")
+                                                      .as_bytes()) {
+            Ok(s) => s,
+            Err(msg) => {
+                println!("{}", msg);
+                panic!("Failed to compile clipmap.glslf");
+            }
+        };
+
         let rasterizer = gfx::state::Rasterizer {
             front_face: gfx::state::FrontFace::Clockwise,
             cull_face: gfx::state::CullFace::Nothing,
-            method: gfx::state::RasterMethod::Line(1),
+            method: gfx::state::RasterMethod::Fill,
             offset: None,
             samples: None,
         };
         let pso = factory
-            .create_pipeline_state(&shaders,
+            .create_pipeline_state(&gfx::ShaderSet::Simple(v, f),
                                    gfx::Primitive::TriangleList,
                                    rasterizer,
                                    pipe::new())
             .unwrap();
 
-        let num_layers = 6;
+        let num_layers = 3;
         let mut clipmap = Clipmap {
             size: 20.0,
             side_length: block_step * (mesh_resolution as i64 - 1) << (num_layers - 1),
@@ -310,6 +332,8 @@ impl<R, F> Terrain<R, F>
                                       3.0,
                                       clipmap.size / (1 << layer) as f32],
                               flip_axis: [0, 0],
+                              texture_step: 1 << (num_layers - layer - 1),
+                              texture_offset: [0, 0],
                               heights: (texture_view.clone(), sampler.clone()),
                               normals: (normals.1.clone(), sampler.clone()),
                               shadows: (shadows.1.clone(), sampler.clone()),
