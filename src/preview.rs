@@ -69,7 +69,7 @@ fn main() {
 
     let model = vecmath::mat4_id();
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([10.0, 0.5, 10.0],
+    let mut first_person = FirstPerson::new([10.0, 5.0, 10.0],
                                             FirstPersonSettings::keyboard_wasd());
 
     while let Some(e) = window.next() {

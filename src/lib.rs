@@ -4,6 +4,7 @@ extern crate vecmath;
 extern crate gfx;
 extern crate gfx_core;
 extern crate shader_version;
+extern crate rand;
 
 mod vertex_buffer;
 mod clipmap;

@@ -5,7 +5,9 @@ use gfx::traits::*;
 use gfx::format::*;
 use vecmath::*;
 
-use heightmap::Heightmap;
+use std::mem;
+
+use heightmap::{self, Heightmap};
 use vertex_buffer;
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
@@ -27,6 +29,7 @@ gfx_pipeline!( pipe {
     texture_offset: gfx::Global<[i32; 2]> = "textureOffset",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
+    detail_normals: gfx::TextureSampler<[f32; 3]> = "detail_normals",
     shadows: gfx::TextureSampler<f32> = "shadows",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -244,7 +247,7 @@ impl<R, F> Terrain<R, F>
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
                -> Self {
         let block_step: i64 = 64;
-        let mesh_resolution: i8 = 31;
+        let mesh_resolution: i8 = 63;
 
         let ring_vertices = vertex_buffer::generate(mesh_resolution, false);
         let center_vertices = vertex_buffer::generate(mesh_resolution, true);
@@ -280,6 +283,27 @@ impl<R, F> Terrain<R, F>
                 panic!("Failed to compile clipmap.glslf");
             }
         };
+
+        let detail_heightmap = heightmap::detail_heightmap(512);
+        let detail_normals = detail_heightmap.as_height_and_slopes(4.0);
+        let detail_normals: Vec<[u32; 3]> = detail_normals
+            .into_iter()
+            .map(|n| unsafe {
+                     [mem::transmute::<f32, u32>(n[0]),
+                      mem::transmute::<f32, u32>(n[1]),
+                      mem::transmute::<f32, u32>(n[2])]
+                 })
+            .collect();
+        let detail_normal_texture = factory
+            .create_texture_immutable::<(R32_G32_B32, Float)>(gfx::texture::Kind::D2(512,
+                                                                    512,
+                                                                    gfx::texture::AaMode::Single),
+                                             &[&detail_normals[..], &(vec![[0,0,0]; 65536])[..]])
+            .unwrap();
+        let sinfo_wrap =
+            gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Anisotropic(16),
+                                           gfx::texture::WrapMode::Tile);
+        let sampler_wrap = factory.create_sampler(sinfo_wrap);
 
         let rasterizer = gfx::state::Rasterizer {
             front_face: gfx::state::FrontFace::Clockwise,
@@ -337,6 +361,8 @@ impl<R, F> Terrain<R, F>
                               heights: (texture_view.clone(), sampler.clone()),
                               normals: (normals.1.clone(), sampler.clone()),
                               shadows: (shadows.1.clone(), sampler.clone()),
+                              detail_normals: (detail_normal_texture.1.clone(),
+                                               sampler_wrap.clone()),
                               out_color: out_color.clone(),
                               out_depth: out_stencil.clone(),
                           },
