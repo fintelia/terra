@@ -6,12 +6,7 @@ extern crate gfx_core;
 extern crate shader_version;
 extern crate rand;
 
-mod vertex_buffer;
-mod clipmap;
-mod heightmap;
-
-pub use clipmap::Terrain;
-pub use heightmap::Heightmap;
+pub mod terrain;
 
 #[cfg(test)]
 mod tests {

@@ -7,8 +7,8 @@ use vecmath::*;
 
 use std::mem;
 
-use heightmap::{self, Heightmap};
-use vertex_buffer;
+use terrain::heightmap::{self, Heightmap};
+use terrain::vertex_buffer;
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
@@ -134,11 +134,10 @@ impl<R> Clipmap<R>
                     };
 
                     let pso = factory
-                        .create_pipeline_simple(include_str!("../assets/generate_textures.glslv")
-                                                    .as_bytes(),
-                                                include_str!("../assets/generate_textures.glslf")
-                                                    .as_bytes(),
-                                                generate_textures::new())
+                        .create_pipeline_simple(
+                            include_str!("../shaders/glsl/generate_textures.glslv").as_bytes(),
+                            include_str!("../shaders/glsl/generate_textures.glslf").as_bytes(),
+                            generate_textures::new())
                         .unwrap();
 
                     encoder.draw(&slice, &pso, &data);
@@ -266,7 +265,7 @@ impl<R, F> Terrain<R, F>
                                                    gfx::texture::WrapMode::Clamp);
         let sampler = factory.create_sampler(sinfo);
 
-        let v = match factory.create_shader_vertex(include_str!("../assets/clipmap.glslv")
+        let v = match factory.create_shader_vertex(include_str!("../shaders/glsl/clipmap.glslv")
                                                        .as_bytes()) {
             Ok(s) => s,
             Err(msg) => {
@@ -275,7 +274,7 @@ impl<R, F> Terrain<R, F>
             }
         };
 
-        let f = match factory.create_shader_pixel(include_str!("../assets/clipmap.glslf")
+        let f = match factory.create_shader_pixel(include_str!("../shaders/glsl/clipmap.glslf")
                                                       .as_bytes()) {
             Ok(s) => s,
             Err(msg) => {

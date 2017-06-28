@@ -1,7 +1,7 @@
 
 extern crate camera_controllers;
 extern crate gfx;
-extern crate gfx_terrain;
+extern crate terra;
 extern crate piston_window;
 extern crate sdl2_window;
 extern crate vecmath;
@@ -16,8 +16,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
-use gfx_terrain::Terrain;
-use gfx_terrain::Heightmap;
+use terra::terrain::Terrain;
+use terra::terrain::Heightmap;
 
 fn load_heightmap<P: AsRef<Path>>(path: P) -> (u16, u16, Vec<u16>) {
     let file = File::open(path).unwrap();
@@ -38,13 +38,12 @@ fn load_heightmap<P: AsRef<Path>>(path: P) -> (u16, u16, Vec<u16>) {
 fn main() {
     let opengl = OpenGL::V3_2;
 
-    let mut window: PistonWindow<Sdl2Window> = WindowSettings::new("gfx_terrain preview",
-                                                                   [640, 480])
-            .exit_on_esc(true)
-            .samples(4)
-            .opengl(opengl)
-            .build()
-            .unwrap();
+    let mut window: PistonWindow<Sdl2Window> = WindowSettings::new("terra preview", [640, 480])
+        .exit_on_esc(true)
+        .samples(4)
+        .opengl(opengl)
+        .build()
+        .unwrap();
     window.set_capture_cursor(true);
 
     let (w, h, heights) = load_heightmap("../assets/mtsthelens_before.png");

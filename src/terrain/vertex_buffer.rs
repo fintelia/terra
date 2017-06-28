@@ -1,5 +1,5 @@
 
-use clipmap::*;
+use terrain::clipmap::*;
 
 pub fn generate(resolution: i8, include_center: bool) -> Vec<Vertex> {
     let mut vertices = Vec::new();
