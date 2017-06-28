@@ -65,11 +65,11 @@ impl<T> Heightmap<T> {
     }
 }
 
-pub fn detail_heightmap(resolution: u16) -> Heightmap<f32> {
+pub fn detail_heightmap(width: u16, height: u16) -> Heightmap<f32> {
     let mut rng = rand::thread_rng();
-    let mut heights = Vec::with_capacity(resolution as usize * resolution as usize);
-    for y in 0..resolution {
-        for x in 0..resolution {
+    let mut heights = Vec::with_capacity(width as usize * height as usize);
+    for y in 0..height {
+        for x in 0..width {
             if x % 2 == 0 && y % 2 == 0 {
                 heights.push(0f32)
             } else {
@@ -80,7 +80,7 @@ pub fn detail_heightmap(resolution: u16) -> Heightmap<f32> {
 
     Heightmap {
         heights,
-        width: resolution,
-        height: resolution,
+        width,
+        height,
     }
 }
