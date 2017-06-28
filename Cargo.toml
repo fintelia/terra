@@ -21,3 +21,10 @@ pistoncore-sdl2_window = "0.43"
 rand = "0.3"
 shader_version = "0.2.1"
 imagefmt = "4.0.0"
+curl = {version = "0.4", optional = true}
+zip = {version = "0.2", optional = true}
+byteorder = {version = "1.0", optional = true}
+
+[features]
+default = ["download"]
+download = ["zip", "curl", "byteorder"]
