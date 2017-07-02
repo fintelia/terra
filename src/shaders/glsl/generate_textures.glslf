@@ -25,8 +25,8 @@ void main() {
 
   float slope = 0.0003;
   shadows = 0;
-  for(int x = uv.x; x < textureSize(heights, 0).x; x++) {
-	  float h = texelFetch(heights, ivec2(x,uv.y), 0).r;
-	  shadows = max(shadows, h - slope * (x - uv.x));
-  }
+  // for(int x = uv.x; x < textureSize(heights, 0).x; x++) {
+  // 	  float h = texelFetch(heights, ivec2(x,uv.y), 0).r;
+  // 	  shadows = max(shadows, h - slope * (x - uv.x));
+  // }
 }

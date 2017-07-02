@@ -24,6 +24,10 @@ impl<T> Heightmap<T> {
     pub fn get(&self, x: u16, y: u16) -> Option<T>
         where T: Clone
     {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+
         self.heights
             .get(x as usize + y as usize * self.width as usize)
             .cloned()
@@ -46,12 +50,28 @@ impl<T> Heightmap<T> {
         let mut result = Vec::with_capacity(self.width as usize * self.height as usize);
         let scale_factor = 0.5 / spacing;
 
-        for y in 0..(self.height as i64) {
-            for x in 0..(self.width as i64) {
-                let mx: f32 = self.get_wrapping(x - 1, y).into();
-                let px: f32 = self.get_wrapping(x + 1, y).into();
-                let my: f32 = self.get_wrapping(x, y - 1).into();
-                let py: f32 = self.get_wrapping(x, y + 1).into();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let mx: f32 = if x > 0 {
+                    self.get(x - 1, y).unwrap().into()
+                } else {
+                    self.get(self.width - 1, y).unwrap().into()
+                };
+                let px: f32 = if x < self.width - 1 {
+                    self.get(x + 1, y).unwrap().into()
+                } else {
+                    self.get(0, y).unwrap().into()
+                };
+                let my: f32 = if y > 0 {
+                    self.get(x, y - 1).unwrap().into()
+                } else {
+                    self.get(x, self.height - 1).unwrap().into()
+                };
+                let py: f32 = if y < self.height - 1 {
+                    self.get(x, y + 1).unwrap().into()
+                } else {
+                    self.get(x, 0).unwrap().into()
+                };
                 let v = [self.heights[x as usize + y as usize * self.width as usize]
                              .clone()
                              .into(),

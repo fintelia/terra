@@ -119,6 +119,14 @@ impl<R> Clipmap<R>
             buffer: gfx::IndexBuffer::Auto,
         };
 
+        let pso = factory
+            .create_pipeline_simple(include_str!("../shaders/glsl/generate_textures.glslv")
+                                        .as_bytes(),
+                                    include_str!("../shaders/glsl/generate_textures.glslf")
+                                        .as_bytes(),
+                                    generate_textures::new())
+            .unwrap();
+
         for layer in self.layers.iter_mut() {
             match layer {
                 &mut ClipmapLayer::Static {
@@ -134,12 +142,6 @@ impl<R> Clipmap<R>
                         y_scale: 1.0 / 30.0,
                     };
 
-                    let pso = factory
-                        .create_pipeline_simple(
-                            include_str!("../shaders/glsl/generate_textures.glslv").as_bytes(),
-                            include_str!("../shaders/glsl/generate_textures.glslf").as_bytes(),
-                            generate_textures::new())
-                        .unwrap();
 
                     encoder.draw(&slice, &pso, &data);
                 }
