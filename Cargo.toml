@@ -29,12 +29,11 @@ zip = "0.2"
 camera_controllers = {version = "0.21", optional = true}
 gfx_device_gl = {version = "0.14", optional = true}
 piston_window = {version = "0.67", optional = true}
-pistoncore-sdl2_window = {version = "0.43", optional = true}
 
 # For download
 curl = {version = "0.4", optional = true}
 
 [features]
 default = ["download"]
-preview = ["piston_window", "camera_controllers", "pistoncore-sdl2_window", "gfx_device_gl"]
+preview = ["piston_window", "camera_controllers", "gfx_device_gl"]
 download = ["curl"]

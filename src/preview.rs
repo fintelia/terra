@@ -1,12 +1,10 @@
 extern crate camera_controllers;
 extern crate gfx;
 extern crate piston_window;
-extern crate sdl2_window;
 extern crate terra;
 extern crate vecmath;
 
 use piston_window::*;
-use sdl2_window::Sdl2Window;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 
@@ -17,26 +15,23 @@ use terra::terrain::Terrain;
 use terra::terrain::dem::Dem;
 
 fn main() {
-    let opengl = OpenGL::V3_2;
+    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap();
+    let dem = Dem::from_gridfloat_zip(&mut BufReader::new(file));
 
-    let mut window: PistonWindow<Sdl2Window> = WindowSettings::new("terra preview", [640, 480])
+    let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
         .exit_on_esc(true)
-        .samples(4)
-        .opengl(opengl)
+        .opengl(OpenGL::V4_5)
         .build()
         .unwrap();
     window.set_capture_cursor(true);
 
-    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap();
-    let reader = &mut BufReader::new(file);
-    let mut terrain = Terrain::new(Dem::from_gridfloat_zip(reader),
+    let mut terrain = Terrain::new(dem,
                                    window.factory.clone(),
                                    window.output_color.clone(),
                                    window.output_stencil.clone());
-
     terrain.generate_textures(&mut window.encoder);
 
-    let get_projection = |w: &PistonWindow<Sdl2Window>| {
+    let get_projection = |w: &PistonWindow| {
         let draw_size = w.window.draw_size();
         CameraPerspective {
                 fov: 90.0,
@@ -47,7 +42,6 @@ fn main() {
             .projection()
     };
 
-    let model = vecmath::mat4_id();
     let mut projection = get_projection(&window);
     let mut first_person = FirstPerson::new([10000.0, 5500.0, 10000.0],
                                             FirstPersonSettings::keyboard_wasd());
@@ -56,6 +50,10 @@ fn main() {
 
     while let Some(e) = window.next() {
         first_person.event(&e);
+
+        if let Some(_) = e.resize_args() {
+            projection = get_projection(&window);
+        }
 
         window.draw_3d(&e, |window| {
             let args = e.render_args().unwrap();
@@ -66,13 +64,11 @@ fn main() {
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
             let camera = first_person.camera(args.ext_dt);
-            terrain.update(model_view_projection(model, camera.orthogonal(), projection),
+            terrain.update(model_view_projection(vecmath::mat4_id(),
+                                                 camera.orthogonal(),
+                                                 projection),
                            [camera.position[0], camera.position[2]]);
             terrain.render(&mut window.encoder);
         });
-
-        if let Some(_) = e.resize_args() {
-            projection = get_projection(&window);
-        }
     }
 }
