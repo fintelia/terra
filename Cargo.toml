@@ -7,7 +7,7 @@ description = "A rendering library for large scale terrains"
 repository = "https://github.com/fintelia/terra"
 categories = ["game-engine", "rendering"]
 readme = "README.md"
-include = ["src", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/*", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "preview"
