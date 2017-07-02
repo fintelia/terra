@@ -14,26 +14,9 @@ use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
 
 use std::fs::File;
 use std::io::BufReader;
-use std::path::Path;
 
 use terra::terrain::Terrain;
-use terra::terrain::Heightmap;
-
-fn load_heightmap<P: AsRef<Path>>(path: P) -> (u16, u16, Vec<u16>) {
-    let file = File::open(path).unwrap();
-    let reader = &mut BufReader::new(file);
-    let pic = imagefmt::png::read(reader, imagefmt::ColFmt::Y).unwrap();
-    let (w, h) = (pic.w, pic.h);
-    let mut heights = pic.buf;
-
-    let min: u16 = {
-        *heights.iter().filter(|h| **h > 0).min().unwrap()
-    };
-    for h in &mut heights {
-        *h = h.saturating_sub(min);
-    }
-    (w as u16, h as u16, heights)
-}
+use terra::terrain::dem::Dem;
 
 fn main() {
     let opengl = OpenGL::V3_2;
@@ -46,9 +29,9 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let (w, h, heights) = load_heightmap("../assets/mtsthelens_before.png");
-    let heightmap = Heightmap::new(heights, w as u16, h as u16);
-    let mut terrain = Terrain::new(heightmap,
+    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap();
+    let reader = &mut BufReader::new(file);
+    let mut terrain = Terrain::new(Dem::from_gridfloat_zip(reader),
                                    window.factory.clone(),
                                    window.output_color.clone(),
                                    window.output_stencil.clone());
@@ -59,8 +42,8 @@ fn main() {
         let draw_size = w.window.draw_size();
         CameraPerspective {
                 fov: 90.0,
-                near_clip: 0.1,
-                far_clip: 1000.0,
+                near_clip: 10.0,
+                far_clip: 100000.0,
                 aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
             }
             .projection()
@@ -68,8 +51,10 @@ fn main() {
 
     let model = vecmath::mat4_id();
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([10.0, 5.0, 10.0],
+    let mut first_person = FirstPerson::new([10000.0, 5500.0, 10000.0],
                                             FirstPersonSettings::keyboard_wasd());
+    first_person.settings.speed_vertical = 500.0;
+    first_person.settings.speed_horizontal = 5000.0;
 
     while let Some(e) = window.next() {
         first_person.event(&e);

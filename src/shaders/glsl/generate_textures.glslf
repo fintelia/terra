@@ -19,8 +19,9 @@ void main() {
   float hym = texelFetchOffset(heights, uv, 0, ivec2( 0,-1)).r * yScale;
   float hyp = texelFetchOffset(heights, uv, 0, ivec2( 0, 1)).r * yScale;
 
-  vec3 normal = vec3(hxp - hxm, 2, hyp - hym);
+  vec3 normal = vec3(hxp - hxm, 2.0, hyp - hym);
   normals = vec4(normalize(normal),1);
+  normals.xz = normals.xz * 0.5 + vec2(0.5);
 
   float slope = 0.0003;
   shadows = 0;

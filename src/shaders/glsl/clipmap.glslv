@@ -20,7 +20,7 @@ void main() {
   vec2 tPosition = textureOffset + iPosition * textureStep;
   rawTexCoord = textureOffset + iPosition * textureStep;
   texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0);
-  float y = texture(heights, texCoord).r * 10;
+  float y = texture(heights, texCoord).r;
 
   vec2 p = iPosition / vec2(resolution - 1);
   vec3 pos = vec3(p.x, y, p.y) * scale + position;

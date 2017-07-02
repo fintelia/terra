@@ -1,4 +1,3 @@
-
 use gfx;
 use gfx_core;
 use gfx::traits::*;
@@ -7,7 +6,8 @@ use vecmath::*;
 
 use std::mem;
 
-use terrain::heightmap::{self, Heightmap};
+use terrain::dem;
+use terrain::heightmap;
 use terrain::vertex_buffer;
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
@@ -130,7 +130,7 @@ impl<R> Clipmap<R>
                         heights: pipeline_data.heights.clone(),
                         normals: normals.2.clone(),
                         shadows: shadows.2.clone(),
-                        y_scale: 320.0,
+                        y_scale: 1.0 / 30.0,
                     };
 
                     let pso = factory
@@ -240,13 +240,13 @@ impl<R, F> Terrain<R, F>
     where R: gfx::Resources,
           F: gfx::Factory<R>
 {
-    pub fn new(heightmap: Heightmap<u16>,
+    pub fn new(heightmap: dem::Dem,
                mut factory: F,
                out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
                -> Self {
-        let block_step: i64 = 64;
-        let mesh_resolution: i8 = 63;
+        let block_step: i64 = 1;
+        let mesh_resolution: i8 = 31;
 
         let ring_vertices = vertex_buffer::generate(mesh_resolution, false);
         let center_vertices = vertex_buffer::generate(mesh_resolution, true);
@@ -255,11 +255,16 @@ impl<R, F> Terrain<R, F>
         let (center_vertex_buffer, center_slice) =
             factory.create_vertex_buffer_with_slice(&center_vertices, ());
 
-        let w = heightmap.width;
-        let h = heightmap.height;
-        let (_, texture_view) = factory.create_texture_immutable::<(R16, Unorm)>(
+        let w = heightmap.width as u16;
+        let h = heightmap.height as u16;
+        let heights: Vec<u32> = heightmap
+            .elevations
+            .into_iter()
+            .map(|h| unsafe { mem::transmute::<f32, u32>(h) })
+            .collect();
+        let (_, texture_view) = factory.create_texture_immutable::<(R32, Float)>(
             gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
-            &[&heightmap.heights[..]]).unwrap();
+            &[&heights[..]]).unwrap();
 
         let sinfo = gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Bilinear,
                                                    gfx::texture::WrapMode::Clamp);
@@ -318,9 +323,9 @@ impl<R, F> Terrain<R, F>
                                    pipe::new())
             .unwrap();
 
-        let num_layers = 3;
+        let num_layers = 8;
         let mut clipmap = Clipmap {
-            size: 20.0,
+            size: 30.0 * (1 << num_layers) as f32 * mesh_resolution as f32,
             side_length: block_step * (mesh_resolution as i64 - 1) << (num_layers - 1),
             resolution: block_step * (mesh_resolution as i64 - 1),
             block_step,
@@ -352,7 +357,7 @@ impl<R, F> Terrain<R, F>
                               resolution: mesh_resolution as i32,
                               position: [0.0, 0.0, 0.0],
                               scale: [clipmap.size / (1 << layer) as f32,
-                                      3.0,
+                                      1.0,
                                       clipmap.size / (1 << layer) as f32],
                               flip_axis: [0, 0],
                               texture_step: 1 << (num_layers - layer - 1),
