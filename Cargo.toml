@@ -1,30 +1,38 @@
 [package]
 name = "terra"
 version = "0.1.0"
-authors = ["jonathan"]
+authors = ["Jonathan Behrens <fintelia@gmail.com>"]
+license = "Apache-2.0"
+description = "A rendering library for large scale terrains"
+repository = "https://github.com/fintelia/terra"
+categories = ["game-engine", "rendering"]
+readme = "README.md"
+include = ["src", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "preview"
 path = "src/preview.rs"
+required-features = ["preview"]
 
 [dependencies]
-piston_window = "0.67"
-find_folder = "0.3.0"
-image = "0.14"
-piston2d-drag_controller = "0.19"
 gfx = "0.16"
 gfx_core = "0.7"
-gfx_device_gl = "0.14"
-vecmath = "0.3.0"
-camera_controllers = "0.21"
-pistoncore-sdl2_window = "0.43"
 rand = "0.3"
-shader_version = "0.2.1"
-imagefmt = "4.0.0"
-zip = "0.2"
 safe-transmute = "0.3"
+shader_version = "0.2.1"
+vecmath = "0.3.0"
+zip = "0.2"
+
+# For preview
+camera_controllers = {version = "0.21", optional = true}
+gfx_device_gl = {version = "0.14", optional = true}
+piston_window = {version = "0.67", optional = true}
+pistoncore-sdl2_window = {version = "0.43", optional = true}
+
+# For download
 curl = {version = "0.4", optional = true}
 
 [features]
 default = ["download"]
+preview = ["piston_window", "camera_controllers", "pistoncore-sdl2_window", "gfx_device_gl"]
 download = ["curl"]

@@ -1,11 +1,9 @@
-
 extern crate camera_controllers;
 extern crate gfx;
-extern crate terra;
 extern crate piston_window;
 extern crate sdl2_window;
+extern crate terra;
 extern crate vecmath;
-extern crate imagefmt;
 
 use piston_window::*;
 use sdl2_window::Sdl2Window;
