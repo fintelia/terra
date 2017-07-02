@@ -1,7 +1,14 @@
 
 use terrain::clipmap::*;
 
-pub fn generate(resolution: i8, include_center: bool) -> Vec<Vertex> {
+#[derive(PartialEq)]
+pub enum ClipmapLayerKind {
+    Ring1,
+    Ring2,
+    Center,
+}
+
+pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
     let mut vertices = Vec::new();
 
     let cstart = (resolution + 1) / 4;
@@ -12,7 +19,8 @@ pub fn generate(resolution: i8, include_center: bool) -> Vec<Vertex> {
 
     for x in 0..(resolution - 1) {
         for y in 0..(resolution - 1) {
-            if !include_center && x >= cstart && x <= cend && y >= cstart && y <= cend {
+            if kind != ClipmapLayerKind::Center && x >= cstart && x <= cend && y >= cstart &&
+               y <= cend {
                 continue;
             }
 
@@ -81,13 +89,27 @@ pub fn generate(resolution: i8, include_center: bool) -> Vec<Vertex> {
             }
 
             if x != 0 && y != 0 && x != edge && y != edge {
-                vertices.push(Vertex { pos: [x, y] });
-                vertices.push(Vertex { pos: [x, y + 1] });
-                vertices.push(Vertex { pos: [x + 1, y] });
+                match kind {
+                    ClipmapLayerKind::Center |
+                    ClipmapLayerKind::Ring1 => {
+                        vertices.push(Vertex { pos: [x, y] });
+                        vertices.push(Vertex { pos: [x, y + 1] });
+                        vertices.push(Vertex { pos: [x + 1, y] });
 
-                vertices.push(Vertex { pos: [x + 1, y] });
-                vertices.push(Vertex { pos: [x, y + 1] });
-                vertices.push(Vertex { pos: [x + 1, y + 1] });
+                        vertices.push(Vertex { pos: [x + 1, y] });
+                        vertices.push(Vertex { pos: [x, y + 1] });
+                        vertices.push(Vertex { pos: [x + 1, y + 1] });
+                    }
+                    ClipmapLayerKind::Ring2 => {
+                        vertices.push(Vertex { pos: [x, y] });
+                        vertices.push(Vertex { pos: [x, y + 1] });
+                        vertices.push(Vertex { pos: [x + 1, y + 1] });
+
+                        vertices.push(Vertex { pos: [x, y] });
+                        vertices.push(Vertex { pos: [x + 1, y + 1] });
+                        vertices.push(Vertex { pos: [x + 1, y] });
+                    }
+                }
             }
         }
     }

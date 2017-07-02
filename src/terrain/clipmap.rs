@@ -8,7 +8,7 @@ use std::mem;
 
 use terrain::dem;
 use terrain::heightmap;
-use terrain::vertex_buffer;
+use terrain::vertex_buffer::{self, ClipmapLayerKind};
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
@@ -67,7 +67,8 @@ struct Clipmap<R>
     block_step: i64,
 
     pso: gfx::PipelineState<R, pipe::Meta>,
-    ring_slice: gfx::Slice<R>,
+    ring1_slice: gfx::Slice<R>,
+    ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
     layers: Vec<ClipmapLayer<R>>,
@@ -207,20 +208,19 @@ impl<R> Clipmap<R>
         where C: gfx_core::command::Buffer<R>
     {
         for (i, layer) in self.layers.iter().enumerate() {
-            let ref slice = if i == self.layers.len() - 1 {
-                &self.center_slice
-            } else {
-                &self.ring_slice
-            };
+            match *layer {
+                ClipmapLayer::Precomputed { ref pipeline_data, .. } |
+                ClipmapLayer::Static { ref pipeline_data, .. } |
+                ClipmapLayer::Generated { ref pipeline_data, .. } => {
+                    let ref slice = if i == self.layers.len() - 1 {
+                        &self.center_slice
+                    } else if pipeline_data.flip_axis[0] ==
+                              pipeline_data.flip_axis[1] {
+                        &self.ring1_slice
+                    } else {
+                        &self.ring2_slice
+                    };
 
-            match layer {
-                &ClipmapLayer::Precomputed { ref pipeline_data, .. } => {
-                    encoder.draw(slice, &self.pso, pipeline_data)
-                }
-                &ClipmapLayer::Static { ref pipeline_data, .. } => {
-                    encoder.draw(slice, &self.pso, pipeline_data)
-                }
-                &ClipmapLayer::Generated { ref pipeline_data, .. } => {
                     encoder.draw(slice, &self.pso, pipeline_data)
                 }
             }
@@ -248,12 +248,38 @@ impl<R, F> Terrain<R, F>
         let block_step: i64 = 1;
         let mesh_resolution: i8 = 31;
 
-        let ring_vertices = vertex_buffer::generate(mesh_resolution, false);
-        let center_vertices = vertex_buffer::generate(mesh_resolution, true);
-        let (ring_vertex_buffer, ring_slice) =
-            factory.create_vertex_buffer_with_slice(&ring_vertices, ());
-        let (center_vertex_buffer, center_slice) =
-            factory.create_vertex_buffer_with_slice(&center_vertices, ());
+        let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
+        let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
+        let center_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Center);
+
+        let ring1_slice = gfx::Slice {
+            start: 0,
+            end: ring1_vertices.len() as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        let ring2_slice = gfx::Slice {
+            start: ring1_vertices.len() as u32,
+            end: (ring1_vertices.len() + ring2_vertices.len()) as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        let center_slice = gfx::Slice {
+            start: (ring1_vertices.len() + ring2_vertices.len()) as u32,
+            end: (ring1_vertices.len() + ring2_vertices.len() + center_vertices.len()) as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+
+        let combined_vertices: Vec<_> = ring1_vertices
+            .into_iter()
+            .chain(ring2_vertices.into_iter())
+            .chain(center_vertices.into_iter())
+            .collect();
+        let vertex_buffer = factory.create_vertex_buffer(&combined_vertices);
 
         let w = heightmap.width as u16;
         let h = heightmap.height as u16;
@@ -330,7 +356,8 @@ impl<R, F> Terrain<R, F>
             resolution: block_step * (mesh_resolution as i64 - 1),
             block_step,
             pso,
-            ring_slice,
+            ring1_slice,
+            ring2_slice,
             center_slice,
             layers: Vec::new(),
         };
@@ -347,12 +374,7 @@ impl<R, F> Terrain<R, F>
                           x: clipmap.side_length / 2 - side_length / 2,
                           y: clipmap.side_length / 2 - side_length / 2,
                           pipeline_data: pipe::Data {
-                              vertex: if layer == num_layers - 1 {
-                                  // Clone is sad, but this is only a handle
-                                  center_vertex_buffer.clone()
-                              } else {
-                                  ring_vertex_buffer.clone()
-                              },
+                              vertex: vertex_buffer.clone(),
                               model_view_projection: [[0.0; 4]; 4],
                               resolution: mesh_resolution as i32,
                               position: [0.0, 0.0, 0.0],
