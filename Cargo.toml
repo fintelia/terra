@@ -5,7 +5,9 @@ authors = ["Jonathan Behrens <fintelia@gmail.com>"]
 license = "Apache-2.0"
 description = "A rendering library for large scale terrains"
 repository = "https://github.com/fintelia/terra"
-categories = ["game-engine", "rendering"]
+homepage = "https://github.com/fintelia/terra"
+documentation = "https://docs.rs/terra/0.1.0/terra"
+categories = ["game-engines", "rendering"]
 readme = "README.md"
 include = ["src/*", "Cargo.toml", "README.md", "LICENSE"]
 
