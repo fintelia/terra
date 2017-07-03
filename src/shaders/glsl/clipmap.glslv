@@ -10,7 +10,7 @@ uniform sampler2D heights;
 uniform ivec2 textureOffset;
 uniform int textureStep;
 
-in ivec2 vPosition;
+in uvec2 vPosition;
 out vec2 rawTexCoord;
 out vec2 texCoord;
 

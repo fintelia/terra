@@ -8,11 +8,11 @@ pub enum ClipmapLayerKind {
     Center,
 }
 
-pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
+pub fn generate(resolution: u8, kind: ClipmapLayerKind) -> Vec<Vertex> {
     let mut vertices = Vec::new();
 
-    let cstart = (resolution + 1) / 4;
-    let cend = cstart + (resolution + 1) / 2 - 2;
+    let cstart = (resolution - 3) / 4 + 1;
+    let cend = cstart + (resolution - 1) / 2 - 1;
 
     let edge = resolution - 2;
     let even = |v| v % 2 == 0;
@@ -27,8 +27,8 @@ pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
             if x == 0 && even(y) {
                 if y != 0 {
                     vertices.push(Vertex { pos: [x, y] });
-                    vertices.push(Vertex { pos: [x + 1, y] });
                     vertices.push(Vertex { pos: [x + 1, y + 1] });
+                    vertices.push(Vertex { pos: [x + 1, y] });
                 }
                 if y != edge - 1 {
                     vertices.push(Vertex { pos: [x, y + 2] });
@@ -36,8 +36,8 @@ pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
                     vertices.push(Vertex { pos: [x + 1, y + 1] });
                 }
                 vertices.push(Vertex { pos: [x, y] });
-                vertices.push(Vertex { pos: [x + 1, y + 1] });
                 vertices.push(Vertex { pos: [x, y + 2] });
+                vertices.push(Vertex { pos: [x + 1, y + 1] });
             }
 
             if y == 0 && even(x) {
@@ -48,8 +48,8 @@ pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
                 }
                 if x != edge - 1 {
                     vertices.push(Vertex { pos: [x + 2, y] });
-                    vertices.push(Vertex { pos: [x + 2, y + 1] });
                     vertices.push(Vertex { pos: [x + 1, y + 1] });
+                    vertices.push(Vertex { pos: [x + 2, y + 1] });
                 }
                 vertices.push(Vertex { pos: [x, y] });
                 vertices.push(Vertex { pos: [x + 1, y + 1] });
@@ -75,16 +75,16 @@ pub fn generate(resolution: i8, kind: ClipmapLayerKind) -> Vec<Vertex> {
             if y == edge && even(x) {
                 if x != 0 {
                     vertices.push(Vertex { pos: [x, y] });
-                    vertices.push(Vertex { pos: [x + 1, y] });
                     vertices.push(Vertex { pos: [x, y + 1] });
+                    vertices.push(Vertex { pos: [x + 1, y] });
                 }
                 if x != edge - 1 {
                     vertices.push(Vertex { pos: [x + 1, y] });
-                    vertices.push(Vertex { pos: [x + 2, y] });
                     vertices.push(Vertex { pos: [x + 2, y + 1] });
+                    vertices.push(Vertex { pos: [x + 2, y] });
                 }
-                vertices.push(Vertex { pos: [x, y + 1] });
                 vertices.push(Vertex { pos: [x + 1, y] });
+                vertices.push(Vertex { pos: [x, y + 1] });
                 vertices.push(Vertex { pos: [x + 2, y + 1] });
             }
 

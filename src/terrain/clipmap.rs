@@ -15,7 +15,7 @@ type DepthTarget = gfx::DepthTarget<DepthStencil>;
 
 gfx_defines!{
     vertex Vertex {
-        pos: [i8; 2] = "vPosition",
+        pos: [u8; 2] = "vPosition",
     }
 }
 gfx_pipeline!( pipe {
@@ -209,7 +209,7 @@ impl<R> Clipmap<R>
     pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)
         where C: gfx_core::command::Buffer<R>
     {
-        for (i, layer) in self.layers.iter().enumerate() {
+        for (i, layer) in self.layers.iter().enumerate().rev() {
             match *layer {
                 ClipmapLayer::Precomputed { ref pipeline_data, .. } |
                 ClipmapLayer::Static { ref pipeline_data, .. } |
@@ -248,7 +248,7 @@ impl<R, F> Terrain<R, F>
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
                -> Self {
         let block_step: i64 = 1;
-        let mesh_resolution: i8 = 31;
+        let mesh_resolution: u8 = 15;
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -275,6 +275,7 @@ impl<R, F> Terrain<R, F>
             instances: None,
             buffer: gfx::IndexBuffer::Auto,
         };
+        println!("{}", (ring1_vertices.len() / 3) * 7 + center_vertices.len() / 3);
 
         let combined_vertices: Vec<_> = ring1_vertices
             .into_iter()
