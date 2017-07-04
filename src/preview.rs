@@ -36,7 +36,7 @@ fn main() {
         let draw_size = w.window.draw_size();
         CameraPerspective {
                 fov: 90.0,
-                near_clip: 10.0,
+                near_clip: 0.5,
                 far_clip: 100000.0,
                 aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
             }
@@ -44,10 +44,8 @@ fn main() {
     };
 
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([10000.0, 5500.0, 10000.0],
-                                            FirstPersonSettings::keyboard_wasd());
-    first_person.settings.speed_vertical = 500.0;
-    first_person.settings.speed_horizontal = 5000.0;
+    let mut first_person = FirstPerson::new([0.0, 0.0, 0.0], FirstPersonSettings::keyboard_wasd());
+    first_person.settings.speed_horizontal = 100.0;
 
     while let Some(e) = window.next() {
         first_person.event(&e);
@@ -64,7 +62,10 @@ fn main() {
                 .clear(&window.output_color, [0.3, 0.3, 0.3, 1.0]);
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
-            let camera = first_person.camera(args.ext_dt);
+            let mut camera = first_person.camera(args.ext_dt);
+            if let Some(h) = terrain.get_height([camera.position[0], camera.position[2]]) {
+                camera.position[1] = h + 2.0;
+            }
             terrain.update(model_view_projection(vecmath::mat4_id(),
                                                  camera.orthogonal(),
                                                  projection),
