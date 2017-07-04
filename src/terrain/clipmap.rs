@@ -62,9 +62,10 @@ struct Clipmap<R>
     where R: gfx::Resources
 {
     size: f32,
-    side_length: i64,
+    spacing: f32,
+    world_width: f32,
+    world_height: f32,
     resolution: i64,
-    block_step: i64,
 
     pso: gfx::PipelineState<R, pipe::Meta>,
     ring1_slice: gfx::Slice<R>,
@@ -151,14 +152,14 @@ impl<R> Clipmap<R>
     }
 
     pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
-        let center = ((center[0] * (self.side_length as f32 / self.size)) as i64,
-                      (center[1] * (self.side_length as f32 / self.size)) as i64);
+        let center = (((center[0] + self.world_width * 0.5) / self.spacing) as i64,
+                      ((center[1] + self.world_height * 0.5) / self.spacing) as i64);
         // TODO: clamp center to bound
 
         let num_layers = self.layers.len();
         for (i, layer) in self.layers.iter_mut().enumerate() {
             let layer_scale = 1 << (num_layers - i - 1);
-            let step = self.block_step * layer_scale * 2;
+            let step = layer_scale * 2;
             let half_step = step / 2;
 
             let target_center = ((center.0 / step) * step + half_step,
@@ -193,9 +194,9 @@ impl<R> Clipmap<R>
                     *x = target_center.0 - self.resolution / 2 * layer_scale;
                     *y = target_center.1 - self.resolution / 2 * layer_scale;
 
-                    pipeline_data.position = [self.size * (*x as f32 / self.side_length as f32),
+                    pipeline_data.position = [*x as f32 * self.spacing - 0.5 * self.world_width,
                                               0.0,
-                                              self.size * (*y as f32 / self.side_length as f32)];
+                                              *y as f32 * self.spacing - 0.5 * self.world_width];
                     pipeline_data.model_view_projection = mvp_mat;
                     pipeline_data.flip_axis = flip_axis;
                     pipeline_data.texture_offset =
@@ -247,8 +248,9 @@ impl<R, F> Terrain<R, F>
                out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
                out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
                -> Self {
-        let block_step: i64 = 1;
-        let mesh_resolution: u8 = 15;
+        let mesh_resolution: u8 = 63;
+        let num_layers = 6;
+        let spacing = 30.0;
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -352,12 +354,12 @@ impl<R, F> Terrain<R, F>
                                    pipe::new())
             .unwrap();
 
-        let num_layers = 8;
         let mut clipmap = Clipmap {
-            size: 30.0 * (1 << num_layers) as f32 * mesh_resolution as f32,
-            side_length: block_step * (mesh_resolution as i64 - 1) << (num_layers - 1),
-            resolution: block_step * (mesh_resolution as i64 - 1),
-            block_step,
+            spacing,
+            world_width: spacing * heightmap.width as f32,
+            world_height: spacing * heightmap.height as f32,
+            size: spacing * ((mesh_resolution as i64 - 1) << (num_layers - 1)) as f32,
+            resolution: mesh_resolution as i64 - 1,
             pso,
             ring1_slice,
             ring2_slice,
@@ -366,7 +368,6 @@ impl<R, F> Terrain<R, F>
         };
 
         for layer in 0..num_layers {
-            let side_length = clipmap.side_length >> layer;
             let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
             let shadows = factory
                 .create_render_target::<(R16, Unorm)>(w, h)
@@ -374,8 +375,8 @@ impl<R, F> Terrain<R, F>
             clipmap
                 .layers
                 .push(ClipmapLayer::Static {
-                          x: clipmap.side_length / 2 - side_length / 2,
-                          y: clipmap.side_length / 2 - side_length / 2,
+                          x: 0,
+                          y: 0,
                           pipeline_data: pipe::Data {
                               vertex: vertex_buffer.clone(),
                               model_view_projection: [[0.0; 4]; 4],
@@ -400,8 +401,8 @@ impl<R, F> Terrain<R, F>
         }
 
         Terrain {
-            factory: factory,
-            clipmap: clipmap,
+            factory,
+            clipmap,
         }
     }
 
