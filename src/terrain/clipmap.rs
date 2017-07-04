@@ -236,6 +236,7 @@ pub struct Terrain<R, F>
           F: gfx::Factory<R>
 {
     factory: F,
+    dem: dem::Dem,
     clipmap: Clipmap<R>,
 }
 
@@ -290,8 +291,8 @@ impl<R, F> Terrain<R, F>
         let h = heightmap.height as u16;
         let heights: Vec<u32> = heightmap
             .elevations
-            .into_iter()
-            .map(|h| unsafe { mem::transmute::<f32, u32>(h) })
+            .iter()
+            .map(|h| unsafe { mem::transmute::<f32, u32>(*h) })
             .collect();
         let (_, texture_view) = factory.create_texture_immutable::<(R32, Float)>(
             gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
@@ -403,6 +404,7 @@ impl<R, F> Terrain<R, F>
         Terrain {
             factory,
             clipmap,
+            dem: heightmap,
         }
     }
 
@@ -421,5 +423,32 @@ impl<R, F> Terrain<R, F>
         where C: gfx_core::command::Buffer<R>
     {
         self.clipmap.render(encoder);
+    }
+
+    /// Returns the approximate height at `position`.
+    pub fn get_height(&self, position: Vector2<f32>) -> Option<f32> {
+        // TODO: determine whether these computations are completely accurate, and add bounds
+        // checking.
+        let x = position[0] / self.clipmap.spacing + 0.5 * (self.dem.width - 1) as f32;
+        let y = position[1] / self.clipmap.spacing + 0.5 * (self.dem.height - 1) as f32;
+        if x < 0.0 || y < 0.0 || x >= self.dem.width as f32 - 1.0 ||
+           y >= self.dem.height as f32 - 1.0 {
+            return None;
+        }
+
+        let ix = x.trunc() as usize;
+        let iy = y.trunc() as usize;
+        let fx = x.fract();
+        let fy = y.fract();
+
+        let h00 = self.dem.elevations[ix + iy * self.dem.width];
+        let h10 = self.dem.elevations[(ix + 1) + iy * self.dem.width];
+        let h01 = self.dem.elevations[ix + (iy + 1) * self.dem.width];
+        let h11 = self.dem.elevations[(ix + 1) + (iy + 1) * self.dem.width];
+
+        let h0 = h00 * (1.0 - fy) + h01 * fy;
+        let h1 = h10 * (1.0 - fy) + h11 * fy;
+
+        Some(h0 * (1.0 - fx) + h1 * fx)
     }
 }
