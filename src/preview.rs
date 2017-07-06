@@ -11,7 +11,7 @@ use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
 use std::fs::File;
 use std::io::BufReader;
 
-use terra::terrain::Terrain;
+use terra::terrain::Clipmap;
 use terra::terrain::dem::Dem;
 
 fn main() {
@@ -26,10 +26,10 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let mut terrain = Terrain::new(dem,
+    let mut terrain = Clipmap::new(dem,
                                    window.factory.clone(),
-                                   window.output_color.clone(),
-                                   window.output_stencil.clone());
+                                   &window.output_color,
+                                   &window.output_stencil);
     terrain.generate_textures(&mut window.encoder);
 
     let get_projection = |w: &PistonWindow| {
@@ -63,7 +63,8 @@ fn main() {
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
             let mut camera = first_person.camera(args.ext_dt);
-            if let Some(h) = terrain.get_height([camera.position[0], camera.position[2]]) {
+            if let Some(h) = terrain.get_approximate_height([camera.position[0],
+                                                             camera.position[2]]) {
                 camera.position[1] = h + 2.0;
             }
             terrain.update(model_view_projection(vecmath::mat4_id(),

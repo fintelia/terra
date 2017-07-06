@@ -58,20 +58,22 @@ type ShadowMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R16>,
                      gfx_core::handle::ShaderResourceView<R, f32>,
                      gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
 
-struct Clipmap<R>
-    where R: gfx::Resources
+pub struct Clipmap<R, F>
+    where R: gfx::Resources,
+          F: gfx::Factory<R>
 {
-    size: f32,
     spacing: f32,
     world_width: f32,
     world_height: f32,
-    resolution: i64,
+    mesh_resolution: i64,
 
+    factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
     ring1_slice: gfx::Slice<R>,
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
+    dem: dem::Dem,
     layers: Vec<ClipmapLayer<R>>,
 }
 
@@ -105,12 +107,176 @@ enum ClipmapLayer<R>
     },
 }
 
-impl<R> Clipmap<R>
-    where R: gfx::Resources
+impl<R, F> Clipmap<R, F>
+    where R: gfx::Resources,
+          F: gfx::Factory<R>
 {
-    pub fn generate_textures<F, C>(&mut self, factory: &mut F, encoder: &mut gfx::Encoder<R, C>)
-        where C: gfx_core::command::Buffer<R>,
-              F: gfx::Factory<R>
+    pub fn new(dem: dem::Dem,
+               mut factory: F,
+               out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
+               out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
+               -> Self {
+
+        let mesh_resolution: u8 = 63;
+        let num_layers = 6;
+        let spacing = 30.0;
+
+        let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
+        let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
+        let center_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Center);
+
+        let ring1_slice = gfx::Slice {
+            start: 0,
+            end: ring1_vertices.len() as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        let ring2_slice = gfx::Slice {
+            start: ring1_vertices.len() as u32,
+            end: (ring1_vertices.len() + ring2_vertices.len()) as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        let center_slice = gfx::Slice {
+            start: (ring1_vertices.len() + ring2_vertices.len()) as u32,
+            end: (ring1_vertices.len() + ring2_vertices.len() + center_vertices.len()) as u32,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        println!("{}",
+                 (ring1_vertices.len() / 3) * 7 + center_vertices.len() / 3);
+
+        let combined_vertices: Vec<_> = ring1_vertices
+            .into_iter()
+            .chain(ring2_vertices.into_iter())
+            .chain(center_vertices.into_iter())
+            .collect();
+        let vertex_buffer = factory.create_vertex_buffer(&combined_vertices);
+
+        let w = dem.width as u16;
+        let h = dem.height as u16;
+        let heights: Vec<u32> = dem.elevations
+            .iter()
+            .map(|h| unsafe { mem::transmute::<f32, u32>(*h) })
+            .collect();
+        let (_, texture_view) = factory.create_texture_immutable::<(R32, Float)>(
+            gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
+            &[&heights[..]]).unwrap();
+
+        let sinfo = gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Bilinear,
+                                                   gfx::texture::WrapMode::Clamp);
+        let sampler = factory.create_sampler(sinfo);
+
+        let v = match factory.create_shader_vertex(include_str!("../shaders/glsl/clipmap.glslv")
+                                                       .as_bytes()) {
+            Ok(s) => s,
+            Err(msg) => {
+                println!("{}", msg);
+                panic!("Failed to compile clipmap.glslv");
+            }
+        };
+
+        let f = match factory.create_shader_pixel(include_str!("../shaders/glsl/clipmap.glslf")
+                                                      .as_bytes()) {
+            Ok(s) => s,
+            Err(msg) => {
+                println!("{}", msg);
+                panic!("Failed to compile clipmap.glslf");
+            }
+        };
+
+        let detail_heightmap = heightmap::detail_heightmap(512, 512);
+        let detailmap = detail_heightmap.as_height_and_slopes(1.0);
+        let detailmap: Vec<[u32; 3]> = detailmap
+            .into_iter()
+            .map(|n| unsafe {
+                     [mem::transmute::<f32, u32>(n[0]),
+                      mem::transmute::<f32, u32>(n[1]),
+                      mem::transmute::<f32, u32>(n[2])]
+                 })
+            .collect();
+        let detail_texture = factory
+            .create_texture_immutable::<(R32_G32_B32, Float)>(gfx::texture::Kind::D2(512,
+                                                                    512,
+                                                                    gfx::texture::AaMode::Single),
+                                             &[&detailmap[..], &(vec![[0,0,0]; 65536])[..]])
+            .unwrap();
+        let sinfo_wrap =
+            gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Anisotropic(16),
+                                           gfx::texture::WrapMode::Tile);
+        let sampler_wrap = factory.create_sampler(sinfo_wrap);
+
+        let rasterizer = gfx::state::Rasterizer {
+            front_face: gfx::state::FrontFace::Clockwise,
+            cull_face: gfx::state::CullFace::Nothing,
+            method: gfx::state::RasterMethod::Fill,
+            offset: None,
+            samples: None,
+        };
+        let pso = factory
+            .create_pipeline_state(&gfx::ShaderSet::Simple(v, f),
+                                   gfx::Primitive::TriangleList,
+                                   rasterizer,
+                                   pipe::new())
+            .unwrap();
+
+        let size = spacing * ((mesh_resolution as i64 - 1) << (num_layers - 1)) as f32;
+
+        let mut layers = Vec::new();
+        for layer in 0..num_layers {
+            let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
+            let shadows = factory
+                .create_render_target::<(R16, Unorm)>(w, h)
+                .unwrap();
+
+            layers.push(ClipmapLayer::Static {
+                            x: 0,
+                            y: 0,
+                            pipeline_data: pipe::Data {
+                                vertex: vertex_buffer.clone(),
+                                model_view_projection: [[0.0; 4]; 4],
+                                resolution: mesh_resolution as i32,
+                                position: [0.0, 0.0, 0.0],
+                                scale: [size / (1u64 << layer) as f32,
+                                        1.0,
+                                        size / (1u64 << layer) as f32],
+                                flip_axis: [0, 0],
+                                texture_step: 1 << (num_layers - layer - 1),
+                                texture_offset: [0, 0],
+                                heights: (texture_view.clone(), sampler.clone()),
+                                normals: (normals.1.clone(), sampler.clone()),
+                                shadows: (shadows.1.clone(), sampler.clone()),
+                                detail: (detail_texture.1.clone(), sampler_wrap.clone()),
+                                out_color: out_color.clone(),
+                                out_depth: out_stencil.clone(),
+                            },
+                            normals: normals.clone(),
+                            shadows: shadows.clone(),
+                        });
+        }
+
+        Clipmap {
+            spacing,
+            world_width: spacing * dem.width as f32,
+            world_height: spacing * dem.height as f32,
+            mesh_resolution: mesh_resolution as i64,
+
+            factory,
+            pso,
+            ring1_slice,
+            ring2_slice,
+            center_slice,
+
+            dem,
+            layers,
+        }
+    }
+
+    pub fn generate_textures<C>(&mut self, encoder: &mut gfx::Encoder<R, C>)
+        where C: gfx_core::command::Buffer<R>
     {
         let slice = gfx::Slice {
             start: 0,
@@ -120,7 +286,7 @@ impl<R> Clipmap<R>
             buffer: gfx::IndexBuffer::Auto,
         };
 
-        let pso = factory
+        let pso = self.factory
             .create_pipeline_simple(include_str!("../shaders/glsl/generate_textures.glslv")
                                         .as_bytes(),
                                     include_str!("../shaders/glsl/generate_textures.glslf")
@@ -191,8 +357,8 @@ impl<R> Clipmap<R>
                     ref mut y,
                     ..
                 } => {
-                    *x = target_center.0 - self.resolution / 2 * layer_scale;
-                    *y = target_center.1 - self.resolution / 2 * layer_scale;
+                    *x = target_center.0 - (self.mesh_resolution - 1) / 2 * layer_scale;
+                    *y = target_center.1 - (self.mesh_resolution - 1) / 2 * layer_scale;
 
                     pipeline_data.position = [*x as f32 * self.spacing - 0.5 * self.world_width,
                                               0.0,
@@ -229,206 +395,11 @@ impl<R> Clipmap<R>
             }
         }
     }
-}
-
-pub struct Terrain<R, F>
-    where R: gfx::Resources,
-          F: gfx::Factory<R>
-{
-    factory: F,
-    dem: dem::Dem,
-    clipmap: Clipmap<R>,
-}
-
-impl<R, F> Terrain<R, F>
-    where R: gfx::Resources,
-          F: gfx::Factory<R>
-{
-    pub fn new(heightmap: dem::Dem,
-               mut factory: F,
-               out_color: <RenderTarget as gfx::pso::DataBind<R>>::Data,
-               out_stencil: <DepthTarget as gfx::pso::DataBind<R>>::Data)
-               -> Self {
-        let mesh_resolution: u8 = 63;
-        let num_layers = 6;
-        let spacing = 30.0;
-
-        let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
-        let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
-        let center_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Center);
-
-        let ring1_slice = gfx::Slice {
-            start: 0,
-            end: ring1_vertices.len() as u32,
-            base_vertex: 0,
-            instances: None,
-            buffer: gfx::IndexBuffer::Auto,
-        };
-        let ring2_slice = gfx::Slice {
-            start: ring1_vertices.len() as u32,
-            end: (ring1_vertices.len() + ring2_vertices.len()) as u32,
-            base_vertex: 0,
-            instances: None,
-            buffer: gfx::IndexBuffer::Auto,
-        };
-        let center_slice = gfx::Slice {
-            start: (ring1_vertices.len() + ring2_vertices.len()) as u32,
-            end: (ring1_vertices.len() + ring2_vertices.len() + center_vertices.len()) as u32,
-            base_vertex: 0,
-            instances: None,
-            buffer: gfx::IndexBuffer::Auto,
-        };
-        println!("{}", (ring1_vertices.len() / 3) * 7 + center_vertices.len() / 3);
-
-        let combined_vertices: Vec<_> = ring1_vertices
-            .into_iter()
-            .chain(ring2_vertices.into_iter())
-            .chain(center_vertices.into_iter())
-            .collect();
-        let vertex_buffer = factory.create_vertex_buffer(&combined_vertices);
-
-        let w = heightmap.width as u16;
-        let h = heightmap.height as u16;
-        let heights: Vec<u32> = heightmap
-            .elevations
-            .iter()
-            .map(|h| unsafe { mem::transmute::<f32, u32>(*h) })
-            .collect();
-        let (_, texture_view) = factory.create_texture_immutable::<(R32, Float)>(
-            gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
-            &[&heights[..]]).unwrap();
-
-        let sinfo = gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Bilinear,
-                                                   gfx::texture::WrapMode::Clamp);
-        let sampler = factory.create_sampler(sinfo);
-
-        let v = match factory.create_shader_vertex(include_str!("../shaders/glsl/clipmap.glslv")
-                                                       .as_bytes()) {
-            Ok(s) => s,
-            Err(msg) => {
-                println!("{}", msg);
-                panic!("Failed to compile clipmap.glslv");
-            }
-        };
-
-        let f = match factory.create_shader_pixel(include_str!("../shaders/glsl/clipmap.glslf")
-                                                      .as_bytes()) {
-            Ok(s) => s,
-            Err(msg) => {
-                println!("{}", msg);
-                panic!("Failed to compile clipmap.glslf");
-            }
-        };
-
-        let detail_heightmap = heightmap::detail_heightmap(512, 512);
-        let detailmap = detail_heightmap.as_height_and_slopes(1.0);
-        let detailmap: Vec<[u32; 3]> = detailmap
-            .into_iter()
-            .map(|n| unsafe {
-                     [mem::transmute::<f32, u32>(n[0]),
-                      mem::transmute::<f32, u32>(n[1]),
-                      mem::transmute::<f32, u32>(n[2])]
-                 })
-            .collect();
-        let detail_texture = factory
-            .create_texture_immutable::<(R32_G32_B32, Float)>(gfx::texture::Kind::D2(512,
-                                                                    512,
-                                                                    gfx::texture::AaMode::Single),
-                                             &[&detailmap[..], &(vec![[0,0,0]; 65536])[..]])
-            .unwrap();
-        let sinfo_wrap =
-            gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Anisotropic(16),
-                                           gfx::texture::WrapMode::Tile);
-        let sampler_wrap = factory.create_sampler(sinfo_wrap);
-
-        let rasterizer = gfx::state::Rasterizer {
-            front_face: gfx::state::FrontFace::Clockwise,
-            cull_face: gfx::state::CullFace::Nothing,
-            method: gfx::state::RasterMethod::Fill,
-            offset: None,
-            samples: None,
-        };
-        let pso = factory
-            .create_pipeline_state(&gfx::ShaderSet::Simple(v, f),
-                                   gfx::Primitive::TriangleList,
-                                   rasterizer,
-                                   pipe::new())
-            .unwrap();
-
-        let mut clipmap = Clipmap {
-            spacing,
-            world_width: spacing * heightmap.width as f32,
-            world_height: spacing * heightmap.height as f32,
-            size: spacing * ((mesh_resolution as i64 - 1) << (num_layers - 1)) as f32,
-            resolution: mesh_resolution as i64 - 1,
-            pso,
-            ring1_slice,
-            ring2_slice,
-            center_slice,
-            layers: Vec::new(),
-        };
-
-        for layer in 0..num_layers {
-            let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
-            let shadows = factory
-                .create_render_target::<(R16, Unorm)>(w, h)
-                .unwrap();
-            clipmap
-                .layers
-                .push(ClipmapLayer::Static {
-                          x: 0,
-                          y: 0,
-                          pipeline_data: pipe::Data {
-                              vertex: vertex_buffer.clone(),
-                              model_view_projection: [[0.0; 4]; 4],
-                              resolution: mesh_resolution as i32,
-                              position: [0.0, 0.0, 0.0],
-                              scale: [clipmap.size / (1 << layer) as f32,
-                                      1.0,
-                                      clipmap.size / (1 << layer) as f32],
-                              flip_axis: [0, 0],
-                              texture_step: 1 << (num_layers - layer - 1),
-                              texture_offset: [0, 0],
-                              heights: (texture_view.clone(), sampler.clone()),
-                              normals: (normals.1.clone(), sampler.clone()),
-                              shadows: (shadows.1.clone(), sampler.clone()),
-                              detail: (detail_texture.1.clone(), sampler_wrap.clone()),
-                              out_color: out_color.clone(),
-                              out_depth: out_stencil.clone(),
-                          },
-                          normals: normals.clone(),
-                          shadows: shadows.clone(),
-                      });
-        }
-
-        Terrain {
-            factory,
-            clipmap,
-            dem: heightmap,
-        }
-    }
-
-    pub fn generate_textures<C>(&mut self, encoder: &mut gfx::Encoder<R, C>)
-        where C: gfx_core::command::Buffer<R>
-    {
-        self.clipmap
-            .generate_textures(&mut self.factory, encoder);
-    }
-
-    pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
-        self.clipmap.update(mvp_mat, center);
-    }
-
-    pub fn render<C>(&self, encoder: &mut gfx::Encoder<R, C>)
-        where C: gfx_core::command::Buffer<R>
-    {
-        self.clipmap.render(encoder);
-    }
 
     /// Returns the approximate height at `position`.
     pub fn get_approximate_height(&self, position: Vector2<f32>) -> Option<f32> {
-        let x = position[0] / self.clipmap.spacing + 0.5 * (self.dem.width - 1) as f32;
-        let y = position[1] / self.clipmap.spacing + 0.5 * (self.dem.height - 1) as f32;
+        let x = position[0] / self.spacing + 0.5 * (self.dem.width - 1) as f32;
+        let y = position[1] / self.spacing + 0.5 * (self.dem.height - 1) as f32;
         if x < 0.0 || y < 0.0 || x >= self.dem.width as f32 - 1.0 ||
            y >= self.dem.height as f32 - 1.0 {
             return None;
