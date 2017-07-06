@@ -168,26 +168,6 @@ impl Dem {
             elevations,
         }
     }
-
-    pub fn zero(mut self) -> Self {
-        let mut max = None;
-        let mut min = None;
-        for h in self.elevations.iter().filter(|h| **h > 0.0) {
-            if min.is_none() || h < min.as_ref().unwrap() {
-                min = Some(*h);
-            }
-            if max.is_none() || h > max.as_ref().unwrap() {
-                max = Some(*h);
-            }
-        }
-        let min = min.unwrap();
-        println!("min = {}, max = {}", min, max.unwrap());
-
-        for h in &mut self.elevations {
-            *h = (*h - min) * 0.1;
-        }
-        self
-    }
 }
 
 #[cfg(test)]
