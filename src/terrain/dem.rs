@@ -11,7 +11,7 @@ pub enum DemSource {
     Usgs10m,
 }
 
-pub struct Dem {
+pub struct DigitalElevationModel {
     pub width: usize,
     pub height: usize,
     pub cell_size: f64,
@@ -22,14 +22,14 @@ pub struct Dem {
     pub elevations: Vec<f32>,
 }
 
-impl Dem {
+impl DigitalElevationModel {
     /// Create a Dem from a reader over the contents of a USGS GridFloat zip file.
     ///
     /// Such files can be found at:
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/2/GridFloat
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/GridFloat
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/GridFloat
-    pub fn from_gridfloat_zip<R: Read + Seek>(zip_file: R) -> Dem {
+    pub fn from_gridfloat_zip<R: Read + Seek>(zip_file: R) -> Self {
         let mut hdr = String::new();
         let mut flt = Vec::new();
 
@@ -94,7 +94,7 @@ impl Dem {
             elevations.push(unsafe { mem::transmute::<u32, f32>(e) });
         }
 
-        Dem {
+        Self {
             width: width.unwrap(),
             height: height.unwrap(),
             xllcorner: xllcorner.unwrap(),

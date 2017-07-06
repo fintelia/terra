@@ -73,7 +73,7 @@ pub struct Clipmap<R, F>
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
-    dem: dem::Dem,
+    dem: dem::DigitalElevationModel,
     layers: Vec<ClipmapLayer<R>>,
 }
 
@@ -111,7 +111,7 @@ impl<R, F> Clipmap<R, F>
     where R: gfx::Resources,
           F: gfx::Factory<R>
 {
-    pub fn new(dem: dem::Dem,
+    pub fn new(dem: dem::DigitalElevationModel,
                mut factory: F,
                out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
                out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
@@ -146,8 +146,6 @@ impl<R, F> Clipmap<R, F>
             instances: None,
             buffer: gfx::IndexBuffer::Auto,
         };
-        println!("{}",
-                 (ring1_vertices.len() / 3) * 7 + center_vertices.len() / 3);
 
         let combined_vertices: Vec<_> = ring1_vertices
             .into_iter()

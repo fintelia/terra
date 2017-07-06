@@ -3,5 +3,3 @@ pub mod dem;
 
 mod vertex_buffer;
 mod heightmap;
-
-pub use terrain::clipmap::Clipmap;
