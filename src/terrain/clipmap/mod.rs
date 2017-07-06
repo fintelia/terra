@@ -42,14 +42,6 @@ gfx_pipeline!( generate_textures {
     shadows: gfx::RenderTarget<(R16, Unorm)> = "shadows",
 });
 
-type HeightMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R16>,
-                     gfx_core::handle::ShaderResourceView<R, f32>,
-                     gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
-
-type ColorMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
-                    gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
-                    gfx_core::handle::RenderTargetView<R, Rgba8>);
-
 type NormalMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
                      gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
                      gfx_core::handle::RenderTargetView<R, Rgba8>);
@@ -77,34 +69,14 @@ pub struct Clipmap<R, F>
     layers: Vec<ClipmapLayer<R>>,
 }
 
-enum ClipmapLayer<R>
+struct ClipmapLayer<R>
     where R: gfx::Resources
 {
-    #[allow(unused)]
-    Precomputed {
-        x: i64,
-        y: i64,
-        pipeline_data: pipe::Data<R>,
-        colors: ColorMap<R>,
-        heights: HeightMap<R>,
-    },
-    Static {
-        x: i64,
-        y: i64,
-        pipeline_data: pipe::Data<R>,
-        // heights: HeightMap<R>,
-        normals: NormalMap<R>,
-        shadows: ShadowMap<R>,
-    },
-    #[allow(unused)]
-    Generated {
-        x: i64,
-        y: i64,
-        pipeline_data: pipe::Data<R>,
-        heights: HeightMap<R>,
-        normals: NormalMap<R>,
-        shadows: ShadowMap<R>,
-    },
+    x: i64,
+    y: i64,
+    pipeline_data: pipe::Data<R>,
+    normals: NormalMap<R>,
+    shadows: ShadowMap<R>,
 }
 
 impl<R, F> Clipmap<R, F>
@@ -232,7 +204,7 @@ impl<R, F> Clipmap<R, F>
                 .create_render_target::<(R16, Unorm)>(w, h)
                 .unwrap();
 
-            layers.push(ClipmapLayer::Static {
+            layers.push(ClipmapLayer {
                             x: 0,
                             y: 0,
                             pipeline_data: pipe::Data {
@@ -295,25 +267,14 @@ impl<R, F> Clipmap<R, F>
             .unwrap();
 
         for layer in self.layers.iter_mut() {
-            match layer {
-                &mut ClipmapLayer::Static {
-                         ref mut pipeline_data,
-                         ref mut normals,
-                         ref mut shadows,
-                         ..
-                     } => {
-                    let data = generate_textures::Data {
-                        heights: pipeline_data.heights.clone(),
-                        normals: normals.2.clone(),
-                        shadows: shadows.2.clone(),
-                        y_scale: 1.0 / self.spacing,
-                    };
+            let data = generate_textures::Data {
+                heights: layer.pipeline_data.heights.clone(),
+                normals: layer.normals.2.clone(),
+                shadows: layer.shadows.2.clone(),
+                y_scale: 1.0 / self.spacing,
+            };
 
-
-                    encoder.draw(&slice, &pso, &data);
-                }
-                _ => unimplemented!(),
-            }
+            encoder.draw(&slice, &pso, &data);
         }
     }
 
@@ -338,38 +299,17 @@ impl<R, F> Clipmap<R, F>
                 [0, 0]
             };
 
-            match *layer {
-                ClipmapLayer::Precomputed {
-                    ref mut pipeline_data,
-                    ref mut x,
-                    ref mut y,
-                    ..
-                } |
-                ClipmapLayer::Static {
-                    ref mut pipeline_data,
-                    ref mut x,
-                    ref mut y,
-                    ..
-                } |
-                ClipmapLayer::Generated {
-                    ref mut pipeline_data,
-                    ref mut x,
-                    ref mut y,
-                    ..
-                } => {
-                    *x = target_center.0 - (self.mesh_resolution - 1) / 2 * layer_scale;
-                    *y = target_center.1 - (self.mesh_resolution - 1) / 2 * layer_scale;
+            layer.x = target_center.0 - (self.mesh_resolution - 1) / 2 * layer_scale;
+            layer.y = target_center.1 - (self.mesh_resolution - 1) / 2 * layer_scale;
 
-                    pipeline_data.position = [*x as f32 * self.spacing - 0.5 * self.world_width,
-                                              0.0,
-                                              *y as f32 * self.spacing - 0.5 * self.world_width];
-                    pipeline_data.model_view_projection = mvp_mat;
-                    pipeline_data.flip_axis = flip_axis;
-                    pipeline_data.texture_offset =
-                        [((*x as i32) * pipeline_data.texture_step / half_step as i32),
-                         ((*y as i32) * pipeline_data.texture_step / half_step as i32)];
-                }
-            }
+            layer.pipeline_data.position = [layer.x as f32 * self.spacing - 0.5 * self.world_width,
+                                            0.0,
+                                            layer.y as f32 * self.spacing - 0.5 * self.world_width];
+            layer.pipeline_data.model_view_projection = mvp_mat;
+            layer.pipeline_data.flip_axis = flip_axis;
+            layer.pipeline_data.texture_offset =
+                [((layer.x as i32) * layer.pipeline_data.texture_step / half_step as i32),
+                 ((layer.y as i32) * layer.pipeline_data.texture_step / half_step as i32)];
         }
     }
 
@@ -377,22 +317,16 @@ impl<R, F> Clipmap<R, F>
         where C: gfx_core::command::Buffer<R>
     {
         for (i, layer) in self.layers.iter().enumerate().rev() {
-            match *layer {
-                ClipmapLayer::Precomputed { ref pipeline_data, .. } |
-                ClipmapLayer::Static { ref pipeline_data, .. } |
-                ClipmapLayer::Generated { ref pipeline_data, .. } => {
-                    let ref slice = if i == self.layers.len() - 1 {
-                        &self.center_slice
-                    } else if pipeline_data.flip_axis[0] ==
-                              pipeline_data.flip_axis[1] {
-                        &self.ring1_slice
-                    } else {
-                        &self.ring2_slice
-                    };
+            let ref slice = if i == self.layers.len() - 1 {
+                &self.center_slice
+            } else if layer.pipeline_data.flip_axis[0] ==
+                      layer.pipeline_data.flip_axis[1] {
+                &self.ring1_slice
+            } else {
+                &self.ring2_slice
+            };
 
-                    encoder.draw(slice, &self.pso, pipeline_data)
-                }
-            }
+            encoder.draw(slice, &self.pso, &layer.pipeline_data)
         }
     }
 
