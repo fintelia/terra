@@ -5,6 +5,7 @@ use gfx::format::*;
 use vecmath::*;
 
 use std::mem;
+use std::cmp;
 
 use terrain::dem;
 use terrain::heightmap;
@@ -25,8 +26,9 @@ gfx_pipeline!( pipe {
     position: gfx::Global<[f32; 3]> = "position",
     scale: gfx::Global<[f32; 3]> = "scale",
     flip_axis: gfx::Global<[i32; 2]> = "flipAxis",
-    texture_step: gfx::Global<i32> = "textureStep",
-    texture_offset: gfx::Global<[i32; 2]> = "textureOffset",
+    texture_step: gfx::Global<f32> = "textureStep",
+    texture_offset: gfx::Global<[f32; 2]> = "textureOffset",
+    vertex_fractal_octaves: gfx::Global<i32> = "vertexFractalOctaves",
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     detail: gfx::TextureSampler<[f32; 3]> = "detail",
@@ -65,6 +67,7 @@ pub struct Clipmap<R, F>
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
+    num_fractal_layers: i32,
     dem: dem::DigitalElevationModel,
     layers: Vec<ClipmapLayer<R>>,
 }
@@ -90,8 +93,10 @@ impl<R, F> Clipmap<R, F>
                -> Self {
 
         let mesh_resolution: u8 = 63;
-        let num_layers = 6;
+        let num_layers = 10;
         let spacing = 30.0;
+        let num_fractal_layers = 4;
+        let num_static_layers = num_layers - num_fractal_layers;
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -161,7 +166,7 @@ impl<R, F> Clipmap<R, F>
         };
 
         let detail_heightmap = heightmap::detail_heightmap(512, 512);
-        let detailmap = detail_heightmap.as_height_and_slopes(1.0);
+        let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
         let detailmap: Vec<[u32; 3]> = detailmap
             .into_iter()
             .map(|n| unsafe {
@@ -195,7 +200,7 @@ impl<R, F> Clipmap<R, F>
                                    pipe::new())
             .unwrap();
 
-        let size = spacing * ((mesh_resolution as i64 - 1) << (num_layers - 1)) as f32;
+        let size = spacing * ((mesh_resolution as i64 - 1) << (num_static_layers - 1)) as f32;
 
         let mut layers = Vec::new();
         for layer in 0..num_layers {
@@ -203,7 +208,7 @@ impl<R, F> Clipmap<R, F>
             let shadows = factory
                 .create_render_target::<(R16, Unorm)>(w, h)
                 .unwrap();
-
+            let vertex_fractal_octaves = cmp::max(0, 1 + layer as i32 - num_static_layers as i32);
             layers.push(ClipmapLayer {
                             x: 0,
                             y: 0,
@@ -216,8 +221,9 @@ impl<R, F> Clipmap<R, F>
                                         1.0,
                                         size / (1u64 << layer) as f32],
                                 flip_axis: [0, 0],
-                                texture_step: 1 << (num_layers - layer - 1),
-                                texture_offset: [0, 0],
+                                texture_step: (2.0f32).powi(num_static_layers - layer - 1),
+                                texture_offset: [0.0, 0.0],
+                                vertex_fractal_octaves,
                                 heights: (texture_view.clone(), sampler.clone()),
                                 normals: (normals.1.clone(), sampler.clone()),
                                 shadows: (shadows.1.clone(), sampler.clone()),
@@ -244,6 +250,7 @@ impl<R, F> Clipmap<R, F>
 
             dem,
             layers,
+            num_fractal_layers,
         }
     }
 
@@ -279,8 +286,9 @@ impl<R, F> Clipmap<R, F>
     }
 
     pub fn update(&mut self, mvp_mat: Matrix4<f32>, center: Vector2<f32>) {
-        let center = (((center[0] + self.world_width * 0.5) / self.spacing) as i64,
-                      ((center[1] + self.world_height * 0.5) / self.spacing) as i64);
+        let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
+        let center = (((center[0] + self.world_width * 0.5) / spacing).round() as i64,
+                      ((center[1] + self.world_height * 0.5) / spacing).round() as i64);
         // TODO: clamp center to bound
 
         let num_layers = self.layers.len();
@@ -292,24 +300,23 @@ impl<R, F> Clipmap<R, F>
             let target_center = ((center.0 / step) * step + half_step,
                                  (center.1 / step) * step + half_step);
 
-            let flip_axis = if i < num_layers - 1 {
+            layer.x = target_center.0 - (self.mesh_resolution - 1) / 2 * layer_scale;
+            layer.y = target_center.1 - (self.mesh_resolution - 1) / 2 * layer_scale;
+
+            layer.pipeline_data.position = [layer.x as f32 * spacing - 0.5 * self.world_width,
+                                            0.0,
+                                            layer.y as f32 * spacing - 0.5 * self.world_height];
+            layer.pipeline_data.texture_offset =
+                [((layer.x as f32) * layer.pipeline_data.texture_step / half_step as f32),
+                 ((layer.y as f32) * layer.pipeline_data.texture_step / half_step as f32)];
+
+            layer.pipeline_data.model_view_projection = mvp_mat;
+            layer.pipeline_data.flip_axis = if i < num_layers - 1 {
                 [((((center.0 / half_step + 1) % 2) + 2) % 2) as i32,
                  ((((center.1 / half_step + 1) % 2) + 2) % 2) as i32]
             } else {
                 [0, 0]
             };
-
-            layer.x = target_center.0 - (self.mesh_resolution - 1) / 2 * layer_scale;
-            layer.y = target_center.1 - (self.mesh_resolution - 1) / 2 * layer_scale;
-
-            layer.pipeline_data.position = [layer.x as f32 * self.spacing - 0.5 * self.world_width,
-                                            0.0,
-                                            layer.y as f32 * self.spacing - 0.5 * self.world_width];
-            layer.pipeline_data.model_view_projection = mvp_mat;
-            layer.pipeline_data.flip_axis = flip_axis;
-            layer.pipeline_data.texture_offset =
-                [((layer.x as i32) * layer.pipeline_data.texture_step / half_step as i32),
-                 ((layer.y as i32) * layer.pipeline_data.texture_step / half_step as i32)];
         }
     }
 
