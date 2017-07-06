@@ -304,7 +304,7 @@ impl<R, F> Clipmap<R, F>
                         heights: pipeline_data.heights.clone(),
                         normals: normals.2.clone(),
                         shadows: shadows.2.clone(),
-                        y_scale: 1.0 / 30.0,
+                        y_scale: 1.0 / self.spacing,
                     };
 
 
