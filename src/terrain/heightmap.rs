@@ -1,6 +1,7 @@
 use rand;
 use rand::Rng;
 
+#[allow(unused)]
 fn modulo(a: i64, b: i64) -> usize {
     (((a % b) + b) % b) as usize
 }
@@ -12,6 +13,7 @@ pub struct Heightmap<T> {
 }
 
 impl<T> Heightmap<T> {
+    #[allow(unused)]
     pub fn new(heights: Vec<T>, width: u16, height: u16) -> Self {
         assert_eq!(heights.len(), (width as usize) * (height as usize));
         Heightmap {
@@ -33,6 +35,7 @@ impl<T> Heightmap<T> {
             .cloned()
     }
 
+    #[allow(unused)]
     pub fn get_wrapping(&self, x: i64, y: i64) -> T
         where T: Clone
     {
