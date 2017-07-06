@@ -426,9 +426,7 @@ impl<R, F> Terrain<R, F>
     }
 
     /// Returns the approximate height at `position`.
-    pub fn get_height(&self, position: Vector2<f32>) -> Option<f32> {
-        // TODO: determine whether these computations are completely accurate, and add bounds
-        // checking.
+    pub fn get_approximate_height(&self, position: Vector2<f32>) -> Option<f32> {
         let x = position[0] / self.clipmap.spacing + 0.5 * (self.dem.width - 1) as f32;
         let y = position[1] / self.clipmap.spacing + 0.5 * (self.dem.height - 1) as f32;
         if x < 0.0 || y < 0.0 || x >= self.dem.width as f32 - 1.0 ||
