@@ -168,8 +168,9 @@ impl<R, F> Clipmap<R, F>
                                                    gfx::texture::WrapMode::Clamp);
         let sampler = factory.create_sampler(sinfo);
 
-        let v = match factory.create_shader_vertex(include_str!("../shaders/glsl/clipmap.glslv")
-                                                       .as_bytes()) {
+        let v = match factory
+                  .create_shader_vertex(include_str!("../../shaders/glsl/clipmap.glslv")
+                                            .as_bytes()) {
             Ok(s) => s,
             Err(msg) => {
                 println!("{}", msg);
@@ -177,8 +178,9 @@ impl<R, F> Clipmap<R, F>
             }
         };
 
-        let f = match factory.create_shader_pixel(include_str!("../shaders/glsl/clipmap.glslf")
-                                                      .as_bytes()) {
+        let f = match factory
+                  .create_shader_pixel(include_str!("../../shaders/glsl/clipmap.glslf")
+                                           .as_bytes()) {
             Ok(s) => s,
             Err(msg) => {
                 println!("{}", msg);
@@ -285,9 +287,9 @@ impl<R, F> Clipmap<R, F>
         };
 
         let pso = self.factory
-            .create_pipeline_simple(include_str!("../shaders/glsl/generate_textures.glslv")
+            .create_pipeline_simple(include_str!("../../shaders/glsl/generate_textures.glslv")
                                         .as_bytes(),
-                                    include_str!("../shaders/glsl/generate_textures.glslf")
+                                    include_str!("../../shaders/glsl/generate_textures.glslf")
                                         .as_bytes(),
                                     generate_textures::new())
             .unwrap();
