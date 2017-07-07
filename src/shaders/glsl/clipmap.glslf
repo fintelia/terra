@@ -14,8 +14,8 @@ uniform sampler2D detail;
 void compute_height_and_slope(inout float height, inout vec2 slope) {
 	vec2 invTextureSize = 1.0  / textureSize(detail,0);
 
-	float scale = 1.0;
-	float texCoordScale = 1.0;
+	float scale = 64.0;
+	float texCoordScale = 8.0;
 	for(int i = 0; i < 6; i++) {
 		float smoothing = mix(0.1, 1.0, smoothstep(0.0, 1.0, length(slope)));
 
@@ -23,7 +23,7 @@ void compute_height_and_slope(inout float height, inout vec2 slope) {
 		height += v.x * scale * smoothing;
 		slope += v.yz * scale * smoothing;
 
-		scale *= 0.6;
+		scale *= 0.5;
 		texCoordScale *= 2.0;
 	}
 }

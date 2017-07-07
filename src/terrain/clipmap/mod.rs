@@ -165,7 +165,7 @@ impl<R, F> Clipmap<R, F>
             }
         };
 
-        let detail_heightmap = heightmap::detail_heightmap(512, 512);
+        let detail_heightmap = heightmap::perlin_noise(64, 8);
         let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
         let detailmap: Vec<[u32; 3]> = detailmap
             .into_iter()
@@ -179,7 +179,7 @@ impl<R, F> Clipmap<R, F>
             .create_texture_immutable::<(R32_G32_B32, Float)>(gfx::texture::Kind::D2(512,
                                                                     512,
                                                                     gfx::texture::AaMode::Single),
-                                             &[&detailmap[..], &(vec![[0,0,0]; 65536])[..]])
+                                             &[&detailmap[..]])
             .unwrap();
         let sinfo_wrap =
             gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Anisotropic(16),
