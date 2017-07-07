@@ -1,5 +1,6 @@
 use rand;
 use rand::Rng;
+use std::f32::consts::PI;
 
 #[allow(unused)]
 fn modulo(a: i64, b: i64) -> usize {
@@ -87,22 +88,54 @@ impl<T> Heightmap<T> {
     }
 }
 
-pub fn detail_heightmap(width: u16, height: u16) -> Heightmap<f32> {
+pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f32> {
+    fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
+        a.0 * b.0 + a.1 * b.1
+    }
+
+    fn fade(t: f32) -> f32 {
+        t*t*t*(6.0*t*t - 15.0*t + 10.0)
+    }
+
+    fn interp(a: f32, b: f32, t: f32) -> f32 {
+        let t = fade(t);
+        a * (1.0 - t) + b * t
+    }
+
     let mut rng = rand::thread_rng();
-    let mut heights = Vec::with_capacity(width as usize * height as usize);
-    for y in 0..height {
-        for x in 0..width {
-            if x % 2 == 0 && y % 2 == 0 {
-                heights.push(0f32)
-            } else {
-                heights.push(rng.gen_range(-1f32, 1f32))
+    let gradients: Vec<(f32, f32)> = (0..(grid_resolution * grid_resolution)).map(|_|{
+         rng.gen_range(0.0, 2.0 * PI).sin_cos()
+    }).collect();
+
+    let mut heights = Vec::with_capacity(grid_resolution * grid_resolution * grid_spacing * grid_spacing);
+    for x in 0..grid_resolution {
+        for y in 0..grid_resolution {
+            let xp = (x+1)%grid_resolution;
+            let yp = (y+1)%grid_resolution;
+            let a = gradients[x + y * grid_resolution];
+            let b = gradients[xp + y * grid_resolution];
+            let c = gradients[x + yp * grid_resolution];
+            let d = gradients[xp + yp * grid_resolution];
+
+            for h in 0..grid_spacing {
+                for k in 0..grid_spacing {
+                    let v = (h as f32 / grid_spacing as f32, k as f32 / grid_spacing as f32);
+
+                    let ad = dot(a, v);
+                    let bd = dot(b, (v.0, 1.0-v.1));
+                    let cd = dot(c, (1.0-v.0, v.1));
+                    let dd = dot(d, (1.0-v.0, 1.0-v.1));
+
+                    let height = interp(interp(ad, bd, v.0), interp(cd, dd, v.0), v.1);
+                    heights[(h + x * grid_spacing) + (k + y * grid_spacing) * grid_resolution] = height;
+                }
             }
         }
     }
 
     Heightmap {
         heights,
-        width,
-        height,
+        width: (grid_resolution * grid_spacing) as u16,
+        height: (grid_resolution * grid_spacing) as u16,
     }
 }

@@ -165,7 +165,7 @@ impl<R, F> Clipmap<R, F>
             }
         };
 
-        let detail_heightmap = heightmap::detail_heightmap(512, 512);
+        let detail_heightmap = heightmap::perlin_noise(512, 512);
         let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
         let detailmap: Vec<[u32; 3]> = detailmap
             .into_iter()

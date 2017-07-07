@@ -15,7 +15,13 @@ use terra::Clipmap;
 use terra::DigitalElevationModel;
 
 fn main() {
-    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap();
+    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap_or_else(|_| {
+        println!("Failed to open '../assets/USGS_NED_1_n62w144_GridFloat.zip'");
+        println!("If necessary, it can be downloaded from: \
+                  https://prd-tnm.s3.amazonaws.com/index.html? \
+                  prefix=StagedProducts/Elevation/1/GridFloat/");
+        panic!()
+    });
     let dem = DigitalElevationModel::from_gridfloat_zip(&mut BufReader::new(file));
 
     let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
