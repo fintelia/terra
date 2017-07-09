@@ -14,11 +14,11 @@ uniform sampler2D detail;
 void compute_height_and_slope(inout float height, inout vec2 slope) {
 	vec2 invTextureSize = 1.0  / textureSize(detail,0);
 
-	float scale = 64.0;
+	float smoothing = mix(0.1, 1.0, smoothstep(0.0, 1.0, length(slope)));
+
+	float scale = 10.0;
 	float texCoordScale = 8.0;
 	for(int i = 0; i < 6; i++) {
-		float smoothing = mix(0.1, 1.0, smoothstep(0.0, 1.0, length(slope)));
-
 		vec3 v = texture(detail, (rawTexCoord * texCoordScale + 0.5) * invTextureSize).rgb;
 		height += v.x * scale * smoothing;
 		slope += v.yz * scale * smoothing;
@@ -46,6 +46,6 @@ void main() {
   vec3 rock_color = (vec3(.25, .1, .05) + vec3(.85, .72, .53)) * 0.5;
   vec3 grass_color = vec3(.85, .72, .53);//vec3(1);//vec3(0.0, 0.5, .1);
   vec3 color = mix(grass_color, rock_color, grass_amount);
-  float nDotL = dot(normalize(normal), normalize(vec3(0,1,1))) * 0.5 + 0.5;
+  float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
   OutColor = vec4(shadow * vec3(nDotL) * color, 1);
 }
