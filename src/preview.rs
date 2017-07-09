@@ -34,9 +34,9 @@ fn main() {
 
     let mut terrain = Clipmap::new(dem,
                                    window.factory.clone(),
+                                   &mut window.encoder,
                                    &window.output_color,
                                    &window.output_stencil);
-    terrain.generate_textures(&mut window.encoder);
 
     let get_projection = |w: &PistonWindow| {
         let draw_size = w.window.draw_size();

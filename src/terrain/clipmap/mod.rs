@@ -86,11 +86,14 @@ impl<R, F> Clipmap<R, F>
     where R: gfx::Resources,
           F: gfx::Factory<R>
 {
-    pub fn new(dem: dem::DigitalElevationModel,
-               mut factory: F,
-               out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
-               out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
-               -> Self {
+    pub fn new<C>(dem: dem::DigitalElevationModel,
+                  mut factory: F,
+                  encoder: &mut gfx::Encoder<R, C>,
+                  out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
+                  out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
+                  -> Self
+        where C: gfx_core::command::Buffer<R>
+    {
 
         let mesh_resolution: u8 = 63;
         let num_layers = 10;
@@ -181,6 +184,7 @@ impl<R, F> Clipmap<R, F>
                                                                     gfx::texture::AaMode::Single),
                                              &[&detailmap[..]])
             .unwrap();
+        encoder.generate_mipmap(&detail_texture.1);
         let sinfo_wrap =
             gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Anisotropic(16),
                                            gfx::texture::WrapMode::Tile);
@@ -236,7 +240,7 @@ impl<R, F> Clipmap<R, F>
                         });
         }
 
-        Clipmap {
+        let mut clipmap = Clipmap {
             spacing,
             world_width: spacing * dem.width as f32,
             world_height: spacing * dem.height as f32,
@@ -251,7 +255,9 @@ impl<R, F> Clipmap<R, F>
             dem,
             layers,
             num_fractal_layers,
-        }
+        };
+        clipmap.generate_textures(encoder);
+        clipmap
     }
 
     pub fn generate_textures<C>(&mut self, encoder: &mut gfx::Encoder<R, C>)
