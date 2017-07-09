@@ -5,8 +5,7 @@ in vec2 texCoord;
 out vec4 OutColor;
 
 uniform sampler2D heights;
-uniform sampler2D normals;
-uniform sampler2D shadows;
+uniform sampler2D slopes;
 
 uniform sampler2D detail;
 
@@ -33,13 +32,9 @@ void main() {
 	  discard;
 
   float height = texture(heights, texCoord).x;
-  vec3 normal = normalize(texture(normals, texCoord).rgb * vec3(2.0, 1.0, 2.0) - vec3(1.0, 0.0, 1.0));
-  vec2 slope = normal.xz / normal.y;
+  vec2 slope = texture(slopes, texCoord).xy;
   compute_height_and_slope(height, slope);
-  normal = normalize(vec3(slope.x, 1.0, slope.y));
-
-  float shadow_height = texture(shadows, texCoord).x;
-  float shadow = 1.0;//clamp(1.0 + 1000 * (height - shadow_height), 0.2, 1.0);
+  vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
 
   float grass_amount = smoothstep(0, 1, clamp(length(slope) * 2, 0, 1));
 
@@ -47,5 +42,5 @@ void main() {
   vec3 grass_color = vec3(.85, .72, .53);//vec3(1);//vec3(0.0, 0.5, .1);
   vec3 color = mix(grass_color, rock_color, grass_amount);
   float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
-  OutColor = vec4(shadow * vec3(nDotL) * color, 1);
+  OutColor = vec4(vec3(nDotL) * color, 1);
 }

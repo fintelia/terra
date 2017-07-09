@@ -7,7 +7,7 @@ uniform vec3 scale;
 uniform mat4 modelViewProjection;
 
 uniform sampler2D heights;
-uniform sampler2D normals;
+uniform sampler2D slopes;
 uniform sampler2D detail;
 
 uniform vec2 textureOffset;
@@ -41,10 +41,9 @@ void main() {
   vec2 tPosition = textureOffset + iPosition * textureStep;
   rawTexCoord = textureOffset + iPosition * textureStep;
   texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0);
-  float y = texture(heights, texCoord).r;
 
-  vec3 normal = normalize(texture(normals, texCoord).rgb * vec3(2.0, 1.0, 2.0) - vec3(1.0, 0.0, 1.0));
-  vec2 slope = normal.xz / normal.y;
+  float y = texture(heights, texCoord).r;
+  vec2 slope = texture(slopes, texCoord).xy;
   compute_height_and_slope(y, slope);
 
   vec2 p = iPosition / vec2(resolution - 1);

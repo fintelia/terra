@@ -4,7 +4,6 @@ use gfx::traits::*;
 use gfx::format::*;
 use vecmath::*;
 
-use std::mem;
 use std::cmp;
 
 use terrain::heightmap;
@@ -30,18 +29,10 @@ gfx_pipeline!( pipe {
     texture_offset: gfx::Global<[f32; 2]> = "textureOffset",
     vertex_fractal_octaves: gfx::Global<i32> = "vertexFractalOctaves",
     heights: gfx::TextureSampler<f32> = "heights",
-    normals: gfx::TextureSampler<[f32; 4]> = "normals",
+    slopes: gfx::TextureSampler<[f32; 2]> = "slopes",
     detail: gfx::TextureSampler<[f32; 3]> = "detail",
-    shadows: gfx::TextureSampler<f32> = "shadows",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
-});
-
-gfx_pipeline!( generate_textures {
-    y_scale: gfx::Global<f32> = "yScale",
-    heights: gfx::TextureSampler<f32> = "heights",
-    normals: gfx::RenderTarget<Rgba8> = "normals",
-    shadows: gfx::RenderTarget<(R16, Unorm)> = "shadows",
 });
 
 type NormalMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
@@ -67,6 +58,9 @@ pub struct Clipmap<R, F>
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
+    heights: gfx_core::handle::Texture<R, gfx_core::format::R32>,
+    slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
+
     num_fractal_layers: i32,
     terrain_file: TerrainFile,
     layers: Vec<ClipmapLayer<R>>,
@@ -78,8 +72,6 @@ struct ClipmapLayer<R>
     x: i64,
     y: i64,
     pipeline_data: pipe::Data<R>,
-    normals: NormalMap<R>,
-    shadows: ShadowMap<R>,
 }
 
 impl<R, F> Clipmap<R, F>
@@ -139,11 +131,20 @@ impl<R, F> Clipmap<R, F>
         let heights: Vec<u32> = terrain_file
             .elevations()
             .iter()
-            .map(|h| unsafe { mem::transmute::<f32, u32>(*h) })
+            .map(|h| h.to_bits())
             .collect();
-        let (_, texture_view) = factory.create_texture_immutable::<(R32, Float)>(
+        let heights_texture = factory.create_texture_immutable::<(R32, Float)>(
             gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
             &[&heights[..]]).unwrap();
+
+        let slopes: Vec<[u32; 2]> = terrain_file
+            .slopes()
+            .iter()
+            .map(|&(x, y)| [x.to_bits(), y.to_bits()])
+            .collect();
+        let slopes_texture = factory.create_texture_immutable::<(R32_G32, Float)>(
+            gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
+            &[&slopes[..]]).unwrap();
 
         let sinfo = gfx::texture::SamplerInfo::new(gfx::texture::FilterMethod::Bilinear,
                                                    gfx::texture::WrapMode::Clamp);
@@ -173,11 +174,7 @@ impl<R, F> Clipmap<R, F>
         let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
         let detailmap: Vec<[u32; 3]> = detailmap
             .into_iter()
-            .map(|n| unsafe {
-                     [mem::transmute::<f32, u32>(n[0]),
-                      mem::transmute::<f32, u32>(n[1]),
-                      mem::transmute::<f32, u32>(n[2])]
-                 })
+            .map(|n| [n[0].to_bits(), n[1].to_bits(), n[2].to_bits()])
             .collect();
         let detail_texture = factory
             .create_texture_immutable::<(R32_G32_B32, Float)>(gfx::texture::Kind::D2(512,
@@ -209,10 +206,6 @@ impl<R, F> Clipmap<R, F>
 
         let mut layers = Vec::new();
         for layer in 0..num_layers {
-            let normals = factory.create_render_target::<Rgba8>(w, h).unwrap();
-            let shadows = factory
-                .create_render_target::<(R16, Unorm)>(w, h)
-                .unwrap();
             let vertex_fractal_octaves = cmp::max(0, 1 + layer as i32 - num_static_layers as i32);
             layers.push(ClipmapLayer {
                             x: 0,
@@ -229,19 +222,16 @@ impl<R, F> Clipmap<R, F>
                                 texture_step: (2.0f32).powi(num_static_layers - layer - 1),
                                 texture_offset: [0.0, 0.0],
                                 vertex_fractal_octaves,
-                                heights: (texture_view.clone(), sampler.clone()),
-                                normals: (normals.1.clone(), sampler.clone()),
-                                shadows: (shadows.1.clone(), sampler.clone()),
+                                heights: (heights_texture.1.clone(), sampler.clone()),
+                                slopes: (slopes_texture.1.clone(), sampler.clone()),
                                 detail: (detail_texture.1.clone(), sampler_wrap.clone()),
                                 out_color: out_color.clone(),
                                 out_depth: out_stencil.clone(),
                             },
-                            normals: normals.clone(),
-                            shadows: shadows.clone(),
                         });
         }
 
-        let mut clipmap = Clipmap {
+        Clipmap {
             spacing,
             world_width: spacing * terrain_file.width() as f32,
             world_height: spacing * terrain_file.height() as f32,
@@ -253,42 +243,12 @@ impl<R, F> Clipmap<R, F>
             ring2_slice,
             center_slice,
 
+            heights: heights_texture.0,
+            slopes: slopes_texture.0,
+
             terrain_file,
             layers,
             num_fractal_layers,
-        };
-        clipmap.generate_textures(encoder);
-        clipmap
-    }
-
-    pub fn generate_textures<C>(&mut self, encoder: &mut gfx::Encoder<R, C>)
-        where C: gfx_core::command::Buffer<R>
-    {
-        let slice = gfx::Slice {
-            start: 0,
-            end: 6,
-            base_vertex: 0,
-            instances: None,
-            buffer: gfx::IndexBuffer::Auto,
-        };
-
-        let pso = self.factory
-            .create_pipeline_simple(include_str!("../../shaders/glsl/generate_textures.glslv")
-                                        .as_bytes(),
-                                    include_str!("../../shaders/glsl/generate_textures.glslf")
-                                        .as_bytes(),
-                                    generate_textures::new())
-            .unwrap();
-
-        for layer in self.layers.iter_mut() {
-            let data = generate_textures::Data {
-                heights: layer.pipeline_data.heights.clone(),
-                normals: layer.normals.2.clone(),
-                shadows: layer.shadows.2.clone(),
-                y_scale: 1.0 / self.spacing,
-            };
-
-            encoder.draw(&slice, &pso, &data);
         }
     }
 

@@ -101,4 +101,8 @@ impl TerrainFile {
     pub fn elevations(&self) -> &[f32] {
         &self.elevations[..]
     }
+
+    pub fn slopes(&self) -> &[(f32, f32)] {
+        &self.slopes[..]
+    }
 }
