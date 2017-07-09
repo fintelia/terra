@@ -11,8 +11,7 @@ use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
 use std::fs::File;
 use std::io::BufReader;
 
-use terra::Clipmap;
-use terra::DigitalElevationModel;
+use terra::{Clipmap, DigitalElevationModel, TerrainFile};
 
 fn main() {
     let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap_or_else(|_| {
@@ -23,6 +22,7 @@ fn main() {
         panic!()
     });
     let dem = DigitalElevationModel::from_gridfloat_zip(&mut BufReader::new(file));
+    let terrain_file = TerrainFile::from_digital_elevation_model(dem);
 
     let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
         .exit_on_esc(true)
@@ -32,7 +32,7 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let mut terrain = Clipmap::new(dem,
+    let mut terrain = Clipmap::new(terrain_file,
                                    window.factory.clone(),
                                    &mut window.encoder,
                                    &window.output_color,

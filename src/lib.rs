@@ -13,8 +13,9 @@ extern crate curl;
 
 pub mod terrain;
 
-pub use terrain::dem::DigitalElevationModel;
 pub use terrain::clipmap::Clipmap;
+pub use terrain::dem::DigitalElevationModel;
+pub use terrain::file::TerrainFile;
 
 #[cfg(test)]
 mod tests {

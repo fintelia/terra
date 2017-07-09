@@ -1,5 +1,6 @@
 pub mod clipmap;
 pub mod dem;
+pub mod file;
 
-mod vertex_buffer;
 mod heightmap;
+mod vertex_buffer;

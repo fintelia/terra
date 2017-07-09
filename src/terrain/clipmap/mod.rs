@@ -7,9 +7,9 @@ use vecmath::*;
 use std::mem;
 use std::cmp;
 
-use terrain::dem;
 use terrain::heightmap;
 use terrain::vertex_buffer::{self, ClipmapLayerKind};
+use terrain::file::TerrainFile;
 
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
@@ -68,7 +68,7 @@ pub struct Clipmap<R, F>
     center_slice: gfx::Slice<R>,
 
     num_fractal_layers: i32,
-    dem: dem::DigitalElevationModel,
+    terrain_file: TerrainFile,
     layers: Vec<ClipmapLayer<R>>,
 }
 
@@ -86,7 +86,7 @@ impl<R, F> Clipmap<R, F>
     where R: gfx::Resources,
           F: gfx::Factory<R>
 {
-    pub fn new<C>(dem: dem::DigitalElevationModel,
+    pub fn new<C>(terrain_file: TerrainFile,
                   mut factory: F,
                   encoder: &mut gfx::Encoder<R, C>,
                   out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
@@ -134,9 +134,10 @@ impl<R, F> Clipmap<R, F>
             .collect();
         let vertex_buffer = factory.create_vertex_buffer(&combined_vertices);
 
-        let w = dem.width as u16;
-        let h = dem.height as u16;
-        let heights: Vec<u32> = dem.elevations
+        let w = terrain_file.width() as u16;
+        let h = terrain_file.height() as u16;
+        let heights: Vec<u32> = terrain_file
+            .elevations()
             .iter()
             .map(|h| unsafe { mem::transmute::<f32, u32>(*h) })
             .collect();
@@ -242,8 +243,8 @@ impl<R, F> Clipmap<R, F>
 
         let mut clipmap = Clipmap {
             spacing,
-            world_width: spacing * dem.width as f32,
-            world_height: spacing * dem.height as f32,
+            world_width: spacing * terrain_file.width() as f32,
+            world_height: spacing * terrain_file.height() as f32,
             mesh_resolution: mesh_resolution as i64,
 
             factory,
@@ -252,7 +253,7 @@ impl<R, F> Clipmap<R, F>
             ring2_slice,
             center_slice,
 
-            dem,
+            terrain_file,
             layers,
             num_fractal_layers,
         };
@@ -345,10 +346,10 @@ impl<R, F> Clipmap<R, F>
 
     /// Returns the approximate height at `position`.
     pub fn get_approximate_height(&self, position: Vector2<f32>) -> Option<f32> {
-        let x = position[0] / self.spacing + 0.5 * (self.dem.width - 1) as f32;
-        let y = position[1] / self.spacing + 0.5 * (self.dem.height - 1) as f32;
-        if x < 0.0 || y < 0.0 || x >= self.dem.width as f32 - 1.0 ||
-           y >= self.dem.height as f32 - 1.0 {
+        let x = position[0] / self.spacing + 0.5 * (self.terrain_file.width() - 1) as f32;
+        let y = position[1] / self.spacing + 0.5 * (self.terrain_file.height() - 1) as f32;
+        if x < 0.0 || y < 0.0 || x >= self.terrain_file.width() as f32 - 1.0 ||
+           y >= self.terrain_file.height() as f32 - 1.0 {
             return None;
         }
 
@@ -357,10 +358,10 @@ impl<R, F> Clipmap<R, F>
         let fx = x.fract();
         let fy = y.fract();
 
-        let h00 = self.dem.elevations[ix + iy * self.dem.width];
-        let h10 = self.dem.elevations[(ix + 1) + iy * self.dem.width];
-        let h01 = self.dem.elevations[ix + (iy + 1) * self.dem.width];
-        let h11 = self.dem.elevations[(ix + 1) + (iy + 1) * self.dem.width];
+        let h00 = self.terrain_file.elevation(ix, iy);
+        let h10 = self.terrain_file.elevation(ix + 1, iy);
+        let h01 = self.terrain_file.elevation(ix, iy + 1);
+        let h11 = self.terrain_file.elevation(ix + 1, iy + 1);
 
         let h0 = h00 * (1.0 - fy) + h01 * fy;
         let h1 = h10 * (1.0 - fy) + h11 * fy;
