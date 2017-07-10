@@ -105,4 +105,8 @@ impl TerrainFile {
     pub fn slopes(&self) -> &[(f32, f32)] {
         &self.slopes[..]
     }
+
+    pub fn cell_size(&self) -> f32 {
+        self.cell_size
+    }
 }

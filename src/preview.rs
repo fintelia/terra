@@ -8,20 +8,11 @@ use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 
-use std::fs::File;
-use std::io::BufReader;
-
-use terra::{Clipmap, DigitalElevationModel, TerrainFile};
+use terra::{Clipmap, DigitalElevationModel, DemSource, TerrainFile};
 
 fn main() {
-    let file = File::open("../assets/USGS_NED_1_n62w144_GridFloat.zip").unwrap_or_else(|_| {
-        println!("Failed to open '../assets/USGS_NED_1_n62w144_GridFloat.zip'");
-        println!("If necessary, it can be downloaded from: \
-                  https://prd-tnm.s3.amazonaws.com/index.html? \
-                  prefix=StagedProducts/Elevation/1/GridFloat/");
-        panic!()
-    });
-    let dem = DigitalElevationModel::from_gridfloat_zip(&mut BufReader::new(file));
+    let dem = DigitalElevationModel::open_or_download_gridfloat_zip(62, -144, DemSource::Usgs30m)
+        .unwrap();
     let terrain_file = TerrainFile::from_digital_elevation_model(dem);
 
     let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])

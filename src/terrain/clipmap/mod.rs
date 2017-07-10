@@ -86,10 +86,9 @@ impl<R, F> Clipmap<R, F>
                   -> Self
         where C: gfx_core::command::Buffer<R>
     {
-
         let mesh_resolution: u8 = 63;
         let num_layers = 10;
-        let spacing = 30.0;
+        let spacing = terrain_file.cell_size();
         let num_fractal_layers = 4;
         let num_static_layers = num_layers - num_fractal_layers;
 

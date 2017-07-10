@@ -1,8 +1,11 @@
 use zip::ZipArchive;
 use safe_transmute;
 
-use std::io::{Read, Cursor, Seek};
+use std::fs::{self, File};
+use std::io::{Cursor, Error, Read, Seek, Write};
+use std::path::PathBuf;
 use std::str::FromStr;
+use std::env;
 use std::mem;
 
 #[cfg(feature = "download")]
@@ -107,10 +110,7 @@ impl DigitalElevationModel {
     /// Downloads a GridFloat zip for the indicated latitude and longitude sourced from the USGS.
     /// The output should be suitable to pass to Dem::from_gridfloat_zip().
     #[cfg(feature = "download")]
-    pub fn download_gridfloat_zip(latitude: i16,
-                                  longitude: i16,
-                                  source: DemSource)
-                                  -> Cursor<Vec<u8>> {
+    pub fn download_gridfloat_zip(latitude: i16, longitude: i16, source: DemSource) -> Vec<u8> {
         use curl::easy::Easy;
 
         let resolution = match source {
@@ -142,7 +142,41 @@ impl DigitalElevationModel {
             easy.perform().unwrap();
         }
 
-        Cursor::new(data)
+        data
+    }
+
+    pub fn open_or_download_gridfloat_zip(latitude: i16,
+                                          longitude: i16,
+                                          source: DemSource)
+                                          -> Result<Self, Error> {
+        let source_str = match source {
+            DemSource::Usgs10m => "ned13",
+            DemSource::Usgs30m => "ned1",
+        };
+        let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+        let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+        let directory = env::home_dir()
+            .unwrap_or(PathBuf::from("."))
+            .join(".terra/dems")
+            .join(source_str);
+        let filename = directory.join(format!("{}{:02}_{}{:03}_GridFloat.zip",
+                                              n_or_s,
+                                              latitude.abs(),
+                                              e_or_w,
+                                              latitude.abs()));
+
+        if let Ok(file) = File::open(&filename) {
+            return Ok(Self::from_gridfloat_zip(file));
+        }
+
+        let download = Self::download_gridfloat_zip(latitude, longitude, source);
+        {
+            fs::create_dir_all(directory);
+            let mut file = File::create(filename)?;
+            file.write_all(&download);
+        }
+
+        Ok(Self::from_gridfloat_zip(Cursor::new(download)))
     }
 
     pub fn crop(&self, width: usize, height: usize) -> Self {
@@ -178,7 +212,7 @@ mod tests {
         use super::*;
 
         let zip = Dem::download_gridfloat_zip(28, -81, DemSource::Usgs30m);
-        let dem = Dem::from_gridfloat_zip(zip);
+        let dem = Dem::from_gridfloat_zip(Cursor::new(zip));
         assert_eq!(dem.width, 3612);
         assert_eq!(dem.height, 3612);
         assert!(dem.cell_size > 0.0002777);

@@ -18,6 +18,9 @@ pub use terrain::clipmap::Clipmap;
 pub use terrain::dem::DigitalElevationModel;
 pub use terrain::file::TerrainFile;
 
+#[cfg(feature = "download")]
+pub use terrain::dem::DemSource;
+
 #[cfg(test)]
 mod tests {
     #[test]
