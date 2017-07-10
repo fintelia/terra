@@ -1,12 +1,42 @@
 use zip::ZipArchive;
+use zip::result::ZipError;
 use safe_transmute;
 
+#[cfg(feature = "download")]
+use curl;
+
 use std::fs::{self, File};
-use std::io::{Cursor, Error, Read, Seek, Write};
+use std::io::{self, Cursor, Read, Seek, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::env;
 use std::mem;
+
+#[derive(Debug)]
+pub enum Error {
+    #[cfg(feature = "download")]
+    CurlError(curl::Error),
+    IoError(io::Error),
+    ZipError(ZipError),
+    ParseError,
+}
+#[cfg(feature = "download")]
+impl From<curl::Error> for Error {
+    fn from(e: curl::Error) -> Self {
+        Error::CurlError(e)
+    }
+}
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Error::IoError(e)
+    }
+}
+impl From<ZipError> for Error {
+    fn from(e: ZipError) -> Self {
+        Error::ZipError(e)
+    }
+}
+
 
 #[cfg(feature = "download")]
 pub enum DemSource {
@@ -32,19 +62,19 @@ impl DigitalElevationModel {
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/2/GridFloat
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/GridFloat
     /// * https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/GridFloat
-    pub fn from_gridfloat_zip<R: Read + Seek>(zip_file: R) -> Self {
+    pub fn from_gridfloat_zip<R: Read + Seek>(zip_file: R) -> Result<Self, Error> {
         let mut hdr = String::new();
         let mut flt = Vec::new();
 
-        let mut zip = ZipArchive::new(zip_file).unwrap();
+        let mut zip = ZipArchive::new(zip_file)?;
         for i in 0..zip.len() {
-            let mut file = zip.by_index(i).unwrap();
+            let mut file = zip.by_index(i)?;
             if file.name().ends_with("_gridfloat.hdr") {
                 assert_eq!(hdr.len(), 0);
-                file.read_to_string(&mut hdr).unwrap();
+                file.read_to_string(&mut hdr)?;
             } else if file.name().ends_with("_gridfloat.flt") {
                 assert_eq!(flt.len(), 0);
-                file.read_to_end(&mut flt).unwrap();
+                file.read_to_end(&mut flt)?;
             }
         }
 
@@ -82,35 +112,46 @@ impl DigitalElevationModel {
             }
         }
 
-        let size = width.unwrap() * height.unwrap();
-        assert_eq!(flt.len(), size * 4);
+        let width = width.ok_or(Error::ParseError)?;
+        let height = height.ok_or(Error::ParseError)?;
+        let xllcorner = xllcorner.ok_or(Error::ParseError)?;
+        let yllcorner = yllcorner.ok_or(Error::ParseError)?;
+        let cell_size = cell_size.ok_or(Error::ParseError)?;
+        let byte_order = byte_order.ok_or(Error::ParseError)?;
+
+        let size = width * height;
+        if flt.len() != size * 4 {
+            return Err(Error::ParseError);
+        }
 
         let flt =
             unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
         let mut elevations: Vec<f32> = Vec::with_capacity(size);
         for f in flt {
             let e = match byte_order {
-                Some(ByteOrder::LsbFirst) => f.to_le(),
-                Some(ByteOrder::MsbFirst) => f.to_be(),
-                None => unreachable!(),
+                ByteOrder::LsbFirst => f.to_le(),
+                ByteOrder::MsbFirst => f.to_be(),
             };
             elevations.push(unsafe { mem::transmute::<u32, f32>(e) });
         }
 
-        Self {
-            width: width.unwrap(),
-            height: height.unwrap(),
-            xllcorner: xllcorner.unwrap(),
-            yllcorner: yllcorner.unwrap(),
-            cell_size: cell_size.unwrap(),
-            elevations,
-        }
+        Ok(Self {
+               width,
+               height,
+               xllcorner,
+               yllcorner,
+               cell_size,
+               elevations,
+           })
     }
 
     /// Downloads a GridFloat zip for the indicated latitude and longitude sourced from the USGS.
     /// The output should be suitable to pass to Dem::from_gridfloat_zip().
     #[cfg(feature = "download")]
-    pub fn download_gridfloat_zip(latitude: i16, longitude: i16, source: DemSource) -> Vec<u8> {
+    pub fn download_gridfloat_zip(latitude: i16,
+                                  longitude: i16,
+                                  source: DemSource)
+                                  -> Result<Vec<u8>, Error> {
         use curl::easy::Easy;
 
         let resolution = match source {
@@ -131,18 +172,17 @@ impl DigitalElevationModel {
         let mut data = Vec::<u8>::new();
         {
             let mut easy = Easy::new();
-            easy.url(&url).unwrap();
+            easy.url(&url)?;
             let mut easy = easy.transfer();
             easy.write_function(|d| {
                                     let len = d.len();
                                     data.extend(d);
                                     Ok(len)
-                                })
-                .unwrap();
-            easy.perform().unwrap();
+                                })?;
+            easy.perform()?;
         }
 
-        data
+        Ok(data)
     }
 
     pub fn open_or_download_gridfloat_zip(latitude: i16,
@@ -166,17 +206,17 @@ impl DigitalElevationModel {
                                               latitude.abs()));
 
         if let Ok(file) = File::open(&filename) {
-            return Ok(Self::from_gridfloat_zip(file));
+            return Self::from_gridfloat_zip(file);
         }
 
-        let download = Self::download_gridfloat_zip(latitude, longitude, source);
+        let download = Self::download_gridfloat_zip(latitude, longitude, source)?;
         {
-            fs::create_dir_all(directory);
+            fs::create_dir_all(directory)?;
             let mut file = File::create(filename)?;
-            file.write_all(&download);
+            file.write_all(&download)?;
         }
 
-        Ok(Self::from_gridfloat_zip(Cursor::new(download)))
+        Self::from_gridfloat_zip(Cursor::new(download))
     }
 
     pub fn crop(&self, width: usize, height: usize) -> Self {

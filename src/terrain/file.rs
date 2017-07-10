@@ -60,7 +60,6 @@ impl TerrainFile {
     /// Construct a `TerrainFile` from a `DigitalElevationModel`.
     pub fn from_digital_elevation_model(dem: dem::DigitalElevationModel) -> Self {
         // Compute approximate cell size in meters.
-        let xcenter = dem.xllcorner + dem.cell_size * dem.width as f64;
         let ycenter = dem.yllcorner + dem.cell_size * dem.height as f64;
         let cell_size_x = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE *
                           ycenter.to_radians().cos();

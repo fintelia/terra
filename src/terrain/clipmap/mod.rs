@@ -35,31 +35,21 @@ gfx_pipeline!( pipe {
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
 
-type NormalMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
-                     gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
-                     gfx_core::handle::RenderTargetView<R, Rgba8>);
-
-type ShadowMap<R> = (gfx_core::handle::Texture<R, gfx_core::format::R16>,
-                     gfx_core::handle::ShaderResourceView<R, f32>,
-                     gfx_core::handle::RenderTargetView<R, (R16, Unorm)>);
-
-pub struct Clipmap<R, F>
-    where R: gfx::Resources,
-          F: gfx::Factory<R>
+pub struct Clipmap<R>
+    where R: gfx::Resources
 {
     spacing: f32,
     world_width: f32,
     world_height: f32,
     mesh_resolution: i64,
 
-    factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
     ring1_slice: gfx::Slice<R>,
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
-    heights: gfx_core::handle::Texture<R, gfx_core::format::R32>,
-    slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
+    _heights: gfx_core::handle::Texture<R, gfx_core::format::R32>,
+    _slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
 
     num_fractal_layers: i32,
     terrain_file: TerrainFile,
@@ -74,17 +64,17 @@ struct ClipmapLayer<R>
     pipeline_data: pipe::Data<R>,
 }
 
-impl<R, F> Clipmap<R, F>
-    where R: gfx::Resources,
-          F: gfx::Factory<R>
+impl<R> Clipmap<R>
+    where R: gfx::Resources
 {
-    pub fn new<C>(terrain_file: TerrainFile,
-                  mut factory: F,
-                  encoder: &mut gfx::Encoder<R, C>,
-                  out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
-                  out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
-                  -> Self
-        where C: gfx_core::command::Buffer<R>
+    pub fn new<C, F>(terrain_file: TerrainFile,
+                     mut factory: F,
+                     encoder: &mut gfx::Encoder<R, C>,
+                     out_color: &<RenderTarget as gfx::pso::DataBind<R>>::Data,
+                     out_stencil: &<DepthTarget as gfx::pso::DataBind<R>>::Data)
+                     -> Self
+        where C: gfx_core::command::Buffer<R>,
+              F: gfx::Factory<R>
     {
         let mesh_resolution: u8 = 63;
         let num_layers = 10;
@@ -236,14 +226,13 @@ impl<R, F> Clipmap<R, F>
             world_height: spacing * terrain_file.height() as f32,
             mesh_resolution: mesh_resolution as i64,
 
-            factory,
             pso,
             ring1_slice,
             ring2_slice,
             center_slice,
 
-            heights: heights_texture.0,
-            slopes: slopes_texture.0,
+            _heights: heights_texture.0,
+            _slopes: slopes_texture.0,
 
             terrain_file,
             layers,
