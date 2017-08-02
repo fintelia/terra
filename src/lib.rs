@@ -1,5 +1,3 @@
-#![feature(float_bits_conv)]
-
 #[macro_use]
 extern crate gfx;
 extern crate gfx_core;

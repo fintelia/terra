@@ -1,4 +1,4 @@
-#version 450 core
+#version 330 core
 
 in vec2 rawTexCoord;
 in vec2 texCoord;

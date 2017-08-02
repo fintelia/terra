@@ -1,4 +1,4 @@
-#version 450 core
+#version 330 core
 
 uniform ivec2 flipAxis;
 uniform int resolution;
@@ -36,7 +36,7 @@ void compute_height_and_slope(inout float height, inout vec2 slope) {
 	}
 }
 void main() {
-  vec2 iPosition = mix(vPosition, ivec2(resolution-1) - vPosition, flipAxis);
+  vec2 iPosition = mix(ivec2(vPosition), ivec2(resolution-1) - ivec2(vPosition), flipAxis);
 
   vec2 tPosition = textureOffset + iPosition * textureStep;
   rawTexCoord = textureOffset + iPosition * textureStep;
