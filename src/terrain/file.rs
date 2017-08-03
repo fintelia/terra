@@ -60,19 +60,37 @@ impl TerrainFile {
     /// Construct a `TerrainFile` from a `DigitalElevationModel`.
     pub fn from_digital_elevation_model(dem: dem::DigitalElevationModel) -> Self {
         // Compute approximate cell size in meters.
-        let ycenter = dem.yllcorner + dem.cell_size * dem.height as f64;
+        let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
         let cell_size_x = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE *
                           ycenter.to_radians().cos();
         let cell_size_y = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE;
-        let cell_size = 0.5 * (cell_size_x + cell_size_y) as f32;
+        let cell_size = cell_size_y as f32;
 
-        let slopes = Self::compute_slopes(dem.width, dem.height, cell_size, &dem.elevations[..]);
+        let cell_size_ratio = cell_size_y / cell_size_x;
+        let width = (dem.width as f64 / cell_size_ratio).floor() as usize;
+        let height = dem.height;
+        let mut elevations = Vec::with_capacity(width * height);
+
+        for y in 0..height {
+            for x in 0..width {
+                let fx = x as f64 * cell_size_ratio;
+                let floor_fx = fx.floor() as usize;
+                let ceil_fx = fx.ceil() as usize;
+                assert!(floor_fx < dem.width);
+                assert!(ceil_fx < dem.width);
+                let t = fx.fract() as f32;
+                let h = dem.elevations[floor_fx + y * dem.width] * (1.0 - t) + dem.elevations[ceil_fx + y * dem.width] * t;
+                elevations.push(h)
+            }
+        }
+
+        let slopes = Self::compute_slopes(width, height, cell_size, &elevations[..]);
 
         TerrainFile {
-            width: dem.width,
-            height: dem.height,
+            width,
+            height,
             cell_size,
-            elevations: dem.elevations,
+            elevations,
             slopes,
         }
     }
