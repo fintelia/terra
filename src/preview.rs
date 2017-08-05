@@ -23,21 +23,22 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let mut terrain = Clipmap::new(terrain_file,
-                                   window.factory.clone(),
-                                   &mut window.encoder,
-                                   &window.output_color,
-                                   &window.output_stencil);
+    let mut terrain = Clipmap::new(
+        terrain_file,
+        window.factory.clone(),
+        &mut window.encoder,
+        &window.output_color,
+        &window.output_stencil,
+    );
 
     let get_projection = |w: &PistonWindow| {
         let draw_size = w.window.draw_size();
         CameraPerspective {
-                fov: 90.0,
-                near_clip: 0.5,
-                far_clip: 100000.0,
-                aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
-            }
-            .projection()
+            fov: 90.0,
+            near_clip: 0.5,
+            far_clip: 100000.0,
+            aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
+        }.projection()
     };
 
     let mut projection = get_projection(&window);
@@ -55,20 +56,23 @@ fn main() {
         window.draw_3d(&e, |window| {
             let args = e.render_args().unwrap();
 
-            window
-                .encoder
-                .clear(&window.output_color, [0.3, 0.3, 0.3, 1.0]);
+            window.encoder.clear(
+                &window.output_color,
+                [0.3, 0.3, 0.3, 1.0],
+            );
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
             let mut camera = first_person.camera(args.ext_dt);
-            if let Some(h) = terrain.get_approximate_height([camera.position[0],
-                                                             camera.position[2]]) {
+            if let Some(h) = terrain.get_approximate_height(
+                [camera.position[0], camera.position[2]],
+            )
+            {
                 camera.position[1] += h + 2.0;
             }
-            terrain.update(model_view_projection(vecmath::mat4_id(),
-                                                 camera.orthogonal(),
-                                                 projection),
-                           [camera.position[0], camera.position[2]]);
+            terrain.update(
+                model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
+                camera.position,
+            );
             terrain.render(&mut window.encoder);
         });
     }

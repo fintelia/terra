@@ -17,6 +17,7 @@ uniform int vertexFractalOctaves;
 in uvec2 vPosition;
 out vec2 rawTexCoord;
 out vec2 texCoord;
+out vec3 fPosition;
 
 /// Uses a fractal to refine the height and slope sourced from the course texture.
 void compute_height_and_slope(inout float height, inout vec2 slope) {
@@ -47,6 +48,6 @@ void main() {
   compute_height_and_slope(y, slope);
 
   vec2 p = iPosition / vec2(resolution - 1);
-  vec3 pos = vec3(p.x, y, p.y) * scale + position;
-  gl_Position = modelViewProjection * vec4(pos, 1.0);
+  fPosition = vec3(p.x, y, p.y) * scale + position;
+  gl_Position = modelViewProjection * vec4(fPosition, 1.0);
 }

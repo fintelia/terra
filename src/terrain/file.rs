@@ -17,14 +17,16 @@ pub struct TerrainFile {
 
     elevations: Vec<f32>,
     slopes: Vec<(f32, f32)>,
+    shadows: Vec<f32>,
 }
 
 impl TerrainFile {
-    fn compute_slopes(width: usize,
-                      height: usize,
-                      cell_size: f32,
-                      elevations: &[f32])
-                      -> Vec<(f32, f32)> {
+    fn compute_slopes(
+        width: usize,
+        height: usize,
+        cell_size: f32,
+        elevations: &[f32],
+    ) -> Vec<(f32, f32)> {
         let get_elevation = |x: usize, y: usize| {
             assert!(x < width);
             assert!(y < height);
@@ -57,12 +59,47 @@ impl TerrainFile {
         slopes
     }
 
+    fn compute_shadows(
+        width: usize,
+        height: usize,
+        cell_size: f32,
+        elevations: &[f32],
+    ) -> Vec<f32> {
+        let get_elevation = |x: usize, y: usize| {
+            assert!(x < width);
+            assert!(y < height);
+            elevations[x + y * width]
+        };
+
+        let ray_slope = 0.4 * cell_size;
+
+        let mut shadows = Vec::with_capacity(width * height);
+        for y in 0..height {
+            let mut highest = None;
+            for x in 0..width {
+                let h = get_elevation(x, y);
+                let shadow_height = highest
+                    .as_ref()
+                    .map(|&(sx, sh)| sh - ((x - sx) as f32) * ray_slope)
+                    .unwrap_or(h - 1.0);
+
+                if shadow_height < h {
+                    highest = Some((x, h));
+                }
+
+                shadows.push(shadow_height);
+            }
+        }
+
+        shadows
+    }
+
     /// Construct a `TerrainFile` from a `DigitalElevationModel`.
     pub fn from_digital_elevation_model(dem: dem::DigitalElevationModel) -> Self {
         // Compute approximate cell size in meters.
         let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
         let cell_size_x = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE *
-                          ycenter.to_radians().cos();
+            ycenter.to_radians().cos();
         let cell_size_y = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE;
         let cell_size = cell_size_y as f32;
 
@@ -79,19 +116,21 @@ impl TerrainFile {
                 assert!(floor_fx < dem.width);
                 assert!(ceil_fx < dem.width);
                 let t = fx.fract() as f32;
-                let h = dem.elevations[floor_fx + y * dem.width] * (1.0 - t) + dem.elevations[ceil_fx + y * dem.width] * t;
+                let h = dem.elevations[floor_fx + y * dem.width] * (1.0 - t) +
+                    dem.elevations[ceil_fx + y * dem.width] * t;
                 elevations.push(h)
             }
         }
 
         let slopes = Self::compute_slopes(width, height, cell_size, &elevations[..]);
-
+        let shadows = Self::compute_shadows(width, height, cell_size, &elevations[..]);
         TerrainFile {
             width,
             height,
             cell_size,
             elevations,
             slopes,
+            shadows,
         }
     }
 
@@ -121,6 +160,10 @@ impl TerrainFile {
 
     pub fn slopes(&self) -> &[(f32, f32)] {
         &self.slopes[..]
+    }
+
+    pub fn shadows(&self) -> &[f32] {
+        &self.shadows[..]
     }
 
     pub fn cell_size(&self) -> f32 {
