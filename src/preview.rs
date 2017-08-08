@@ -4,14 +4,16 @@ extern crate piston_window;
 extern crate terra;
 extern crate vecmath;
 
+use std::path::Path;
+
 use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 
-use terra::{Clipmap, DigitalElevationModel, DemSource, TerrainFile};
+use terra::{Clipmap, DigitalElevationModel, DemSource, TerrainFile, MaterialSet};
 
 fn main() {
-    let dem = DigitalElevationModel::open_or_download_gridfloat_zip(62, -144, DemSource::Usgs30m)
+    let dem = DigitalElevationModel::open_or_download_gridfloat_zip(44, -72, DemSource::Usgs30m)
         .unwrap();
     let terrain_file = TerrainFile::from_digital_elevation_model(dem);
 
@@ -23,8 +25,16 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
+    let materials = MaterialSet::load(
+        Path::new("assets"),
+        &mut window.factory,
+        &mut window.encoder,
+    );
+    window.encoder.flush(&mut window.device);
+
     let mut terrain = Clipmap::new(
         terrain_file,
+        materials,
         window.factory.clone(),
         &mut window.encoder,
         &window.output_color,

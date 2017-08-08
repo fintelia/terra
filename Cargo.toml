@@ -19,6 +19,8 @@ required-features = ["preview"]
 [dependencies]
 gfx = "0.16"
 gfx_core = "0.7"
+image = "0.15"
+notify = "4.0"
 rand = "0.3"
 safe-transmute = "0.3"
 shader_version = "0.2.1"
