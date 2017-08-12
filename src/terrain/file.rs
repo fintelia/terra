@@ -1,15 +1,49 @@
+use std::error::Error;
 use std::f64::consts::PI;
 
-use terrain::dem;
+use cache::{GeneratedAsset, WebAsset};
+use terrain::dem::{self, DemSource, DigitalElevationModelParams};
 
 /// This file assumes that all coordinates are provided relative to the earth represented as a
 /// perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
 /// actually WGS84 or NAD83. However, for our purposes the difference should not be noticable.
 
+pub struct TerrainFileParams {
+    pub latitude: i16,
+    pub longitude: i16,
+    pub source: DemSource,
+}
+impl GeneratedAsset for TerrainFileParams {
+    type Type = TerrainFile;
+
+    fn filename(&self) -> String {
+        let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
+        let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
+        format!(
+            "maps/{}{:02}_{}{:03}_{}m.data",
+            n_or_s,
+            self.latitude.abs(),
+            e_or_w,
+            self.latitude.abs(),
+            self.source.resolution(),
+        )
+    }
+
+    fn generate(&self) -> Result<Self::Type, Box<Error>> {
+        let dem = DigitalElevationModelParams {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            source: self.source,
+        }.load()?;
+        Ok(Self::Type::from_digital_elevation_model(dem))
+    }
+}
+
 /// The radius of the earth in meters.
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
+#[derive(Serialize, Deserialize)]
 pub struct TerrainFile {
     width: usize,
     height: usize,

@@ -17,12 +17,17 @@ path = "src/preview.rs"
 required-features = ["preview"]
 
 [dependencies]
+bincode = "0.8.0"
+curl = "0.4"
 gfx = "0.16"
 gfx_core = "0.7"
 image = "0.15"
+lazy_static = "0.2"
 notify = "4.0"
 rand = "0.3"
 safe-transmute = "0.3"
+serde = "1.0"
+serde_derive = "1.0"
 shader_version = "0.2.1"
 vecmath = "0.3.0"
 zip = "0.2"
@@ -32,10 +37,6 @@ camera_controllers = {version = "0.21", optional = true}
 gfx_device_gl = {version = "0.14", optional = true}
 piston_window = {version = "0.67", optional = true}
 
-# For download
-curl = {version = "0.4", optional = true}
-
 [features]
-default = ["download"]
-preview = ["piston_window", "camera_controllers", "gfx_device_gl", "download"]
-download = ["curl"]
+default = []
+preview = ["piston_window", "camera_controllers", "gfx_device_gl"]

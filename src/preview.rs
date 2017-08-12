@@ -10,12 +10,16 @@ use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 
-use terra::{Clipmap, DigitalElevationModel, DemSource, TerrainFile, MaterialSet};
+use terra::{Clipmap, DemSource, TerrainFileParams, MaterialSet};
+use terra::cache::GeneratedAsset;
 
 fn main() {
-    let dem = DigitalElevationModel::open_or_download_gridfloat_zip(44, -72, DemSource::Usgs30m)
+    let terrain_file = TerrainFileParams {
+        latitude: 44,
+        longitude: -72,
+        source: DemSource::Usgs30m,
+    }.load()
         .unwrap();
-    let terrain_file = TerrainFile::from_digital_elevation_model(dem);
 
     let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
         .exit_on_esc(true)
