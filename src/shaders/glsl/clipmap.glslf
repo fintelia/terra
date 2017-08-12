@@ -38,19 +38,21 @@ void main() {
 	  discard;
 
   float height = texture(heights, texCoord).x;
+  float shadow_height = texture(shadows, texCoord).r;
+  float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, height);
   vec2 slope = texture(slopes, texCoord).xy;
   compute_height_and_slope(height, slope);
   vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
   vec3 position = vec3(fPosition.x, height, fPosition.z);
 
-  float grass_amount = smoothstep(0, 1, clamp(length(slope) * 2, 0, 1));
 
   float shadow_height = texture(shadows, texCoord).r;
   float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, height);
 
+  float grass_amount = step(0.2, length(slope));
   float lod = textureQueryLOD(materials, position.xz * 0.1).x;
   vec3 rock_color = vec3(.25, .1, .05);
-  vec3 grass_color = textureLod(materials, vec3(position.xz * 0.1, 0), lod * 1.5).rgb;//vec3(0.0, 0.5, .1);
+  vec3 grass_color = textureLod(materials, vec3(position.xz * 0.1, 0), lod * 1.5).rgb;
   vec3 color = mix(grass_color, rock_color, grass_amount);
   float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
   nDotL *= shadow * 0.98 + 0.02;

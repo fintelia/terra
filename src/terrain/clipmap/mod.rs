@@ -5,7 +5,7 @@ use gfx::format::*;
 use notify::{DebouncedEvent, RecommendedWatcher, Watcher, RecursiveMode, watcher};
 use vecmath::*;
 
-use std::{cmp, env};
+use std::env;
 use std::io::{self, Read};
 use std::fs::File;
 use std::path::Path;
@@ -34,7 +34,6 @@ gfx_pipeline!( pipe {
     flip_axis: gfx::Global<[i32; 2]> = "flipAxis",
     texture_step: gfx::Global<f32> = "textureStep",
     texture_offset: gfx::Global<[f32; 2]> = "textureOffset",
-    vertex_fractal_octaves: gfx::Global<i32> = "vertexFractalOctaves",
     eye_position: gfx::Global<[f32; 3]> = "eyePosition",
     heights: gfx::TextureSampler<f32> = "heights",
     slopes: gfx::TextureSampler<[f32; 2]> = "slopes",
@@ -214,7 +213,7 @@ where
             }
         };
 
-        let detail_heightmap = heightmap::perlin_noise(64, 8);
+        let detail_heightmap = heightmap::wavelet_noise(64, 8);
         let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
         let detailmap: Vec<[u32; 3]> = detailmap
             .into_iter()
@@ -253,7 +252,6 @@ where
 
         let mut layers = Vec::new();
         for layer in 0..num_layers {
-            let vertex_fractal_octaves = cmp::max(0, 1 + layer as i32 - num_static_layers as i32);
             layers.push(ClipmapLayer {
                 x: 0,
                 y: 0,
@@ -270,7 +268,6 @@ where
                     flip_axis: [0, 0],
                     texture_step: (2.0f32).powi(num_static_layers - layer - 1),
                     texture_offset: [0.0, 0.0],
-                    vertex_fractal_octaves,
                     eye_position: [0.0, 0.0, 0.0],
                     heights: (heights_texture.1.clone(), sampler.clone()),
                     slopes: (slopes_texture.1.clone(), sampler.clone()),

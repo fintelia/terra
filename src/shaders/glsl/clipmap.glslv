@@ -12,7 +12,6 @@ uniform sampler2D detail;
 
 uniform vec2 textureOffset;
 uniform float textureStep;
-uniform int vertexFractalOctaves;
 
 in uvec2 vPosition;
 out vec2 rawTexCoord;
@@ -27,7 +26,7 @@ void compute_height_and_slope(inout float height, inout vec2 slope) {
 
 	float scale = 10.0;
 	float texCoordScale = 8.0;
-	for(int i = 0; i < vertexFractalOctaves; i++) {
+	for(int i = 0; i < 6; i++) {
 		vec3 v = texture(detail, (rawTexCoord * texCoordScale + 0.5) * invTextureSize).rgb;
 		height += v.x * scale * smoothing;
 		slope += v.yz * scale * smoothing;
