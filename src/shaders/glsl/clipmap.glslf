@@ -38,13 +38,10 @@ void main() {
 	  discard;
 
   float height = texture(heights, texCoord).x;
-  float shadow_height = texture(shadows, texCoord).r;
-  float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, height);
   vec2 slope = texture(slopes, texCoord).xy;
   compute_height_and_slope(height, slope);
   vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
   vec3 position = vec3(fPosition.x, height, fPosition.z);
-
 
   float shadow_height = texture(shadows, texCoord).r;
   float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, height);
