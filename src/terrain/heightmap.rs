@@ -153,6 +153,9 @@ pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f3
     }
 }
 
+/// Evaluate wavelet noise on a grid with the given resolution and grid spacing. ///
+/// The output heightmap will have a width and height of `grid_resolution` * `grid_spacing`. Values
+/// will have a mean of approximately zero, and a variance of 1.
 pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f32> {
     // See: https://graphics.pixar.com/library/WaveletNoise/paper.pdf
 
@@ -281,6 +284,15 @@ pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f
             ];
             heights.push(noise(&noise_tile, grid_resolution, p))
         }
+    }
+
+    let mean = heights.iter().sum::<f32>() / heights.len() as f32;
+    let variance = heights.iter().map(|n| (n - mean) * (n - mean)).sum::<f32>() /
+        heights.len() as f32;
+
+    let inv_variance = 1.0 / variance;
+    for h in &mut heights {
+        *h *= inv_variance;
     }
 
     Heightmap {
