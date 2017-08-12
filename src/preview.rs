@@ -24,7 +24,7 @@ fn main() {
     let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
         .exit_on_esc(true)
         .opengl(OpenGL::V3_3)
-        .samples(2)
+        .samples(1)
         .build()
         .unwrap();
     window.set_capture_cursor(true);
