@@ -75,7 +75,7 @@ impl WebAsset for DigitalElevationModelParams {
             n_or_s,
             self.latitude.abs(),
             e_or_w,
-            self.latitude.abs()
+            self.longitude.abs()
         )
     }
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {

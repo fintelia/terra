@@ -24,7 +24,7 @@ impl GeneratedAsset for TerrainFileParams {
             n_or_s,
             self.latitude.abs(),
             e_or_w,
-            self.latitude.abs(),
+            self.longitude.abs(),
             self.source.resolution(),
         )
     }
