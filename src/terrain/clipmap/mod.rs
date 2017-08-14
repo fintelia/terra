@@ -38,7 +38,8 @@ gfx_pipeline!( pipe {
     heights: gfx::TextureSampler<f32> = "heights",
     slopes: gfx::TextureSampler<[f32; 2]> = "slopes",
     shadows: gfx::TextureSampler<f32> = "shadows",
-    detail: gfx::TextureSampler<[f32; 3]> = "detail",
+    noise: gfx::TextureSampler<[f32; 3]> = "noise",
+    noise_wavelength: gfx::Global<f32> = "noiseWavelength",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -213,19 +214,19 @@ where
             }
         };
 
-        let detail_heightmap = heightmap::wavelet_noise(64, 8);
-        let detailmap = detail_heightmap.as_height_and_slopes(spacing * 0.5);
-        let detailmap: Vec<[u32; 3]> = detailmap
+        let noise_heightmap = heightmap::wavelet_noise(64, 8);
+        let noisemap = noise_heightmap.as_height_and_slopes(1.0 / 8.0);
+        let noisemap: Vec<[u32; 3]> = noisemap
             .into_iter()
             .map(|n| [n[0].to_bits(), n[1].to_bits(), n[2].to_bits()])
             .collect();
-        let detail_texture = factory
+        let noise_texture = factory
             .create_texture_immutable::<(R32_G32_B32, Float)>(
                 gfx::texture::Kind::D2(512, 512, gfx::texture::AaMode::Single),
-                &[&detailmap[..]],
+                &[&noisemap[..]],
             )
             .unwrap();
-        encoder.generate_mipmap(&detail_texture.1);
+        encoder.generate_mipmap(&noise_texture.1);
         let sinfo_wrap = gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Anisotropic(16),
             gfx::texture::WrapMode::Tile,
@@ -272,7 +273,8 @@ where
                     heights: (heights_texture.1.clone(), sampler.clone()),
                     slopes: (slopes_texture.1.clone(), sampler.clone()),
                     shadows: (shadows_texture.1.clone(), sampler.clone()),
-                    detail: (detail_texture.1.clone(), sampler_wrap.clone()),
+                    noise: (noise_texture.1.clone(), sampler_wrap.clone()),
+                    noise_wavelength: 1.0 / 64.0,
                     materials: (materials.view.clone(), sampler_wrap.clone()),
                     out_color: out_color.clone(),
                     out_depth: out_stencil.clone(),

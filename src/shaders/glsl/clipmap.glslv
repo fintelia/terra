@@ -8,8 +8,9 @@ uniform mat4 modelViewProjection;
 
 uniform sampler2D heights;
 uniform sampler2D slopes;
-uniform sampler2D detail;
+uniform sampler2D noise;
 
+uniform float noiseWavelength;
 uniform vec2 textureOffset;
 uniform float textureStep;
 
@@ -20,19 +21,16 @@ out vec3 fPosition;
 
 /// Uses a fractal to refine the height and slope sourced from the course texture.
 void compute_height_and_slope(inout float height, inout vec2 slope) {
-	vec2 invTextureSize = 1.0  / textureSize(detail,0);
-
-	float smoothing = mix(0.1, 1.0, smoothstep(0.0, 1.0, length(slope)));
-
 	float scale = 10.0;
-	float texCoordScale = 8.0;
+	float wavelength = 32.0;
 	for(int i = 0; i < 6; i++) {
-		vec3 v = texture(detail, (rawTexCoord * texCoordScale + 0.5) * invTextureSize).rgb;
+		float smoothing = mix(0.01, 0.15, smoothstep(0.25, 0.35, length(slope)));
+		vec3 v = texture(noise, fPosition.xz * noiseWavelength / wavelength).rgb;
 		height += v.x * scale * smoothing;
-		slope += v.yz * scale * smoothing;
+		slope += v.yz * scale * smoothing / wavelength;
 
 		scale *= 0.5;
-		texCoordScale *= 2.0;
+		wavelength *= 0.5;
 	}
 }
 void main() {
@@ -42,11 +40,13 @@ void main() {
   rawTexCoord = textureOffset + iPosition * textureStep;
   texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0);
 
+  vec2 p = iPosition / vec2(resolution - 1);
+  fPosition = vec3(p.x, 0, p.y) * scale + position;
+
   float y = texture(heights, texCoord).r;
   vec2 slope = texture(slopes, texCoord).xy;
   compute_height_and_slope(y, slope);
 
-  vec2 p = iPosition / vec2(resolution - 1);
   fPosition = vec3(p.x, y, p.y) * scale + position;
   gl_Position = modelViewProjection * vec4(fPosition, 1.0);
 }
