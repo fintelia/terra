@@ -16,7 +16,7 @@ use terra::cache::GeneratedAsset;
 fn main() {
     let terrain_file = TerrainFileParams {
         latitude: 44,
-        longitude: -72,
+        longitude: -74,
         source: DemSource::Usgs30m,
     }.load()
         .unwrap();
