@@ -2,15 +2,11 @@ use gfx;
 use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
-use notify::{DebouncedEvent, RecommendedWatcher, Watcher, RecursiveMode, watcher};
 use vecmath::*;
 
+use rshader;
+
 use std::env;
-use std::io::{self, Read};
-use std::fs::File;
-use std::path::Path;
-use std::time::Duration;
-use std::sync::mpsc::{channel, Receiver};
 
 use terrain::heightmap;
 use terrain::vertex_buffer::{self, ClipmapLayerKind};
@@ -56,6 +52,7 @@ where
     mesh_resolution: i64,
 
     factory: F,
+    rasterizer: gfx::state::Rasterizer,
     pso: gfx::PipelineState<R, pipe::Meta>,
     ring1_slice: gfx::Slice<R>,
     ring2_slice: gfx::Slice<R>,
@@ -65,9 +62,8 @@ where
     _slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
     _shadows: gfx_core::handle::Texture<R, gfx_core::format::R32>,
 
-    shaders_directory: Option<String>,
-    _shaders_watcher: Option<RecommendedWatcher>,
-    shaders_watcher_rx: Receiver<DebouncedEvent>,
+    shaders_watcher: rshader::ShaderDirectoryWatcher,
+    clipmap_shader: rshader::Shader<R>,
 
     num_fractal_layers: i32,
     terrain_file: TerrainFile,
@@ -104,16 +100,6 @@ where
         let spacing = terrain_file.cell_size();
         let num_fractal_layers = 3;
         let num_static_layers = num_layers - num_fractal_layers;
-
-        let (tx, shaders_watcher_rx) = channel();
-        let shaders_directory = env::var("TERRA_SHADER_DIRECTORY").ok();
-        let mut shaders_watcher = watcher(tx, Duration::from_millis(50)).ok();
-        if shaders_directory.is_some() && shaders_watcher.is_some() {
-            let _ = shaders_watcher.as_mut().unwrap().watch(
-                shaders_directory.as_ref().unwrap(),
-                RecursiveMode::Recursive,
-            );
-        }
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -192,27 +178,16 @@ where
         );
         let sampler = factory.create_sampler(sinfo);
 
-        let v = match factory.create_shader_vertex(
-            include_str!("../../shaders/glsl/clipmap.glslv")
-                .as_bytes(),
-        ) {
-            Ok(s) => s,
-            Err(msg) => {
-                println!("{}", msg);
-                panic!("Failed to compile clipmap.glslv");
-            }
-        };
+        let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
+            env::var("TERRA_SHADER_DIRECTORY").unwrap_or(".".to_string()),
+        ).unwrap();
 
-        let f = match factory.create_shader_pixel(
-            include_str!("../../shaders/glsl/clipmap.glslf")
-                .as_bytes(),
-        ) {
-            Ok(s) => s,
-            Err(msg) => {
-                println!("{}", msg);
-                panic!("Failed to compile clipmap.glslf");
-            }
-        };
+        let clipmap_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            load_shader_source!("../../shaders/glsl/clipmap.glslv", "clipmap.glslv"),
+            load_shader_source!("../../shaders/glsl/clipmap.glslf", "clipmap.glslf"),
+        ).unwrap();
 
         let noise_heightmap = heightmap::wavelet_noise(64, 8);
         let noisemap = noise_heightmap.as_height_and_slopes(1.0 / 8.0);
@@ -242,9 +217,9 @@ where
         };
         let pso = factory
             .create_pipeline_state(
-                &gfx::ShaderSet::Simple(v, f),
+                clipmap_shader.as_shader_set(),
                 gfx::Primitive::TriangleList,
-                rasterizer,
+                rasterizer.clone(),
                 pipe::new(),
             )
             .unwrap();
@@ -290,6 +265,7 @@ where
 
             pso,
             factory,
+            rasterizer,
             ring1_slice,
             ring2_slice,
             center_slice,
@@ -298,9 +274,8 @@ where
             _slopes: slopes_texture.0,
             _shadows: shadows_texture.0,
 
-            shaders_directory,
-            _shaders_watcher: shaders_watcher,
-            shaders_watcher_rx,
+            shaders_watcher,
+            clipmap_shader,
 
             terrain_file,
             layers,
@@ -308,65 +283,21 @@ where
         }
     }
 
-    fn refresh_shaders(&mut self) {
-        if self.shaders_directory.is_none() {
-            return;
-        }
-
-        let mut needs_refresh = false;
-        while let Ok(event) = self.shaders_watcher_rx.try_recv() {
-            if let DebouncedEvent::Write(_) = event {
-                needs_refresh = true;
-            }
-        }
-        if !needs_refresh {
-            return;
-        }
-
-        let file_contents = |filename| -> io::Result<String> {
-            let mut file = File::open(filename)?;
-            let mut contents = String::new();
-            file.read_to_string(&mut contents)?;
-            Ok(contents)
-        };
-
-        let shaders_directory = Path::new(self.shaders_directory.as_ref().unwrap());
-        let vertex = file_contents(shaders_directory.join("clipmap.glslv"));
-        let fragment = file_contents(shaders_directory.join("clipmap.glslf"));
-        if vertex.is_err() || fragment.is_err() {
-            return;
-        }
-        let vertex_shader = self.factory.create_shader_vertex(
-            vertex.unwrap().as_bytes(),
-        );
-        let fragment_shader = self.factory.create_shader_pixel(
-            fragment.unwrap().as_bytes(),
-        );
-
-        match (vertex_shader, fragment_shader) {
-            (Ok(v), Ok(f)) => {
-                let rasterizer = gfx::state::Rasterizer {
-                    front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Nothing,
-                    method: gfx::state::RasterMethod::Fill,
-                    offset: None,
-                    samples: None,
-                };
-                self.pso = self.factory
-                    .create_pipeline_state(
-                        &gfx::ShaderSet::Simple(v, f),
-                        gfx::Primitive::TriangleList,
-                        rasterizer,
-                        pipe::new(),
-                    )
-                    .unwrap();
-            }
-            (Err(msg), _) => println!("{}\nFailed to compile vertex shader.", msg),
-            (_, Err(msg)) => println!("{}\nFailed to compile fragment shader.", msg),
-        }
-    }
     pub fn update(&mut self, mvp_mat: Matrix4<f32>, camera: Vector3<f32>) {
-        self.refresh_shaders();
+        if self.clipmap_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
+        {
+            self.pso = self.factory
+                .create_pipeline_state(
+                    self.clipmap_shader.as_shader_set(),
+                    gfx::Primitive::TriangleList,
+                    self.rasterizer.clone(),
+                    pipe::new(),
+                )
+                .unwrap();
+        }
 
         let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
         let center = (

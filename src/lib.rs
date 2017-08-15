@@ -10,6 +10,8 @@ extern crate image;
 extern crate lazy_static;
 extern crate notify;
 extern crate rand;
+#[macro_use]
+extern crate rshader;
 extern crate safe_transmute;
 extern crate serde;
 #[macro_use]

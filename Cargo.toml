@@ -25,6 +25,7 @@ image = "0.15"
 lazy_static = "0.2"
 notify = "4.0"
 rand = "0.3"
+rshader = { path = "rshader", features = [] }
 safe-transmute = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
@@ -40,3 +41,6 @@ piston_window = {version = "0.67", optional = true}
 [features]
 default = []
 preview = ["piston_window", "camera_controllers", "gfx_device_gl"]
+dynamic_shaders = ["rshader/dynamic_shaders"]
+
+[workspace]
