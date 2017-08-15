@@ -94,6 +94,7 @@ impl<T> Heightmap<T> {
     }
 }
 
+#[allow(dead_code)]
 pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f32> {
     fn dot(a: (f32, f32), b: (f32, f32)) -> f32 {
         a.0 * b.0 + a.1 * b.1
