@@ -1,27 +1,18 @@
-in vec2 rawTexCoord;
+#line 2
 in vec2 texCoord;
 in vec3 fPosition;
 out vec4 OutColor;
 
-uniform sampler2D heights;
-uniform sampler2D slopes;
 uniform sampler2D shadows;
 uniform sampler2DArray materials;
 
 uniform vec3 eyePosition;
 
-void main() {
-  if(texCoord.x < 0 || texCoord.y < 0 || texCoord.x > 1 || texCoord.y > 1)
-	  discard;
-
-  float height = texture(heights, texCoord).x;
-  vec2 slope = texture(slopes, texCoord).xy;
-  compute_height_and_slope(fPosition.xz, height, slope);
+vec3 compute_color(vec3 position, vec2 slope) {
   vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
-  vec3 position = vec3(fPosition.x, height, fPosition.z);
 
   float shadow_height = texture(shadows, texCoord).r;
-  float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, height);
+  float shadow = smoothstep(shadow_height - 0.5, shadow_height + 20.5, position.y);
 
   float grass_amount = step(0.25, length(slope));
   float lod = textureQueryLOD(materials, position.xz * 0.1).x;
@@ -36,7 +27,19 @@ void main() {
   vec3 rayDir = normalize(position - eyePosition);
   float fogAmount = clamp(0.0005 * exp(-b*eyePosition.y) * (1.0 - exp(-b*rayDir.y*distance)) / (b*rayDir.y), 0, 1);
   vec3 fogColor = vec3(0.6, 0.6, 0.6);
-  color = mix(vec3(nDotL) * color, fogColor, fogAmount);
+
+  return mix(vec3(nDotL) * color, fogColor, fogAmount);
+}
+
+void main() {
+  if(texCoord.x < 0 || texCoord.y < 0 || texCoord.x > 1 || texCoord.y > 1)
+	  discard;
+
+  vec2 slope;
+  float height;
+  compute_height_and_slope(fPosition.xz, texCoord, height, slope);
+  vec3 position = vec3(fPosition.x, height, fPosition.z);
+  vec3 color = compute_color(position, slope);
 
   OutColor = vec4(color, 1);
 }
