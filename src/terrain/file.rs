@@ -173,7 +173,7 @@ impl TerrainFile {
     }
 
     pub fn height(&self) -> usize {
-        self.width
+        self.height
     }
 
     pub fn elevation(&self, x: usize, y: usize) -> f32 {
