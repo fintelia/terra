@@ -1,0 +1,17 @@
+uniform sampler2D noise;
+uniform float noiseWavelength;
+
+/// Uses a fractal to refine the height and slope sourced from the course texture.
+void compute_height_and_slope(vec2 position, inout float height, inout vec2 slope) {
+	float scale = 10.0;
+	float wavelength = 32.0;
+	for(int i = 0; i < 6; i++) {
+		float smoothing = mix(0.01, 0.15, smoothstep(0.25, 0.35, length(slope)));
+		vec3 v = texture(noise, position * noiseWavelength / wavelength).rgb;
+		height += v.x * scale * smoothing;
+		slope += v.yz * scale * smoothing / wavelength;
+
+		scale *= 0.5;
+		wavelength *= 0.5;
+	}
+}

@@ -11,27 +11,35 @@ pub use dynamic_shaders::*;
 
 pub struct ShaderSource {
     pub source: Option<Vec<u8>>,
-    pub filename: Option<String>,
+    pub filenames: Option<Vec<String>>,
 }
 
 #[macro_export]
 #[cfg(not(feature = "dynamic_shaders"))]
-macro_rules! load_shader_source {
-    ($compile_time:expr, $runtime:expr) => {
+macro_rules! shader_source {
+    ($directory:expr, $( $filename:expr ),+ ) => {
         $crate::ShaderSource{
-            source: Some(include_bytes!($compile_time).to_vec()),
-            filename: None,
+            source: Some({
+                let mut tmp_vec = Vec::new();
+                $( tmp_vec.extend_from_slice(include_bytes!(concat!($directory, "/", $filename))); )*
+                tmp_vec
+            }),
+            filenames: None,
         }
     };
 }
 
 #[macro_export]
 #[cfg(feature = "dynamic_shaders")]
-macro_rules! load_shader_source {
-    ($compile_time:expr, $runtime:expr) => {
+macro_rules! shader_source {
+    ($directory:expr, $( $filename:expr ),+ ) => {
         $crate::ShaderSource {
             source: None,
-            filename: Some($runtime.to_string()),
+            filenames: Some({
+                let mut tmp_vec = Vec::new();
+                $( tmp_vec.push($filename.to_string()); )*
+                tmp_vec
+            }),
         }
     };
 }

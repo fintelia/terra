@@ -1,0 +1,2 @@
+#version 330 core
+#extension GL_ARB_texture_query_lod : require

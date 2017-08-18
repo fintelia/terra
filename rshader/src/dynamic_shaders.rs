@@ -1,7 +1,8 @@
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::iter::Iterator;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -44,17 +45,18 @@ impl ShaderDirectoryWatcher {
     }
 }
 
-fn file_contents(filename: &Path) -> io::Result<String> {
-    let mut file = File::open(filename)?;
+fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io::Result<String> {
     let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
+    for filename in filenames {
+        File::open(filename)?.read_to_string(&mut contents)?;
+    }
     Ok(contents)
 }
 
 pub struct Shader<R: gfx::Resources> {
     shader_set: gfx::ShaderSet<R>,
-    vertex_filename: PathBuf,
-    pixel_filename: PathBuf,
+    vertex_filenames: Vec<PathBuf>,
+    pixel_filenames: Vec<PathBuf>,
     last_update: Instant,
 }
 impl<R: gfx::Resources> Shader<R> {
@@ -64,14 +66,24 @@ impl<R: gfx::Resources> Shader<R> {
         vertex_source: ShaderSource,
         pixel_source: ShaderSource,
     ) -> Result<Self, Box<Error>> {
-        let vertex_filename = watcher.directory.join(vertex_source.filename.unwrap());
-        let pixel_filename = watcher.directory.join(pixel_source.filename.unwrap());
+        let vertex_filenames = vertex_source
+            .filenames
+            .unwrap()
+            .into_iter()
+            .map(|f| watcher.directory.join(f))
+            .collect();
+        let pixel_filenames = pixel_source
+            .filenames
+            .unwrap()
+            .into_iter()
+            .map(|f| watcher.directory.join(f))
+            .collect();
 
         Ok(Self {
-            shader_set: Self::load(factory, &vertex_filename, &pixel_filename)?,
+            shader_set: Self::load(factory, &vertex_filenames, &pixel_filenames)?,
             last_update: Instant::now(),
-            vertex_filename,
-            pixel_filename,
+            vertex_filenames,
+            pixel_filenames,
         })
     }
 
@@ -87,7 +99,7 @@ impl<R: gfx::Resources> Shader<R> {
     ) -> bool {
         directory_watcher.detect_changes();
         if directory_watcher.last_modification > self.last_update {
-            let new = Self::load(factory, &self.vertex_filename, &self.pixel_filename);
+            let new = Self::load(factory, &self.vertex_filenames, &self.pixel_filenames);
             if let Ok(shader_set) = new {
                 self.shader_set = shader_set;
                 return true;
@@ -98,11 +110,17 @@ impl<R: gfx::Resources> Shader<R> {
 
     fn load<F: gfx::Factory<R>>(
         factory: &mut F,
-        vertex_filename: &Path,
-        pixel_filename: &Path,
+        vertex_filenames: &Vec<PathBuf>,
+        pixel_filenames: &Vec<PathBuf>,
     ) -> Result<gfx::ShaderSet<R>, Box<Error>> {
-        let v = create_vertex_shader(factory, file_contents(vertex_filename)?.as_bytes())?;
-        let f = create_pixel_shader(factory, file_contents(pixel_filename)?.as_bytes())?;
+        let v = create_vertex_shader(
+            factory,
+            concat_file_contents(vertex_filenames.iter())?.as_bytes(),
+        )?;
+        let f = create_pixel_shader(
+            factory,
+            concat_file_contents(pixel_filenames.iter())?.as_bytes(),
+        )?;
         Ok(gfx::ShaderSet::Simple(v, f))
     }
 }

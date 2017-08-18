@@ -41,6 +41,10 @@ gfx_pipeline!( pipe {
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
 
+// gfx_pipeline!(compute_heights_pipe {
+//     vertex: gfx::VertexBuffer<Vertex> = (),
+//     out_height: gfx::RenderTarget<R32> = "OutHeight",
+// });
 pub struct Clipmap<R, F>
 where
     R: gfx::Resources,
@@ -185,8 +189,8 @@ where
         let clipmap_shader = rshader::Shader::simple(
             &mut factory,
             &mut shaders_watcher,
-            load_shader_source!("../../shaders/glsl/clipmap.glslv", "clipmap.glslv"),
-            load_shader_source!("../../shaders/glsl/clipmap.glslf", "clipmap.glslf"),
+            shader_source!("../../shaders/glsl", "version", "fractal", "clipmap.glslv"),
+            shader_source!("../../shaders/glsl", "version", "fractal", "clipmap.glslf"),
         ).unwrap();
 
         let noise_heightmap = heightmap::wavelet_noise(64, 8);
