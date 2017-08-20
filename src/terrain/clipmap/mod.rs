@@ -45,6 +45,7 @@ gfx_pipeline!( pipe {
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
     layers: gfx::ConstantBuffer<Layer> = "layersBuffer",
+    num_layers: gfx::Global<i32> = "numLayers",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -366,6 +367,7 @@ where
                     noise_wavelength: 1.0 / 64.0,
                     materials: (materials.view.clone(), sampler_wrap.clone()),
                     layers: layers_buffer.clone(),
+                    num_layers: 2,
                     out_color: out_color.clone(),
                     out_depth: out_stencil.clone(),
                 },
