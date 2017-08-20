@@ -16,7 +16,7 @@ void main() {
   vec2 iPosition = mix(ivec2(vPosition), ivec2(resolution-1) - ivec2(vPosition), flipAxis);
 
   vec2 tPosition = textureOffset + iPosition * textureStep;
-  texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0);
+  texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0).xy;
 
   vec2 p = iPosition / vec2(resolution - 1);
   fPosition = vec3(p.x, 0, p.y) * scale + position;

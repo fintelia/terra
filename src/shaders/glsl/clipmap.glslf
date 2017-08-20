@@ -37,9 +37,10 @@ void main() {
 
   vec2 slope;
   float height;
-  compute_height_and_slope(fPosition.xz, texCoord, height, slope);
+  vec3 c = compute_height_and_slope(fPosition.xz, texCoord, height, slope);
   vec3 position = vec3(fPosition.x, height, fPosition.z);
   vec3 color = compute_color(position, slope);
 
   OutColor = vec4(color, 1);
+  //  OutColor.rgb = c;
 }

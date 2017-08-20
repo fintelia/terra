@@ -16,9 +16,16 @@ use terrain::material::MaterialSet;
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
 
+const MAX_LAYERS: usize = 16;
+
 gfx_defines!{
     vertex Vertex {
         pos: [u8; 2] = "vPosition",
+    }
+
+    constant Layer {
+        center: [f32; 2] = "center",
+        size: [f32; 2] = "size",
     }
 }
 gfx_pipeline!( pipe {
@@ -37,14 +44,27 @@ gfx_pipeline!( pipe {
     noise: gfx::TextureSampler<[f32; 3]> = "noise",
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    layers: gfx::ConstantBuffer<Layer> = "layersBuffer",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
 
-// gfx_pipeline!(compute_heights_pipe {
-//     vertex: gfx::VertexBuffer<Vertex> = (),
-//     out_height: gfx::RenderTarget<R32> = "OutHeight",
-// });
+gfx_pipeline!(heights_pipe {
+    heights: gfx::TextureSampler<f32> = "heights",
+    layer: gfx::Global<i32> = "layer",
+    layer_center: gfx::Global<[f32;2]> = "layerCenter",
+    parent_center: gfx::Global<[f32;2]> = "parentCenter",
+    layer_step: gfx::Global<f32> = "layerStep",
+    out_height: gfx::RenderTarget<(R32, Float)> = "OutHeight",
+});
+
+gfx_pipeline!(slopes_pipe {
+    heights: gfx::TextureSampler<f32> = "heights",
+    layer: gfx::Global<i32> = "layer",
+    layer_step: gfx::Global<f32> = "layerStep",
+    out_slope: gfx::RenderTarget<(R32_G32, Float)> = "OutSlope",
+});
+
 pub struct Clipmap<R, F>
 where
     R: gfx::Resources,
@@ -62,12 +82,23 @@ where
     ring2_slice: gfx::Slice<R>,
     center_slice: gfx::Slice<R>,
 
-    _heights: gfx_core::handle::Texture<R, gfx_core::format::R32>,
-    _slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
+    /// Carries information about the different layers of each array texture.
+    layers_buffer: gfx_core::handle::Buffer<R, Layer>,
+
+    heights: gfx_core::handle::Texture<R, gfx_core::format::R32>,
+    slopes: gfx_core::handle::Texture<R, gfx_core::format::R32_G32>,
     _shadows: gfx_core::handle::Texture<R, gfx_core::format::R32>,
 
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     clipmap_shader: rshader::Shader<R>,
+
+    heights_shader: rshader::Shader<R>,
+    heights_rasterizer: gfx::state::Rasterizer,
+    heights_pso: gfx::PipelineState<R, heights_pipe::Meta>,
+
+    slopes_shader: rshader::Shader<R>,
+    slopes_rasterizer: gfx::state::Rasterizer,
+    slopes_pso: gfx::PipelineState<R, slopes_pipe::Meta>,
 
     num_fractal_layers: i32,
     terrain_file: TerrainFile,
@@ -100,7 +131,7 @@ where
         C: gfx_core::command::Buffer<R>,
     {
         let mesh_resolution: u8 = 31;
-        let num_layers = 9;
+        let num_layers = 11;
         let spacing = terrain_file.cell_size();
         let num_fractal_layers = 3;
         let num_static_layers = num_layers - num_fractal_layers;
@@ -146,21 +177,53 @@ where
             .map(|h| h.to_bits())
             .collect();
         let heights_texture = factory
-            .create_texture_immutable::<(R32, Float)>(
-                gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
-                &[&heights[..]],
+            .create_texture::<R32>(
+                gfx::texture::Kind::D2Array(w, h, 2, gfx::texture::AaMode::Single),
+                1,
+                gfx::RENDER_TARGET | gfx::SHADER_RESOURCE,
+                gfx::memory::Usage::Dynamic,
+                Some(ChannelType::Float),
+            )
+            .unwrap();
+        encoder
+            .update_texture::<R32, (R32, Float)>(
+                &heights_texture,
+                None,
+                gfx_core::texture::NewImageInfo {
+                    xoffset: 0,
+                    yoffset: 0,
+                    zoffset: 0,
+                    width: w,
+                    height: h,
+                    depth: 1,
+                    format: (),
+                    mipmap: 0,
+                },
+                &heights[..],
+            )
+            .unwrap();
+        let heights_view = factory
+            .view_texture_as_shader_resource::<(R32, Float)>(
+                &heights_texture,
+                (0, 0),
+                Swizzle::new(),
             )
             .unwrap();
 
-        let slopes: Vec<[u32; 2]> = terrain_file
-            .slopes()
-            .iter()
-            .map(|&(x, y)| [x.to_bits(), y.to_bits()])
-            .collect();
         let slopes_texture = factory
-            .create_texture_immutable::<(R32_G32, Float)>(
-                gfx::texture::Kind::D2(w, h, gfx::texture::AaMode::Single),
-                &[&slopes[..]],
+            .create_texture::<R32_G32>(
+                gfx::texture::Kind::D2Array(w, h, 2, gfx::texture::AaMode::Single),
+                1,
+                gfx::RENDER_TARGET | gfx::SHADER_RESOURCE,
+                gfx::memory::Usage::Dynamic,
+                Some(ChannelType::Float),
+            )
+            .unwrap();
+        let slopes_view = factory
+            .view_texture_as_shader_resource::<(R32_G32, Float)>(
+                &slopes_texture,
+                (0, 0),
+                Swizzle::new(),
             )
             .unwrap();
 
@@ -191,6 +254,20 @@ where
             &mut shaders_watcher,
             shader_source!("../../shaders/glsl", "version", "fractal", "clipmap.glslv"),
             shader_source!("../../shaders/glsl", "version", "fractal", "clipmap.glslf"),
+        ).unwrap();
+
+        let heights_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "heights.glslv"),
+            shader_source!("../../shaders/glsl", "version", "heights.glslf"),
+        ).unwrap();
+
+        let slopes_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "slopes.glslv"),
+            shader_source!("../../shaders/glsl", "version", "slopes.glslf"),
         ).unwrap();
 
         let noise_heightmap = heightmap::wavelet_noise(64, 8);
@@ -228,6 +305,39 @@ where
             )
             .unwrap();
 
+        let fill_rasterizer = gfx::state::Rasterizer {
+            front_face: gfx::state::FrontFace::Clockwise,
+            cull_face: gfx::state::CullFace::Nothing,
+            method: gfx::state::RasterMethod::Fill,
+            offset: None,
+            samples: None,
+        };
+        let heights_pso = factory
+            .create_pipeline_state(
+                heights_shader.as_shader_set(),
+                gfx::Primitive::TriangleList,
+                fill_rasterizer.clone(),
+                heights_pipe::new(),
+            )
+            .unwrap();
+        let slopes_pso = factory
+            .create_pipeline_state(
+                slopes_shader.as_shader_set(),
+                gfx::Primitive::TriangleList,
+                fill_rasterizer.clone(),
+                slopes_pipe::new(),
+            )
+            .unwrap();
+
+        let layers_buffer = factory
+            .create_buffer::<Layer>(
+                MAX_LAYERS,
+                gfx_core::buffer::Role::Constant,
+                gfx_core::memory::Usage::Dynamic,
+                gfx_core::memory::TRANSFER_SRC,
+            )
+            .unwrap();
+
         let size = spacing * ((mesh_resolution as i64 - 1) << (num_static_layers - 1)) as f32;
 
         let mut layers = Vec::new();
@@ -249,19 +359,20 @@ where
                     texture_step: (2.0f32).powi(num_static_layers - layer - 1),
                     texture_offset: [0.0, 0.0],
                     eye_position: [0.0, 0.0, 0.0],
-                    heights: (heights_texture.1.clone(), sampler.clone()),
-                    slopes: (slopes_texture.1.clone(), sampler.clone()),
+                    heights: (heights_view.clone(), sampler.clone()),
+                    slopes: (slopes_view.clone(), sampler.clone()),
                     shadows: (shadows_texture.1.clone(), sampler.clone()),
                     noise: (noise_texture.1.clone(), sampler_wrap.clone()),
                     noise_wavelength: 1.0 / 64.0,
                     materials: (materials.view.clone(), sampler_wrap.clone()),
+                    layers: layers_buffer.clone(),
                     out_color: out_color.clone(),
                     out_depth: out_stencil.clone(),
                 },
             });
         }
 
-        Clipmap {
+        let mut clipmap = Clipmap {
             spacing,
             world_width: spacing * terrain_file.width() as f32,
             world_height: spacing * terrain_file.height() as f32,
@@ -274,20 +385,137 @@ where
             ring2_slice,
             center_slice,
 
-            _heights: heights_texture.0,
-            _slopes: slopes_texture.0,
+            layers_buffer,
+
+            heights: heights_texture,
+            slopes: slopes_texture,
             _shadows: shadows_texture.0,
 
             shaders_watcher,
             clipmap_shader,
 
+            heights_shader,
+            heights_rasterizer: fill_rasterizer,
+            heights_pso,
+
+            slopes_shader,
+            slopes_rasterizer: fill_rasterizer,
+            slopes_pso,
+
             terrain_file,
             layers,
             num_fractal_layers,
-        }
+        };
+        clipmap.update_layer(encoder, 0);
+        clipmap
     }
 
-    pub fn update(&mut self, mvp_mat: Matrix4<f32>, camera: Vector3<f32>) {
+    pub fn update_layer<C>(&mut self, encoder: &mut gfx::Encoder<R, C>, layer: u16)
+    where
+        C: gfx_core::command::Buffer<R>,
+    {
+        if self.heights_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
+        {
+            self.heights_pso = self.factory
+                .create_pipeline_state(
+                    self.heights_shader.as_shader_set(),
+                    gfx::Primitive::TriangleList,
+                    self.heights_rasterizer.clone(),
+                    heights_pipe::new(),
+                )
+                .unwrap();
+        }
+
+        if self.slopes_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
+        {
+            self.slopes_pso = self.factory
+                .create_pipeline_state(
+                    self.slopes_shader.as_shader_set(),
+                    gfx::Primitive::TriangleList,
+                    self.slopes_rasterizer.clone(),
+                    slopes_pipe::new(),
+                )
+                .unwrap();
+        }
+
+        let heights = self.factory
+            .view_texture_as_shader_resource::<(R32, Float)>(&self.heights, (0, 0), Swizzle::new())
+            .unwrap();
+        let sampler = self.factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::WrapMode::Clamp,
+        ));
+        let layer_scale = (0.5f32).powi(layer as i32);
+        let layer_step = self.spacing * layer_scale;
+        let slice = gfx::Slice {
+            start: 0,
+            end: 6,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+
+        if layer > 0 {
+            encoder.draw(
+                &slice,
+                &self.heights_pso,
+                &heights_pipe::Data::<R> {
+                    layer: layer as i32,
+                    layer_center: [0.0, 0.0],
+                    parent_center: [0.0, 0.0],
+                    layer_step,
+                    heights: (heights.clone(), sampler.clone()),
+                    out_height: self.factory
+                        .view_texture_as_render_target(&self.heights, 0, Some(layer))
+                        .unwrap(),
+                },
+            );
+        }
+
+        encoder.draw(
+            &slice,
+            &self.slopes_pso,
+            &slopes_pipe::Data::<R> {
+                layer: layer as i32,
+                layer_step,
+                heights: (heights, sampler),
+                out_slope: self.factory
+                    .view_texture_as_render_target(&self.slopes, 0, Some(layer))
+                    .unwrap(),
+            },
+        );
+
+        encoder
+            .update_buffer(
+                &self.layers_buffer,
+                &[
+                    Layer {
+                        center: [0.0, 0.0],
+                        size: [
+                            self.world_width * layer_scale,
+                            self.world_height * layer_scale,
+                        ],
+                    },
+                ],
+                layer as usize,
+            )
+            .unwrap();
+    }
+
+    pub fn update<C>(
+        &mut self,
+        encoder: &mut gfx::Encoder<R, C>,
+        mvp_mat: Matrix4<f32>,
+        camera: Vector3<f32>,
+    ) where
+        C: gfx_core::command::Buffer<R>,
+    {
         if self.clipmap_shader.refresh(
             &mut self.factory,
             &mut self.shaders_watcher,
@@ -302,6 +530,8 @@ where
                 )
                 .unwrap();
         }
+
+        self.update_layer(encoder, 1);
 
         let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
         let center = (

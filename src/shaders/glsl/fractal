@@ -1,23 +1,49 @@
 #line 2
-uniform sampler2D heights;
-uniform sampler2D slopes;
+uniform sampler2DArray heights;
+uniform sampler2DArray slopes;
 uniform sampler2D noise;
 uniform float noiseWavelength;
 
+const int MAX_LAYERS = 16;
+
+struct Layer {
+	vec2 center;
+	vec2 size;
+};
+uniform layersBuffer {
+	Layer layers[MAX_LAYERS];
+};
+
 /// Uses a fractal to refine the height and slope sourced from the course texture.
-void compute_height_and_slope(vec2 pos, vec2 texCoord, out float height, out vec2 slope) {
-    height = texture(heights, texCoord).r;
-	slope = texture(slopes, texCoord).xy;
+vec3 compute_height_and_slope(vec2 pos, vec2 texCoord, out float height, out vec2 slope) {
+	int layer = 1;
+	vec2 center_distance = abs(pos - layers[layer].center);
+	vec2 half_size = layers[layer].size * 0.5;
+	bvec2 r = lessThan(center_distance, half_size);
+	if(!all(r))
+		layer -= 1;
 
-	float scale = 10.0;
-	float wavelength = 32.0;
-	for(int i = 0; i < 6; i++) {
-		float smoothing = mix(0.01, 0.15, smoothstep(0.25, 0.35, length(slope)));
-		vec3 v = texture(noise, pos * noiseWavelength / wavelength).rgb;
-		height += v.x * scale * smoothing;
-		slope += v.yz * scale * smoothing / wavelength;
+	vec2 t = vec2(0.5) + (pos - layers[layer].center) / layers[layer].size;
+	height = texture(heights, vec3(t, layer)).r;
+	slope = texture(slopes, vec3(t, layer)).xy;
 
-		scale *= 0.5;
-		wavelength *= 0.5;
+	if(layer == 1) {
+		return vec3(t.x,0,0);
 	}
+	return vec3(0);
+	// if(layer == 0)
+	// 	slope = vec2(0);
+	// else
+	// 	slope = vec2(1);
+	// float scale = 10.0;
+	// float wavelength = 32.0;
+	// for(int i = 0; i < 6; i++) {
+	// 	float smoothing = mix(0.01, 0.15, smoothstep(0.25, 0.35, length(slope)));
+	// 	vec3 v = texture(noise, pos * noiseWavelength / wavelength).rgb;
+	// 	height += v.x * scale * smoothing;
+	// 	slope += v.yz * scale * smoothing / wavelength;
+
+	// 	scale *= 0.5;
+	// 	wavelength *= 0.5;
+	// }
 }

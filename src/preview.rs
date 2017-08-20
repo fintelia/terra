@@ -57,8 +57,8 @@ fn main() {
 
     let mut projection = get_projection(&window);
     let mut first_person = FirstPerson::new([0.0, 0.0, 0.0], FirstPersonSettings::keyboard_wasd());
-    first_person.settings.speed_vertical = 500.0;
-    first_person.settings.speed_horizontal = 500.0;
+    first_person.settings.speed_vertical = 50000.0;
+    first_person.settings.speed_horizontal = 50000.0;
 
     while let Some(e) = window.next() {
         first_person.event(&e);
@@ -84,6 +84,7 @@ fn main() {
                 camera.position[1] += h + 2.0;
             }
             terrain.update(
+                &mut window.encoder,
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
                 camera.position,
             );
