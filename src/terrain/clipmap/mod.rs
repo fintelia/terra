@@ -16,16 +16,20 @@ use terrain::material::MaterialSet;
 type RenderTarget = gfx::RenderTarget<Srgba8>;
 type DepthTarget = gfx::DepthTarget<DepthStencil>;
 
-const MAX_LAYERS: usize = 16;
+const MAX_LAYERS: usize = 8;
 
 gfx_defines!{
     vertex Vertex {
         pos: [u8; 2] = "vPosition",
     }
 
+    #[repr(C)]
     constant Layer {
+        spacing: f32 = "spacing",
+        padding: f32 = "padding",
         center: [f32; 2] = "center",
         size: [f32; 2] = "size",
+        padding2: [f32; 2] = "padding2",
     }
 }
 gfx_pipeline!( pipe {
@@ -110,9 +114,13 @@ struct ClipmapLayer<R>
 where
     R: gfx::Resources,
 {
+    // mesh
     x: i64,
     y: i64,
     pipeline_data: pipe::Data<R>,
+
+    // texture
+    world_center: [f32; 2],
 }
 
 impl<R, F> Clipmap<R, F>
@@ -136,6 +144,7 @@ where
         let spacing = terrain_file.cell_size();
         let num_fractal_layers = 3;
         let num_static_layers = num_layers - num_fractal_layers;
+        let num_texture_layers = 3;
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -179,7 +188,7 @@ where
             .collect();
         let heights_texture = factory
             .create_texture::<R32>(
-                gfx::texture::Kind::D2Array(w, h, 2, gfx::texture::AaMode::Single),
+                gfx::texture::Kind::D2Array(w, h, num_texture_layers, gfx::texture::AaMode::Single),
                 1,
                 gfx::RENDER_TARGET | gfx::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
@@ -213,7 +222,7 @@ where
 
         let slopes_texture = factory
             .create_texture::<R32_G32>(
-                gfx::texture::Kind::D2Array(w, h, 2, gfx::texture::AaMode::Single),
+                gfx::texture::Kind::D2Array(w, h, num_texture_layers, gfx::texture::AaMode::Single),
                 1,
                 gfx::RENDER_TARGET | gfx::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
@@ -346,6 +355,7 @@ where
             layers.push(ClipmapLayer {
                 x: 0,
                 y: 0,
+                world_center: [0.0, 0.0],
                 pipeline_data: pipe::Data {
                     vertex: vertex_buffer.clone(),
                     model_view_projection: [[0.0; 4]; 4],
@@ -367,7 +377,7 @@ where
                     noise_wavelength: 1.0 / 64.0,
                     materials: (materials.view.clone(), sampler_wrap.clone()),
                     layers: layers_buffer.clone(),
-                    num_layers: 2,
+                    num_layers: num_texture_layers as i32,
                     out_color: out_color.clone(),
                     out_depth: out_stencil.clone(),
                 },
@@ -408,12 +418,16 @@ where
             layers,
             num_fractal_layers,
         };
-        clipmap.update_layer(encoder, 0);
+        clipmap.update_layer(encoder, 0, [0.0, 0.0]);
         clipmap
     }
 
-    pub fn update_layer<C>(&mut self, encoder: &mut gfx::Encoder<R, C>, layer: u16)
-    where
+    pub fn update_layer<C>(
+        &mut self,
+        encoder: &mut gfx::Encoder<R, C>,
+        layer: usize,
+        target_center: [f32; 2],
+    ) where
         C: gfx_core::command::Buffer<R>,
     {
         if self.heights_shader.refresh(
@@ -462,6 +476,10 @@ where
             instances: None,
             buffer: gfx::IndexBuffer::Auto,
         };
+        self.layers[layer].world_center = [
+            layer_step * (target_center[0] / layer_step).round(),
+            layer_step * (target_center[1] / layer_step).round(),
+        ];
 
         if layer > 0 {
             encoder.draw(
@@ -469,12 +487,12 @@ where
                 &self.heights_pso,
                 &heights_pipe::Data::<R> {
                     layer: layer as i32,
-                    layer_center: [0.0, 0.0],
-                    parent_center: [0.0, 0.0],
+                    layer_center: self.layers[layer].world_center,
+                    parent_center: self.layers[layer - 1].world_center,
                     layer_step,
                     heights: (heights.clone(), sampler.clone()),
                     out_height: self.factory
-                        .view_texture_as_render_target(&self.heights, 0, Some(layer))
+                        .view_texture_as_render_target(&self.heights, 0, Some(layer as u16))
                         .unwrap(),
                 },
             );
@@ -488,7 +506,7 @@ where
                 layer_step,
                 heights: (heights, sampler),
                 out_slope: self.factory
-                    .view_texture_as_render_target(&self.slopes, 0, Some(layer))
+                    .view_texture_as_render_target(&self.slopes, 0, Some(layer as u16))
                     .unwrap(),
             },
         );
@@ -498,11 +516,14 @@ where
                 &self.layers_buffer,
                 &[
                     Layer {
-                        center: [0.0, 0.0],
+                        center: self.layers[layer].world_center,
                         size: [
                             self.world_width * layer_scale,
                             self.world_height * layer_scale,
                         ],
+                        spacing: self.spacing * layer_scale,
+                        padding: 0.0,
+                        padding2: [0.0, 0.0],
                     },
                 ],
                 layer as usize,
@@ -533,7 +554,8 @@ where
                 .unwrap();
         }
 
-        self.update_layer(encoder, 1);
+        self.update_layer(encoder, 1, [camera[0], camera[2]]);
+        self.update_layer(encoder, 2, [camera[0], camera[2]]);
 
         let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
         let center = (
