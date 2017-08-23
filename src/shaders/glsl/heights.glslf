@@ -12,6 +12,8 @@ void main() {
 	vec2 texCoord = gl_FragCoord.xy - vec2(0.5);
 
 	vec2 parentTexCoord = (texCoord - center) * 0.5 + center - (parentCenter - layerCenter) / layerStep * 0.5;
+	parentTexCoord = (parentTexCoord + vec2(0.5)) / textureSize(heights, 0).xy;
 
-	OutHeight = texture(heights, vec3((parentTexCoord + vec2(0.5)) / textureSize(heights, 0).xy, layer-1)).r;
+	OutHeight = textureArrayBicubic(heights, vec3(parentTexCoord, layer-1));
+	//OutHeight = texture(heights, vec3(parentTexCoord, layer-1)).r;
 }

@@ -106,6 +106,7 @@ where
     slopes_pso: gfx::PipelineState<R, slopes_pipe::Meta>,
 
     num_fractal_layers: i32,
+    num_texture_layers: usize,
     terrain_file: TerrainFile,
     layers: Vec<ClipmapLayer<R>>,
 }
@@ -144,7 +145,7 @@ where
         let spacing = terrain_file.cell_size();
         let num_fractal_layers = 3;
         let num_static_layers = num_layers - num_fractal_layers;
-        let num_texture_layers = 3;
+        let num_texture_layers = 6;
 
         let ring1_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring1);
         let ring2_vertices = vertex_buffer::generate(mesh_resolution, ClipmapLayerKind::Ring2);
@@ -270,7 +271,7 @@ where
             &mut factory,
             &mut shaders_watcher,
             shader_source!("../../shaders/glsl", "version", "heights.glslv"),
-            shader_source!("../../shaders/glsl", "version", "heights.glslf"),
+            shader_source!("../../shaders/glsl", "version", "bicubic","heights.glslf"),
         ).unwrap();
 
         let slopes_shader = rshader::Shader::simple(
@@ -417,8 +418,12 @@ where
             terrain_file,
             layers,
             num_fractal_layers,
+            num_texture_layers: num_texture_layers as usize,
         };
-        clipmap.update_layer(encoder, 0, [0.0, 0.0]);
+        for i in 0..(num_texture_layers as usize) {
+            clipmap.update_layer(encoder, i, [0.0, 0.0], true);
+        }
+
         clipmap
     }
 
@@ -427,6 +432,7 @@ where
         encoder: &mut gfx::Encoder<R, C>,
         layer: usize,
         target_center: [f32; 2],
+        mut full_update: bool,
     ) where
         C: gfx_core::command::Buffer<R>,
     {
@@ -443,6 +449,7 @@ where
                     heights_pipe::new(),
                 )
                 .unwrap();
+            full_update = true;
         }
 
         if self.slopes_shader.refresh(
@@ -458,8 +465,27 @@ where
                     slopes_pipe::new(),
                 )
                 .unwrap();
+            full_update = true;
         }
 
+        let layer_scale = (0.5f32).powi(layer as i32);
+        let layer_step = self.spacing * layer_scale;
+        let new_center = [
+            layer_step * (target_center[0] / layer_step).round(),
+            layer_step * (target_center[1] / layer_step).round(),
+        ];
+
+        // If the camera hasn't moved very far, don't bother updating the layer.
+        let min_delta = [
+            self.world_width * layer_scale * 0.125,
+            self.world_height * layer_scale * 0.125,
+        ];
+        if !full_update &&
+            (new_center[0] - self.layers[layer].world_center[0]).abs() < min_delta[0] &&
+            (new_center[1] - self.layers[layer].world_center[1]).abs() < min_delta[1]
+        {
+            return;
+        }
         let heights = self.factory
             .view_texture_as_shader_resource::<(R32, Float)>(&self.heights, (0, 0), Swizzle::new())
             .unwrap();
@@ -467,8 +493,6 @@ where
             gfx::texture::FilterMethod::Bilinear,
             gfx::texture::WrapMode::Clamp,
         ));
-        let layer_scale = (0.5f32).powi(layer as i32);
-        let layer_step = self.spacing * layer_scale;
         let slice = gfx::Slice {
             start: 0,
             end: 6,
@@ -476,10 +500,7 @@ where
             instances: None,
             buffer: gfx::IndexBuffer::Auto,
         };
-        self.layers[layer].world_center = [
-            layer_step * (target_center[0] / layer_step).round(),
-            layer_step * (target_center[1] / layer_step).round(),
-        ];
+        self.layers[layer].world_center = new_center;
 
         if layer > 0 {
             encoder.draw(
@@ -554,8 +575,9 @@ where
                 .unwrap();
         }
 
-        self.update_layer(encoder, 1, [camera[0], camera[2]]);
-        self.update_layer(encoder, 2, [camera[0], camera[2]]);
+        for i in 1..self.num_texture_layers {
+            self.update_layer(encoder, i, [camera[0], camera[2]], false);
+        }
 
         let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
         let center = (

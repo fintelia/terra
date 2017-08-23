@@ -43,5 +43,5 @@ void main() {
 
   OutColor = vec4(color, 1);
 //  OutColor.rgb = slope.rrg;
-  OutColor.rgb = mix(OutColor.rgb, c * 0.5, 0.2);
+//  OutColor.rgb = mix(OutColor.rgb, c * 0.5, 0.2);
 }

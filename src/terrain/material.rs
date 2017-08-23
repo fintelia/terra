@@ -67,7 +67,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
         let v: Vec<&[u8]> = image_data.iter().map(|d| &d[..]).collect();
 
         let texture = factory
-            .create_texture_immutable_u8::<(R8_G8_B8_A8, Unorm)>(
+            .create_texture_immutable_u8::<(R8_G8_B8_A8, Srgb)>(
                 gfx::texture::Kind::D2Array(
                     img.dimensions().0 as u16,
                     img.dimensions().1 as u16,
