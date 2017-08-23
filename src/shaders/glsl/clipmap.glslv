@@ -19,11 +19,9 @@ void main() {
   texCoord = (vec2(tPosition) + vec2(0.5)) / textureSize(heights, 0).xy;
 
   vec2 p = iPosition / vec2(resolution - 1);
-  fPosition = vec3(p.x, 0, p.y) * scale + position;
-
-  float y;
-  vec2 slope;
-  compute_height_and_slope(fPosition.xz, texCoord, y, slope);
+  vec3 t = compute_texcoord(p * scale.xz + position.xz);
+  float y = texture(heights, t).r;
+  vec2 slope = texture(slopes, t).xy;
 
   fPosition = vec3(p.x, y, p.y) * scale + position;
   gl_Position = modelViewProjection * vec4(fPosition, 1.0);

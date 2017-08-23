@@ -35,11 +35,10 @@ void main() {
   if(texCoord.x < 0 || texCoord.y < 0 || texCoord.x > 1 || texCoord.y > 1)
 	  discard;
 
-  vec2 slope;
-  float height;
-  vec3 c = compute_height_and_slope(fPosition.xz, texCoord, height, slope);
-  vec3 position = vec3(fPosition.x, height, fPosition.z);
-  vec3 color = compute_color(position, slope);
+  vec3 t = compute_texcoord(fPosition.xz);
+  float height = texture(heights, t).r;
+  vec2 slope = texture(slopes, t).xy;
+  vec3 color = compute_color(vec3(fPosition.x, height, fPosition.z), slope);
 
   OutColor = vec4(color, 1);
 //  OutColor.rgb = slope.rrg;

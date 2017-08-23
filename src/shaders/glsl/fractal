@@ -18,32 +18,12 @@ uniform layersBuffer {
 	Layer layers[MAX_LAYERS];
 };
 
-vec2 compute_texcoord(vec2 pos, int layer) {
-	return vec2(0.5) + (pos - layers[layer].center) / layers[layer].size;
-}
-
-/// Uses a fractal to refine the height and slope sourced from the course texture.
-vec3 compute_height_and_slope(vec2 pos, vec2 texCoord, out float height, out vec2 slope) {
+vec3 compute_texcoord(vec2 pos) {
 	int layer = numLayers - 1;
 	while(layer > 0 &&
 		  any(greaterThan(abs(pos - layers[layer].center),
 						  (layers[layer].size - 3*vec2(layers[layer].spacing)) * 0.5))) {
 		layer -= 1;
 	}
-
-	vec2 t = compute_texcoord(pos, layer);
-	height = texture(heights, vec3(t, layer)).r;
-	slope = texture(slopes, vec3(t, layer)).xy;
-
-	// float fadeDistance = 0.01;
-	// float edgeDistance = 1;//.4 - max(abs(t.x - 0.5), abs(t.y - 0.5));
-	// if(edgeDistance < fadeDistance && layer > 0) {
-	// 	float fade = 1.0 - edgeDistance / fadeDistance;
-
-	// 	vec2 t = compute_texcoord(pos, layer - 1);
-	// 	height = mix(height, texture(heights, vec3(t, layer - 1)).r, fade);
-	// 	slope = mix(slope, texture(slopes, vec3(t, layer - 1)).xy, fade);
-	// 	return vec3(1);
-	// }
-	return vec3(layer);
+	return vec3(vec2(0.5) + (pos - layers[layer].center) / layers[layer].size, layer - 1);
 }
