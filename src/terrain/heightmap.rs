@@ -84,8 +84,8 @@ impl<T> Heightmap<T> {
                     self.heights[x as usize + y as usize * self.width as usize]
                         .clone()
                         .into(),
-                    (mx - px) * scale_factor,
-                    (my - py) * scale_factor,
+                    (px - mx) * scale_factor,
+                    (py - my) * scale_factor,
                 ];
                 result.push(v);
             }
