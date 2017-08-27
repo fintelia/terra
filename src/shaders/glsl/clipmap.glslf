@@ -39,14 +39,20 @@ vec3 material(vec3 pos, uint mat) {
 	return vec3(0.5);
 }
 vec3 compute_splatting(vec3 pos, vec2 t) {
+	t += 0.00001 * vec2(fractal(pos.xz), fractal(pos.xz + vec2(25)));
+
 	vec2 weights = fract(t.xy * textureSize(splatmap, 0).xy - 0.5);
 	uvec4 m = textureGather(splatmap, t, 0);
-	vec3 color01 = material(pos, m.x);
-	vec3 color11 = material(pos, m.y);
-	vec3 color10 = material(pos, m.z);
-	vec3 color00 = material(pos, m.w);
-	return mix(mix(color00, color01, weights.y),
-			   mix(color10, color11, weights.y), weights.x);
+	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
+				 mix(vec4(0,0,1,0), vec4(0,1,0,0), weights.y), weights.x);
+
+	w = max(w - 0.15, 0);
+	w /= w.x + w.y + w.z + w.w;
+
+	return material(pos, m.x) * w.x +
+		material(pos, m.y) * w.y +
+		material(pos, m.z) * w.z +
+		material(pos, m.w) * w.w;
 }
 
 void main() {
@@ -57,9 +63,6 @@ void main() {
   float height;
   compute_height_and_slope(fPosition.xz, texCoord, height, slope);
   vec3 position = vec3(fPosition.x, height, fPosition.z);
-  vec3 color = compute_color(position, slope);
-
-  OutColor = vec4(color, 1);
 
   vec2 t = position.xz / (2.0 * textureSize(splatmap, 0)) + vec2(0.5);
   if(t.x > 0 && t.x < 1 && t.y > 0 && t.y < 1) {
@@ -69,8 +72,9 @@ void main() {
 	  if(s >= 1.0) {
 		  OutColor.rgb = texture(colormap, t).rgb;
 	  } else {
-		  //		  OutColor.rgb = mix(OutColor.rgb, vec3(1,0,0), 0.5);
-		  OutColor.rgb = compute_splatting(position, t);
+		  vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
+		  float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
+		  OutColor.rgb = compute_splatting(position, t) * nDotL;
 	  }
   } else {
 	  OutColor.rgb = vec3(0.5);
