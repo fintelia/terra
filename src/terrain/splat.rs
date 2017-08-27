@@ -4,9 +4,9 @@ use gfx::Primitive::TriangleList;
 use gfx::texture::FilterMethod::Bilinear;
 use gfx::texture::WrapMode::*;
 use gfx::texture::SamplerInfo;
-use gfx_core::format::*;
-use gfx_core::handle::{Texture, ShaderResourceView};
 use gfx_core::command::Buffer;
+use gfx_core::format::*;
+use gfx_core::handle::{RenderTargetView, ShaderResourceView, Texture};
 use rshader;
 
 gfx_pipeline!( splat_pipe {
@@ -28,8 +28,9 @@ gfx_pipeline!( color_pipe {
     texture_spacing: gfx::Global<f32> = "textureSpacing",
     texture_resolution: gfx::Global<i32> = "resolution",
     heights_spacing: gfx::Global<f32> = "heightsSpacing",
+    layer: gfx::Global<i32> = "layer",
 //    materials: gfx::TextureSampler<[f32; 4]> = "materials",
-    out_color: gfx::RenderTarget<Srgba8> = "OutColor",
+    out_color: gfx::RenderTarget<Rgba8> = "OutColor",
 });
 
 const RASTERIZER: gfx::state::Rasterizer = gfx::state::Rasterizer {
@@ -48,6 +49,7 @@ pub struct Splat<R: gfx::Resources> {
     color_pso: gfx::PipelineState<R, color_pipe::Meta>,
     color_pipeline_data: color_pipe::Data<R>,
     color_shader: rshader::Shader<R>,
+    color_render_targets: Vec<RenderTargetView<R, Rgba8>>,
 
     _splatmap: Texture<R, R8>,
     _colormap: Texture<R, R8_G8_B8_A8>,
@@ -83,7 +85,11 @@ impl<R: gfx::Resources> Splat<R> {
             buffer: gfx::IndexBuffer::Auto,
         };
         encoder.draw(&slice, &self.splat_pso, &self.splat_pipeline_data);
-        encoder.draw(&slice, &self.color_pso, &self.color_pipeline_data);
+        for (layer, rt) in self.color_render_targets.iter().enumerate() {
+            self.color_pipeline_data.out_color = rt.clone();
+            self.color_pipeline_data.layer = layer as i32;
+            encoder.draw(&slice, &self.color_pso, &self.color_pipeline_data);
+        }
         encoder.generate_mipmap(&self.colormap_view);
     }
 
@@ -113,6 +119,7 @@ impl<R: gfx::Resources> Splat<R> {
         ).unwrap();
 
         let num_mipmaps = 15 - (resolution - 1).leading_zeros() as u8;
+        let colormap_layers = 6;
 
         let splatmap = factory
             .create_texture::<R8>(
@@ -125,7 +132,12 @@ impl<R: gfx::Resources> Splat<R> {
             .unwrap();
         let colormap = factory
             .create_texture::<R8_G8_B8_A8>(
-                gfx::texture::Kind::D2(resolution, resolution, gfx::texture::AaMode::Single),
+                gfx::texture::Kind::D2Array(
+                    resolution,
+                    resolution,
+                    colormap_layers,
+                    gfx::texture::AaMode::Single,
+                ),
                 num_mipmaps,
                 gfx::RENDER_TARGET | gfx::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
@@ -133,11 +145,20 @@ impl<R: gfx::Resources> Splat<R> {
             )
             .unwrap();
 
+        let mut color_render_targets = Vec::new();
+        for layer in 0..colormap_layers {
+            color_render_targets.push(
+                factory
+                    .view_texture_as_render_target(&colormap, 0, Some(layer))
+                    .unwrap(),
+            );
+        }
+
         let splatmap_view = factory
-            .view_texture_as_shader_resource::<(R8, Uint)>(&splatmap, (0, 0), Swizzle::new())
+            .view_texture_as_shader_resource::<(R8, Uint)>(&splatmap, (0, 4), Swizzle::new())
             .unwrap();
         let colormap_view = factory
-            .view_texture_as_shader_resource::<Rgba8>(&colormap, (0, 0), Swizzle::new())
+            .view_texture_as_shader_resource::<Rgba8>(&colormap, (0, 4), Swizzle::new())
             .unwrap();
 
         let sampler_clamp = factory.create_sampler(SamplerInfo::new(Bilinear, Clamp));
@@ -166,10 +187,10 @@ impl<R: gfx::Resources> Splat<R> {
                 texture_spacing,
                 texture_resolution: resolution as i32,
                 heights_spacing,
-                out_color: factory
-                    .view_texture_as_render_target(&colormap, 0, None)
-                    .unwrap(),
+                layer: 0,
+                out_color: color_render_targets[0].clone(),
             },
+            color_render_targets,
             splat_shader,
             color_shader,
             _splatmap: splatmap,

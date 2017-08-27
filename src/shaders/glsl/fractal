@@ -20,6 +20,10 @@ void compute_height_and_slope(vec2 pos, vec2 texCoord, out float height, out vec
 		scale *= 0.5;
 		wavelength *= 0.5;
 	}
+
+    float earthRadius = 6.371e6;
+    vec2 r = pos / earthRadius;
+    height += earthRadius * (sqrt(1.0 - dot(r,r)) - 1.0);
 }
 
 float fractal(vec2 pos) {

@@ -2,6 +2,7 @@
 uniform int resolution;
 uniform float textureSpacing;
 uniform float heightsSpacing;
+uniform int layer;
 
 out int OutSplat;
 out vec4 OutColor;
@@ -19,7 +20,7 @@ vec3 compute_color(vec3 position, vec2 slope) {
 }
 
 void main() {
-	vec2 pos = (gl_FragCoord.xy - vec2(resolution * 0.5)) * textureSpacing;
+	vec2 pos = (gl_FragCoord.xy - vec2(resolution * 0.5)) * textureSpacing * exp2(layer);
 	vec2 texCoord = pos / (heightsSpacing * textureSize(heights, 0)) + vec2(0.5);
 
 	vec2 slope;
