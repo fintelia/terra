@@ -1,5 +1,9 @@
 use gfx;
 use gfx::traits::FactoryExt;
+use gfx::Primitive::TriangleList;
+use gfx::texture::FilterMethod::Bilinear;
+use gfx::texture::WrapMode::*;
+use gfx::texture::SamplerInfo;
 use gfx_core::format::*;
 use gfx_core::handle::{Texture, ShaderResourceView};
 use gfx_core::command::Buffer;
@@ -58,12 +62,7 @@ impl<R: gfx::Resources> Splat<R> {
         shaders: &gfx::ShaderSet<R>,
     ) -> gfx::PipelineState<R, splat_pipe::Meta> {
         factory
-            .create_pipeline_state(
-                shaders,
-                gfx::Primitive::TriangleList,
-                RASTERIZER,
-                splat_pipe::new(),
-            )
+            .create_pipeline_state(shaders, TriangleList, RASTERIZER, splat_pipe::new())
             .unwrap()
     }
     fn create_color_pso<F: gfx::Factory<R>>(
@@ -71,12 +70,7 @@ impl<R: gfx::Resources> Splat<R> {
         shaders: &gfx::ShaderSet<R>,
     ) -> gfx::PipelineState<R, color_pipe::Meta> {
         factory
-            .create_pipeline_state(
-                shaders,
-                gfx::Primitive::TriangleList,
-                RASTERIZER,
-                color_pipe::new(),
-            )
+            .create_pipeline_state(shaders, TriangleList, RASTERIZER, color_pipe::new())
             .unwrap()
     }
 
@@ -146,14 +140,8 @@ impl<R: gfx::Resources> Splat<R> {
             .view_texture_as_shader_resource::<Rgba8>(&colormap, (0, 0), Swizzle::new())
             .unwrap();
 
-        let sampler_clamp = factory.create_sampler(gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Bilinear,
-            gfx::texture::WrapMode::Clamp,
-        ));
-        let sampler_wrap = factory.create_sampler(gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Bilinear,
-            gfx::texture::WrapMode::Tile,
-        ));
+        let sampler_clamp = factory.create_sampler(SamplerInfo::new(Bilinear, Clamp));
+        let sampler_wrap = factory.create_sampler(SamplerInfo::new(Bilinear, Tile));
 
         let mut splat = Self {
             splat_pso: Self::create_splat_pso(factory, splat_shader.as_shader_set()),
