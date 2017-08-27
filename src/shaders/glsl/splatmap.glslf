@@ -16,7 +16,7 @@ vec3 compute_color(vec3 position, vec2 slope) {
   vec3 color = mix(grass_color, rock_color, grass_amount);
   float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
 
-  return color * nDotL;
+  return color;// * nDotL;
 }
 
 void main() {

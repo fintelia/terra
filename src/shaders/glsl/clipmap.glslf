@@ -33,6 +33,22 @@ vec3 compute_color(vec3 position, vec2 slope) {
   return mix(vec3(nDotL) * color, fogColor, fogAmount);
 }
 
+
+vec3 material(vec3 pos, uint mat) {
+	if(mat == 0) return vec3(0.25,0.2,0.15);
+	return vec3(0.5);
+}
+vec3 compute_splatting(vec3 pos, vec2 t) {
+	vec2 weights = fract(t.xy * textureSize(splatmap, 0).xy - 0.5);
+	uvec4 m = textureGather(splatmap, t, 0);
+	vec3 color01 = material(pos, m.x);
+	vec3 color11 = material(pos, m.y);
+	vec3 color10 = material(pos, m.z);
+	vec3 color00 = material(pos, m.w);
+	return mix(mix(color00, color01, weights.y),
+			   mix(color10, color11, weights.y), weights.x);
+}
+
 void main() {
   if(texCoord.x < 0 || texCoord.y < 0 || texCoord.x > 1 || texCoord.y > 1)
 	  discard;
@@ -54,6 +70,7 @@ void main() {
 		  OutColor.rgb = texture(colormap, t).rgb;
 	  } else {
 		  //		  OutColor.rgb = mix(OutColor.rgb, vec3(1,0,0), 0.5);
+		  OutColor.rgb = compute_splatting(position, t);
 	  }
   } else {
 	  OutColor.rgb = vec3(0.5);
