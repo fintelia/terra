@@ -5,7 +5,18 @@ use gfx_core::handle::{Texture, ShaderResourceView};
 use gfx_core::command::Buffer;
 use rshader;
 
-gfx_pipeline!( pipe {
+gfx_pipeline!( splat_pipe {
+    heights: gfx::TextureSampler<f32> = "heights",
+    slopes: gfx::TextureSampler<[f32; 2]> = "slopes",
+    noise: gfx::TextureSampler<[f32; 3]> = "noise",
+    noise_wavelength: gfx::Global<f32> = "noiseWavelength",
+    texture_spacing: gfx::Global<f32> = "textureSpacing",
+    texture_resolution: gfx::Global<i32> = "resolution",
+    heights_spacing: gfx::Global<f32> = "heightsSpacing",
+//    materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    out_splat: gfx::RenderTarget<(R8, Uint)> = "OutSplat",
+});
+gfx_pipeline!( color_pipe {
     heights: gfx::TextureSampler<f32> = "heights",
     slopes: gfx::TextureSampler<[f32; 2]> = "slopes",
     noise: gfx::TextureSampler<[f32; 3]> = "noise",
@@ -15,13 +26,24 @@ gfx_pipeline!( pipe {
     heights_spacing: gfx::Global<f32> = "heightsSpacing",
 //    materials: gfx::TextureSampler<[f32; 4]> = "materials",
     out_color: gfx::RenderTarget<Srgba8> = "OutColor",
-    out_splat: gfx::RenderTarget<(R8, Uint)> = "OutSplat",
 });
 
+const RASTERIZER: gfx::state::Rasterizer = gfx::state::Rasterizer {
+    front_face: gfx::state::FrontFace::Clockwise,
+    cull_face: gfx::state::CullFace::Nothing,
+    method: gfx::state::RasterMethod::Fill,
+    offset: None,
+    samples: None,
+};
+
 pub struct Splat<R: gfx::Resources> {
-    pso: gfx::PipelineState<R, pipe::Meta>,
-    pipeline_data: pipe::Data<R>,
-    shader: rshader::Shader<R>,
+    splat_pso: gfx::PipelineState<R, splat_pipe::Meta>,
+    splat_pipeline_data: splat_pipe::Data<R>,
+    splat_shader: rshader::Shader<R>,
+
+    color_pso: gfx::PipelineState<R, color_pipe::Meta>,
+    color_pipeline_data: color_pipe::Data<R>,
+    color_shader: rshader::Shader<R>,
 
     _splatmap: Texture<R, R8>,
     _colormap: Texture<R, R8_G8_B8_A8>,
@@ -31,38 +53,43 @@ pub struct Splat<R: gfx::Resources> {
 }
 
 impl<R: gfx::Resources> Splat<R> {
-    fn create_pso<F: gfx::Factory<R>>(
+    fn create_splat_pso<F: gfx::Factory<R>>(
         factory: &mut F,
         shaders: &gfx::ShaderSet<R>,
-    ) -> gfx::PipelineState<R, pipe::Meta> {
+    ) -> gfx::PipelineState<R, splat_pipe::Meta> {
         factory
             .create_pipeline_state(
                 shaders,
                 gfx::Primitive::TriangleList,
-                gfx::state::Rasterizer {
-                    front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Nothing,
-                    method: gfx::state::RasterMethod::Fill,
-                    offset: None,
-                    samples: None,
-                },
-                pipe::new(),
+                RASTERIZER,
+                splat_pipe::new(),
+            )
+            .unwrap()
+    }
+    fn create_color_pso<F: gfx::Factory<R>>(
+        factory: &mut F,
+        shaders: &gfx::ShaderSet<R>,
+    ) -> gfx::PipelineState<R, color_pipe::Meta> {
+        factory
+            .create_pipeline_state(
+                shaders,
+                gfx::Primitive::TriangleList,
+                RASTERIZER,
+                color_pipe::new(),
             )
             .unwrap()
     }
 
     fn update<C: Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-        encoder.draw(
-            &gfx::Slice {
-                start: 0,
-                end: 6,
-                base_vertex: 0,
-                instances: None,
-                buffer: gfx::IndexBuffer::Auto,
-            },
-            &self.pso,
-            &self.pipeline_data,
-        );
+        let slice = gfx::Slice {
+            start: 0,
+            end: 6,
+            base_vertex: 0,
+            instances: None,
+            buffer: gfx::IndexBuffer::Auto,
+        };
+        encoder.draw(&slice, &self.splat_pso, &self.splat_pipeline_data);
+        encoder.draw(&slice, &self.color_pso, &self.color_pipeline_data);
         encoder.generate_mipmap(&self.colormap_view);
     }
 
@@ -78,11 +105,17 @@ impl<R: gfx::Resources> Splat<R> {
         noise_wavelength: f32,
         heights_spacing: f32,
     ) -> Self {
-        let shader = rshader::Shader::simple(
+        let splat_shader = rshader::Shader::simple(
             factory,
             shaders_watcher,
-            shader_source!("../shaders/glsl", "version", "splatmap.glslv"),
+            shader_source!("../shaders/glsl", "version", "fullscreen.glslv"),
             shader_source!("../shaders/glsl", "version", "fractal", "splatmap.glslf"),
+        ).unwrap();
+        let color_shader = rshader::Shader::simple(
+            factory,
+            shaders_watcher,
+            shader_source!("../shaders/glsl", "version", "fullscreen.glslv"),
+            shader_source!("../shaders/glsl", "version", "fractal", "colormap.glslf"),
         ).unwrap();
 
         let num_mipmaps = 15 - (resolution - 1).leading_zeros() as u8;
@@ -123,8 +156,21 @@ impl<R: gfx::Resources> Splat<R> {
         ));
 
         let mut splat = Self {
-            pso: Self::create_pso(factory, shader.as_shader_set()),
-            pipeline_data: pipe::Data::<R> {
+            splat_pso: Self::create_splat_pso(factory, splat_shader.as_shader_set()),
+            color_pso: Self::create_color_pso(factory, color_shader.as_shader_set()),
+            splat_pipeline_data: splat_pipe::Data::<R> {
+                heights: (heights.clone(), sampler_clamp.clone()),
+                slopes: (slopes.clone(), sampler_clamp.clone()),
+                noise: (noise.clone(), sampler_wrap.clone()),
+                noise_wavelength,
+                texture_spacing,
+                texture_resolution: resolution as i32,
+                heights_spacing,
+                out_splat: factory
+                    .view_texture_as_render_target(&splatmap, 0, None)
+                    .unwrap(),
+            },
+            color_pipeline_data: color_pipe::Data::<R> {
                 heights: (heights, sampler_clamp.clone()),
                 slopes: (slopes, sampler_clamp.clone()),
                 noise: (noise, sampler_wrap),
@@ -135,11 +181,9 @@ impl<R: gfx::Resources> Splat<R> {
                 out_color: factory
                     .view_texture_as_render_target(&colormap, 0, None)
                     .unwrap(),
-                out_splat: factory
-                    .view_texture_as_render_target(&splatmap, 0, None)
-                    .unwrap(),
             },
-            shader,
+            splat_shader,
+            color_shader,
             _splatmap: splatmap,
             splatmap_view,
             _colormap: colormap,
@@ -155,13 +199,20 @@ impl<R: gfx::Resources> Splat<R> {
         encoder: &mut gfx::Encoder<R, C>,
         shaders_watcher: &mut rshader::ShaderDirectoryWatcher,
     ) -> bool {
-        if self.shader.refresh(factory, shaders_watcher) {
-            self.pso = Self::create_pso(factory, self.shader.as_shader_set());
+        let mut refreshed = false;
+        if self.splat_shader.refresh(factory, shaders_watcher) {
+            self.splat_pso = Self::create_splat_pso(factory, self.splat_shader.as_shader_set());
             self.update(encoder);
-            true
-        } else {
-            false
+            refreshed = true;
         }
+
+        if self.color_shader.refresh(factory, shaders_watcher) {
+            self.color_pso = Self::create_color_pso(factory, self.color_shader.as_shader_set());
+            self.update(encoder);
+            refreshed = true;
+        }
+
+        refreshed
     }
 
     pub fn splatmap_shader_resource_view(&self) -> ShaderResourceView<R, u32> {
