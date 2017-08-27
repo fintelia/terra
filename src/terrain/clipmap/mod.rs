@@ -9,6 +9,7 @@ use rshader;
 use std::env;
 
 use terrain::heightmap;
+use terrain::splat::Splat;
 use terrain::vertex_buffer::{self, ClipmapLayerKind};
 use terrain::file::TerrainFile;
 use terrain::material::MaterialSet;
@@ -37,6 +38,8 @@ gfx_pipeline!( pipe {
     noise: gfx::TextureSampler<[f32; 3]> = "noise",
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    splatmap: gfx::TextureSampler<u32> = "splatmap",
+    colormap: gfx::TextureSampler<[f32; 4]> = "colormap",
     out_color: RenderTarget = "OutColor",
     out_depth: DepthTarget = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -68,6 +71,8 @@ where
 
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     clipmap_shader: rshader::Shader<R>,
+
+    splat: Splat<R>,
 
     num_fractal_layers: i32,
     terrain_file: TerrainFile,
@@ -193,6 +198,7 @@ where
             shader_source!("../../shaders/glsl", "version", "fractal", "clipmap.glslf"),
         ).unwrap();
 
+        let noise_wavelength = 1.0 / 64.0;
         let noise_heightmap = heightmap::wavelet_noise(64, 8);
         let noisemap = noise_heightmap.as_height_and_slopes(1.0 / 8.0);
         let noisemap: Vec<[u32; 3]> = noisemap
@@ -211,6 +217,24 @@ where
             gfx::texture::WrapMode::Tile,
         );
         let sampler_wrap = factory.create_sampler(sinfo_wrap);
+
+        let sampler_nearest = factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Scale,
+            gfx::texture::WrapMode::Clamp,
+        ));
+
+        let splat = Splat::new(
+            &mut factory,
+            encoder,
+            &mut shaders_watcher,
+            4096,
+            2.0,
+            heights_texture.1.clone(),
+            slopes_texture.1.clone(),
+            noise_texture.1.clone(),
+            noise_wavelength,
+            spacing,
+        );
 
         let rasterizer = gfx::state::Rasterizer {
             front_face: gfx::state::FrontFace::Clockwise,
@@ -253,8 +277,13 @@ where
                     slopes: (slopes_texture.1.clone(), sampler.clone()),
                     shadows: (shadows_texture.1.clone(), sampler.clone()),
                     noise: (noise_texture.1.clone(), sampler_wrap.clone()),
-                    noise_wavelength: 1.0 / 64.0,
+                    noise_wavelength,
                     materials: (materials.view.clone(), sampler_wrap.clone()),
+                    splatmap: (
+                        splat.splatmap_shader_resource_view(),
+                        sampler_nearest.clone(),
+                    ),
+                    colormap: (splat.colormap_shader_resource_view(), sampler_wrap.clone()),
                     out_color: out_color.clone(),
                     out_depth: out_stencil.clone(),
                 },
@@ -281,13 +310,21 @@ where
             shaders_watcher,
             clipmap_shader,
 
+            splat,
             terrain_file,
             layers,
             num_fractal_layers,
         }
     }
 
-    pub fn update(&mut self, mvp_mat: Matrix4<f32>, camera: Vector3<f32>) {
+    pub fn update<C>(
+        &mut self,
+        mvp_mat: Matrix4<f32>,
+        camera: Vector3<f32>,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) where
+        C: gfx_core::command::Buffer<R>,
+    {
         if self.clipmap_shader.refresh(
             &mut self.factory,
             &mut self.shaders_watcher,
@@ -302,6 +339,11 @@ where
                 )
                 .unwrap();
         }
+        self.splat.refresh(
+            &mut self.factory,
+            encoder,
+            &mut self.shaders_watcher,
+        );
 
         let spacing = self.spacing * (0.5f32).powi(self.num_fractal_layers);
         let center = (

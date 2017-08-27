@@ -86,6 +86,7 @@ fn main() {
             terrain.update(
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
                 camera.position,
+                &mut window.encoder,
             );
             terrain.render(&mut window.encoder);
         });

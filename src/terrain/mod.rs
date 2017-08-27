@@ -5,3 +5,4 @@ pub mod material;
 
 mod heightmap;
 mod vertex_buffer;
+mod splat;

@@ -5,6 +5,8 @@ out vec4 OutColor;
 
 uniform sampler2D shadows;
 uniform sampler2DArray materials;
+uniform usampler2D splatmap;
+uniform sampler2D colormap;
 
 uniform vec3 eyePosition;
 
@@ -42,4 +44,18 @@ void main() {
   vec3 color = compute_color(position, slope);
 
   OutColor = vec4(color, 1);
+
+  vec2 t = position.xz / (2.0 * textureSize(splatmap, 0)) + vec2(0.5);
+  if(t.x > 0 && t.x < 1 && t.y > 0 && t.y < 1) {
+	  vec4 d = vec4(dFdx(position.xz * 0.5),
+					dFdy(position.xz * 0.5));
+	  float s = max(length(d.xz), length(d.yw));
+	  if(s >= 1.0) {
+		  OutColor.rgb = texture(colormap, t).rgb;
+	  } else {
+		  //		  OutColor.rgb = mix(OutColor.rgb, vec3(1,0,0), 0.5);
+	  }
+  } else {
+	  OutColor.rgb = vec3(0.5);
+  }
 }
