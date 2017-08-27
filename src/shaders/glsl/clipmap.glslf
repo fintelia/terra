@@ -39,7 +39,7 @@ vec3 material(vec3 pos, uint mat) {
 	return vec3(0.5);
 }
 vec3 compute_splatting(vec3 pos, vec2 t) {
-	t += 0.00001 * vec2(fractal(pos.xz), fractal(pos.xz + vec2(25)));
+	t += 0.0001 * vec2(fractal(pos.xz), fractal(pos.xz + vec2(25)));
 
 	vec2 weights = fract(t.xy * textureSize(splatmap, 0).xy - 0.5);
 	uvec4 m = textureGather(splatmap, t, 0);
