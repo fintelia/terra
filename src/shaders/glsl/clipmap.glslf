@@ -68,13 +68,17 @@ void main() {
   if(t.x > 0 && t.x < 1 && t.y > 0 && t.y < 1) {
 	  vec4 d = vec4(dFdx(position.xz * 0.5),
 					dFdy(position.xz * 0.5));
-	  float s = max(length(d.xz), length(d.yw));
-	  if(s >= 1.0) {
+	  float level = 0.5 * log2(max(dot(d.xz, d.xz), dot(d.yw, d.yw)));
+	  if(level >= 0.0) {
 		  OutColor.rgb = texture(colormap, t).rgb;
 	  } else {
 		  vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
 		  float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
 		  OutColor.rgb = compute_splatting(position, t) * nDotL;
+
+		  if(level >= -1.0) {
+			  OutColor.rgb = mix(OutColor.rgb, texture(colormap, t).rgb, level + 1.0);
+		  }
 	  }
   } else {
 	  OutColor.rgb = vec3(0.5);
