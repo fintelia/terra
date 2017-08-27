@@ -100,6 +100,7 @@ impl<R: gfx::Resources> Shader<R> {
         directory_watcher.detect_changes();
         if directory_watcher.last_modification > self.last_update {
             let new = Self::load(factory, &self.vertex_filenames, &self.pixel_filenames);
+            self.last_update = Instant::now();
             if let Ok(shader_set) = new {
                 self.shader_set = shader_set;
                 return true;
