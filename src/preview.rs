@@ -4,8 +4,6 @@ extern crate piston_window;
 extern crate terra;
 extern crate vecmath;
 
-use std::path::Path;
-
 use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
@@ -29,11 +27,7 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let materials = MaterialSet::load(
-        Path::new("assets"),
-        &mut window.factory,
-        &mut window.encoder,
-    );
+    let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
     let mut terrain = Clipmap::new(
@@ -57,8 +51,8 @@ fn main() {
 
     let mut projection = get_projection(&window);
     let mut first_person = FirstPerson::new([0.0, 0.0, 0.0], FirstPersonSettings::keyboard_wasd());
-    first_person.settings.speed_vertical = 500.0;
-    first_person.settings.speed_horizontal = 500.0;
+    first_person.settings.speed_vertical = 50.0;
+    first_person.settings.speed_horizontal = 2.0;
 
     while let Some(e) = window.next() {
         first_person.event(&e);

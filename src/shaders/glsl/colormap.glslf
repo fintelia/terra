@@ -10,7 +10,7 @@ out int OutSplat;
 out vec4 OutColor;
 
 vec3 material(vec3 pos, uint mat) {
-	return textureLod(materials, vec3(0.5, 0.5, mat), 1000).rgb * (1.0 + fractal2(pos.xz) * 0.05);
+	return textureLod(materials, vec3(0.5, 0.5, mat), 1000).rgb * (1.0 + fractal2(pos.xz) * 0.2);
 }
 
 vec3 compute_color(vec3 position, vec2 slope) {

@@ -2,7 +2,7 @@ use std::env;
 use std::error::Error;
 use std::fs::{self, File};
 use std::path::PathBuf;
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 
 use bincode::{self, Infinite};
 use serde::Serialize;
@@ -45,6 +45,7 @@ pub trait WebAsset {
             }
             let mut file = File::create(filename)?;
             file.write_all(&data)?;
+            file.sync_all()?;
         }
         Ok(self.parse(data)?)
     }
@@ -68,7 +69,11 @@ pub trait GeneratedAsset {
                 fs::create_dir_all(parent)?;
             }
             let mut file = File::create(&filename)?;
-            bincode::serialize_into(&mut file, &generated, Infinite)?;
+            {
+                let mut writer = BufWriter::new(&mut file);
+                bincode::serialize_into(&mut writer, &generated, Infinite)?;
+            }
+            file.sync_all()?;
             Ok(generated)
         }
     }

@@ -18,7 +18,7 @@ float compute_fog(vec3 position) {
 }
 
 vec3 material(vec3 pos, uint mat) {
-	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb * (1.0 + fractal2(pos.xz) * 0.05);
+	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb * (1.0 + fractal2(pos.xz) * 0.2);
 }
 
 vec3 compute_splatting(vec3 pos, vec2 t) {
