@@ -52,7 +52,7 @@ fn main() {
     let mut projection = get_projection(&window);
     let mut first_person = FirstPerson::new([0.0, 0.0, 0.0], FirstPersonSettings::keyboard_wasd());
     first_person.settings.speed_vertical = 50.0;
-    first_person.settings.speed_horizontal = 2.0;
+    first_person.settings.speed_horizontal = 200.0;
 
     while let Some(e) = window.next() {
         first_person.event(&e);

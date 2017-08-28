@@ -21,14 +21,14 @@ impl WebAsset for MaterialTypeRaw {
 
     fn url(&self) -> String {
         match self.0 {
-            MaterialType::Rock => unimplemented!(),//"https://freepbr.com/materials/limestone-rock-pbr-material",
+            MaterialType::Rock => unimplemented!(),//"https://freepbr.com/materials/planet-surface-ground-pbr-material/",
             MaterialType::Grass => unimplemented!(),//"https://freepbr.com/materials/grass-1-pbr-material",
         }
     }
 
     fn filename(&self) -> String {
         let name = match self.0 {
-            MaterialType::Rock => "limestone-rock-Unity2.zip",
+            MaterialType::Rock => "planetsurface1-Unity.zip",
             MaterialType::Grass => "grass1-Unity-2.zip",
         };
         format!("materials/raw/{}", name)
