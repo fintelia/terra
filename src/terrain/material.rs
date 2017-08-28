@@ -3,12 +3,12 @@ use gfx_core;
 use gfx::format::*;
 
 use std::path::Path;
-use std::cmp;
 
 use image;
+use image::GenericImage;
 
 pub struct MaterialSet<R: gfx::Resources> {
-    pub(crate) view: gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
+    pub(crate) texture_view: gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
     pub(crate) _texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
 }
 
@@ -16,72 +16,83 @@ impl<R: gfx::Resources> MaterialSet<R> {
     pub fn load<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
         path: &Path,
         factory: &mut F,
-        _encoder: &mut gfx::Encoder<R, C>,
+        encoder: &mut gfx::Encoder<R, C>,
     ) -> Self {
-        let img = image::open(path.join("Just Add Bison.jpg")).unwrap();
-        let img = img.to_rgba();
+        let image_files = vec![
+            "limestone-rock/limestone-rock-albedo.png",
+            "grass1/grass1-albedo3.png",
+        ];
 
-        let mut image_data = vec![img.to_vec()];
-
-        let (width, height) = img.dimensions();
-        let (mut width, mut height) = (width as usize, height as usize);
-
-        while width > 1 || height > 1 {
-            let nwidth = cmp::max(width >> 1, 1);
-            let nheight = cmp::max(height >> 1, 1);
-
-            let mut data = Vec::with_capacity(width * height * 4);
-            for y in (0..height).step_by(2) {
-                for x in (0..width).step_by(2) {
-                    for t in 0..4 {
-                        if image_data.len() < 40 {
-                            let parent = &image_data[image_data.len() - 1];
-                            let mut denominator = 1;
-                            let mut sum = parent[(x + y * width) * 4 + t] as u32;
-                            if x + 1 < width {
-                                sum += parent[((x + 1) + y * width) * 4 + t] as u32;
-                                denominator += 1;
-                            }
-                            if y + 1 < height {
-                                sum += parent[(x + (y + 1) * width) * 4 + t] as u32;
-                                denominator += 1;
-                            }
-                            if x + 1 < width && y + 1 < height {
-                                sum += parent[((x + 1) + (y + 1) * width) * 4 + t] as u32;
-                                denominator += 1;
-                            }
-
-                            data.push((sum / denominator) as u8);
-                        } else {
-                            data.push(0);
-                        }
-                    }
-                }
-            }
-            image_data.push(data);
-
-            width = nwidth;
-            height = nheight;
-        }
-
-        let v: Vec<&[u8]> = image_data.iter().map(|d| &d[..]).collect();
+        let resolution = 2048;
+        let mipmaps = 12;
 
         let texture = factory
-            .create_texture_immutable_u8::<(R8_G8_B8_A8, Unorm)>(
+            .create_texture::<R8_G8_B8_A8>(
                 gfx::texture::Kind::D2Array(
-                    img.dimensions().0 as u16,
-                    img.dimensions().1 as u16,
-                    1,
+                    resolution,
+                    resolution,
+                    image_files.len() as u16,
                     gfx::texture::AaMode::Single,
                 ),
-                &v[..],
+                mipmaps,
+                gfx::SHADER_RESOURCE,
+                gfx::memory::Usage::Dynamic,
+                Some(ChannelType::Srgb),
             )
             .unwrap();
-        // encoder.generate_mipmap(&texture.1);
+
+        for (layer, file) in image_files.iter().enumerate() {
+            let mut img = image::open(path.join(file)).unwrap();
+
+            assert_eq!(img.width(), img.height());
+
+            for level in 0..mipmaps {
+                img = img.resize(
+                    (resolution >> level) as u32,
+                    (resolution >> level) as u32,
+                    image::FilterType::Triangle,
+                );
+
+                if level >= 4 {
+                    img = img.blur(2.0);
+                }
+
+                let image_data: Vec<[u8; 4]> = img.to_rgba().to_vec()[..]
+                    .chunks(4)
+                    .map(|c| [c[0], c[1], c[2], c[3]])
+                    .collect();
+
+                encoder
+                    .update_texture::<R8_G8_B8_A8, gfx::format::Srgba8>(
+                        &texture,
+                        None,
+                        gfx_core::texture::NewImageInfo {
+                            xoffset: 0,
+                            yoffset: 0,
+                            zoffset: layer as u16,
+                            width: resolution >> level,
+                            height: resolution >> level,
+                            depth: 1,
+                            format: (),
+                            mipmap: level,
+                        },
+                        &image_data[..],
+                    )
+                    .unwrap();
+            }
+        }
+
+        let texture_view = factory
+            .view_texture_as_shader_resource::<gfx::format::Srgba8>(
+                &texture,
+                (0, 12),
+                Swizzle::new(),
+            )
+            .unwrap();
 
         Self {
-            view: texture.1,
-            _texture: texture.0,
+            texture_view,
+            _texture: texture,
         }
     }
 }

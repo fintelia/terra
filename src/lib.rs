@@ -1,5 +1,3 @@
-#![feature(iterator_step_by)]
-
 extern crate bincode;
 extern crate curl;
 #[macro_use]

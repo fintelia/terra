@@ -18,9 +18,9 @@ float compute_fog(vec3 position) {
 }
 
 vec3 material(vec3 pos, uint mat) {
-	if(mat == 0) return vec3(0.25,0.2,0.15);
-	return vec3(0.5);
+	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb * (1.0 + fractal2(pos.xz) * 0.05);
 }
+
 vec3 compute_splatting(vec3 pos, vec2 t) {
 	t += 0.0001 * vec2(fractal(pos.xz), fractal(pos.xz + vec2(25)));
 
@@ -29,8 +29,8 @@ vec3 compute_splatting(vec3 pos, vec2 t) {
 	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
 				 mix(vec4(0,0,1,0), vec4(0,1,0,0), weights.y), weights.x);
 
-	w = max(w - 0.15, 0);
-	w /= w.x + w.y + w.z + w.w;
+	// w = max(w - 0.15, 0);
+	// w /= w.x + w.y + w.z + w.w;
 
 	return material(pos, m.x) * w.x +
 		material(pos, m.y) * w.y +
@@ -52,6 +52,13 @@ void main() {
 				  dFdy(position.xz * 0.5));
 	float level = 0.5 * log2(min(dot(d.xz, d.xz), dot(d.yw, d.yw)));
 	float maxLevel = textureSize(colormap, 0).z - 1.0;
+
+	level = floor(level);
+	float centerDistance = max(abs(t.x-0.5), abs(t.y-0.5));
+	while(level < maxLevel && centerDistance > 0.5 * exp2(max(ceil(level),0))) {
+		level = floor(level) + 1.0;
+	}
+
 	if(level >= maxLevel) {
 		t = (t - 0.5) * exp2(-maxLevel) + vec2(0.5);
 		OutColor.rgb = texture(colormap, vec3(t, maxLevel)).rgb;
@@ -64,8 +71,8 @@ void main() {
 		OutColor.rgb = mix(color1, color2, level - fLevel);
 	} else {
 		vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
-		float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0) * 0.8 + 0.2;
-		OutColor.rgb = compute_splatting(position, t) * nDotL;
+		float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0);
+		OutColor.rgb = compute_splatting(position, t);// * nDotL;
 
 		if(level >= -1.0) {
 			OutColor.rgb = mix(OutColor.rgb, textureLod(colormap, vec3(t,0), 0).rgb, level + 1);

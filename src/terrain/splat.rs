@@ -1,7 +1,7 @@
 use gfx;
 use gfx::traits::FactoryExt;
 use gfx::Primitive::TriangleList;
-use gfx::texture::FilterMethod::Bilinear;
+use gfx::texture::FilterMethod::Trilinear;
 use gfx::texture::WrapMode::*;
 use gfx::texture::SamplerInfo;
 use gfx_core::command::Buffer;
@@ -17,7 +17,6 @@ gfx_pipeline!( splat_pipe {
     texture_spacing: gfx::Global<f32> = "textureSpacing",
     texture_resolution: gfx::Global<i32> = "resolution",
     heights_spacing: gfx::Global<f32> = "heightsSpacing",
-//    materials: gfx::TextureSampler<[f32; 4]> = "materials",
     out_splat: gfx::RenderTarget<(R8, Uint)> = "OutSplat",
 });
 gfx_pipeline!( color_pipe {
@@ -29,7 +28,7 @@ gfx_pipeline!( color_pipe {
     texture_resolution: gfx::Global<i32> = "resolution",
     heights_spacing: gfx::Global<f32> = "heightsSpacing",
     layer: gfx::Global<i32> = "layer",
-//    materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    materials: gfx::TextureSampler<[f32; 4]> = "materials",
     out_color: gfx::RenderTarget<Rgba8> = "OutColor",
 });
 
@@ -99,11 +98,12 @@ impl<R: gfx::Resources> Splat<R> {
         shaders_watcher: &mut rshader::ShaderDirectoryWatcher,
         resolution: u16,
         texture_spacing: f32,
+        heights_spacing: f32,
+        noise_wavelength: f32,
         heights: ShaderResourceView<R, f32>,
         slopes: ShaderResourceView<R, [f32; 2]>,
         noise: ShaderResourceView<R, [f32; 3]>,
-        noise_wavelength: f32,
-        heights_spacing: f32,
+        materials: ShaderResourceView<R, [f32; 4]>,
     ) -> Self {
         let splat_shader = rshader::Shader::simple(
             factory,
@@ -161,8 +161,8 @@ impl<R: gfx::Resources> Splat<R> {
             .view_texture_as_shader_resource::<Rgba8>(&colormap, (0, 4), Swizzle::new())
             .unwrap();
 
-        let sampler_clamp = factory.create_sampler(SamplerInfo::new(Bilinear, Clamp));
-        let sampler_wrap = factory.create_sampler(SamplerInfo::new(Bilinear, Tile));
+        let sampler_clamp = factory.create_sampler(SamplerInfo::new(Trilinear, Clamp));
+        let sampler_wrap = factory.create_sampler(SamplerInfo::new(Trilinear, Tile));
 
         let mut splat = Self {
             splat_pso: Self::create_splat_pso(factory, splat_shader.as_shader_set()),
@@ -182,7 +182,8 @@ impl<R: gfx::Resources> Splat<R> {
             color_pipeline_data: color_pipe::Data::<R> {
                 heights: (heights, sampler_clamp.clone()),
                 slopes: (slopes, sampler_clamp.clone()),
-                noise: (noise, sampler_wrap),
+                noise: (noise, sampler_wrap.clone()),
+                materials: (materials, sampler_wrap.clone()),
                 noise_wavelength,
                 texture_spacing,
                 texture_resolution: resolution as i32,

@@ -182,7 +182,7 @@ where
             .unwrap();
 
         let sinfo = gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::FilterMethod::Trilinear,
             gfx::texture::WrapMode::Clamp,
         );
         let sampler = factory.create_sampler(sinfo);
@@ -213,7 +213,7 @@ where
             .unwrap();
         encoder.generate_mipmap(&noise_texture.1);
         let sinfo_wrap = gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Anisotropic(16),
+            gfx::texture::FilterMethod::Trilinear, //Anisotropic(16),
             gfx::texture::WrapMode::Tile,
         );
         let sampler_wrap = factory.create_sampler(sinfo_wrap);
@@ -229,11 +229,12 @@ where
             &mut shaders_watcher,
             4096,
             2.0,
+            spacing,
+            noise_wavelength,
             heights_texture.1.clone(),
             slopes_texture.1.clone(),
             noise_texture.1.clone(),
-            noise_wavelength,
-            spacing,
+            materials.texture_view.clone(),
         );
 
         let rasterizer = gfx::state::Rasterizer {
@@ -278,7 +279,7 @@ where
                     shadows: (shadows_texture.1.clone(), sampler.clone()),
                     noise: (noise_texture.1.clone(), sampler_wrap.clone()),
                     noise_wavelength,
-                    materials: (materials.view.clone(), sampler_wrap.clone()),
+                    materials: (materials.texture_view.clone(), sampler_wrap.clone()),
                     splatmap: (
                         splat.splatmap_shader_resource_view(),
                         sampler_nearest.clone(),

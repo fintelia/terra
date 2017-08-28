@@ -29,13 +29,28 @@ void compute_height_and_slope(vec2 pos, vec2 texCoord, out float height, out vec
 float fractal(vec2 pos) {
 	float value = 0.0;
 
-	float scale = 1.0 / 3;
+	float scale = 0.5;
 	float wavelength = 2.0;
-	for(int i = 0; i < 3; i++) {
+	for(int i = 0; i < 5; i++) {
 		vec3 v = texture(noise, pos * noiseWavelength / wavelength).rgb;
 		value += v.x * scale;
 
-		//		scale *= 0.5;
+		scale *= 0.5;
+		wavelength *= 0.5;
+	}
+	return value;
+}
+
+float fractal2(vec2 pos) {
+	float value = 0.0;
+
+	float scale = 1.0 / 8;
+	float wavelength = 64.0;
+	for(int i = 0; i < 8; i++) {
+		vec3 v = texture(noise, pos * noiseWavelength / wavelength).rgb;
+		value += v.x * scale;
+
+		// scale *= 0.5;
 		wavelength *= 0.5;
 	}
 	return value;
