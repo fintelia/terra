@@ -21,25 +21,30 @@ impl WebAsset for MaterialTypeRaw {
 
     fn url(&self) -> String {
         match self.0 {
-            MaterialType::Rock => unimplemented!(),//"https://freepbr.com/materials/planet-surface-ground-pbr-material/",
-            MaterialType::Grass => unimplemented!(),//"https://freepbr.com/materials/grass-1-pbr-material",
-        }
+            MaterialType::Rock => "https://opengameart.org/sites/default/files/terrain_0.zip",
+            MaterialType::Grass => "https://opengameart.org/sites/default/files/terrain_0.zip",
+        }.to_owned()
     }
 
     fn filename(&self) -> String {
         let name = match self.0 {
-            MaterialType::Rock => "planetsurface1-Unity.zip",
-            MaterialType::Grass => "grass1-Unity-2.zip",
+            MaterialType::Rock => "terrain2.zip",
+            MaterialType::Grass => "terrain2.zip",
         };
         format!("materials/raw/{}", name)
     }
 
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<Error>> {
+        let name = match self.0 {
+            MaterialType::Rock => "ground_mud2_d.jpg",
+            MaterialType::Grass => "grass_ground_d.jpg",
+        };
+
         let mut raw = MaterialRaw::default();
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         for i in 0..zip.len() {
             let mut file = zip.by_index(i)?;
-            if file.name().contains("albedo") {
+            if file.name().contains(name) {
                 raw.albedo.clear();
                 file.read_to_end(&mut raw.albedo)?;
             }
@@ -67,8 +72,8 @@ impl GeneratedAsset for MaterialType {
                 .collect()
         }
 
-        let resolution: u16 = 2048;
-        let mipmaps = 12;
+        let resolution: u16 = 1024;
+        let mipmaps = 11;
 
         let raw = MaterialTypeRaw(*self).load()?;
         let mut albedo_image =
@@ -102,7 +107,7 @@ impl GeneratedAsset for MaterialType {
             }
 
             let mut albedo_data = convert_image(&albedo_image);
-            if level >= 5 {
+            if level >= 20 {
                 let (cw, aw) = match level {
                     5 => (50, 50),
                     6 => (25, 75),
@@ -153,8 +158,8 @@ impl<R: gfx::Resources> MaterialSet<R> {
         factory: &mut F,
         encoder: &mut gfx::Encoder<R, C>,
     ) -> Result<Self, Box<Error>> {
-        let resolution = 2048;
-        let mipmaps = 12;
+        let resolution = 1024;
+        let mipmaps = 11;
 
         let materials = vec![MaterialType::Rock.load()?, MaterialType::Grass.load()?];
 

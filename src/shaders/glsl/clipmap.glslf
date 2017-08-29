@@ -14,7 +14,7 @@ float compute_fog(vec3 position) {
 	float b = 0.01;
 	float distance = distance(position, eyePosition);
 	vec3 rayDir = normalize(position - eyePosition);
-	return clamp(0.0005 * exp(-b*eyePosition.y) * (1.0 - exp(-b*rayDir.y*distance)) / (b*rayDir.y), 0, 1);
+	return clamp(0.0005 * exp(-b*eyePosition.y) * (1.0 - exp(-b*rayDir.y*distance)) / (b*rayDir.y), 0, 0.3);
 }
 
 vec3 material(vec3 pos, uint mat) {
@@ -51,8 +51,8 @@ vec3 compute_splatting(vec3 pos, vec2 t) {
 
 	float mw = max(max(w.x, w.y), max(w.z, w.w));
 	
-	w = max(w - mw * 0.8, 0);
-	w /= w.x + w.y + w.z + w.w;
+	// w = max(w - mw * 0.8, 0);
+	// w /= w.x + w.y + w.z + w.w;
 
 	return material(pos, m.x) * w.x +
 		material(pos, m.y) * w.y +
@@ -66,6 +66,7 @@ void main() {
 
 	vec2 slope;
 	float height;
+	vec2 coarse_slope = texture(slopes, texCoord).xy;
 	compute_height_and_slope(fPosition.xz, texCoord, height, slope);
 	vec3 position = vec3(fPosition.x, height, fPosition.z);
 
@@ -92,9 +93,10 @@ void main() {
 		vec3 color2 = textureLod(colormap, vec3(t2, fLevel+1),0).rgb;
 		OutColor.rgb = mix(color1, color2, level - fLevel);
 	} else {
+		vec3 coarse_normal = normalize(vec3(coarse_slope.x, 1.0, coarse_slope.y));
 		vec3 normal = normalize(vec3(slope.x, 1.0, slope.y));
-		float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0);
-		OutColor.rgb = compute_splatting(position, t);// * nDotL;
+		float nDotL = max(dot(coarse_normal, normalize(vec3(0,1,1))), 0.0);
+		OutColor.rgb = compute_splatting(position, t) * nDotL;
 
 		if(level >= -1.0) {
 			OutColor.rgb = mix(OutColor.rgb, textureLod(colormap, vec3(t,0), 0).rgb, level + 1);

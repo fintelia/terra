@@ -20,8 +20,6 @@ vec3 compute_color(vec3 position, vec2 slope) {
 	  return material(position, 1);
   else
 	  return material(position, 0);
-  // float nDotL = max(dot(normalize(normal), normalize(vec3(0,1,1))), 0.0);
-  // return color;// * nDotL;
 }
 
 void main() {
@@ -32,5 +30,9 @@ void main() {
 	float height;
 	compute_height_and_slope(pos, texCoord, height, slope);
 
-	OutColor = vec4(compute_color(vec3(pos.x, height, pos.y), slope), 0);
+	vec2 coarse_slope = texture(slopes, texCoord).xy;
+	vec3 coarse_normal = normalize(vec3(coarse_slope.x, 1.0, coarse_slope.y));
+	float nDotL = max(dot(coarse_normal, normalize(vec3(0,1,1))), 0.0);
+
+	OutColor = vec4(compute_color(vec3(pos.x, height, pos.y), slope) * nDotL, 0);
 }

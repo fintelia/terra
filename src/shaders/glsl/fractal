@@ -47,7 +47,7 @@ float fractal2(vec2 pos) {
 	float scale = 1.0 / 10;
 	float wavelength = 64.0;
 	for(int i = 0; i < 10; i++) {
-		vec3 v = texture(noise, pos * noiseWavelength / wavelength).rgb;
+		vec3 v = texture(noise, pos * noiseWavelength / wavelength + vec2(0.123 * i)).rgb;
 		value += v.x * scale;
 
 		// scale *= 0.5;
