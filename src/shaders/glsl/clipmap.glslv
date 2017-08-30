@@ -26,5 +26,6 @@ void main() {
   compute_height_and_slope(fPosition.xz, texCoord, y, slope);
 
   fPosition = vec3(p.x, y, p.y) * scale + position;
+  fPosition = vec3(ivec3(fPosition) * 1024 + 0.5) / 1024;
   gl_Position = modelViewProjection * vec4(fPosition, 1.0);
 }
