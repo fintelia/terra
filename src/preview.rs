@@ -70,6 +70,9 @@ fn main() {
             );
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
+            first_person.position[0] = f32::max(first_person.position[0], -3000.0).min(3000.0);
+            first_person.position[2] = f32::max(first_person.position[2], -3000.0).min(3000.0);
+
             let mut camera = first_person.camera(args.ext_dt);
             if let Some(h) = terrain.get_approximate_height(
                 [camera.position[0], camera.position[2]],
