@@ -28,8 +28,8 @@ impl WebAsset for MaterialTypeRaw {
 
     fn filename(&self) -> String {
         let name = match self.0 {
-            MaterialType::Rock => "terrain2.zip",
-            MaterialType::Grass => "terrain2.zip",
+            MaterialType::Rock => "terrain.zip",
+            MaterialType::Grass => "terrain.zip",
         };
         format!("materials/raw/{}", name)
     }
@@ -65,20 +65,34 @@ impl GeneratedAsset for MaterialType {
     }
 
     fn generate(&self) -> Result<Self::Type, Box<Error>> {
-        fn convert_image(img: &image::DynamicImage) -> Vec<[u8; 4]> {
-            img.to_rgba().to_vec()[..]
-                .chunks(4)
-                .map(|c| [c[0], c[1], c[2], c[3]])
-                .collect()
-        }
-
-        let resolution: u16 = 1024;
+        let resolution = 1024;
         let mipmaps = 11;
 
         let raw = MaterialTypeRaw(*self).load()?;
         let mut albedo_image =
             image::DynamicImage::ImageRgba8(image::load_from_memory(&raw.albedo[..])?.to_rgba());
+        if albedo_image.width() != resolution || albedo_image.height() != resolution {
+            albedo_image =
+                albedo_image.resize_exact(resolution, resolution, image::FilterType::Triangle);
+        }
 
+        let albedo_image_blurred = {
+            let sigma = 32;
+            println!("tiling...");
+            let tiled =
+                image::RgbaImage::from_fn(resolution + 4 * sigma, resolution + 4 * sigma, |x, y| {
+                    albedo_image.get_pixel(
+                        (x + resolution - 2 * sigma) % resolution,
+                        (y + resolution - 2 * sigma) % resolution,
+                    )
+                });
+            println!("blurring...");
+            let mut tiled = image::DynamicImage::ImageRgba8(tiled).blur(sigma as f32);
+            println!("cropping...");
+            tiled.crop(2 * sigma, 2 * sigma, resolution, resolution)
+        };
+
+        println!("computing average albedo...");
         let mut albedo_sum = [0u64; 4];
         for (_, _, color) in albedo_image.pixels() {
             for i in 0..4 {
@@ -93,6 +107,22 @@ impl GeneratedAsset for MaterialType {
             (albedo_sum[3] / num_pixels) as u8,
         ];
 
+        println!("high pass filter...");
+        for (x, y, blurred_color) in albedo_image_blurred.pixels() {
+            let mut color = albedo_image.get_pixel(x, y);
+            for i in 0..4 {
+                use image::math::utils::clamp;
+                color[i] = clamp(
+                    (color[i] as i16) - (blurred_color[i] as i16) +
+                        (average_albedo[i] as i16),
+                    0,
+                    255,
+                ) as u8;
+            }
+            albedo_image.put_pixel(x, y, color);
+        }
+
+        println!("generating mipmaps...");
         let mut albedo = Vec::new();
         for level in 0..mipmaps {
             let level_resolution = (resolution >> level) as u32;
@@ -106,28 +136,16 @@ impl GeneratedAsset for MaterialType {
                 );
             }
 
-            let mut albedo_data = convert_image(&albedo_image);
-            if level >= 20 {
-                let (cw, aw) = match level {
-                    5 => (50, 50),
-                    6 => (25, 75),
-                    _ => (0, 100),
-                };
-
-                for color in albedo_data.iter_mut() {
-                    for i in 0..4 {
-                        let c = color[i] as u16 * cw;
-                        let a = average_albedo[i] as u16 * aw;
-                        color[i] = ((c + a) / 100) as u8;
-                    }
-                }
-            }
-
-            albedo.push(albedo_data);
+            albedo.push(
+                albedo_image.to_rgba().to_vec()[..]
+                    .chunks(4)
+                    .map(|c| [c[0], c[1], c[2], c[3]])
+                    .collect(),
+            );
         }
-
+        println!("done.");
         Ok(Material {
-            resolution,
+            resolution: resolution as u16,
             mipmaps,
             albedo,
         })
