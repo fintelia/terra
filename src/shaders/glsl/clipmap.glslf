@@ -21,12 +21,12 @@ vec3 material(vec3 pos, uint mat) {
 	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb * (1.0 + fractal2(pos.xz) * 0.2);
 }
 
-void compare_weights(uvec2 mats, vec2 weights) {
-	if(mats.x == mats.y) {
-		weights.x += weights.y;
-		weights.y = 0;
-	}
-}
+// void compare_weights(uvec2 mats, vec2 weights) {
+// 	if(mats.x == mats.y) {
+// 		weights.x += weights.y;
+// 		weights.y = 0;
+// 	}
+// }
 
 vec3 compute_splatting(vec3 pos, vec2 t) {
 	t += 0.0001 * vec2(fractal(pos.xz), fractal(pos.xz + vec2(25)));
@@ -36,23 +36,13 @@ vec3 compute_splatting(vec3 pos, vec2 t) {
 	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
 				 mix(vec4(0,0,1,0), vec4(0,1,0,0), weights.y), weights.x);
 
-	// if(w.x > w.y && w.x > w.z && w.x > w.w) w = vec4(1,0,0,0);
-	// else if(w.x > w.y && w.x > w.z && w.x > w.w) w = vec4(0,1,0,0);
-	// else if(w.x > w.y && w.x > w.z && w.x > w.w) w = vec4(0,0,1,0);
-	// else w = vec4(0,0,0,1);
+	// compare_weights(m.xy, w.xy);
+	// compare_weights(m.xz, w.xz);
+	// compare_weights(m.xw, w.xw);
 
-	compare_weights(m.xy, w.xy);
-	compare_weights(m.xz, w.xz);
-	compare_weights(m.xw, w.xw);
-
-	compare_weights(m.yz, w.yz);
-	compare_weights(m.yw, w.yw);
-	compare_weights(m.zw, w.zw);
-
-	float mw = max(max(w.x, w.y), max(w.z, w.w));
-	
-	// w = max(w - mw * 0.8, 0);
-	// w /= w.x + w.y + w.z + w.w;
+	// compare_weights(m.yz, w.yz);
+	// compare_weights(m.yw, w.yw);
+	// compare_weights(m.zw, w.zw);
 
 	return material(pos, m.x) * w.x +
 		material(pos, m.y) * w.y +
