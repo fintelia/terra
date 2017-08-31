@@ -1,4 +1,5 @@
 extern crate bincode;
+extern crate cgmath;
 extern crate curl;
 #[macro_use]
 extern crate gfx;
@@ -17,6 +18,8 @@ extern crate serde_derive;
 extern crate shader_version;
 extern crate vecmath;
 extern crate zip;
+
+mod utils;
 
 pub mod cache;
 pub mod terrain;
