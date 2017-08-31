@@ -202,15 +202,15 @@ impl DigitalElevationModel {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn it_works() {
-        use super::*;
+    // #[test]
+    // fn it_works() {
+    //     use super::*;
 
-        let zip = Dem::download_gridfloat_zip(28, -81, DemSource::Usgs30m);
-        let dem = Dem::from_gridfloat_zip(Cursor::new(zip));
-        assert_eq!(dem.width, 3612);
-        assert_eq!(dem.height, 3612);
-        assert!(dem.cell_size > 0.0002777);
-        assert!(dem.cell_size < 0.0002778);
-    }
+    //     let zip = Dem::download_gridfloat_zip(28, -81, DemSource::Usgs30m);
+    //     let dem = Dem::from_gridfloat_zip(Cursor::new(zip));
+    //     assert_eq!(dem.width, 3612);
+    //     assert_eq!(dem.height, 3612);
+    //     assert!(dem.cell_size > 0.0002777);
+    //     assert!(dem.cell_size < 0.0002778);
+    // }
 }
