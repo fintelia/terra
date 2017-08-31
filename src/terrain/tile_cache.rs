@@ -1,13 +1,17 @@
 use terrain::quadtree::{Node, NodeId};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
-pub struct Priority(pub f32);
+pub struct Priority(f32);
 impl Priority {
     pub fn cutoff() -> Self {
         Priority(1.0)
     }
     pub fn none() -> Self {
         Priority(-1.0)
+    }
+    pub fn from_f32(value: f32) -> Self {
+        assert!(value.is_finite());
+        Priority(value)
     }
 }
 impl Eq for Priority {}

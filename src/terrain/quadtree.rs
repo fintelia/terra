@@ -163,7 +163,7 @@ impl QuadTree {
 
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
-            node.priority = Priority(
+            node.priority = Priority::from_f32(
                 node.bounds.square_distance(camera).max(1.0) /
                     (node.min_distance * node.min_distance),
             );
