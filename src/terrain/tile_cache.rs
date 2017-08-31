@@ -62,31 +62,35 @@ impl TileCache {
     }
 
     pub fn load_missing(&mut self, nodes: &mut Vec<Node>) {
-        self.missing.sort();
-
-        while self.slots.len() < self.size {
-            if self.missing.is_empty() {
-                return;
+        if self.slots.len() + self.missing.len() < self.size {
+            while let Some(m) = self.missing.pop() {
+                let index = self.slots.len();
+                self.load(m.1, &mut nodes[m.1], index);
             }
-            let index = self.slots.len();
-            let id = self.missing.pop().unwrap().1;
-            self.load(id, &mut nodes[id], index);
-        }
+        } else {
+            let mut possible: Vec<_> = self.slots
+                .iter()
+                .cloned()
+                .chain(self.missing.iter().cloned())
+                .collect();
+            possible.sort();
 
-        let mut index = 0;
-        while let Some((priority, id)) = self.missing.pop() {
-            while index < self.slots.len() && self.slots[index].0 >= priority {
-                index += 1;
-            }
+            // Anything >= to cutoff should be included.
+            let cutoff = possible[possible.len() - self.size];
 
-            if self.slots[index].0 < priority {
-                self.load(id, &mut nodes[id], index);
+            let mut index = 0;
+            while let Some(m) = self.missing.pop() {
+                if cutoff >= m {
+                    continue;
+                }
+
+                // Find the next element to evict.
+                while self.slots[index] >= cutoff {
+                    index += 1;
+                }
+
+                self.load(m.1, &mut nodes[m.1], index);
                 index += 1;
-            } else {
-                // The cache is full and all the tiles in the cache have higher
-                // priority than the remaining missing tiles. Give up loading the rest.
-                self.missing.clear();
-                return;
             }
         }
     }
