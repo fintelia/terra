@@ -17,6 +17,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate shader_version;
 extern crate vecmath;
+extern crate vec_map;
 extern crate zip;
 
 mod utils;

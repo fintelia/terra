@@ -12,6 +12,9 @@ impl NodeId {
     pub fn root() -> Self {
         NodeId(0)
     }
+    pub fn index(&self) -> usize {
+        self.0 as usize
+    }
 }
 impl Index<NodeId> for Vec<Node> {
     type Output = Node;
@@ -25,13 +28,7 @@ impl IndexMut<NodeId> for Vec<Node> {
     }
 }
 
-pub enum NodeLayerIndices<T> {
-    #[allow(unused)]
-    Height(T),
-    HeightNormal(T, T),
-    #[allow(unused)]
-    HeightNormalSplat(T, T, T),
-}
+const NUM_LAYERS: usize = 3;
 
 pub struct Node {
     level: u8,
@@ -46,14 +43,11 @@ pub struct Node {
     center: Point2<i32>,
 
     /// Index of this node in the tile list.
-    tile_indices: NodeLayerIndices<u32>,
+    tile_indices: [Option<u32>; NUM_LAYERS],
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
     priority: Priority,
-
-    // Index of this node in each tile cache, if it is present.
-    cache_indices: Option<NodeLayerIndices<u16>>,
 }
 impl Node {
     pub fn priority(&self) -> Priority {
@@ -61,13 +55,16 @@ impl Node {
     }
 }
 
+
 pub struct QuadTree {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
 
-    heights: TileCache,
-    normals: TileCache,
-    splats: TileCache,
+    /// List of nodes that will be rendered.
+    visible_nodes: Vec<NodeId>,
+
+    /// Cache holding nearby tiles for each layer.
+    tile_cache_layers: [TileCache; NUM_LAYERS],
 }
 
 #[allow(unused)]
@@ -85,8 +82,7 @@ impl QuadTree {
             center: Point2::origin(),
             size: 1 << 31,
             priority: Priority::none(),
-            tile_indices: NodeLayerIndices::HeightNormal(0, 0),
-            cache_indices: None,
+            tile_indices: [None; NUM_LAYERS],
         };
 
         let mut nodes = vec![node];
@@ -142,8 +138,7 @@ impl QuadTree {
                             nodes[parent].center.to_vec() - offsets[i] * nodes[parent].size / 4,
                         ),
                         priority: Priority::none(),
-                        tile_indices: NodeLayerIndices::HeightNormal(child.0, child.0),
-                        cache_indices: None,
+                        tile_indices: [None; NUM_LAYERS],
                     };
 
                     nodes.push(child_node);
@@ -155,9 +150,12 @@ impl QuadTree {
 
         Self {
             nodes,
-            heights: TileCache::new(1024),
-            normals: TileCache::new(512),
-            splats: TileCache::new(96),
+            visible_nodes: Vec::new(),
+            tile_cache_layers: [
+                TileCache::new(1024),
+                TileCache::new(512),
+                TileCache::new(96),
+            ],
         }
     }
 
@@ -168,9 +166,9 @@ impl QuadTree {
                     (node.min_distance * node.min_distance),
             );
         }
-        self.heights.update_priorities(&mut self.nodes);
-        self.normals.update_priorities(&mut self.nodes);
-        self.splats.update_priorities(&mut self.nodes);
+        for cache_layer in self.tile_cache_layers.iter_mut() {
+            cache_layer.update_priorities(&mut self.nodes);
+        }
     }
 
     pub fn update(&mut self, camera: Point3<f32>) {
@@ -181,29 +179,19 @@ impl QuadTree {
                 return false;
             }
 
-            if qt.nodes[id].cache_indices.is_none() {
-                let elem = (qt.nodes[id].priority, id);
-                match qt.nodes[id].tile_indices {
-                    NodeLayerIndices::Height(..) => {
-                        qt.heights.add_missing(elem);
-                    }
-                    NodeLayerIndices::HeightNormal(..) => {
-                        qt.heights.add_missing(elem);
-                        qt.normals.add_missing(elem);
-                    }
-                    NodeLayerIndices::HeightNormalSplat(..) => {
-                        qt.heights.add_missing(elem);
-                        qt.normals.add_missing(elem);
-                        qt.splats.add_missing(elem);
-                    }
+            for layer in 0..NUM_LAYERS {
+                if qt.nodes[id].tile_indices[layer].is_some() &&
+                    !qt.tile_cache_layers[layer].contains(id)
+                {
+                    qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
                 }
             }
             true
         });
 
-        self.heights.load_missing(&mut self.nodes);
-        self.normals.load_missing(&mut self.nodes);
-        self.splats.load_missing(&mut self.nodes);
+        for cache_layer in self.tile_cache_layers.iter_mut() {
+            cache_layer.load_missing(&mut self.nodes);
+        }
     }
 
     fn breadth_first<F>(&mut self, mut visit: F)

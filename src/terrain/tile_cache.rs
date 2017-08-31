@@ -1,3 +1,4 @@
+use vec_map::VecMap;
 use terrain::quadtree::{Node, NodeId};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
@@ -22,9 +23,15 @@ impl Ord for Priority {
 }
 
 pub(crate) struct TileCache {
+    /// Maximum number of slots in this `TileCache`.
     size: usize,
+    /// Actually contents of the cache.
     slots: Vec<(Priority, NodeId)>,
+    /// Which index each node is at in the cache (if any).
+    reverse: VecMap<usize>,
+    /// Nodes that should be added to the cache.
     missing: Vec<(Priority, NodeId)>,
+    /// Smallest priority among all nodes in the cache.
     min_priority: Priority,
 }
 impl TileCache {
@@ -32,6 +39,7 @@ impl TileCache {
         Self {
             size,
             slots: Vec::new(),
+            reverse: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
         }
@@ -62,7 +70,7 @@ impl TileCache {
             }
             let index = self.slots.len();
             let id = self.missing.pop().unwrap().1;
-            self.load(&mut nodes[id], index);
+            self.load(id, &mut nodes[id], index);
         }
 
         let mut index = 0;
@@ -72,7 +80,7 @@ impl TileCache {
             }
 
             if self.slots[index].0 < priority {
-                self.load(&mut nodes[id], index);
+                self.load(id, &mut nodes[id], index);
                 index += 1;
             } else {
                 // The cache is full and all the tiles in the cache have higher
@@ -83,7 +91,15 @@ impl TileCache {
         }
     }
 
-    fn load(&mut self, _node: &mut Node, _slot: usize) {
+    fn load(&mut self, id: NodeId, _node: &mut Node, slot: usize) {
+        if slot < self.slots.len() {
+            self.reverse.remove(self.slots[slot].1.index());
+        }
+        self.reverse.insert(id.index(), slot);
         unimplemented!()
+    }
+
+    pub fn contains(&self, id: NodeId) -> bool {
+        self.reverse.contains_key(id.index())
     }
 }
