@@ -48,6 +48,8 @@ pub struct Node {
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
     priority: Priority,
+
+    visible: bool,
 }
 impl Node {
     pub fn priority(&self) -> Priority {
@@ -83,6 +85,7 @@ impl QuadTree {
             size: 1 << 31,
             priority: Priority::none(),
             tile_indices: [None; NUM_LAYERS],
+            visible: false,
         };
 
         let mut nodes = vec![node];
@@ -139,6 +142,7 @@ impl QuadTree {
                         ),
                         priority: Priority::none(),
                         tile_indices: [None; NUM_LAYERS],
+                        visible: false,
                     };
 
                     nodes.push(child_node);
@@ -174,6 +178,7 @@ impl QuadTree {
     pub fn update(&mut self, camera: Point3<f32>) {
         self.update_priorities(camera);
 
+        // Update tile cache.
         self.breadth_first(|qt, id| {
             if qt.nodes[id].priority < Priority::cutoff() {
                 return false;
@@ -188,10 +193,37 @@ impl QuadTree {
             }
             true
         });
-
         for cache_layer in self.tile_cache_layers.iter_mut() {
             cache_layer.load_missing(&mut self.nodes);
         }
+
+        // Determine visible nodes.
+        self.visible_nodes.clear();
+        for node in self.nodes.iter_mut() {
+            node.visible = false;
+        }
+        // Any node with all needed layers in cache is visible...
+        self.breadth_first(|qt, id| {
+            qt.nodes[id].visible = qt.nodes[id].tile_indices.iter().filter_map(|i| *i).all(
+                |i| {
+                    qt.tile_cache_layers[i as usize].contains(id)
+                },
+            );
+            qt.nodes[id].visible
+        });
+        // ...Except if all its children are visible instead.
+        self.breadth_first(|qt, id| if qt.nodes[id].visible {
+            qt.nodes[id].visible = !qt.nodes[id].children.iter().all(|child| match *child {
+                Some(c) => qt.nodes[c].visible,
+                None => false,
+            });
+            if qt.nodes[id].visible {
+                qt.visible_nodes.push(id);
+            }
+            true
+        } else {
+            false
+        });
     }
 
     fn breadth_first<F>(&mut self, mut visit: F)
