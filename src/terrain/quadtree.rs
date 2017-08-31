@@ -176,44 +176,52 @@ impl QuadTree {
     pub fn update(&mut self, camera: Point3<f32>) {
         self.update_priorities(camera);
 
-        let mut pending = VecDeque::new();
-        pending.push_back(NodeId::root());
-        while let Some(id) = pending.pop_front() {
-            if self.nodes[id].priority < Priority::cutoff() {
-                continue;
+        self.breadth_first(|qt, id| {
+            if qt.nodes[id].priority < Priority::cutoff() {
+                return false;
             }
 
-            if self.nodes[id].cache_indices.is_none() {
-                let elem = (self.nodes[id].priority, id);
-                match self.nodes[id].tile_indices {
+            if qt.nodes[id].cache_indices.is_none() {
+                let elem = (qt.nodes[id].priority, id);
+                match qt.nodes[id].tile_indices {
                     NodeLayerIndices::Height(..) => {
-                        self.heights.add_missing(elem);
+                        qt.heights.add_missing(elem);
                     }
                     NodeLayerIndices::HeightNormal(..) => {
-                        self.heights.add_missing(elem);
-                        self.normals.add_missing(elem);
+                        qt.heights.add_missing(elem);
+                        qt.normals.add_missing(elem);
                     }
                     NodeLayerIndices::HeightNormalSplat(..) => {
-                        self.heights.add_missing(elem);
-                        self.normals.add_missing(elem);
-                        self.splats.add_missing(elem);
+                        qt.heights.add_missing(elem);
+                        qt.normals.add_missing(elem);
+                        qt.splats.add_missing(elem);
                     }
                 }
             }
-
-            for i in 0..4 {
-                if let Some(child) = self.nodes[id].children[i] {
-                    pending.push_back(child);
-                }
-            }
-        }
+            true
+        });
 
         self.heights.load_missing(&mut self.nodes);
         self.normals.load_missing(&mut self.nodes);
         self.splats.load_missing(&mut self.nodes);
     }
 
-    pub fn len(&self) -> usize {
-        self.nodes.len()
+    fn breadth_first<F>(&mut self, mut visit: F)
+    where
+        F: FnMut(&mut Self, NodeId) -> bool,
+    {
+        let mut pending = VecDeque::new();
+        if visit(self, NodeId::root()) {
+            pending.push_back(NodeId::root());
+        }
+        while let Some(id) = pending.pop_front() {
+            for i in 0..4 {
+                if let Some(child) = self.nodes[id].children[i] {
+                    if visit(self, child) {
+                        pending.push_back(child);
+                    }
+                }
+            }
+        }
     }
 }
