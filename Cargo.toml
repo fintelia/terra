@@ -44,4 +44,7 @@ default = []
 preview = ["piston_window", "camera_controllers"]
 dynamic_shaders = ["rshader/dynamic_shaders"]
 
+[profile.release]
+debug=true
+
 [workspace]

@@ -33,15 +33,19 @@ pub(crate) struct TileCache {
     missing: Vec<(Priority, NodeId)>,
     /// Smallest priority among all nodes in the cache.
     min_priority: Priority,
+
+    /// Resolution of each tile in this cache.
+    resolution: u32,
 }
 impl TileCache {
-    pub fn new(size: usize) -> Self {
+    pub fn new(cache_size: usize, tile_resolution: u32) -> Self {
         Self {
-            size,
+            size: cache_size,
             slots: Vec::new(),
             reverse: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
+            resolution: tile_resolution,
         }
     }
 
@@ -105,5 +109,10 @@ impl TileCache {
 
     pub fn contains(&self, id: NodeId) -> bool {
         self.reverse.contains_key(id.index())
+    }
+
+    #[allow(unused)]
+    pub fn resolution(&self) -> u32 {
+        self.resolution
     }
 }

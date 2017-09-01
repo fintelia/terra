@@ -3,12 +3,13 @@ extern crate gfx;
 extern crate piston_window;
 extern crate terra;
 extern crate vecmath;
+extern crate cgmath;
 
 use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 
-use terra::{Clipmap, DemSource, TerrainFileParams, MaterialSet};
+use terra::{QuadTree, DemSource, TerrainFileParams, MaterialSet};
 use terra::cache::GeneratedAsset;
 
 fn main() {
@@ -30,11 +31,8 @@ fn main() {
     let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
-    let mut terrain = Clipmap::new(
-        terrain_file,
-        materials,
+    let mut terrain = QuadTree::new(
         window.factory.clone(),
-        &mut window.encoder,
         &window.output_color,
         &window.output_stencil,
     );
@@ -50,8 +48,8 @@ fn main() {
     };
 
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([0.0, 0.0, 0.0], FirstPersonSettings::keyboard_wasd());
-    first_person.settings.speed_vertical = 50.0;
+    let mut first_person = FirstPerson::new([0.0, 10.0, 0.0], FirstPersonSettings::keyboard_wasd());
+    first_person.settings.speed_vertical = 500.0;
     first_person.settings.speed_horizontal = 200.0;
 
     while let Some(e) = window.next() {
@@ -74,16 +72,15 @@ fn main() {
             first_person.position[2] = f32::max(first_person.position[2], -3000.0).min(3000.0);
 
             let mut camera = first_person.camera(args.ext_dt);
-            if let Some(h) = terrain.get_approximate_height(
-                [camera.position[0], camera.position[2]],
-            )
-            {
-                camera.position[1] += h + 2.0;
-            }
+            // if let Some(h) = terrain.get_approximate_height(
+            //     [camera.position[0], camera.position[2]],
+            // )
+            // {
+            //     camera.position[1] += h + 2.0;
+            // }
             terrain.update(
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
-                camera.position,
-                &mut window.encoder,
+                cgmath::Point3::new(camera.position[0], camera.position[1], camera.position[2]),
             );
             terrain.render(&mut window.encoder);
         });

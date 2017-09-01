@@ -29,6 +29,7 @@ pub use terrain::clipmap::Clipmap;
 pub use terrain::dem::{DigitalElevationModel, DigitalElevationModelParams, DemSource};
 pub use terrain::file::{TerrainFile, TerrainFileParams};
 pub use terrain::material::MaterialSet;
+pub use terrain::quadtree::QuadTree;
 
 #[cfg(test)]
 mod tests {
