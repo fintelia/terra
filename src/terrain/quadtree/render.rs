@@ -3,6 +3,7 @@ use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
 
+use terrain::tile_cache::HEIGHTS_LAYER;
 use super::*;
 
 gfx_defines!{
@@ -58,32 +59,63 @@ where
     }
 
     pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-        let node_states: Vec<_> = self.visible_nodes
-            .iter()
-            .cloned()
-            .map(|id| {
-                NodeState {
-                    position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
-                    side_length: self.nodes[id].side_length,
+        let resolution = self.tile_cache_layers[HEIGHTS_LAYER].resolution() - 1;
+
+        self.node_states.clear();
+        for &id in self.visible_nodes.iter() {
+            self.node_states.push(NodeState {
+                position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
+                side_length: self.nodes[id].side_length,
+            });
+        }
+        for &(id, mask) in self.partially_visible_nodes.iter() {
+            assert!(mask < 15);
+            for i in 0..4u8 {
+                if mask & (1 << i) != 0 {
+                    let side_length = self.nodes[id].side_length * 0.5;
+                    let offset = ((i % 2) as f32, (i / 2) as f32);
+                    self.node_states.push(NodeState {
+                        position: [
+                            self.nodes[id].bounds.min.x + offset.0 * side_length,
+                            self.nodes[id].bounds.min.z + offset.1 * side_length,
+                        ],
+                        side_length,
+                    });
                 }
-            })
-            .collect();
+            }
+        }
 
         encoder
-            .update_buffer(&self.pipeline_data.instances, &node_states[..], 0)
+            .update_buffer(&self.pipeline_data.instances, &self.node_states[..], 0)
             .unwrap();
 
+        self.pipeline_data.resolution = resolution as i32;
         encoder.draw(
             &gfx::Slice {
                 start: 0,
-                end: ((self.pipeline_data.resolution - 1) *
-                          (self.pipeline_data.resolution - 1) * 6) as u32,
+                end: (resolution * resolution * 6) as u32,
                 base_vertex: 0,
-                instances: Some((node_states.len() as u32, 0)),
+                instances: Some((self.visible_nodes.len() as u32, 0)),
                 buffer: gfx::IndexBuffer::Auto,
             },
             &self.pso,
             &self.pipeline_data,
-        )
+        );
+
+        self.pipeline_data.resolution = (resolution / 2) as i32;
+        encoder.draw(
+            &gfx::Slice {
+                start: 0,
+                end: ((resolution / 2) * (resolution / 2) * 6) as u32,
+                base_vertex: 0,
+                instances: Some((
+                    (self.node_states.len() - self.visible_nodes.len()) as u32,
+                    self.visible_nodes.len() as u32,
+                )),
+                buffer: gfx::IndexBuffer::Auto,
+            },
+            &self.pso,
+            &self.pipeline_data,
+        );
     }
 }

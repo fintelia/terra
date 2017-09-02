@@ -44,7 +44,7 @@ impl Node {
                 max: Point3::new(side_length * 0.5, 0.0, side_length * 0.5),
             },
             side_length,
-            min_distance: side_length * 4.,
+            min_distance: side_length * 2.,
             center: Point2::origin(),
             size: 1 << 31,
             priority: Priority::none(),

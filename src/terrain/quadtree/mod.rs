@@ -8,7 +8,7 @@ use rshader;
 use std::env;
 use std::collections::VecDeque;
 
-use terrain::tile_cache::{Priority, TileCache};
+use terrain::tile_cache::{NUM_LAYERS, Priority, TileCache};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -17,8 +17,6 @@ pub(crate) mod render;
 pub(crate) use terrain::quadtree::id::*;
 pub(crate) use terrain::quadtree::node::*;
 pub(crate) use terrain::quadtree::render::*;
-
-const NUM_LAYERS: usize = 3;
 
 pub struct QuadTree<R, F>
 where
@@ -30,6 +28,7 @@ where
 
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
+    partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
     tile_cache_layers: [TileCache; NUM_LAYERS],
@@ -39,6 +38,7 @@ where
     pipeline_data: pipe::Data<R>,
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::Shader<R>,
+    node_states: Vec<NodeState>,
 }
 
 #[allow(unused)]
@@ -53,7 +53,7 @@ where
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Self {
         Self::from_nodes(
-            Node::make_nodes(524288.0, 3000.0, 13),
+            Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3),
             factory,
             color_buffer,
             depth_buffer,
@@ -77,20 +77,19 @@ where
             shader_source!("../../shaders/glsl", "version", "terrain.glslf"),
         ).unwrap();
 
-        let heights_resolution = 5;
-
         Self {
             visible_nodes: Vec::new(),
+            partially_visible_nodes: Vec::new(),
             tile_cache_layers: [
-                TileCache::new(1024, heights_resolution), // heights
+                TileCache::new(1024, 17), // heights
                 TileCache::new(512, 512), // normals
                 TileCache::new(96, 512), // splats
             ],
             pso: Self::make_pso(&mut factory, shader.as_shader_set()),
             pipeline_data: pipe::Data {
-                instances: factory.create_constant_buffer::<NodeState>(nodes.len()),
+                instances: factory.create_constant_buffer::<NodeState>(nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
-                resolution: heights_resolution as i32,
+                resolution: 0,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -98,6 +97,7 @@ where
             shaders_watcher,
             shader,
             nodes,
+            node_states: Vec::new(),
         }
     }
 
@@ -135,28 +135,37 @@ where
 
     fn update_visibility(&mut self) {
         self.visible_nodes.clear();
+        self.partially_visible_nodes.clear();
         for node in self.nodes.iter_mut() {
             node.visible = false;
         }
         // Any node with all needed layers in cache is visible...
         self.breadth_first(|qt, id| {
-            qt.nodes[id].visible = qt.nodes[id].priority >= Priority::cutoff() &&
-                qt.nodes[id].tile_indices.iter().filter_map(|i| *i).all(
-                    |i| {
-                        qt.tile_cache_layers[i as usize].contains(id)
-                    },
-                );
+            qt.nodes[id].visible = qt.nodes[id].priority >= Priority::cutoff();
             qt.nodes[id].visible
         });
         // ...Except if all its children are visible instead.
         self.breadth_first(|qt, id| if qt.nodes[id].visible {
-            qt.nodes[id].visible = !qt.nodes[id].children.iter().all(|child| match *child {
-                Some(c) => qt.nodes[c].visible,
-                None => false,
-            });
-            if qt.nodes[id].visible {
+            let mut mask = 0;
+            let mut has_visible_children = false;
+            for (i, c) in qt.nodes[id].children.iter().enumerate() {
+                if c.is_none() || !qt.nodes[c.unwrap()].visible {
+                    mask = mask | (1 << i);
+                }
+
+                if c.is_some() && qt.nodes[c.unwrap()].visible {
+                    has_visible_children = true;
+                }
+            }
+
+            if mask == 0 {
+                qt.nodes[id].visible = false;
+            } else if has_visible_children {
+                qt.partially_visible_nodes.push((id, mask));
+            } else {
                 qt.visible_nodes.push(id);
             }
+
             true
         } else {
             false

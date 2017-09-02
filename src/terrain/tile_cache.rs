@@ -22,6 +22,13 @@ impl Ord for Priority {
     }
 }
 
+pub const HEIGHTS_LAYER: usize = 0;
+#[allow(unused)]
+pub const NORMALS_LAYER: usize = 1;
+#[allow(unused)]
+pub const SPLATS_LAYER: usize = 2;
+pub const NUM_LAYERS: usize = 3;
+
 pub(crate) struct TileCache {
     /// Maximum number of slots in this `TileCache`.
     size: usize,
