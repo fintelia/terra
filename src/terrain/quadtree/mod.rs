@@ -89,6 +89,7 @@ where
             pipeline_data: pipe::Data {
                 instances: factory.create_constant_buffer::<NodeState>(nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
+                camera_position: [0.0, 0.0, 0.0],
                 resolution: 0,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
@@ -179,6 +180,7 @@ where
         self.update_shaders();
 
         self.pipeline_data.model_view_projection = mvp_mat;
+        self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

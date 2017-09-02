@@ -10,6 +10,7 @@ gfx_defines!{
     vertex NodeState {
         position: [f32; 2] = "vPosition",
         side_length: f32 = "vSideLength",
+        min_distance: f32 = "vMinDistance",
     }
 }
 
@@ -18,6 +19,7 @@ gfx_pipeline!( pipe {
 
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     resolution: gfx::Global<i32> = "resolution",
+    camera_position: gfx::Global<[f32;3]> = "cameraPosition",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -66,6 +68,7 @@ where
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
+                min_distance: self.nodes[id].min_distance,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -80,6 +83,7 @@ where
                             self.nodes[id].bounds.min.z + offset.1 * side_length,
                         ],
                         side_length,
+                        min_distance: self.nodes[id].min_distance,
                     });
                 }
             }
