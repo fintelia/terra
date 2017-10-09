@@ -40,6 +40,5 @@ void main() {
 		* (vSideLength / (resolution)) + vPosition;
 
 	fPosition = position;
-	fPosition.y = heightsOrigin.z;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

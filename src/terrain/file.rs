@@ -58,18 +58,18 @@ impl MMappedAsset for TerrainFileParams {
     fn generate<W: Write>(&self, mut writer: W) -> Result<Self::Header, Box<Error>> {
         let mut _bytes_written = 0;
 
-        let _dem = DigitalElevationModelParams {
+        let dem = DigitalElevationModelParams {
             latitude: self.latitude,
             longitude: self.longitude,
             source: self.source,
         }.load()?;
 
-        // // Compute approximate cell size in meters.
-        // let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
-        // let cell_size_x = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE *
-        //     ycenter.to_radians().cos();
-        // let cell_size_y = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE;
-        // let cell_size = cell_size_y as f32;
+        let world_center =
+            Vector2::<f32>::new(dem.xllcorner as f32 + 0.5, dem.yllcorner as f32 + 0.5);
+
+        let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
+        let scale_x = ((1.0 / 360.0) * EARTH_CIRCUMFERENCE * ycenter.to_radians().cos()) as f32;
+        let scale_y = (1.0 / 360.0) * EARTH_CIRCUMFERENCE as f32;
 
         // let cell_size_ratio = cell_size_y / cell_size_x;
         // let width = (dem.width as f64 / cell_size_ratio).floor() as usize;
@@ -86,13 +86,16 @@ impl MMappedAsset for TerrainFileParams {
                     let fx = x as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
                     let fy = y as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
 
-                    let world_position =
-                        Point2::<f32>::new(
-                            node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx,
-                            node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy,
-                        );
+                    let world_position = Vector2::<f32>::new(
+                        (node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx) /
+                            scale_x,
+                        (node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy) /
+                            scale_y,
+                    );
 
-                    let height = 1000.0 * (0.001 * world_position.distance(Point2::origin())).sin();
+                    let p = world_center + world_position;
+                    let height = dem.get_elevation(p.x as f64, p.y as f64).unwrap_or(0.0);
+                    // let height = 1000.0 * (0.001 * world_position.distance(Point2::origin())).sin();
 
                     writer.write_f32::<LittleEndian>(height)?;
                     _bytes_written += 4;

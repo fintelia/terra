@@ -198,6 +198,25 @@ impl DigitalElevationModel {
             elevations,
         }
     }
+
+    pub fn get_elevation(&self, latitude: f64, longitude: f64) -> Option<f32> {
+        let x = (latitude - self.xllcorner) / self.cell_size;
+        let y = (longitude - self.yllcorner) / self.cell_size;
+
+        let fx = x.floor() as usize;
+        let fy = y.floor() as usize;
+        if x < 0.0 || fx >= self.width - 1 || y < 0.0 || fy >= self.height - 1 {
+            return None;
+        }
+
+        let h00 = self.elevations[fx + fy * self.width];
+        let h10 = self.elevations[fx + 1 + fy * self.width];
+        let h01 = self.elevations[fx + (fy + 1) * self.width];
+        let h11 = self.elevations[fx + 1 + (fy + 1) * self.width];
+        let h0 = h00 + (h01 - h00) * (y - fy as f64) as f32;
+        let h1 = h10 + (h11 - h10) * (y - fy as f64) as f32;
+        Some(h0 + (h1 - h0) * (x - fx as f64) as f32)
+    }
 }
 
 #[cfg(test)]
