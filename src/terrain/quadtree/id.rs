@@ -2,7 +2,7 @@ use super::Node;
 
 use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct NodeId(u32);
 impl NodeId {
     pub fn root() -> Self {

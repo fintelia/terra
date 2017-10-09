@@ -18,12 +18,14 @@ required-features = ["preview"]
 
 [dependencies]
 bincode = "0.8.0"
-cgmath = "0.15"
+byteorder = "1.1.0"
+cgmath = { version = "0.15", features = ["serde"] }
 curl = "0.4"
 gfx = "0.16"
 gfx_core = "0.7"
 image = "0.15"
 lazy_static = "0.2"
+memmap = "0.5.2"
 notify = "4.0"
 rand = "0.3"
 rshader = { path = "rshader", features = [] }

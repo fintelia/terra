@@ -1,7 +1,9 @@
+use memmap::MmapViewSync;
 use vec_map::VecMap;
+
 use terrain::quadtree::{Node, NodeId};
 
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Priority(f32);
 impl Priority {
     pub fn cutoff() -> Self {
@@ -29,6 +31,26 @@ pub const NORMALS_LAYER: usize = 1;
 pub const SPLATS_LAYER: usize = 2;
 pub const NUM_LAYERS: usize = 3;
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(crate) struct LayerParams {
+    /// Byte offset from start of file.
+    pub offset: usize,
+    /// Number of tiles in layer.
+    pub tile_count: usize,
+    /// Number of samples in each dimension, per tile.
+    pub tile_resolution: u32,
+    /// Number of bytes in each sample.
+    pub sample_bytes: usize,
+    /// Number of bytes per tile
+    pub tile_bytes: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct TileHeader {
+    pub layers: [LayerParams; NUM_LAYERS],
+    pub nodes: Vec<Node>,
+}
+
 pub(crate) struct TileCache {
     /// Maximum number of slots in this `TileCache`.
     size: usize,
@@ -42,17 +64,21 @@ pub(crate) struct TileCache {
     min_priority: Priority,
 
     /// Resolution of each tile in this cache.
-    resolution: u32,
+    layer_params: LayerParams,
+
+    /// Section of memory map that holds the data for this layer.
+    data_file: MmapViewSync,
 }
 impl TileCache {
-    pub fn new(cache_size: usize, tile_resolution: u32) -> Self {
+    pub fn new(cache_size: usize, params: LayerParams, data_file: MmapViewSync) -> Self {
         Self {
             size: cache_size,
             slots: Vec::new(),
             reverse: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
-            resolution: tile_resolution,
+            layer_params: params,
+            data_file,
         }
     }
 
@@ -120,6 +146,6 @@ impl TileCache {
 
     #[allow(unused)]
     pub fn resolution(&self) -> u32 {
-        self.resolution
+        self.layer_params.tile_resolution
     }
 }

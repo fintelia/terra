@@ -1,4 +1,5 @@
 extern crate bincode;
+extern crate byteorder;
 extern crate cgmath;
 extern crate curl;
 #[macro_use]
@@ -7,6 +8,7 @@ extern crate gfx_core;
 extern crate image;
 #[macro_use]
 extern crate lazy_static;
+extern crate memmap;
 extern crate notify;
 extern crate rand;
 #[macro_use]

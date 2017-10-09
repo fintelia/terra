@@ -7,6 +7,7 @@ use terrain::tile_cache::Priority;
 
 use utils::math::BoundingBox;
 
+#[derive(Serialize, Deserialize)]
 pub(crate) struct Node {
     pub level: u8,
     #[allow(unused)]

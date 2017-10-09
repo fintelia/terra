@@ -1,26 +1,52 @@
 use std::error::Error;
 use std::f64::consts::PI;
+use std::io::Write;
 
-use cache::{GeneratedAsset, WebAsset};
+use byteorder::{LittleEndian, WriteBytesExt};
+use cgmath::*;
+use gfx;
+
+use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
+use terrain::quadtree::{Node, QuadTree};
+use terrain::tile_cache::{TileHeader, LayerParams, HEIGHTS_LAYER, NUM_LAYERS};
 
-/// This file assumes that all coordinates are provided relative to the earth represented as a
-/// perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
-/// actually WGS84 or NAD83. However, for our purposes the difference should not be noticable.
+// This file assumes that all coordinates are provided relative to the earth represented as a
+// perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
+// actually WGS84 or NAD83. However, for our purposes the difference should not be noticable.
 
 pub struct TerrainFileParams {
     pub latitude: i16,
     pub longitude: i16,
     pub source: DemSource,
 }
-impl GeneratedAsset for TerrainFileParams {
-    type Type = TerrainFile;
+impl TerrainFileParams {
+    pub fn build_quadtree<R: gfx::Resources, F: gfx::Factory<R>>(
+        self,
+        factory: F,
+        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
+        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
+    ) -> Result<QuadTree<R, F>, Box<Error>> {
+        let (header, data) = self.load()?;
+
+        Ok(QuadTree::new(
+            header,
+            data,
+            factory,
+            color_buffer,
+            depth_buffer,
+        ))
+    }
+}
+
+impl MMappedAsset for TerrainFileParams {
+    type Header = TileHeader;
 
     fn filename(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "maps/{}{:02}_{}{:03}_{}m.data",
+            "maps/{}{:02}_{}{:03}_{}m",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
@@ -29,13 +55,59 @@ impl GeneratedAsset for TerrainFileParams {
         )
     }
 
-    fn generate(&self) -> Result<Self::Type, Box<Error>> {
-        let dem = DigitalElevationModelParams {
+    fn generate<W: Write>(&self, mut writer: W) -> Result<Self::Header, Box<Error>> {
+        let mut _bytes_written = 0;
+
+        let _dem = DigitalElevationModelParams {
             latitude: self.latitude,
             longitude: self.longitude,
             source: self.source,
         }.load()?;
-        Ok(Self::Type::from_digital_elevation_model(dem))
+
+        // // Compute approximate cell size in meters.
+        // let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
+        // let cell_size_x = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE *
+        //     ycenter.to_radians().cos();
+        // let cell_size_y = (dem.cell_size / 360.0) * EARTH_CIRCUMFERENCE;
+        // let cell_size = cell_size_y as f32;
+
+        // let cell_size_ratio = cell_size_y / cell_size_x;
+        // let width = (dem.width as f64 / cell_size_ratio).floor() as usize;
+        // let height = dem.height;
+
+        const HEIGHTS_RESOLUTION: usize = 33;
+
+        let nodes = Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3);
+        for (_i, node) in nodes.iter().enumerate() {
+            for y in 0..HEIGHTS_RESOLUTION {
+                for x in 0..HEIGHTS_RESOLUTION {
+                    let fx = x as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
+                    let fy = y as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
+
+                    let world_position =
+                        Point2::<f32>::new(
+                            node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx,
+                            node.bounds.min.y + (node.bounds.max.y - node.bounds.min.y) * fy,
+                        );
+
+                    let height = 1000.0 * (0.001 * world_position.distance(Point2::origin())).sin();
+
+                    writer.write_f32::<LittleEndian>(height)?;
+                    _bytes_written += 4;
+                }
+            }
+        }
+
+        let mut layers: [LayerParams; NUM_LAYERS] = Default::default();
+        layers[HEIGHTS_LAYER] = LayerParams {
+            offset: 0,
+            tile_count: nodes.len(),
+            tile_resolution: HEIGHTS_RESOLUTION as u32,
+            sample_bytes: 4,
+            tile_bytes: 4 * HEIGHTS_RESOLUTION * HEIGHTS_RESOLUTION,
+        };
+
+        Ok(TileHeader { layers, nodes })
     }
 }
 

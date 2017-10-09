@@ -1,6 +1,7 @@
 use cgmath::*;
 use gfx;
 use gfx::traits::FactoryExt;
+use memmap::Mmap;
 use vecmath;
 
 use rshader;
@@ -8,7 +9,7 @@ use rshader;
 use std::env;
 use std::collections::VecDeque;
 
-use terrain::tile_cache::{NUM_LAYERS, Priority, TileCache};
+use terrain::tile_cache::{NUM_LAYERS, Priority, TileCache, TileHeader};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -47,21 +48,9 @@ where
     R: gfx::Resources,
     F: gfx::Factory<R>,
 {
-    pub fn new(
-        mut factory: F,
-        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
-        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
-    ) -> Self {
-        Self::from_nodes(
-            Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3),
-            factory,
-            color_buffer,
-            depth_buffer,
-        )
-    }
-
-    pub(crate) fn from_nodes(
-        nodes: Vec<Node>,
+    pub(crate) fn new(
+        header: TileHeader,
+        data_file: Mmap,
         mut factory: F,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
@@ -77,17 +66,34 @@ where
             shader_source!("../../shaders/glsl", "version", "terrain.glslf"),
         ).unwrap();
 
+        let mut data_view = data_file.into_view_sync();
+
         Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
             tile_cache_layers: [
-                TileCache::new(1024, 17), // heights
-                TileCache::new(512, 512), // normals
-                TileCache::new(96, 512), // splats
+                // heights
+                TileCache::new(
+                    1024,
+                    header.layers[0].clone(),
+                    unsafe { data_view.clone() },
+                ),
+                // normals 512x512
+                TileCache::new(
+                    512,
+                    header.layers[1].clone(),
+                    unsafe { data_view.clone() },
+                ),
+                // splats 512x512
+                TileCache::new(
+                    96,
+                    header.layers[2].clone(),
+                    unsafe { data_view.clone() },
+                ),
             ],
             pso: Self::make_pso(&mut factory, shader.as_shader_set()),
             pipeline_data: pipe::Data {
-                instances: factory.create_constant_buffer::<NodeState>(nodes.len() * 3),
+                instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
                 camera_position: [0.0, 0.0, 0.0],
                 resolution: 0,
@@ -97,7 +103,7 @@ where
             factory,
             shaders_watcher,
             shader,
-            nodes,
+            nodes: header.nodes,
             node_states: Vec::new(),
         }
     }

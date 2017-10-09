@@ -8,19 +8,12 @@ extern crate cgmath;
 use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
+use vecmath::traits::Sqrt;
 
-use terra::{QuadTree, DemSource, TerrainFileParams, MaterialSet};
-use terra::cache::GeneratedAsset;
+use terra::{MaterialSet, DemSource, TerrainFileParams};
 
 fn main() {
-    let terrain_file = TerrainFileParams {
-        latitude: 44,
-        longitude: -74,
-        source: DemSource::Usgs30m,
-    }.load()
-        .unwrap();
-
-    let mut window: PistonWindow = WindowSettings::new("terra preview", [640, 480])
+    let mut window: PistonWindow = WindowSettings::new("terra preview", [1920 / 2, 1080 / 2])
         .exit_on_esc(true)
         .opengl(OpenGL::V3_3)
         .samples(1)
@@ -28,14 +21,19 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
+    let _materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
-    let mut terrain = QuadTree::new(
+    let mut terrain = TerrainFileParams {
+        latitude: 44,
+        longitude: -74,
+        source: DemSource::Usgs30m,
+    }.build_quadtree(
         window.factory.clone(),
         &window.output_color,
         &window.output_stencil,
-    );
+    )
+        .unwrap();
 
     let get_projection = |w: &PistonWindow| {
         let draw_size = w.window.draw_size();
@@ -68,10 +66,16 @@ fn main() {
             );
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
-            first_person.position[0] = f32::max(first_person.position[0], -3000.0).min(3000.0);
-            first_person.position[2] = f32::max(first_person.position[2], -3000.0).min(3000.0);
+            let center_distance = (first_person.position[0] * first_person.position[0] +
+                                       first_person.position[2] * first_person.position[2])
+                .sqrt();
 
-            let mut camera = first_person.camera(args.ext_dt);
+            if center_distance > 3000.0 {
+                first_person.position[0] /= center_distance / 3000.0;
+                first_person.position[2] /= center_distance / 3000.0;
+            }
+
+            let camera = first_person.camera(args.ext_dt);
             // if let Some(h) = terrain.get_approximate_height(
             //     [camera.position[0], camera.position[2]],
             // )
