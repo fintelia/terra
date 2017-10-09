@@ -113,6 +113,8 @@ pub(crate) trait MMappedAsset {
             }
             header_file.sync_all()?;
 
+            // Open for reading this time
+            let data_file = File::open(&data_filename)?;
             let mapping = Mmap::open(&data_file, ::memmap::Protection::Read)?;
             Ok((header, mapping))
         }

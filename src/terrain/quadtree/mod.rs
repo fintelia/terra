@@ -1,6 +1,7 @@
 use cgmath::*;
 use gfx;
 use gfx::traits::FactoryExt;
+use gfx_core;
 use memmap::Mmap;
 use vecmath;
 
@@ -9,7 +10,7 @@ use rshader;
 use std::env;
 use std::collections::VecDeque;
 
-use terrain::tile_cache::{NUM_LAYERS, Priority, TileCache, TileHeader};
+use terrain::tile_cache::{HEIGHTS_LAYER, NUM_LAYERS, Priority, TileCache, TileHeader};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -32,7 +33,7 @@ where
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
-    tile_cache_layers: [TileCache; NUM_LAYERS],
+    tile_cache_layers: [TileCache<R>; NUM_LAYERS],
 
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
@@ -67,36 +68,51 @@ where
         ).unwrap();
 
         let mut data_view = data_file.into_view_sync();
+        let tile_cache_layers = [
+            // heights
+            TileCache::new(
+                0,
+                1024,
+                header.layers[0].clone(),
+                unsafe { data_view.clone() },
+                &mut factory,
+            ),
+            // normals 512x512
+            TileCache::new(
+                1,
+                512,
+                header.layers[1].clone(),
+                unsafe { data_view.clone() },
+                &mut factory,
+            ),
+            // splats 512x512
+            TileCache::new(
+                2,
+                96,
+                header.layers[2].clone(),
+                unsafe { data_view.clone() },
+                &mut factory,
+            ),
+        ];
+
+        let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::WrapMode::Clamp,
+        ));
 
         Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
-            tile_cache_layers: [
-                // heights
-                TileCache::new(
-                    1024,
-                    header.layers[0].clone(),
-                    unsafe { data_view.clone() },
-                ),
-                // normals 512x512
-                TileCache::new(
-                    512,
-                    header.layers[1].clone(),
-                    unsafe { data_view.clone() },
-                ),
-                // splats 512x512
-                TileCache::new(
-                    96,
-                    header.layers[2].clone(),
-                    unsafe { data_view.clone() },
-                ),
-            ],
             pso: Self::make_pso(&mut factory, shader.as_shader_set()),
             pipeline_data: pipe::Data {
                 instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
                 camera_position: [0.0, 0.0, 0.0],
                 resolution: 0,
+                heights: (
+                    tile_cache_layers[HEIGHTS_LAYER].texture_view.clone(),
+                    sampler,
+                ),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -105,6 +121,7 @@ where
             shader,
             nodes: header.nodes,
             node_states: Vec::new(),
+            tile_cache_layers,
         }
     }
 
@@ -120,7 +137,7 @@ where
         }
     }
 
-    fn update_cache(&mut self) {
+    fn update_cache<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
         self.breadth_first(|qt, id| {
             if qt.nodes[id].priority < Priority::cutoff() {
                 return false;
@@ -136,7 +153,7 @@ where
             true
         });
         for cache_layer in self.tile_cache_layers.iter_mut() {
-            cache_layer.load_missing(&mut self.nodes);
+            cache_layer.load_missing(&mut self.nodes, encoder);
         }
     }
 
@@ -179,9 +196,14 @@ where
         });
     }
 
-    pub fn update(&mut self, mvp_mat: vecmath::Matrix4<f32>, camera: Point3<f32>) {
+    pub fn update<C: gfx_core::command::Buffer<R>>(
+        &mut self,
+        mvp_mat: vecmath::Matrix4<f32>,
+        camera: Point3<f32>,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) {
         self.update_priorities(camera);
-        self.update_cache();
+        self.update_cache(encoder);
         self.update_visibility();
         self.update_shaders();
 

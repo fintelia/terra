@@ -11,6 +11,7 @@ gfx_defines!{
         position: [f32; 2] = "vPosition",
         side_length: f32 = "vSideLength",
         min_distance: f32 = "vMinDistance",
+        heights_origin: [f32; 3] = "heightsOrigin",
     }
 }
 
@@ -20,6 +21,8 @@ gfx_pipeline!( pipe {
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     resolution: gfx::Global<i32> = "resolution",
     camera_position: gfx::Global<[f32;3]> = "cameraPosition",
+
+    heights: gfx::TextureSampler<f32> = "heights",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -65,10 +68,12 @@ where
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
+            let slot = self.tile_cache_layers[HEIGHTS_LAYER].get_slot(id).unwrap() as f32;
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
+                heights_origin: [0.0, 0.0, slot],
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -77,6 +82,7 @@ where
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
+                    let slot = self.tile_cache_layers[HEIGHTS_LAYER].get_slot(id).unwrap() as f32;
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -84,6 +90,7 @@ where
                         ],
                         side_length,
                         min_distance: self.nodes[id].min_distance,
+                        heights_origin: [offset.0 * 0.5, offset.1 * 0.5, slot],
                     });
                 }
             }

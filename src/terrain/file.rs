@@ -77,8 +77,10 @@ impl MMappedAsset for TerrainFileParams {
 
         const HEIGHTS_RESOLUTION: usize = 33;
 
-        let nodes = Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3);
-        for (_i, node) in nodes.iter().enumerate() {
+        let mut nodes = Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3);
+        for (i, node) in nodes.iter_mut().enumerate() {
+            node.tile_indices[HEIGHTS_LAYER] = Some(i as u32);
+
             for y in 0..HEIGHTS_RESOLUTION {
                 for x in 0..HEIGHTS_RESOLUTION {
                     let fx = x as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
@@ -87,7 +89,7 @@ impl MMappedAsset for TerrainFileParams {
                     let world_position =
                         Point2::<f32>::new(
                             node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx,
-                            node.bounds.min.y + (node.bounds.max.y - node.bounds.min.y) * fy,
+                            node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy,
                         );
 
                     let height = 1000.0 * (0.001 * world_position.distance(Point2::origin())).sin();

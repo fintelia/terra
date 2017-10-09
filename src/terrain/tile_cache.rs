@@ -1,3 +1,5 @@
+use gfx;
+use gfx_core;
 use memmap::MmapViewSync;
 use vec_map::VecMap;
 
@@ -51,7 +53,9 @@ pub(crate) struct TileHeader {
     pub nodes: Vec<Node>,
 }
 
-pub(crate) struct TileCache {
+pub(crate) struct TileCache<R: gfx::Resources> {
+    /// Which layer this is a tile cache for.
+    layer_id: usize,
     /// Maximum number of slots in this `TileCache`.
     size: usize,
     /// Actually contents of the cache.
@@ -66,19 +70,49 @@ pub(crate) struct TileCache {
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
 
+    texture: gfx_core::handle::Texture<R, gfx_core::format::R32>,
+    pub(crate) texture_view: gfx_core::handle::ShaderResourceView<R, f32>,
+
     /// Section of memory map that holds the data for this layer.
     data_file: MmapViewSync,
 }
-impl TileCache {
-    pub fn new(cache_size: usize, params: LayerParams, data_file: MmapViewSync) -> Self {
+impl<R: gfx::Resources> TileCache<R> {
+    pub fn new<F: gfx::Factory<R>>(
+        layer_id: usize,
+        cache_size: u16,
+        params: LayerParams,
+        data_file: MmapViewSync,
+        factory: &mut F,
+    ) -> Self {
+        let texture = factory
+            .create_texture::<gfx::format::R32>(
+                gfx::texture::Kind::D2Array(
+                    params.tile_resolution as u16,
+                    params.tile_resolution as u16,
+                    cache_size,
+                    gfx::texture::AaMode::Single,
+                ),
+                1,
+                gfx::SHADER_RESOURCE,
+                gfx::memory::Usage::Dynamic,
+                Some(gfx::format::ChannelType::Float),
+            )
+            .unwrap();
+        let texture_view = factory
+            .view_texture_as_shader_resource::<f32>(&texture, (0, 0), gfx::format::Swizzle::new())
+            .unwrap();
+
         Self {
-            size: cache_size,
+            layer_id,
+            size: cache_size as usize,
             slots: Vec::new(),
             reverse: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
             layer_params: params,
             data_file,
+            texture,
+            texture_view,
         }
     }
 
@@ -98,11 +132,16 @@ impl TileCache {
         }
     }
 
-    pub fn load_missing(&mut self, nodes: &mut Vec<Node>) {
+    pub fn load_missing<C: gfx_core::command::Buffer<R>>(
+        &mut self,
+        nodes: &mut Vec<Node>,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) {
         if self.slots.len() + self.missing.len() < self.size {
             while let Some(m) = self.missing.pop() {
                 let index = self.slots.len();
-                self.load(m.1, &mut nodes[m.1], index);
+                self.slots.push(m.clone());
+                self.load(m.1, &mut nodes[m.1], index, encoder);
             }
         } else {
             let mut possible: Vec<_> = self.slots
@@ -126,22 +165,55 @@ impl TileCache {
                     index += 1;
                 }
 
-                self.load(m.1, &mut nodes[m.1], index);
+                self.slots[index] = m.clone();
+                self.load(m.1, &mut nodes[m.1], index, encoder);
                 index += 1;
             }
         }
     }
 
-    fn load(&mut self, id: NodeId, _node: &mut Node, slot: usize) {
+    fn load<C: gfx_core::command::Buffer<R>>(
+        &mut self,
+        id: NodeId,
+        node: &mut Node,
+        slot: usize,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) {
         if slot < self.slots.len() {
             self.reverse.remove(self.slots[slot].1.index());
         }
         self.reverse.insert(id.index(), slot);
-        unimplemented!()
+
+        let tile = node.tile_indices[self.layer_id].unwrap() as usize;
+        let len = self.layer_params.tile_bytes;
+        let offset = self.layer_params.offset + tile * len;
+        let data = unsafe { &self.data_file.as_slice()[offset..(offset + len)] };
+
+        encoder
+            .update_texture::<gfx::format::R32, f32>(
+                &self.texture,
+                None,
+                gfx_core::texture::NewImageInfo {
+                    xoffset: 0,
+                    yoffset: 0,
+                    zoffset: slot as u16,
+                    width: self.layer_params.tile_resolution as u16,
+                    height: self.layer_params.tile_resolution as u16,
+                    depth: 1,
+                    format: (),
+                    mipmap: 0,
+                },
+                gfx::memory::cast_slice(data),
+            )
+            .unwrap();
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
         self.reverse.contains_key(id.index())
+    }
+
+    pub fn get_slot(&self, id: NodeId) -> Option<usize> {
+        self.reverse.get(id.index()).cloned()
     }
 
     #[allow(unused)]
