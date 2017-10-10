@@ -8,8 +8,9 @@ use gfx;
 
 use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
-use terrain::quadtree::{Node, QuadTree};
+use terrain::heightmap::Heightmap;
 use terrain::tile_cache::{TileHeader, LayerParams, HEIGHTS_LAYER, NUM_LAYERS};
+use terrain::quadtree::{node, Node, QuadTree};
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
 // perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
@@ -71,35 +72,165 @@ impl MMappedAsset for TerrainFileParams {
         let scale_x = ((1.0 / 360.0) * EARTH_CIRCUMFERENCE * ycenter.to_radians().cos()) as f32;
         let scale_y = (1.0 / 360.0) * EARTH_CIRCUMFERENCE as f32;
 
-        // let cell_size_ratio = cell_size_y / cell_size_x;
-        // let width = (dem.width as f64 / cell_size_ratio).floor() as usize;
-        // let height = dem.height;
+        // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
+        // smaller cell sizes due to the projection.
+        let dem_cell_size_y = scale_y * dem.cell_size as f32;
 
-        const HEIGHTS_RESOLUTION: usize = 33;
+        const HEIGHTS_RESOLUTION: u16 = 33;
+        const TEXTURE_RESOLUTION: u16 = 513;
 
-        let mut nodes = Node::make_nodes(524288.0 / 8.0, 3000.0, 13 - 3);
-        for (i, node) in nodes.iter_mut().enumerate() {
-            node.tile_indices[HEIGHTS_LAYER] = Some(i as u32);
+        let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-            for y in 0..HEIGHTS_RESOLUTION {
-                for x in 0..HEIGHTS_RESOLUTION {
-                    let fx = x as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
-                    let fy = y as f32 / (HEIGHTS_RESOLUTION - 1) as f32;
+        let world_size = 524288.0 / 8.0;
+        let max_level = 10i32;
+        let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
-                    let world_position = Vector2::<f32>::new(
-                        (node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx) /
-                            scale_x,
-                        (node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy) /
-                            scale_y,
-                    );
+        let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
+        let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
+        let max_dem_level = max_level - num_fractal_levels.max(0).min(max_level);
 
-                    let p = world_center + world_position;
-                    let height = dem.get_elevation(p.x as f64, p.y as f64).unwrap_or(0.0);
-                    // let height = 1000.0 * (0.001 * world_position.distance(Point2::origin())).sin();
+        // Heightmaps for all nodes in layers 0...max_texture_level.
+        let mut heightmaps: Vec<Heightmap<f32>> = Vec::new();
+        // Resolution of each heightmap stored in heightmaps. They are at higher resolution that
+        // HEIGHTS_RESOLUTION so that the more detailed textures can be derived from them.
+        let heightmap_resolution = TEXTURE_RESOLUTION as u16;
 
-                    writer.write_f32::<LittleEndian>(height)?;
-                    _bytes_written += 4;
+        let mut nodes = Node::make_nodes(world_size, 3000.0, max_level as u8);
+        for i in 0..nodes.len() {
+            nodes[i].tile_indices[HEIGHTS_LAYER] = Some(i as u32);
+
+            if nodes[i].level as i32 > max_texture_level {
+                let mut ancestor = i;
+                let mut offset = Vector2::new(0, 0);
+                let mut offset_scale = 1;
+                let mut step: u16 = resolution_ratio;
+
+                while nodes[ancestor].level as i32 > max_texture_level {
+                    let &(parent_id, child_index) = nodes[ancestor].parent.as_ref().unwrap();
+                    offset += node::OFFSETS[child_index as usize] * offset_scale;
+                    ancestor = parent_id.index();
+                    offset_scale *= 2;
+                    step /= 2;
                 }
+                let ancestor_heightmap = &heightmaps[ancestor];
+
+                offset *= heightmap_resolution as i32 / offset_scale;
+                let offset = Vector2::new(offset.x as u16, offset.y as u16);
+
+                for y in 0..HEIGHTS_RESOLUTION {
+                    for x in 0..HEIGHTS_RESOLUTION {
+                        let mut height = ancestor_heightmap
+                            .get(x * step + offset.x, y * step + offset.y)
+                            .unwrap();
+
+                        writer.write_f32::<LittleEndian>(height)?;
+                        _bytes_written += 4;
+                    }
+                }
+
+            } else if nodes[i].level as i32 > max_dem_level {
+                let mut heights = Vec::with_capacity(
+                    heightmap_resolution as usize * heightmap_resolution as usize,
+                );
+                let offset = node::OFFSETS[nodes[i].parent.as_ref().unwrap().1 as usize];
+                let offset = Point2::new(
+                    offset.x as u16 * heightmap_resolution / 2,
+                    offset.y as u16 * heightmap_resolution / 2,
+                );
+
+                // Extra scope needed due to lack of support for non-lexical lifetimes.
+                {
+                    let parent_heightmap = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
+                    for y in 0..heightmap_resolution {
+                        for x in 0..heightmap_resolution {
+                            let height = if x % 2 == 0 && y % 2 == 0 {
+                                parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y)
+                                    .unwrap()
+                            } else if x % 2 == 0 {
+                                let h0 = parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y)
+                                    .unwrap();
+                                let h1 = parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y + 1)
+                                    .unwrap();
+
+                                (h0 + h1) * 0.5
+                            } else if y % 2 == 0 {
+                                let h0 = parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y)
+                                    .unwrap();
+                                let h1 = parent_heightmap
+                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y)
+                                    .unwrap();
+
+                                (h0 + h1) * 0.5
+                            } else {
+                                let h0 = parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y)
+                                    .unwrap();
+                                let h1 = parent_heightmap
+                                    .get(x / 2 + offset.x, y / 2 + offset.y + 1)
+                                    .unwrap();
+                                let h2 = parent_heightmap
+                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y)
+                                    .unwrap();
+                                let h3 = parent_heightmap
+                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y + 1)
+                                    .unwrap();
+
+                                (h0 + h1 + h2 + h3) * 0.25
+                            };
+
+                            heights.push(height);
+
+                            if x % resolution_ratio == 0 && y % resolution_ratio == 0 {
+                                writer.write_f32::<LittleEndian>(height)?;
+                                _bytes_written += 4;
+                            }
+                        }
+                    }
+                }
+
+                heightmaps.push(Heightmap::new(
+                    heights,
+                    heightmap_resolution,
+                    heightmap_resolution,
+                ));
+            } else {
+                assert_eq!(heightmaps.len(), i);
+                let node = &nodes[i];
+                let mut heights = Vec::with_capacity(
+                    heightmap_resolution as usize * heightmap_resolution as usize,
+                );
+                for y in 0..heightmap_resolution {
+                    for x in 0..heightmap_resolution {
+                        let fx = x as f32 / (heightmap_resolution - 1) as f32;
+                        let fy = y as f32 / (heightmap_resolution - 1) as f32;
+
+                        let world_position = Vector2::<f32>::new(
+                            (node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx) /
+                                scale_x,
+                            (node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy) /
+                                scale_y,
+                        );
+
+                        let p = world_center + world_position;
+                        let height = dem.get_elevation(p.x as f64, p.y as f64).unwrap_or(0.0);
+                        heights.push(height);
+
+                        if x % resolution_ratio == 0 && y % resolution_ratio == 0 {
+                            writer.write_f32::<LittleEndian>(height)?;
+                            _bytes_written += 4;
+                        }
+                    }
+                }
+
+                heightmaps.push(Heightmap::new(
+                    heights,
+                    heightmap_resolution,
+                    heightmap_resolution,
+                ));
             }
         }
 
@@ -109,7 +240,7 @@ impl MMappedAsset for TerrainFileParams {
             tile_count: nodes.len(),
             tile_resolution: HEIGHTS_RESOLUTION as u32,
             sample_bytes: 4,
-            tile_bytes: 4 * HEIGHTS_RESOLUTION * HEIGHTS_RESOLUTION,
+            tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
         };
 
         Ok(TileHeader { layers, nodes })

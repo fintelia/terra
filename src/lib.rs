@@ -1,3 +1,5 @@
+#![feature(ord_max_min)]
+
 extern crate bincode;
 extern crate byteorder;
 extern crate cgmath;

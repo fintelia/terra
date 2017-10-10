@@ -7,11 +7,27 @@ use terrain::tile_cache::Priority;
 
 use utils::math::BoundingBox;
 
+lazy_static! {
+    pub static ref OFFSETS: [Vector2<i32>; 4] = [
+        Vector2::new(0, 0),
+        Vector2::new(1, 0),
+        Vector2::new(0, 1),
+        Vector2::new(1, 1),
+    ];
+    pub static ref CENTER_OFFSETS: [Vector2<i32>; 4] = [
+        Vector2::new(-1, -1),
+        Vector2::new(1, -1),
+        Vector2::new(-1, 1),
+        Vector2::new(1, 1),
+    ];
+}
+
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Node {
     pub level: u8,
     #[allow(unused)]
-    pub parent: Option<NodeId>,
+    /// Tuple of this node's parent id, and the index of this node in its parents child list.
+    pub parent: Option<(NodeId, u8)>,
     pub children: [Option<NodeId>; 4],
 
     pub bounds: BoundingBox,
@@ -85,19 +101,12 @@ impl Node {
                 ),
             ];
 
-            let offsets = [
-                Vector2::new(-1, -1),
-                Vector2::new(1, -1),
-                Vector2::new(-1, 1),
-                Vector2::new(1, 1),
-            ];
-
             for i in 0..4 {
                 if bounds[i].distance(Point3::origin()) < playable_radius + min_distance {
                     let child = NodeId::new(nodes.len() as u32);
                     let child_node = Node {
                         level: nodes[parent].level + 1,
-                        parent: Some(parent),
+                        parent: Some((parent, i as u8)),
                         children: [None; 4],
                         bounds: bounds[i],
                         side_length: nodes[parent].side_length * 0.5,
@@ -105,7 +114,7 @@ impl Node {
                         size: nodes[parent].size / 2,
                         center: Point2::from_vec(
                             nodes[parent].center.to_vec() -
-                                offsets[i] * (nodes[parent].size / 4),
+                                CENTER_OFFSETS[i] * (nodes[parent].size / 4),
                         ),
                         priority: Priority::none(),
                         tile_indices: [None; NUM_LAYERS],
