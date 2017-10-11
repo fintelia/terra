@@ -89,11 +89,21 @@ impl MMappedAsset for TerrainFileParams {
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_level - num_fractal_levels.max(0).min(max_level);
 
+        // Amount of space outside of tile that is included in heightmap. Used for computing
+        // normals and such. Must be even.
+        let skirt = 4;
+        assert_eq!(skirt % 2, 0);
+
         // Heightmaps for all nodes in layers 0...max_texture_level.
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::new();
         // Resolution of each heightmap stored in heightmaps. They are at higher resolution that
         // HEIGHTS_RESOLUTION so that the more detailed textures can be derived from them.
-        let heightmap_resolution = TEXTURE_RESOLUTION as u16;
+        let heightmap_resolution = TEXTURE_RESOLUTION as u16 + 2 * skirt;
+
+        let in_skirt = |x, y| -> bool {
+            x < skirt && y < skirt || x >= heightmap_resolution - skirt ||
+                y >= heightmap_resolution - skirt
+        };
 
         let mut nodes = Node::make_nodes(world_size, 3000.0, max_level as u8);
         for i in 0..nodes.len() {
@@ -114,13 +124,13 @@ impl MMappedAsset for TerrainFileParams {
                 }
                 let ancestor_heightmap = &heightmaps[ancestor];
 
-                offset *= heightmap_resolution as i32 / offset_scale;
+                offset *= (heightmap_resolution - 2 * skirt) as i32 / offset_scale;
                 let offset = Vector2::new(offset.x as u16, offset.y as u16);
 
                 for y in 0..HEIGHTS_RESOLUTION {
                     for x in 0..HEIGHTS_RESOLUTION {
-                        let mut height = ancestor_heightmap
-                            .get(x * step + offset.x, y * step + offset.y)
+                        let height = ancestor_heightmap
+                            .get(x * step + offset.x + skirt, y * step + offset.y + skirt)
                             .unwrap();
 
                         writer.write_f32::<LittleEndian>(height)?;
@@ -134,8 +144,8 @@ impl MMappedAsset for TerrainFileParams {
                 );
                 let offset = node::OFFSETS[nodes[i].parent.as_ref().unwrap().1 as usize];
                 let offset = Point2::new(
-                    offset.x as u16 * heightmap_resolution / 2,
-                    offset.y as u16 * heightmap_resolution / 2,
+                    skirt / 2 + offset.x as u16 * (heightmap_resolution / 2 - skirt),
+                    skirt / 2 + offset.y as u16 * (heightmap_resolution / 2 - skirt),
                 );
 
                 // Extra scope needed due to lack of support for non-lexical lifetimes.
@@ -184,7 +194,10 @@ impl MMappedAsset for TerrainFileParams {
 
                             heights.push(height);
 
-                            if x % resolution_ratio == 0 && y % resolution_ratio == 0 {
+                            if (x as i32 - skirt as i32) % resolution_ratio as i32 == 0 &&
+                                (y as i32 - skirt as i32) % resolution_ratio as i32 == 0 &&
+                                !in_skirt(x, y)
+                            {
                                 writer.write_f32::<LittleEndian>(height)?;
                                 _bytes_written += 4;
                             }
@@ -203,10 +216,12 @@ impl MMappedAsset for TerrainFileParams {
                 let mut heights = Vec::with_capacity(
                     heightmap_resolution as usize * heightmap_resolution as usize,
                 );
-                for y in 0..heightmap_resolution {
-                    for x in 0..heightmap_resolution {
-                        let fx = x as f32 / (heightmap_resolution - 1) as f32;
-                        let fy = y as f32 / (heightmap_resolution - 1) as f32;
+                for y in 0..(heightmap_resolution as i32) {
+                    for x in 0..(heightmap_resolution as i32) {
+                        let fx = (x - skirt as i32) as f32 /
+                            (heightmap_resolution - 1 - 2 * skirt) as f32;
+                        let fy = (y - skirt as i32) as f32 /
+                            (heightmap_resolution - 1 - 2 * skirt) as f32;
 
                         let world_position = Vector2::<f32>::new(
                             (node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx) /
@@ -219,7 +234,10 @@ impl MMappedAsset for TerrainFileParams {
                         let height = dem.get_elevation(p.x as f64, p.y as f64).unwrap_or(0.0);
                         heights.push(height);
 
-                        if x % resolution_ratio == 0 && y % resolution_ratio == 0 {
+                        if (x - skirt as i32) % resolution_ratio as i32 == 0 &&
+                            (y - skirt as i32) % resolution_ratio as i32 == 0 &&
+                            !in_skirt(x as u16, y as u16)
+                        {
                             writer.write_f32::<LittleEndian>(height)?;
                             _bytes_written += 4;
                         }
