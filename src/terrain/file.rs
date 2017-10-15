@@ -5,6 +5,8 @@ use std::io::Write;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
+use rand;
+use rand::distributions::{Normal, IndependentSample};
 
 use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
@@ -88,7 +90,7 @@ impl MMappedAsset for TerrainFileParams {
 
         let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
-        let max_dem_level = max_level - num_fractal_levels.max(0).min(max_level);
+        let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
         // Amount of space outside of tile that is included in heightmap. Used for computing
         // normals and such. Must be even.
@@ -104,6 +106,14 @@ impl MMappedAsset for TerrainFileParams {
         let in_skirt = |x, y| -> bool {
             x < skirt && y < skirt || x >= heightmap_resolution - skirt ||
                 y >= heightmap_resolution - skirt
+        };
+
+        let random = {
+            let normal = Normal::new(0.0, 1.0);
+            let v = (0..(15 * 15))
+                .map(|_| normal.ind_sample(&mut rand::thread_rng()) as f32)
+                .collect();
+            Heightmap::new(v, 15, 15)
         };
 
         let mut nodes = Node::make_nodes(world_size, 3000.0, max_level as u8);
@@ -163,7 +173,7 @@ impl MMappedAsset for TerrainFileParams {
                     let parent_heightmap = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
                     for y in 0..heightmap_resolution {
                         for x in 0..heightmap_resolution {
-                            let height = if x % 2 == 0 && y % 2 == 0 {
+                            let mut height = if x % 2 == 0 && y % 2 == 0 {
                                 parent_heightmap
                                     .get(x / 2 + offset.x, y / 2 + offset.y)
                                     .unwrap()
@@ -201,6 +211,12 @@ impl MMappedAsset for TerrainFileParams {
 
                                 (h0 + h1 + h2 + h3) * 0.25
                             };
+
+                            if x % 2 != 0 && y % 2 != 0 {
+                                height += 0.02 * random.get_wrapping(x as i64, y as i64) *
+                                    nodes[i].side_length /
+                                    (HEIGHTS_RESOLUTION - 1) as f32;
+                            }
 
                             heights.push(height);
 
@@ -291,10 +307,20 @@ impl MMappedAsset for TerrainFileParams {
                     let nz = 2.0 * spacing;
                     let len = (nx * nx + ny * ny + nz * nz).sqrt();
 
-                    writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(0)?;
+                    if x < skirt || y < skirt || x >= normalmap_resolution - skirt ||
+                        y >= normalmap_resolution - skirt
+                    {
+                        writer.write_u8(0)?;
+                        writer.write_u8(0)?;
+                        writer.write_u8(0)?;
+                        writer.write_u8(0)?;
+
+                    } else {
+                        writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
+                        writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
+                        writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
+                        writer.write_u8(0)?;
+                    }
                     bytes_written += 4;
                 }
             }
