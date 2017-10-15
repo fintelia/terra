@@ -346,8 +346,11 @@ impl<R: gfx::Resources> TileCache<R> {
         }
     }
 
-    #[allow(unused)]
     pub fn resolution(&self) -> u32 {
         self.layer_params.tile_resolution
+    }
+
+    pub fn border(&self) -> u32 {
+        self.layer_params.border_size
     }
 }

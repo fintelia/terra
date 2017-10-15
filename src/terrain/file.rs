@@ -280,7 +280,7 @@ impl MMappedAsset for TerrainFileParams {
 
         // Normals
         assert!(skirt >= 2);
-        let normalmap_resolution = heightmap_resolution - 4;
+        let normalmap_resolution = heightmap_resolution - 5;
         layers.push(LayerParams {
             layer_type: LayerType::Normals,
             offset: bytes_written,
@@ -307,8 +307,8 @@ impl MMappedAsset for TerrainFileParams {
                     let nz = 2.0 * spacing;
                     let len = (nx * nx + ny * ny + nz * nz).sqrt();
 
-                    if x < skirt || y < skirt || x >= normalmap_resolution - skirt ||
-                        y >= normalmap_resolution - skirt
+                    if x < skirt || y < skirt || x >= heightmap_resolution - skirt - 1 ||
+                        y >= heightmap_resolution - skirt - 1
                     {
                         writer.write_u8(0)?;
                         writer.write_u8(0)?;

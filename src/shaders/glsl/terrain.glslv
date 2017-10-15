@@ -10,6 +10,7 @@ in float vSideLength;
 in float vMinDistance;
 in vec3 heightsOrigin;
 in vec3 normalsOrigin;
+in float normalsStep;
 
 out vec3 fPosition;
 out vec3 fNormalsTexcoord;
@@ -44,6 +45,6 @@ void main() {
 
 	fPosition = position;
 	fNormalsTexcoord = normalsOrigin;
-	fNormalsTexcoord.xy += nPosition / textureSize(heights, 0).xy;
+	fNormalsTexcoord.xy += nPosition * normalsStep;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

@@ -13,6 +13,7 @@ gfx_defines!{
         min_distance: f32 = "vMinDistance",
         heights_origin: [f32; 3] = "heightsOrigin",
         normals_origin: [f32; 3] = "normalsOrigin",
+        normals_step: f32 = "normalsStep",
     }
 }
 
@@ -67,6 +68,11 @@ where
 
     pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
         let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
+        let normals_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
+        let normals_border = self.tile_cache_layers[LayerType::Normals.index()].border();
+        let normals_step = (normals_resolution - 2 * normals_border) as f32 /
+            (normals_resolution as f32 * resolution as f32);
+        let normals_origin = normals_border as f32 / normals_resolution as f32;
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
@@ -81,7 +87,8 @@ where
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
                 heights_origin: [0.0, 0.0, heights_slot],
-                normals_origin: [0.0, 0.0, normals_slot],
+                normals_origin: [normals_origin, normals_origin, normals_slot],
+                normals_step,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -104,7 +111,12 @@ where
                         side_length,
                         min_distance: self.nodes[id].min_distance,
                         heights_origin: [offset.0 * 0.5, offset.1 * 0.5, heights_slot],
-                        normals_origin: [offset.0 * 0.5, offset.1 * 0.5, normals_slot],
+                        normals_origin: [
+                            normals_origin + offset.0 * (0.5 - normals_origin),
+                            normals_origin + offset.1 * (0.5 - normals_origin),
+                            normals_slot,
+                        ],
+                        normals_step,
                     });
                 }
             }
