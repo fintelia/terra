@@ -12,7 +12,7 @@ use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
 use terrain::heightmap::Heightmap;
 use terrain::tile_cache::{TileHeader, LayerParams, LayerFormat, LayerType};
-use terrain::quadtree::{node, Node, QuadTree};
+use terrain::quadtree::{node, Node, NodeId, QuadTree};
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
 // perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
@@ -130,20 +130,15 @@ impl MMappedAsset for TerrainFileParams {
             nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             if nodes[i].level as i32 > max_texture_level {
-                let mut ancestor = i;
-                let mut offset = Vector2::new(0, 0);
-                let mut offset_scale = 1;
-                let mut step: u16 = resolution_ratio;
+                let (ancestor, generations, mut offset) =
+                    Node::find_ancestor(&nodes, NodeId::new(i as u32), |id| {
+                        nodes[id].level as i32 <= max_texture_level
+                    }).unwrap();
 
-                while nodes[ancestor].level as i32 > max_texture_level {
-                    let &(parent_id, child_index) = nodes[ancestor].parent.as_ref().unwrap();
-                    offset += node::OFFSETS[child_index as usize] * offset_scale;
-                    ancestor = parent_id.index();
-                    offset_scale *= 2;
-                    step /= 2;
-                }
+                let ancestor = ancestor.index();
+                let offset_scale = 1 << generations;
+                let step = resolution_ratio >> generations;
                 let ancestor_heightmap = &heightmaps[ancestor];
-
                 offset *= (heightmap_resolution - 2 * skirt) as i32 / offset_scale;
                 let offset = Vector2::new(offset.x as u16, offset.y as u16);
 

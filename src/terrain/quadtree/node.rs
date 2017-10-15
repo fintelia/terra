@@ -130,4 +130,27 @@ impl Node {
 
         nodes
     }
+
+    pub fn find_ancestor<Visit>(
+        nodes: &Vec<Node>,
+        mut node: NodeId,
+        mut visit: Visit,
+    ) -> Option<(NodeId, usize, Vector2<i32>)>
+    where
+        Visit: FnMut(NodeId) -> bool,
+    {
+        let mut generations = 0;
+        let mut offset = Vector2::new(0, 0);
+        while !visit(node) {
+            match nodes[node].parent {
+                None => return None,
+                Some((parent, child_index)) => {
+                    node = parent;
+                    offset += OFFSETS[child_index as usize] * (1 << generations);
+                    generations += 1;
+                }
+            }
+        }
+        Some((node, generations, offset))
+    }
 }

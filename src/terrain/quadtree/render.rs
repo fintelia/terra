@@ -70,25 +70,49 @@ where
         let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
         let normals_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
         let normals_border = self.tile_cache_layers[LayerType::Normals.index()].border();
-        let normals_step = (normals_resolution - 2 * normals_border) as f32 /
-            (normals_resolution as f32 * resolution as f32);
+        let normals_ratio = (normals_resolution - 2 * normals_border) as f32 /
+            normals_resolution as f32;
+        let normals_step = normals_ratio / resolution as f32;
         let normals_origin = normals_border as f32 / normals_resolution as f32;
+
+        fn find_normals_slot<R: gfx::Resources>(
+            nodes: &Vec<Node>,
+            tile_cache_layers: &VecMap<TileCache<R>>,
+            id: NodeId,
+            normals_ratio: f32,
+        ) -> (f32, Vector2<f32>, f32) {
+            let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
+                tile_cache_layers[LayerType::Normals.index()].contains(id)
+            }).unwrap();
+            let slot = tile_cache_layers[LayerType::Normals.index()]
+                .get_slot(ancestor)
+                .unwrap();
+            let scale = (0.5f32).powi(generations as i32);
+            let offset = Vector2::new(
+                offset.x as f32 * normals_ratio * scale,
+                offset.y as f32 * normals_ratio * scale,
+            );
+            (slot as f32, offset, scale)
+        };
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
             let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                 .get_slot(id)
                 .unwrap() as f32;
-            let normals_slot = self.tile_cache_layers[LayerType::Normals.index()]
-                .get_slot(id)
-                .unwrap_or(511) as f32;
+            let (normals_slot, normals_offset, normals_step_scale) =
+                find_normals_slot(&self.nodes, &self.tile_cache_layers, id, normals_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
                 heights_origin: [0.0, 0.0, heights_slot],
-                normals_origin: [normals_origin, normals_origin, normals_slot],
-                normals_step,
+                normals_origin: [
+                    normals_origin + normals_offset.x,
+                    normals_origin + normals_offset.y,
+                    normals_slot,
+                ],
+                normals_step: normals_step * normals_step_scale,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -100,9 +124,8 @@ where
                     let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                         .get_slot(id)
                         .unwrap() as f32;
-                    let normals_slot = self.tile_cache_layers[LayerType::Normals.index()]
-                        .get_slot(id)
-                        .unwrap_or(511) as f32;
+                    let (normals_slot, normals_offset, normals_step_scale) =
+                        find_normals_slot(&self.nodes, &self.tile_cache_layers, id, normals_ratio);
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -112,11 +135,13 @@ where
                         min_distance: self.nodes[id].min_distance,
                         heights_origin: [offset.0 * 0.5, offset.1 * 0.5, heights_slot],
                         normals_origin: [
-                            normals_origin + offset.0 * (0.5 - normals_origin),
-                            normals_origin + offset.1 * (0.5 - normals_origin),
+                            normals_origin + normals_offset.x +
+                                offset.0 * (0.5 - normals_origin) * normals_step_scale,
+                            normals_origin + normals_offset.y +
+                                offset.1 * (0.5 - normals_origin) * normals_step_scale,
                             normals_slot,
                         ],
-                        normals_step,
+                        normals_step: normals_step * normals_step_scale,
                     });
                 }
             }
