@@ -113,7 +113,7 @@ impl Node {
                         min_distance: nodes[parent].min_distance * 0.5,
                         size: nodes[parent].size / 2,
                         center: Point2::from_vec(
-                            nodes[parent].center.to_vec() -
+                            nodes[parent].center.to_vec() +
                                 CENTER_OFFSETS[i] * (nodes[parent].size / 4),
                         ),
                         priority: Priority::none(),
