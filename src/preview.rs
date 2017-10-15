@@ -46,15 +46,23 @@ fn main() {
     };
 
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([0.0, 10.0, 0.0], FirstPersonSettings::keyboard_wasd());
+    let mut first_person = FirstPerson::new([0.0, 30.0, 0.0], FirstPersonSettings::keyboard_wasd());
     first_person.settings.speed_vertical = 500.0;
     first_person.settings.speed_horizontal = 200.0;
+
+    let mut detached_camera = false;
+    let mut camera_position = cgmath::Point3::new(0.0, 0.0, 0.0);
 
     while let Some(e) = window.next() {
         first_person.event(&e);
 
         if let Some(_) = e.resize_args() {
             projection = get_projection(&window);
+        }
+        if let Some(Button::Keyboard(key)) = e.press_args() {
+            if key == Key::Tab {
+                detached_camera = !detached_camera;
+            }
         }
 
         window.draw_3d(&e, |window| {
@@ -66,16 +74,22 @@ fn main() {
             );
             window.encoder.clear_depth(&window.output_stencil, 1.0);
 
-            let center_distance = (first_person.position[0] * first_person.position[0] +
-                                       first_person.position[2] * first_person.position[2])
-                .sqrt();
+            if !detached_camera {
+                let center_distance = (first_person.position[0] * first_person.position[0] +
+                                           first_person.position[2] * first_person.position[2])
+                    .sqrt();
 
-            if center_distance > 3000.0 {
-                first_person.position[0] /= center_distance / 3000.0;
-                first_person.position[2] /= center_distance / 3000.0;
+                if center_distance > 3000.0 {
+                    first_person.position[0] /= center_distance / 3000.0;
+                    first_person.position[2] /= center_distance / 3000.0;
+                }
             }
 
             let camera = first_person.camera(args.ext_dt);
+            if !detached_camera {
+                camera_position =
+                    cgmath::Point3::new(camera.position[0], camera.position[1], camera.position[2]);
+            }
             // if let Some(h) = terrain.get_approximate_height(
             //     [camera.position[0], camera.position[2]],
             // )
@@ -84,7 +98,7 @@ fn main() {
             // }
             terrain.update(
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
-                cgmath::Point3::new(camera.position[0], camera.position[1], camera.position[2]),
+                camera_position,
                 &mut window.encoder,
             );
             terrain.render(&mut window.encoder);
