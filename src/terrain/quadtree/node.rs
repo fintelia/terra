@@ -63,7 +63,7 @@ impl Node {
             side_length,
             min_distance: side_length * 2.,
             center: Point2::origin(),
-            size: 1 << 31,
+            size: 1 << 30,
             priority: Priority::none(),
             tile_indices: [None; NUM_LAYERS],
             visible: false,

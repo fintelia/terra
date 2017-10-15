@@ -163,6 +163,12 @@ impl MMappedAsset for TerrainFileParams {
                     skirt / 2 + offset.y as u16 * (heightmap_resolution / 2 - skirt),
                 );
 
+                let layer_scale = nodes[i].size / (heightmap_resolution - 2 * skirt - 1) as i32;
+                let layer_origin = Vector2::new(
+                    (nodes[i].center.x - nodes[i].size / 2) / layer_scale,
+                    (nodes[i].center.y - nodes[i].size / 2) / layer_scale,
+                );
+
                 // Extra scope needed due to lack of support for non-lexical lifetimes.
                 {
                     let parent_heightmap = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
@@ -207,8 +213,10 @@ impl MMappedAsset for TerrainFileParams {
                                 (h0 + h1 + h2 + h3) * 0.25
                             };
 
-                            if x % 2 != 0 && y % 2 != 0 {
-                                height += 0.02 * random.get_wrapping(x as i64, y as i64) *
+                            if x % 2 != 0 || y % 2 != 0 {
+                                let wx = layer_origin.x + (x as i32 - skirt as i32);
+                                let wy = layer_origin.y + (y as i32 - skirt as i32);
+                                height += 0.01 * random.get_wrapping(wx as i64, wy as i64) *
                                     nodes[i].side_length /
                                     (HEIGHTS_RESOLUTION - 1) as f32;
                             }
@@ -302,20 +310,10 @@ impl MMappedAsset for TerrainFileParams {
                     let nz = 2.0 * spacing;
                     let len = (nx * nx + ny * ny + nz * nz).sqrt();
 
-                    if x < skirt || y < skirt || x >= heightmap_resolution - skirt - 1 ||
-                        y >= heightmap_resolution - skirt - 1
-                    {
-                        writer.write_u8(0)?;
-                        writer.write_u8(0)?;
-                        writer.write_u8(0)?;
-                        writer.write_u8(0)?;
-
-                    } else {
-                        writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
-                        writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
-                        writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
-                        writer.write_u8(0)?;
-                    }
+                    writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(0)?;
                     bytes_written += 4;
                 }
             }

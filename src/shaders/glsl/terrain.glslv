@@ -31,12 +31,12 @@ void main() {
 
 	position.xz = vec2(iPosition)
 	    * (vSideLength / (resolution)) + vPosition;
-	float morph = 1 - smoothstep(0.7, 1.0, distance(position, cameraPosition) / vMinDistance);
+	float morph = 1 - smoothstep(0.7, 0.95, distance(position, cameraPosition) / vMinDistance);
 	position.y = texture(heights,
-						 heightsOrigin + vec3(vec2(iPosition) / (textureSize(heights, 0).xy - vec2(1,1)), 0)).r;
+						 heightsOrigin + vec3(vec2(iPosition + 0.5) / textureSize(heights, 0).xy, 0)).r;
 
 	ivec2 morphTarget = (iPosition / 2) * 2;
-	float morphHeight = texture(heights, heightsOrigin + vec3(vec2(morphTarget) / (textureSize(heights, 0).xy - vec2(1,1)), 0)).r;
+	float morphHeight = texture(heights, heightsOrigin + vec3(vec2(morphTarget + 0.5) / textureSize(heights, 0).xy, 0)).r;
 
 	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
 

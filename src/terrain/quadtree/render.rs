@@ -133,7 +133,11 @@ where
                         ],
                         side_length,
                         min_distance: self.nodes[id].min_distance,
-                        heights_origin: [offset.0 * 0.5, offset.1 * 0.5, heights_slot],
+                        heights_origin: [
+                            offset.0 * (0.5 - 0.5 / (resolution + 1) as f32),
+                            offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
+                            heights_slot,
+                        ],
                         normals_origin: [
                             normals_origin + normals_offset.x +
                                 offset.0 * (0.5 - normals_origin) * normals_step_scale,
