@@ -9,8 +9,10 @@ in vec2 vPosition;
 in float vSideLength;
 in float vMinDistance;
 in vec3 heightsOrigin;
+in vec3 normalsOrigin;
 
 out vec3 fPosition;
+out vec3 fNormalsTexcoord;
 
 const ivec2 OFFSETS[6] = ivec2[6](
 	ivec2(0,0),
@@ -35,10 +37,13 @@ void main() {
 	ivec2 morphTarget = (iPosition / 2) * 2;
 	float morphHeight = texture(heights, heightsOrigin + vec3(vec2(morphTarget) / (textureSize(heights, 0).xy - vec2(1,1)), 0)).r;
 
+	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
+
 	position.y = mix(morphHeight, position.y, morph);
-	position.xz = mix(vec2(morphTarget), vec2(iPosition), morph)
-		* (vSideLength / (resolution)) + vPosition;
+	position.xz = nPosition * (vSideLength / (resolution)) + vPosition;
 
 	fPosition = position;
+	fNormalsTexcoord = normalsOrigin;
+	fNormalsTexcoord.xy += nPosition / textureSize(heights, 0).xy;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

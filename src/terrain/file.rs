@@ -9,7 +9,7 @@ use gfx;
 use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
 use terrain::heightmap::Heightmap;
-use terrain::tile_cache::{TileHeader, LayerParams, HEIGHTS_LAYER, NUM_LAYERS};
+use terrain::tile_cache::{TileHeader, LayerParams, LayerFormat, LayerType};
 use terrain::quadtree::{node, Node, QuadTree};
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
@@ -57,7 +57,8 @@ impl MMappedAsset for TerrainFileParams {
     }
 
     fn generate<W: Write>(&self, mut writer: W) -> Result<Self::Header, Box<Error>> {
-        let mut _bytes_written = 0;
+        let mut layers = Vec::new();
+        let mut bytes_written = 0;
 
         let dem = DigitalElevationModelParams {
             latitude: self.latitude,
@@ -106,8 +107,17 @@ impl MMappedAsset for TerrainFileParams {
         };
 
         let mut nodes = Node::make_nodes(world_size, 3000.0, max_level as u8);
+        layers.push(LayerParams {
+            layer_type: LayerType::Heights,
+            offset: 0,
+            tile_count: nodes.len(),
+            tile_resolution: HEIGHTS_RESOLUTION as u32,
+            border_size: 0,
+            format: LayerFormat::F32,
+            tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
+        });
         for i in 0..nodes.len() {
-            nodes[i].tile_indices[HEIGHTS_LAYER] = Some(i as u32);
+            nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             if nodes[i].level as i32 > max_texture_level {
                 let mut ancestor = i;
@@ -134,7 +144,7 @@ impl MMappedAsset for TerrainFileParams {
                             .unwrap();
 
                         writer.write_f32::<LittleEndian>(height)?;
-                        _bytes_written += 4;
+                        bytes_written += 4;
                     }
                 }
 
@@ -199,7 +209,7 @@ impl MMappedAsset for TerrainFileParams {
                                 !in_skirt(x, y)
                             {
                                 writer.write_f32::<LittleEndian>(height)?;
-                                _bytes_written += 4;
+                                bytes_written += 4;
                             }
                         }
                     }
@@ -239,7 +249,7 @@ impl MMappedAsset for TerrainFileParams {
                             !in_skirt(x as u16, y as u16)
                         {
                             writer.write_f32::<LittleEndian>(height)?;
-                            _bytes_written += 4;
+                            bytes_written += 4;
                         }
                     }
                 }
@@ -252,14 +262,43 @@ impl MMappedAsset for TerrainFileParams {
             }
         }
 
-        let mut layers: [LayerParams; NUM_LAYERS] = Default::default();
-        layers[HEIGHTS_LAYER] = LayerParams {
-            offset: 0,
-            tile_count: nodes.len(),
-            tile_resolution: HEIGHTS_RESOLUTION as u32,
-            sample_bytes: 4,
-            tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
-        };
+        // Normals
+        assert!(skirt >= 2);
+        let normalmap_resolution = heightmap_resolution - 4;
+        layers.push(LayerParams {
+            layer_type: LayerType::Normals,
+            offset: bytes_written,
+            tile_count: heightmaps.len(),
+            tile_resolution: normalmap_resolution as u32,
+            border_size: skirt as u32 - 2,
+            format: LayerFormat::RGBA8,
+            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
+        });
+        for i in 0..heightmaps.len() {
+            nodes[i].tile_indices[LayerType::Normals.index()] = Some(i as u32);
+
+            let heights = &heightmaps[i];
+            let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
+            for y in 2..(2 + normalmap_resolution) {
+                for x in 2..(2 + normalmap_resolution) {
+                    let h00 = heights.get(x, y).unwrap();
+                    let h01 = heights.get(x, y + 1).unwrap();
+                    let h10 = heights.get(x + 1, y).unwrap();
+                    let h11 = heights.get(x + 1, y + 1).unwrap();
+
+                    let nx = h10 + h11 - h00 - h01;
+                    let ny = h01 + h11 - h00 - h10;
+                    let nz = 2.0 * spacing;
+                    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+
+                    writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8(0)?;
+                    bytes_written += 4;
+                }
+            }
+        }
 
         Ok(TileHeader { layers, nodes })
     }

@@ -26,36 +26,175 @@ impl Ord for Priority {
     }
 }
 
-pub const HEIGHTS_LAYER: usize = 0;
-#[allow(unused)]
-pub const NORMALS_LAYER: usize = 1;
-#[allow(unused)]
-pub const SPLATS_LAYER: usize = 2;
 pub const NUM_LAYERS: usize = 3;
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub(crate) enum LayerType {
+    Heights = 0,
+    Normals = 1,
+    Splats = 2,
+}
+impl LayerType {
+    pub fn cache_size(&self) -> u16 {
+        match *self {
+            LayerType::Heights => 1024,
+            LayerType::Normals => 512,
+            LayerType::Splats => 96,
+        }
+    }
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize)]
+pub(crate) enum LayerFormat {
+    F32,
+    RGBA8,
+}
+
+enum TextureArray<R: gfx::Resources> {
+    F32 {
+        texture: gfx_core::handle::Texture<R, gfx_core::format::R32>,
+        view: gfx_core::handle::ShaderResourceView<R, f32>,
+    },
+    RGBA8 {
+        texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
+        view: gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
+    },
+}
+impl<R: gfx::Resources> TextureArray<R> {
+    pub fn new<F: gfx::Factory<R>>(
+        format: LayerFormat,
+        resolution: u16,
+        depth: u16,
+        factory: &mut F,
+    ) -> Self {
+        match format {
+            LayerFormat::F32 => {
+                let texture = factory
+                    .create_texture::<gfx::format::R32>(
+                        gfx::texture::Kind::D2Array(
+                            resolution,
+                            resolution,
+                            depth,
+                            gfx::texture::AaMode::Single,
+                        ),
+                        1,
+                        gfx::SHADER_RESOURCE,
+                        gfx::memory::Usage::Dynamic,
+                        Some(gfx::format::ChannelType::Float),
+                    )
+                    .unwrap();
+
+                let view = factory
+                    .view_texture_as_shader_resource::<f32>(
+                        &texture,
+                        (0, 0),
+                        gfx::format::Swizzle::new(),
+                    )
+                    .unwrap();
+
+                TextureArray::F32 { texture, view }
+            }
+            LayerFormat::RGBA8 => {
+                let texture = factory
+                    .create_texture::<gfx::format::R8_G8_B8_A8>(
+                        gfx::texture::Kind::D2Array(
+                            resolution,
+                            resolution,
+                            depth,
+                            gfx::texture::AaMode::Single,
+                        ),
+                        1,
+                        gfx::SHADER_RESOURCE,
+                        gfx::memory::Usage::Dynamic,
+                        Some(gfx::format::ChannelType::Unorm),
+                    )
+                    .unwrap();
+
+                let view = factory
+                    .view_texture_as_shader_resource::<gfx::format::Rgba8>(
+                        &texture,
+                        (0, 0),
+                        gfx::format::Swizzle::new(),
+                    )
+                    .unwrap();
+
+                TextureArray::RGBA8 { texture, view }
+            }
+        }
+    }
+
+
+    pub fn update_layer<C: gfx_core::command::Buffer<R>>(
+        &self,
+        layer: u16,
+        resolution: u16,
+        data: &[u8],
+        encoder: &mut gfx::Encoder<R, C>,
+    ) {
+        let new_image_info = gfx_core::texture::NewImageInfo {
+            xoffset: 0,
+            yoffset: 0,
+            zoffset: layer,
+            width: resolution,
+            height: resolution,
+            depth: 1,
+            format: (),
+            mipmap: 0,
+        };
+
+        match *self {
+            TextureArray::F32 { ref texture, .. } => {
+                encoder
+                    .update_texture::<gfx::format::R32, f32>(
+                        texture,
+                        None,
+                        new_image_info,
+                        gfx::memory::cast_slice(data),
+                    )
+                    .unwrap();
+            }
+            TextureArray::RGBA8 { ref texture, .. } => {
+                encoder
+                    .update_texture::<gfx_core::format::R8_G8_B8_A8, gfx::format::Rgba8>(
+                        texture,
+                        None,
+                        new_image_info,
+                        gfx::memory::cast_slice(data),
+                    )
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct LayerParams {
+    /// What kind of layer this is. There can be at most one of each layer type in a file.
+    pub layer_type: LayerType,
     /// Byte offset from start of file.
     pub offset: usize,
     /// Number of tiles in layer.
     pub tile_count: usize,
     /// Number of samples in each dimension, per tile.
     pub tile_resolution: u32,
-    /// Number of bytes in each sample.
-    pub sample_bytes: usize,
-    /// Number of bytes per tile
+    /// Number of samples outside the tile on each side.
+    pub border_size: u32,
+    /// Format used by this layer.
+    pub format: LayerFormat,
+    /// Number of bytes per tile.
     pub tile_bytes: usize,
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TileHeader {
-    pub layers: [LayerParams; NUM_LAYERS],
+    pub layers: Vec<LayerParams>,
     pub nodes: Vec<Node>,
 }
 
 pub(crate) struct TileCache<R: gfx::Resources> {
-    /// Which layer this is a tile cache for.
-    layer_id: usize,
     /// Maximum number of slots in this `TileCache`.
     size: usize,
     /// Actually contents of the cache.
@@ -70,40 +209,26 @@ pub(crate) struct TileCache<R: gfx::Resources> {
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
 
-    texture: gfx_core::handle::Texture<R, gfx_core::format::R32>,
-    pub(crate) texture_view: gfx_core::handle::ShaderResourceView<R, f32>,
+    texture: TextureArray<R>,
 
     /// Section of memory map that holds the data for this layer.
     data_file: MmapViewSync,
 }
 impl<R: gfx::Resources> TileCache<R> {
     pub fn new<F: gfx::Factory<R>>(
-        layer_id: usize,
-        cache_size: u16,
         params: LayerParams,
         data_file: MmapViewSync,
         factory: &mut F,
     ) -> Self {
-        let texture = factory
-            .create_texture::<gfx::format::R32>(
-                gfx::texture::Kind::D2Array(
-                    params.tile_resolution as u16,
-                    params.tile_resolution as u16,
-                    cache_size,
-                    gfx::texture::AaMode::Single,
-                ),
-                1,
-                gfx::SHADER_RESOURCE,
-                gfx::memory::Usage::Dynamic,
-                Some(gfx::format::ChannelType::Float),
-            )
-            .unwrap();
-        let texture_view = factory
-            .view_texture_as_shader_resource::<f32>(&texture, (0, 0), gfx::format::Swizzle::new())
-            .unwrap();
+        let cache_size = params.layer_type.cache_size();
+        let texture = TextureArray::new(
+            params.format,
+            params.tile_resolution as u16,
+            cache_size,
+            factory,
+        );
 
         Self {
-            layer_id,
             size: cache_size as usize,
             slots: Vec::new(),
             reverse: VecMap::new(),
@@ -112,7 +237,6 @@ impl<R: gfx::Resources> TileCache<R> {
             layer_params: params,
             data_file,
             texture,
-            texture_view,
         }
     }
 
@@ -184,28 +308,17 @@ impl<R: gfx::Resources> TileCache<R> {
         }
         self.reverse.insert(id.index(), slot);
 
-        let tile = node.tile_indices[self.layer_id].unwrap() as usize;
+        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
         let len = self.layer_params.tile_bytes;
         let offset = self.layer_params.offset + tile * len;
         let data = unsafe { &self.data_file.as_slice()[offset..(offset + len)] };
 
-        encoder
-            .update_texture::<gfx::format::R32, f32>(
-                &self.texture,
-                None,
-                gfx_core::texture::NewImageInfo {
-                    xoffset: 0,
-                    yoffset: 0,
-                    zoffset: slot as u16,
-                    width: self.layer_params.tile_resolution as u16,
-                    height: self.layer_params.tile_resolution as u16,
-                    depth: 1,
-                    format: (),
-                    mipmap: 0,
-                },
-                gfx::memory::cast_slice(data),
-            )
-            .unwrap();
+        self.texture.update_layer(
+            slot as u16,
+            self.layer_params.tile_resolution as u16,
+            gfx::memory::cast_slice(data),
+            encoder,
+        )
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
@@ -214,6 +327,23 @@ impl<R: gfx::Resources> TileCache<R> {
 
     pub fn get_slot(&self, id: NodeId) -> Option<usize> {
         self.reverse.get(id.index()).cloned()
+    }
+
+    pub fn get_texture_view_f32(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
+        match self.texture {
+            TextureArray::F32 { ref view, .. } => Some(view),
+            _ => None,
+        }
+    }
+
+    #[allow(unused)]
+    pub fn get_texture_view_rgba8(
+        &self,
+    ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
+        match self.texture {
+            TextureArray::RGBA8 { ref view, .. } => Some(view),
+            _ => None,
+        }
     }
 
     #[allow(unused)]

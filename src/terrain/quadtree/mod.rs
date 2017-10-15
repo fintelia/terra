@@ -4,13 +4,14 @@ use gfx::traits::FactoryExt;
 use gfx_core;
 use memmap::Mmap;
 use vecmath;
+use vec_map::VecMap;
 
 use rshader;
 
 use std::env;
 use std::collections::VecDeque;
 
-use terrain::tile_cache::{HEIGHTS_LAYER, NUM_LAYERS, Priority, TileCache, TileHeader};
+use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -33,7 +34,7 @@ where
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
-    tile_cache_layers: [TileCache<R>; NUM_LAYERS],
+    tile_cache_layers: VecMap<TileCache<R>>,
 
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
@@ -68,32 +69,22 @@ where
         ).unwrap();
 
         let mut data_view = data_file.into_view_sync();
-        let tile_cache_layers = [
-            // heights
-            TileCache::new(
-                0,
-                1024,
-                header.layers[0].clone(),
-                unsafe { data_view.clone() },
-                &mut factory,
-            ),
-            // normals 512x512
-            TileCache::new(
-                1,
-                512,
-                header.layers[1].clone(),
-                unsafe { data_view.clone() },
-                &mut factory,
-            ),
-            // splats 512x512
-            TileCache::new(
-                2,
-                96,
-                header.layers[2].clone(),
-                unsafe { data_view.clone() },
-                &mut factory,
-            ),
-        ];
+        let mut tile_cache_layers = VecMap::new();
+        for layer in header.layers.iter().cloned() {
+            tile_cache_layers.insert(
+                layer.layer_type as usize,
+                TileCache::new(layer, unsafe { data_view.clone() }, &mut factory),
+            );
+        }
+
+        let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
+            .get_texture_view_f32()
+            .unwrap()
+            .clone();
+        let normals_texture_view = tile_cache_layers[LayerType::Normals.index()]
+            .get_texture_view_rgba8()
+            .unwrap()
+            .clone();
 
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Bilinear,
@@ -109,10 +100,8 @@ where
                 model_view_projection: [[0.0; 4]; 4],
                 camera_position: [0.0, 0.0, 0.0],
                 resolution: 0,
-                heights: (
-                    tile_cache_layers[HEIGHTS_LAYER].texture_view.clone(),
-                    sampler,
-                ),
+                heights: (heights_texture_view, sampler.clone()),
+                normals: (normals_texture_view, sampler),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -132,7 +121,7 @@ where
                     node.bounds.square_distance(camera).max(0.001),
             );
         }
-        for cache_layer in self.tile_cache_layers.iter_mut() {
+        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
             cache_layer.update_priorities(&mut self.nodes);
         }
     }
@@ -152,7 +141,7 @@ where
             }
             true
         });
-        for cache_layer in self.tile_cache_layers.iter_mut() {
+        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
             cache_layer.load_missing(&mut self.nodes, encoder);
         }
     }

@@ -3,7 +3,7 @@ use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
 
-use terrain::tile_cache::HEIGHTS_LAYER;
+use terrain::tile_cache::LayerType;
 use super::*;
 
 gfx_defines!{
@@ -12,6 +12,7 @@ gfx_defines!{
         side_length: f32 = "vSideLength",
         min_distance: f32 = "vMinDistance",
         heights_origin: [f32; 3] = "heightsOrigin",
+        normals_origin: [f32; 3] = "normalsOrigin",
     }
 }
 
@@ -23,6 +24,7 @@ gfx_pipeline!( pipe {
     camera_position: gfx::Global<[f32;3]> = "cameraPosition",
 
     heights: gfx::TextureSampler<f32> = "heights",
+    normals: gfx::TextureSampler<[f32; 4]> = "normals",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -44,7 +46,7 @@ where
                 gfx::state::Rasterizer {
                     front_face: gfx::state::FrontFace::Clockwise,
                     cull_face: gfx::state::CullFace::Nothing,
-                    method: gfx::state::RasterMethod::Line(1),
+                    method: gfx::state::RasterMethod::Fill,
                     offset: None,
                     samples: None,
                 },
@@ -64,16 +66,22 @@ where
     }
 
     pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-        let resolution = self.tile_cache_layers[HEIGHTS_LAYER].resolution() - 1;
+        let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
-            let slot = self.tile_cache_layers[HEIGHTS_LAYER].get_slot(id).unwrap() as f32;
+            let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
+                .get_slot(id)
+                .unwrap() as f32;
+            let normals_slot = self.tile_cache_layers[LayerType::Normals.index()]
+                .get_slot(id)
+                .unwrap_or(511) as f32;
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
-                heights_origin: [0.0, 0.0, slot],
+                heights_origin: [0.0, 0.0, heights_slot],
+                normals_origin: [0.0, 0.0, normals_slot],
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -82,7 +90,12 @@ where
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let slot = self.tile_cache_layers[HEIGHTS_LAYER].get_slot(id).unwrap() as f32;
+                    let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
+                        .get_slot(id)
+                        .unwrap() as f32;
+                    let normals_slot = self.tile_cache_layers[LayerType::Normals.index()]
+                        .get_slot(id)
+                        .unwrap_or(511) as f32;
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -90,7 +103,8 @@ where
                         ],
                         side_length,
                         min_distance: self.nodes[id].min_distance,
-                        heights_origin: [offset.0 * 0.5, offset.1 * 0.5, slot],
+                        heights_origin: [offset.0 * 0.5, offset.1 * 0.5, heights_slot],
+                        normals_origin: [offset.0 * 0.5, offset.1 * 0.5, normals_slot],
                     });
                 }
             }
