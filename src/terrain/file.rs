@@ -11,20 +11,22 @@ use rand::distributions::{Normal, IndependentSample};
 use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
 use terrain::heightmap::Heightmap;
-use terrain::tile_cache::{TileHeader, LayerParams, LayerFormat, LayerType};
+use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
+use terrain::tile_cache::{TileHeader, LayerParams, LayerFormat, LayerType};
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
 // perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
 // actually WGS84 or NAD83. However, for our purposes the difference should not be noticable.
 
-pub struct TerrainFileParams {
+pub struct TerrainFileParams<R: gfx::Resources> {
     pub latitude: i16,
     pub longitude: i16,
     pub source: DemSource,
+    pub materials: MaterialSet<R>,
 }
-impl TerrainFileParams {
-    pub fn build_quadtree<R: gfx::Resources, F: gfx::Factory<R>>(
+impl<R: gfx::Resources> TerrainFileParams<R> {
+    pub fn build_quadtree<F: gfx::Factory<R>>(
         self,
         factory: F,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
@@ -42,7 +44,7 @@ impl TerrainFileParams {
     }
 }
 
-impl MMappedAsset for TerrainFileParams {
+impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
     type Header = TileHeader;
 
     fn filename(&self) -> String {
@@ -326,6 +328,8 @@ impl MMappedAsset for TerrainFileParams {
             format: LayerFormat::RGBA8,
             tile_bytes: 4 * colormap_resolution as usize * colormap_resolution as usize,
         });
+        let rock = self.materials.get_average_albedo(0);
+        let grass = self.materials.get_average_albedo(1);
         for i in 0..heightmaps.len() {
             nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
@@ -344,14 +348,14 @@ impl MMappedAsset for TerrainFileParams {
                     let light = (normal.dot(sun_direction).max(0.0) * 255.0) as u8;
 
                     if normal.y > 0.9 {
-                        writer.write_u8(0)?;
-                        writer.write_u8(255)?;
-                        writer.write_u8(0)?;
+                        writer.write_u8(grass[0])?;
+                        writer.write_u8(grass[1])?;
+                        writer.write_u8(grass[2])?;
                         writer.write_u8(light)?;
                     } else {
-                        writer.write_u8(100)?;
-                        writer.write_u8(100)?;
-                        writer.write_u8(100)?;
+                        writer.write_u8(rock[0])?;
+                        writer.write_u8(rock[1])?;
+                        writer.write_u8(rock[2])?;
                         writer.write_u8(light)?;
                     }
                     bytes_written += 4;

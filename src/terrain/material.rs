@@ -169,6 +169,7 @@ struct Material {
 pub struct MaterialSet<R: gfx::Resources> {
     pub(crate) texture_view: gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
     pub(crate) _texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
+    average_albedos: Vec<[u8; 4]>,
 }
 
 impl<R: gfx::Resources> MaterialSet<R> {
@@ -180,6 +181,8 @@ impl<R: gfx::Resources> MaterialSet<R> {
         let mipmaps = 11;
 
         let materials = vec![MaterialType::Rock.load()?, MaterialType::Grass.load()?];
+
+        let mut average_albedos = Vec::new();
 
         let texture = factory
             .create_texture::<R8_G8_B8_A8>(
@@ -219,6 +222,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
                     )
                     .unwrap();
             }
+            average_albedos.push(material.albedo.last().unwrap()[0]);
         }
 
         let texture_view = factory
@@ -232,6 +236,11 @@ impl<R: gfx::Resources> MaterialSet<R> {
         Ok(Self {
             texture_view,
             _texture: texture,
+            average_albedos,
         })
+    }
+
+    pub fn get_average_albedo(&self, material: usize) -> [u8; 4] {
+        self.average_albedos[material].clone()
     }
 }

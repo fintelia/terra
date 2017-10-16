@@ -21,13 +21,14 @@ fn main() {
         .unwrap();
     window.set_capture_cursor(true);
 
-    let _materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
+    let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
     let mut terrain = TerrainFileParams {
         latitude: 44,
         longitude: -74,
         source: DemSource::Usgs30m,
+        materials,
     }.build_quadtree(
         window.factory.clone(),
         &window.output_color,
