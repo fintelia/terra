@@ -81,6 +81,10 @@ where
             .get_texture_view_f32()
             .unwrap()
             .clone();
+        let colors_texture_view = tile_cache_layers[LayerType::Colors.index()]
+            .get_texture_view_rgba8()
+            .unwrap()
+            .clone();
         let normals_texture_view = tile_cache_layers[LayerType::Normals.index()]
             .get_texture_view_rgba8()
             .unwrap()
@@ -101,6 +105,7 @@ where
                 camera_position: [0.0, 0.0, 0.0],
                 resolution: 0,
                 heights: (heights_texture_view, sampler.clone()),
+                colors: (colors_texture_view, sampler.clone()),
                 normals: (normals_texture_view, sampler),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),

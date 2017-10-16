@@ -9,11 +9,15 @@ in vec2 vPosition;
 in float vSideLength;
 in float vMinDistance;
 in vec3 heightsOrigin;
-in vec3 normalsOrigin;
-in float normalsStep;
+in vec2 textureOrigin;
+in float textureStep;
+in float colorsLayer;
+in float normalsLayer;
 
 out vec3 fPosition;
-out vec3 fNormalsTexcoord;
+out vec2 fTexcoord;
+out float fColorsLayer;
+out float fNormalsLayer;
 
 const ivec2 OFFSETS[6] = ivec2[6](
 	ivec2(0,0),
@@ -44,7 +48,8 @@ void main() {
 	position.xz = nPosition * (vSideLength / (resolution)) + vPosition;
 
 	fPosition = position;
-	fNormalsTexcoord = normalsOrigin;
-	fNormalsTexcoord.xy += nPosition * normalsStep;
+	fTexcoord = textureOrigin + nPosition * textureStep;
+	fColorsLayer = colorsLayer;
+	fNormalsLayer = normalsLayer;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

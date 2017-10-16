@@ -70,6 +70,7 @@ impl MMappedAsset for TerrainFileParams {
 
         let world_center =
             Vector2::<f32>::new(dem.xllcorner as f32 + 0.5, dem.yllcorner as f32 + 0.5);
+        let sun_direction = Vector3::new(0.0, 1.0, 1.0).normalize();
 
         let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
         let scale_x = ((1.0 / 360.0) * EARTH_CIRCUMFERENCE * ycenter.to_radians().cos()) as f32;
@@ -174,7 +175,7 @@ impl MMappedAsset for TerrainFileParams {
                     let parent_heightmap = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
                     for y in 0..heightmap_resolution {
                         for x in 0..heightmap_resolution {
-                            let mut height = if x % 2 == 0 && y % 2 == 0 {
+                            let height = if x % 2 == 0 && y % 2 == 0 {
                                 parent_heightmap
                                     .get(x / 2 + offset.x, y / 2 + offset.y)
                                     .unwrap()
@@ -212,33 +213,65 @@ impl MMappedAsset for TerrainFileParams {
 
                                 (h0 + h1 + h2 + h3) * 0.25
                             };
-
-                            if x % 2 != 0 || y % 2 != 0 {
-                                let wx = layer_origin.x + (x as i32 - skirt as i32);
-                                let wy = layer_origin.y + (y as i32 - skirt as i32);
-                                height += 0.01 * random.get_wrapping(wx as i64, wy as i64) *
-                                    nodes[i].side_length /
-                                    (HEIGHTS_RESOLUTION - 1) as f32;
-                            }
-
                             heights.push(height);
+                        }
+                    }
+                }
+                let mut heightmap =
+                    Heightmap::new(heights, heightmap_resolution, heightmap_resolution);
 
-                            if (x as i32 - skirt as i32) % resolution_ratio as i32 == 0 &&
-                                (y as i32 - skirt as i32) % resolution_ratio as i32 == 0 &&
-                                !in_skirt(x, y)
-                            {
-                                writer.write_f32::<LittleEndian>(height)?;
-                                bytes_written += 4;
-                            }
+                // Compute noise.
+                let mut noise = Vec::with_capacity(
+                    heightmap_resolution as usize * heightmap_resolution as usize,
+                );
+                let noise_scale = nodes[i].side_length / (HEIGHTS_RESOLUTION - 1) as f32;
+                let slope_scale = 0.5 * (heightmap_resolution - 1) as f32 / nodes[i].side_length;
+                for y in 0..heightmap_resolution {
+                    for x in 0..heightmap_resolution {
+                        if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 &&
+                            x < heightmap_resolution - 1 &&
+                            y < heightmap_resolution - 1
+                        {
+                            let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
+                            let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
+                            let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() *
+                                slope_scale;
+
+                            let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
+                            let wx = layer_origin.x + (x as i32 - skirt as i32);
+                            let wy = layer_origin.y + (y as i32 - skirt as i32);
+                            noise.push(
+                                0.01 * random.get_wrapping(wx as i64, wy as i64) * noise_scale *
+                                    noise_strength,
+                            );
+                        } else {
+                            noise.push(0.0);
                         }
                     }
                 }
 
-                heightmaps.push(Heightmap::new(
-                    heights,
-                    heightmap_resolution,
-                    heightmap_resolution,
-                ));
+                // Apply noise.
+                for y in 0..heightmap_resolution {
+                    for x in 0..heightmap_resolution {
+                        heightmap.raise(
+                            x,
+                            y,
+                            noise[x as usize + y as usize * heightmap_resolution as usize],
+                        );
+                    }
+                }
+
+                // Write tile.
+                let step = (heightmap_resolution - 2 * skirt - 1) / (HEIGHTS_RESOLUTION - 1);
+                for y in 0..HEIGHTS_RESOLUTION {
+                    for x in 0..HEIGHTS_RESOLUTION {
+                        let height = heightmap.get(x * step + skirt, y * step + skirt).unwrap();
+                        writer.write_f32::<LittleEndian>(height)?;
+                        bytes_written += 4;
+                    }
+                }
+
+                heightmaps.push(heightmap);
             } else {
                 assert_eq!(heightmaps.len(), i);
                 let node = &nodes[i];
@@ -281,20 +314,63 @@ impl MMappedAsset for TerrainFileParams {
             }
         }
 
+        // Colors
+        assert!(skirt >= 2);
+        let colormap_resolution = heightmap_resolution - 5;
+        layers.push(LayerParams {
+            layer_type: LayerType::Colors,
+            offset: bytes_written,
+            tile_count: heightmaps.len(),
+            tile_resolution: colormap_resolution as u32,
+            border_size: skirt as u32 - 2,
+            format: LayerFormat::RGBA8,
+            tile_bytes: 4 * colormap_resolution as usize * colormap_resolution as usize,
+        });
+        for i in 0..heightmaps.len() {
+            nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
+
+            let heights = &heightmaps[i];
+            let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
+            for y in 2..(2 + colormap_resolution) {
+                for x in 2..(2 + colormap_resolution) {
+                    let h00 = heights.get(x, y).unwrap();
+                    let h01 = heights.get(x, y + 1).unwrap();
+                    let h10 = heights.get(x + 1, y).unwrap();
+                    let h11 = heights.get(x + 1, y + 1).unwrap();
+
+                    let normal =
+                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
+                            .normalize();
+                    let light = (normal.dot(sun_direction).max(0.0) * 255.0) as u8;
+
+                    if normal.y > 0.9 {
+                        writer.write_u8(0)?;
+                        writer.write_u8(255)?;
+                        writer.write_u8(0)?;
+                        writer.write_u8(light)?;
+                    } else {
+                        writer.write_u8(100)?;
+                        writer.write_u8(100)?;
+                        writer.write_u8(100)?;
+                        writer.write_u8(light)?;
+                    }
+                    bytes_written += 4;
+                }
+            }
+        }
+
         // Normals
         assert!(skirt >= 2);
         let normalmap_resolution = heightmap_resolution - 5;
-        layers.push(LayerParams {
-            layer_type: LayerType::Normals,
-            offset: bytes_written,
-            tile_count: heightmaps.len(),
-            tile_resolution: normalmap_resolution as u32,
-            border_size: skirt as u32 - 2,
-            format: LayerFormat::RGBA8,
-            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
-        });
+        let normalmap_offset = bytes_written;
+        let mut normalmap_count = 0;
         for i in 0..heightmaps.len() {
-            nodes[i].tile_indices[LayerType::Normals.index()] = Some(i as u32);
+            if nodes[i].level as i32 != max_texture_level {
+                continue;
+            }
+
+            nodes[i].tile_indices[LayerType::Normals.index()] = Some(normalmap_count as u32);
+            normalmap_count += 1;
 
             let heights = &heightmaps[i];
             let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
@@ -305,19 +381,27 @@ impl MMappedAsset for TerrainFileParams {
                     let h10 = heights.get(x + 1, y).unwrap();
                     let h11 = heights.get(x + 1, y + 1).unwrap();
 
-                    let nx = h10 + h11 - h00 - h01;
-                    let ny = h01 + h11 - h00 - h10;
-                    let nz = 2.0 * spacing;
-                    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+                    let normal =
+                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
+                            .normalize();
 
-                    writer.write_u8(((nx / len) * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(((ny / len) * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(((nz / len) * 127.5 + 127.5) as u8)?;
+                    writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
+                    writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
+                    writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
                     writer.write_u8(0)?;
                     bytes_written += 4;
                 }
             }
         }
+        layers.push(LayerParams {
+            layer_type: LayerType::Normals,
+            offset: normalmap_offset,
+            tile_count: normalmap_count,
+            tile_resolution: normalmap_resolution as u32,
+            border_size: skirt as u32 - 2,
+            format: LayerFormat::RGBA8,
+            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
+        });
 
         Ok(TileHeader { layers, nodes })
     }

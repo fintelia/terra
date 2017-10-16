@@ -12,8 +12,10 @@ gfx_defines!{
         side_length: f32 = "vSideLength",
         min_distance: f32 = "vMinDistance",
         heights_origin: [f32; 3] = "heightsOrigin",
-        normals_origin: [f32; 3] = "normalsOrigin",
-        normals_step: f32 = "normalsStep",
+        texture_origin: [f32; 2] ="textureOrigin",
+        colors_layer: f32 = "colorsLayer",
+        normals_layer: f32 = "normalsLayer",
+        texture_step: f32 = "textureStep",
     }
 }
 
@@ -26,6 +28,7 @@ gfx_pipeline!( pipe {
 
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
+    colors: gfx::TextureSampler<[f32; 4]> = "colors",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -67,32 +70,41 @@ where
     }
 
     pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-        let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
-        let normals_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
-        let normals_border = self.tile_cache_layers[LayerType::Normals.index()].border();
-        let normals_ratio = (normals_resolution - 2 * normals_border) as f32 /
-            normals_resolution as f32;
-        let normals_step = normals_ratio / resolution as f32;
-        let normals_origin = normals_border as f32 / normals_resolution as f32;
+        assert_eq!(self.tile_cache_layers[LayerType::Colors.index()].resolution(),
+                   self.tile_cache_layers[LayerType::Normals.index()].resolution());
+        assert_eq!(self.tile_cache_layers[LayerType::Colors.index()].border(),
+                   self.tile_cache_layers[LayerType::Normals.index()].border());
 
-        fn find_normals_slot<R: gfx::Resources>(
+        let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
+        let texture_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
+        let texture_border = self.tile_cache_layers[LayerType::Normals.index()].border();
+        let texture_ratio = (texture_resolution - 2 * texture_border) as f32 /
+            texture_resolution as f32;
+        let texture_step = texture_ratio / resolution as f32;
+        let texture_origin = texture_border as f32 / texture_resolution as f32;
+
+        fn find_texture_slots<R: gfx::Resources>(
             nodes: &Vec<Node>,
             tile_cache_layers: &VecMap<TileCache<R>>,
             id: NodeId,
-            normals_ratio: f32,
-        ) -> (f32, Vector2<f32>, f32) {
+            texture_ratio: f32,
+        ) -> (f32, f32, Vector2<f32>, f32) {
             let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
-                tile_cache_layers[LayerType::Normals.index()].contains(id)
+                tile_cache_layers[LayerType::Colors.index()].contains(id)
             }).unwrap();
-            let slot = tile_cache_layers[LayerType::Normals.index()]
+            let colors_slot = tile_cache_layers[LayerType::Colors.index()]
                 .get_slot(ancestor)
                 .unwrap();
+            let normals_slot = tile_cache_layers[LayerType::Normals.index()]
+                .get_slot(ancestor)
+                .map(|s| s as f32)
+                .unwrap_or(-1.0);
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(
-                offset.x as f32 * normals_ratio * scale,
-                offset.y as f32 * normals_ratio * scale,
+                offset.x as f32 * texture_ratio * scale,
+                offset.y as f32 * texture_ratio * scale,
             );
-            (slot as f32, offset, scale)
+            (colors_slot as f32, normals_slot, offset, scale)
         };
 
         self.node_states.clear();
@@ -100,19 +112,20 @@ where
             let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                 .get_slot(id)
                 .unwrap() as f32;
-            let (normals_slot, normals_offset, normals_step_scale) =
-                find_normals_slot(&self.nodes, &self.tile_cache_layers, id, normals_ratio);
+            let (colors_layer, normals_layer, texture_offset, texture_step_scale) =
+                find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
                 heights_origin: [0.0, 0.0, heights_slot],
-                normals_origin: [
-                    normals_origin + normals_offset.x,
-                    normals_origin + normals_offset.y,
-                    normals_slot,
+                texture_origin: [
+                    texture_origin + texture_offset.x,
+                    texture_origin + texture_offset.y,
                 ],
-                normals_step: normals_step * normals_step_scale,
+                colors_layer,
+                normals_layer,
+                texture_step: texture_step * texture_step_scale,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -124,8 +137,8 @@ where
                     let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                         .get_slot(id)
                         .unwrap() as f32;
-                    let (normals_slot, normals_offset, normals_step_scale) =
-                        find_normals_slot(&self.nodes, &self.tile_cache_layers, id, normals_ratio);
+                    let (colors_layer, normals_layer, texture_offset, texture_step_scale) =
+                        find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -138,14 +151,15 @@ where
                             offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
                             heights_slot,
                         ],
-                        normals_origin: [
-                            normals_origin + normals_offset.x +
-                                offset.0 * (0.5 - normals_origin) * normals_step_scale,
-                            normals_origin + normals_offset.y +
-                                offset.1 * (0.5 - normals_origin) * normals_step_scale,
-                            normals_slot,
+                        texture_origin: [
+                            texture_origin + texture_offset.x +
+                                offset.0 * (0.5 - texture_origin) * texture_step_scale,
+                            texture_origin + texture_offset.y +
+                                offset.1 * (0.5 - texture_origin) * texture_step_scale,
                         ],
-                        normals_step: normals_step * normals_step_scale,
+                        colors_layer,
+                        normals_layer,
+                        texture_step: texture_step * texture_step_scale,
                     });
                 }
             }

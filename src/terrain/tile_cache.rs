@@ -28,18 +28,18 @@ impl Ord for Priority {
 
 pub const NUM_LAYERS: usize = 3;
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Heights = 0,
-    Normals = 1,
-    Splats = 2,
+    Colors = 1,
+    Normals = 2,
 }
 impl LayerType {
     pub fn cache_size(&self) -> u16 {
         match *self {
             LayerType::Heights => 1024,
-            LayerType::Normals => 512,
-            LayerType::Splats => 96,
+            LayerType::Colors => 512,
+            LayerType::Normals => 96,
         }
     }
     pub fn index(&self) -> usize {
@@ -47,7 +47,7 @@ impl LayerType {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerFormat {
     F32,
     RGBA8,
@@ -170,7 +170,7 @@ impl<R: gfx::Resources> TextureArray<R> {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,

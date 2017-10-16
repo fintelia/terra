@@ -1,7 +1,9 @@
 use rand;
 use rand::Rng;
-use std::f32::consts::PI;
 use rand::distributions::{Normal, IndependentSample};
+
+use std::f32::consts::PI;
+use std::ops::AddAssign;
 
 #[allow(unused)]
 fn modulo(a: i64, b: i64) -> usize {
@@ -36,6 +38,21 @@ impl<T> Heightmap<T> {
         self.heights
             .get(x as usize + y as usize * self.width as usize)
             .cloned()
+    }
+
+    pub fn at(&self, x: u16, y: u16) -> T
+    where
+        T: Clone,
+    {
+        self.get(x, y).unwrap()
+    }
+
+    pub fn raise(&mut self, x: u16, y: u16, delta: T)
+    where
+        T: AddAssign,
+    {
+        debug_assert!(x < self.width && y < self.height);
+        self.heights[x as usize + y as usize * self.width as usize] += delta;
     }
 
     #[allow(unused)]
