@@ -174,46 +174,45 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
                 // Extra scope needed due to lack of support for non-lexical lifetimes.
                 {
-                    let parent_heightmap = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
+                    let ph = &heightmaps[nodes[i].parent.as_ref().unwrap().0.index()];
                     for y in 0..heightmap_resolution {
                         for x in 0..heightmap_resolution {
                             let height = if x % 2 == 0 && y % 2 == 0 {
-                                parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y)
-                                    .unwrap()
+                                ph.at(x / 2 + offset.x, y / 2 + offset.y)
                             } else if x % 2 == 0 {
-                                let h0 = parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y)
-                                    .unwrap();
-                                let h1 = parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y + 1)
-                                    .unwrap();
-
-                                (h0 + h1) * 0.5
+                                let h0 = ph.at(x / 2 + offset.x, y / 2 + offset.y - 1);
+                                let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
+                                let h2 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 1);
+                                let h3 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 2);
+                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
                             } else if y % 2 == 0 {
-                                let h0 = parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y)
-                                    .unwrap();
-                                let h1 = parent_heightmap
-                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y)
-                                    .unwrap();
-
-                                (h0 + h1) * 0.5
+                                let h0 = ph.at(x / 2 + offset.x - 1, y / 2 + offset.y);
+                                let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
+                                let h2 = ph.at(x / 2 + offset.x + 1, y / 2 + offset.y);
+                                let h3 = ph.at(x / 2 + offset.x + 2, y / 2 + offset.y);
+                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
                             } else {
-                                let h0 = parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y)
-                                    .unwrap();
-                                let h1 = parent_heightmap
-                                    .get(x / 2 + offset.x, y / 2 + offset.y + 1)
-                                    .unwrap();
-                                let h2 = parent_heightmap
-                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y)
-                                    .unwrap();
-                                let h3 = parent_heightmap
-                                    .get(x / 2 + offset.x + 1, y / 2 + offset.y + 1)
-                                    .unwrap();
-
-                                (h0 + h1 + h2 + h3) * 0.25
+                                let h0 = //rustfmt
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 2) * -0.0625;
+                                let h1 = //rustfmt
+                                    ph.at(x / 2 + offset.x , y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 2) * -0.0625;
+                                let h2 = //rustfmt
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 2) * -0.0625;
+                                let h3 = //rustfmt
+                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 2) * -0.0625;
+                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
                             };
                             heights.push(height);
                         }
