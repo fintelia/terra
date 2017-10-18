@@ -25,6 +25,7 @@ extern crate vec_map;
 extern crate zip;
 
 mod utils;
+mod runtime_texture;
 
 pub mod cache;
 pub mod terrain;

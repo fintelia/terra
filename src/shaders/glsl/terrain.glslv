@@ -33,9 +33,14 @@ void main() {
 							(gl_VertexID/6) / (resolution))
 		+ OFFSETS[gl_VertexID % 6];
 
+	vec3 cp = cameraPosition;
+	cp.y = 0;
+
 	position.xz = vec2(iPosition)
 	    * (vSideLength / (resolution)) + vPosition;
 	float morph = 1 - smoothstep(0.7, 0.95, distance(position, cameraPosition) / vMinDistance);
+	morph = min(morph * 2, 1);
+
 	position.y = texture(heights,
 						 heightsOrigin + vec3(vec2(iPosition + 0.5) / textureSize(heights, 0).xy, 0)).r;
 

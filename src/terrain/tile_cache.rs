@@ -4,6 +4,7 @@ use memmap::MmapViewSync;
 use vec_map::VecMap;
 
 use terrain::quadtree::{Node, NodeId};
+use runtime_texture::{TextureArray, TextureFormat};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Priority(f32);
@@ -47,129 +48,6 @@ impl LayerType {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) enum LayerFormat {
-    F32,
-    RGBA8,
-}
-
-enum TextureArray<R: gfx::Resources> {
-    F32 {
-        texture: gfx_core::handle::Texture<R, gfx_core::format::R32>,
-        view: gfx_core::handle::ShaderResourceView<R, f32>,
-    },
-    RGBA8 {
-        texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
-        view: gfx_core::handle::ShaderResourceView<R, [f32; 4]>,
-    },
-}
-impl<R: gfx::Resources> TextureArray<R> {
-    pub fn new<F: gfx::Factory<R>>(
-        format: LayerFormat,
-        resolution: u16,
-        depth: u16,
-        factory: &mut F,
-    ) -> Self {
-        match format {
-            LayerFormat::F32 => {
-                let texture = factory
-                    .create_texture::<gfx::format::R32>(
-                        gfx::texture::Kind::D2Array(
-                            resolution,
-                            resolution,
-                            depth,
-                            gfx::texture::AaMode::Single,
-                        ),
-                        1,
-                        gfx::SHADER_RESOURCE,
-                        gfx::memory::Usage::Dynamic,
-                        Some(gfx::format::ChannelType::Float),
-                    )
-                    .unwrap();
-
-                let view = factory
-                    .view_texture_as_shader_resource::<f32>(
-                        &texture,
-                        (0, 0),
-                        gfx::format::Swizzle::new(),
-                    )
-                    .unwrap();
-
-                TextureArray::F32 { texture, view }
-            }
-            LayerFormat::RGBA8 => {
-                let texture = factory
-                    .create_texture::<gfx::format::R8_G8_B8_A8>(
-                        gfx::texture::Kind::D2Array(
-                            resolution,
-                            resolution,
-                            depth,
-                            gfx::texture::AaMode::Single,
-                        ),
-                        1,
-                        gfx::SHADER_RESOURCE,
-                        gfx::memory::Usage::Dynamic,
-                        Some(gfx::format::ChannelType::Unorm),
-                    )
-                    .unwrap();
-
-                let view = factory
-                    .view_texture_as_shader_resource::<gfx::format::Rgba8>(
-                        &texture,
-                        (0, 0),
-                        gfx::format::Swizzle::new(),
-                    )
-                    .unwrap();
-
-                TextureArray::RGBA8 { texture, view }
-            }
-        }
-    }
-
-
-    pub fn update_layer<C: gfx_core::command::Buffer<R>>(
-        &self,
-        layer: u16,
-        resolution: u16,
-        data: &[u8],
-        encoder: &mut gfx::Encoder<R, C>,
-    ) {
-        let new_image_info = gfx_core::texture::NewImageInfo {
-            xoffset: 0,
-            yoffset: 0,
-            zoffset: layer,
-            width: resolution,
-            height: resolution,
-            depth: 1,
-            format: (),
-            mipmap: 0,
-        };
-
-        match *self {
-            TextureArray::F32 { ref texture, .. } => {
-                encoder
-                    .update_texture::<gfx::format::R32, f32>(
-                        texture,
-                        None,
-                        new_image_info,
-                        gfx::memory::cast_slice(data),
-                    )
-                    .unwrap();
-            }
-            TextureArray::RGBA8 { ref texture, .. } => {
-                encoder
-                    .update_texture::<gfx_core::format::R8_G8_B8_A8, gfx::format::Rgba8>(
-                        texture,
-                        None,
-                        new_image_info,
-                        gfx::memory::cast_slice(data),
-                    )
-                    .unwrap();
-            }
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
@@ -183,14 +61,24 @@ pub(crate) struct LayerParams {
     /// Number of samples outside the tile on each side.
     pub border_size: u32,
     /// Format used by this layer.
-    pub format: LayerFormat,
+    pub format: TextureFormat,
     /// Number of bytes per tile.
     pub tile_bytes: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct NoiseParams {
+    pub offset: usize,
+    pub resolution: u32,
+    pub format: TextureFormat,
+    pub bytes: usize,
+    pub wavelength: f32,
 }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TileHeader {
     pub layers: Vec<LayerParams>,
+    pub noise: NoiseParams,
     pub nodes: Vec<Node>,
 }
 
@@ -336,12 +224,20 @@ impl<R: gfx::Resources> TileCache<R> {
         }
     }
 
-    #[allow(unused)]
     pub fn get_texture_view_rgba8(
         &self,
     ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
         match self.texture {
             TextureArray::RGBA8 { ref view, .. } => Some(view),
+            _ => None,
+        }
+    }
+
+    pub fn get_texture_view_srgba(
+        &self,
+    ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
+        match self.texture {
+            TextureArray::SRGBA { ref view, .. } => Some(view),
             _ => None,
         }
     }

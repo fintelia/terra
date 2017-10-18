@@ -10,10 +10,11 @@ use rand::distributions::{Normal, IndependentSample};
 
 use cache::{MMappedAsset, WebAsset};
 use terrain::dem::{self, DemSource, DigitalElevationModelParams};
-use terrain::heightmap::Heightmap;
+use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::tile_cache::{TileHeader, LayerParams, LayerFormat, LayerType};
+use terrain::tile_cache::{TileHeader, LayerParams, LayerType, NoiseParams};
+use runtime_texture::TextureFormat;
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
 // perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
@@ -37,6 +38,7 @@ impl<R: gfx::Resources> TerrainFileParams<R> {
         Ok(QuadTree::new(
             header,
             data,
+            self.materials,
             factory,
             color_buffer,
             depth_buffer,
@@ -88,7 +90,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
         let world_size = 524288.0 / 8.0;
-        let max_level = 10i32;
+        let max_level = 12i32;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
@@ -126,7 +128,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             tile_count: nodes.len(),
             tile_resolution: HEIGHTS_RESOLUTION as u32,
             border_size: 0,
-            format: LayerFormat::F32,
+            format: TextureFormat::F32,
             tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
         });
         for i in 0..nodes.len() {
@@ -324,7 +326,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             tile_count: heightmaps.len(),
             tile_resolution: colormap_resolution as u32,
             border_size: skirt as u32 - 2,
-            format: LayerFormat::RGBA8,
+            format: TextureFormat::SRGBA,
             tile_bytes: 4 * colormap_resolution as usize * colormap_resolution as usize,
         });
         let rock = self.materials.get_average_albedo(0);
@@ -388,10 +390,12 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
 
+                    let splat = if normal.y > 0.9 { 1 } else { 0 };
+
                     writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
                     writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
                     writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    writer.write_u8(0)?;
+                    writer.write_u8(splat)?;
                     bytes_written += 4;
                 }
             }
@@ -402,11 +406,37 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             tile_count: normalmap_count,
             tile_resolution: normalmap_resolution as u32,
             border_size: skirt as u32 - 2,
-            format: LayerFormat::RGBA8,
+            format: TextureFormat::RGBA8,
             tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
         });
 
-        Ok(TileHeader { layers, nodes })
+        let noise = NoiseParams {
+            offset: bytes_written,
+            resolution: 512,
+            format: TextureFormat::RGBA8,
+            bytes: 4 * 512 * 512,
+            wavelength: 1.0 / 64.0,
+        };
+        let noise_heightmaps = [
+            heightmap::wavelet_noise(64, 8),
+            heightmap::wavelet_noise(64, 8),
+            heightmap::wavelet_noise(64, 8),
+            heightmap::wavelet_noise(64, 8),
+        ];
+        for i in 0..noise_heightmaps[0].heights.len() {
+            for j in 0..4 {
+                let v = noise_heightmaps[j].heights[i].max(-3.0).min(3.0);
+                writer.write_u8((v * 127.5 / 3.0 + 127.5) as u8)?;
+                bytes_written += 1;
+            }
+        }
+        assert_eq!(bytes_written, noise.offset + noise.bytes);
+
+        Ok(TileHeader {
+            layers,
+            noise,
+            nodes,
+        })
     }
 }
 

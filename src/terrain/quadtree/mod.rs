@@ -11,6 +11,7 @@ use rshader;
 use std::env;
 use std::collections::VecDeque;
 
+use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
 
 pub(crate) mod id;
@@ -42,6 +43,7 @@ where
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::Shader<R>,
     node_states: Vec<NodeState>,
+    _materials: MaterialSet<R>,
 }
 
 #[allow(unused)]
@@ -53,6 +55,7 @@ where
     pub(crate) fn new(
         header: TileHeader,
         data_file: Mmap,
+        materials: MaterialSet<R>,
         mut factory: F,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
@@ -77,12 +80,27 @@ where
             );
         }
 
+        let noise_start = header.noise.offset;
+        let noise_end = noise_start + header.noise.bytes;
+        let noise_data = unsafe { &data_view.as_slice()[noise_start..noise_end] };
+        let (noise_texture, noise_texture_view) =
+            factory.create_texture_immutable_u8
+            ::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Unorm)>(
+                gfx::texture::Kind::D2(
+                    header.noise.resolution as u16,
+                    header.noise.resolution as u16,
+                    gfx::texture::AaMode::Single,
+                ),
+                &[gfx::memory::cast_slice(noise_data)],
+            )
+            .unwrap();
+
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
             .get_texture_view_f32()
             .unwrap()
             .clone();
         let colors_texture_view = tile_cache_layers[LayerType::Colors.index()]
-            .get_texture_view_rgba8()
+            .get_texture_view_srgba()
             .unwrap()
             .clone();
         let normals_texture_view = tile_cache_layers[LayerType::Normals.index()]
@@ -93,6 +111,11 @@ where
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Bilinear,
             gfx::texture::WrapMode::Clamp,
+        ));
+
+        let sampler_wrap = factory.create_sampler(gfx::texture::SamplerInfo::new(
+            gfx::texture::FilterMethod::Trilinear,
+            gfx::texture::WrapMode::Tile,
         ));
 
         Self {
@@ -107,6 +130,9 @@ where
                 heights: (heights_texture_view, sampler.clone()),
                 colors: (colors_texture_view, sampler.clone()),
                 normals: (normals_texture_view, sampler),
+                materials: (materials.texture_view.clone(), sampler_wrap.clone()),
+                noise: (noise_texture_view, sampler_wrap),
+                noise_wavelength: header.noise.wavelength,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -116,6 +142,7 @@ where
             nodes: header.nodes,
             node_states: Vec::new(),
             tile_cache_layers,
+            _materials: materials,
         }
     }
 

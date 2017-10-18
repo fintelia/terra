@@ -29,6 +29,9 @@ gfx_pipeline!( pipe {
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     colors: gfx::TextureSampler<[f32; 4]> = "colors",
+    materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    noise: gfx::TextureSampler<[f32; 4]> = "noise",
+    noise_wavelength: gfx::Global<f32> = "noiseWavelength",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
