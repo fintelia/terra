@@ -227,7 +227,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 let mut noise = Vec::with_capacity(
                     heightmap_resolution as usize * heightmap_resolution as usize,
                 );
-                let noise_scale = nodes[i].side_length / (HEIGHTS_RESOLUTION - 1) as f32;
+                let noise_scale = nodes[i].side_length /
+                    (heightmap_resolution - 1 - 2 * skirt) as f32;
                 let slope_scale = 0.5 * (heightmap_resolution - 1) as f32 / nodes[i].side_length;
                 for y in 0..heightmap_resolution {
                     for x in 0..heightmap_resolution {
@@ -240,12 +241,14 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                             let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() *
                                 slope_scale;
 
+                            let bias = -noise_scale * 0.3 * (slope - 0.5).max(0.0);
+
                             let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
                             let wx = layer_origin.x + (x as i32 - skirt as i32);
                             let wy = layer_origin.y + (y as i32 - skirt as i32);
                             noise.push(
-                                0.01 * random.get_wrapping(wx as i64, wy as i64) * noise_scale *
-                                    noise_strength,
+                                0.15 * random.get_wrapping(wx as i64, wy as i64) * noise_scale *
+                                    noise_strength + bias,
                             );
                         } else {
                             noise.push(0.0);
