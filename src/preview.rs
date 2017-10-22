@@ -69,6 +69,7 @@ fn main() {
         window.draw_3d(&e, |window| {
             let args = e.render_args().unwrap();
 
+	    window.encoder.clear_depth(&window.output_stencil, 1.0);
             window.encoder.clear(
                 &window.output_color,
                 [0.3, 0.3, 0.3, 1.0],
