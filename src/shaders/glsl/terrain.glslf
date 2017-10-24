@@ -70,11 +70,15 @@ void main() {
 		vec3 normal = normalize(texture(normals, vec3(fTexcoord, fNormalsLayer)).xyz * 2.0 - 1.0);
 
 		OutColor.rgb = compute_splatting(fPosition, fTexcoord);
-		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1)));
+		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1))) * vec3(1.5, .5, .5);
 	} else {
 		vec4 color = texture(colors, vec3(fTexcoord, fColorsLayer));
 
 		OutColor = vec4(color.rgb, 1);
 		OutColor.rgb *= color.a;
+	}
+
+	if(fPosition.y == 0.0) {
+		OutColor.rgb = vec3(1,0,0);
 	}
 }

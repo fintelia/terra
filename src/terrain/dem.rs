@@ -219,17 +219,32 @@ impl DigitalElevationModel {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    // #[test]
-    // fn it_works() {
-    //     use super::*;
+pub struct DigitalElevationModelSet {
+    dems: Vec<DigitalElevationModel>,
+    cell_size: f64,
+}
 
-    //     let zip = Dem::download_gridfloat_zip(28, -81, DemSource::Usgs30m);
-    //     let dem = Dem::from_gridfloat_zip(Cursor::new(zip));
-    //     assert_eq!(dem.width, 3612);
-    //     assert_eq!(dem.height, 3612);
-    //     assert!(dem.cell_size > 0.0002777);
-    //     assert!(dem.cell_size < 0.0002778);
-    // }
+impl DigitalElevationModelSet {
+    pub fn new(dems: Vec<DigitalElevationModel>) -> Self {
+        assert!(!dems.is_empty());
+
+        let cell_size = dems[0].cell_size;
+        for d in &dems {
+            assert!((cell_size - d.cell_size).abs() / cell_size < 0.001);
+        }
+
+        Self { dems, cell_size }
+    }
+    pub fn get_elevation(&self, latitude: f64, longitude: f64) -> Option<f32> {
+        for d in &self.dems {
+            if let Some(elevation) = d.get_elevation(latitude, longitude) {
+                return Some(elevation);
+            }
+        }
+        return None;
+    }
+
+    pub fn cell_size(&self) -> f64 {
+        self.cell_size
+    }
 }

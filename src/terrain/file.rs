@@ -9,7 +9,7 @@ use rand;
 use rand::distributions::{Normal, IndependentSample};
 
 use cache::{MMappedAsset, WebAsset};
-use terrain::dem::{self, DemSource, DigitalElevationModelParams};
+use terrain::dem::{self, DemSource, DigitalElevationModelParams, DigitalElevationModelSet};
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
@@ -66,30 +66,41 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let mut layers = Vec::new();
         let mut bytes_written = 0;
 
-        let dem = DigitalElevationModelParams {
-            latitude: self.latitude,
-            longitude: self.longitude,
-            source: self.source,
-        }.load()?;
+        let dem = {
+            let mut dems = Vec::new();
+            for y in -1..2 {
+                for x in -1..2 {
+                    if let Ok(dem) = (DigitalElevationModelParams {
+                        latitude: self.latitude + y,
+                        longitude: self.longitude + x,
+                        source: self.source,
+                    }.load())
+                    {
+                        dems.push(dem);
+                    }
+                }
+            }
+            DigitalElevationModelSet::new(dems)
+        };
 
         let world_center =
-            Vector2::<f32>::new(dem.xllcorner as f32 + 0.5, dem.yllcorner as f32 + 0.5);
+            Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
         let sun_direction = Vector3::new(0.0, 1.0, 1.0).normalize();
 
-        let ycenter = dem.yllcorner + 0.5 * dem.cell_size * dem.height as f64;
-        let scale_x = ((1.0 / 360.0) * EARTH_CIRCUMFERENCE * ycenter.to_radians().cos()) as f32;
+        let scale_x = (1.0 / 360.0) * (EARTH_CIRCUMFERENCE as f32) *
+            world_center.y.to_radians().cos();
         let scale_y = (1.0 / 360.0) * EARTH_CIRCUMFERENCE as f32;
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
-        let dem_cell_size_y = scale_y * dem.cell_size as f32;
+        let dem_cell_size_y = scale_y * dem.cell_size() as f32;
 
         const HEIGHTS_RESOLUTION: u16 = 33;
         const TEXTURE_RESOLUTION: u16 = 513;
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-        let world_size = 524288.0 / 8.0;
+        let world_size = 524288.0;
         let max_level = 12i32;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
