@@ -20,7 +20,8 @@ pub fn generate(resolution: u8, kind: ClipmapLayerKind) -> Vec<Vertex> {
     for x in 0..(resolution - 1) {
         for y in 0..(resolution - 1) {
             if kind != ClipmapLayerKind::Center && x >= cstart && x <= cend && y >= cstart &&
-               y <= cend {
+                y <= cend
+            {
                 continue;
             }
 

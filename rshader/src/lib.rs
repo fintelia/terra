@@ -21,7 +21,9 @@ macro_rules! shader_source {
         $crate::ShaderSource{
             source: Some({
                 let mut tmp_vec = Vec::new();
-                $( tmp_vec.extend_from_slice(include_bytes!(concat!($directory, "/", $filename))); )*
+                $( tmp_vec.extend_from_slice(
+                    include_bytes!(concat!($directory, "/", $filename)));
+                )*
                 tmp_vec
             }),
             filenames: None,
