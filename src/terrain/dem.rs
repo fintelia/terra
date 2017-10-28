@@ -202,6 +202,8 @@ impl DigitalElevationModel {
         let x = (latitude - self.xllcorner) / self.cell_size;
         let y = (longitude - self.yllcorner) / self.cell_size;
 
+        let y = self.height as f64 - y;
+
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
         if x < 0.0 || fx >= self.width - 1 || y < 0.0 || fy >= self.height - 1 {
