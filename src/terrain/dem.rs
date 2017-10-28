@@ -57,8 +57,7 @@ impl WebAsset for DigitalElevationModelParams {
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
             "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/{}/GridFloat/\
-                       USGS_NED_{}_{}{:02}{}{:03}_GridFloat.zip",
-            self.source.as_str(),
+                       {}{:02}{}{:03}.zip",
             self.source.as_str(),
             n_or_s,
             self.latitude.abs(),
@@ -85,10 +84,10 @@ impl WebAsset for DigitalElevationModelParams {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         for i in 0..zip.len() {
             let mut file = zip.by_index(i)?;
-            if file.name().ends_with("_gridfloat.hdr") {
+            if file.name().ends_with(".hdr") {
                 assert_eq!(hdr.len(), 0);
                 file.read_to_string(&mut hdr)?;
-            } else if file.name().ends_with("_gridfloat.flt") {
+            } else if file.name().ends_with(".flt") {
                 assert_eq!(flt.len(), 0);
                 file.read_to_end(&mut flt)?;
             }
