@@ -24,30 +24,37 @@ pub trait WebAsset {
 
     fn load(&self) -> Result<Self::Type, Box<Error>> {
         let filename = TERRA_DIRECTORY.join(self.filename());
-        let mut data = Vec::<u8>::new();
-        if let Ok(mut file) = File::open(&filename) {
-            file.read_to_end(&mut data)?;
-        } else {
-            {
-                use curl::easy::Easy;
-                let mut easy = Easy::new();
-                easy.url(&self.url())?;
-                let mut easy = easy.transfer();
-                easy.write_function(|d| {
-                    let len = d.len();
-                    data.extend(d);
-                    Ok(len)
-                })?;
-                easy.perform()?;
-            }
 
-            if let Some(parent) = filename.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut file = File::create(filename)?;
-            file.write_all(&data)?;
-            file.sync_all()?;
+        let try_cached = || {
+            let mut file = File::open(&filename)?;
+            let mut data = Vec::<u8>::new();
+            file.read_to_end(&mut data)?;
+            self.parse(data)
+        };
+        if let Ok(asset) = try_cached() {
+            return Ok(asset);
         }
+
+        let mut data = Vec::<u8>::new();
+        {
+            use curl::easy::Easy;
+            let mut easy = Easy::new();
+            easy.url(&self.url())?;
+            let mut easy = easy.transfer();
+            easy.write_function(|d| {
+                let len = d.len();
+                data.extend(d);
+                Ok(len)
+            })?;
+            easy.perform()?;
+        }
+
+        if let Some(parent) = filename.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut file = File::create(&filename)?;
+        file.write_all(&data)?;
+        file.sync_all()?;
         Ok(self.parse(data)?)
     }
 }
