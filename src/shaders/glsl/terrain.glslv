@@ -53,6 +53,12 @@ void main() {
 	position.xz = nPosition * (vSideLength / (resolution)) + vPosition;
 
 	fPosition = position;
+
+	float earthRadius = 6.371e6;
+	vec2 r = position.xz / earthRadius;
+	position.y += earthRadius * (sqrt(1.0 - dot(r,r)) - 1.0);
+
+
 	fTexcoord = textureOrigin + nPosition * textureStep;
 	fColorsLayer = colorsLayer;
 	fNormalsLayer = normalsLayer;
