@@ -71,7 +71,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             for y in -1..2 {
                 for x in -1..2 {
                     if let Ok(dem) = (DigitalElevationModelParams {
-                        latitude: self.latitude + y,
+                        latitude: self.latitude + y + 1,
                         longitude: self.longitude + x,
                         source: self.source,
                     }.load())
