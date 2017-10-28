@@ -149,13 +149,14 @@ impl<R: gfx::Resources> TileCache<R> {
         nodes: &mut Vec<Node>,
         encoder: &mut gfx::Encoder<R, C>,
     ) {
-        if self.slots.len() + self.missing.len() < self.size {
-            while let Some(m) = self.missing.pop() {
-                let index = self.slots.len();
-                self.slots.push(m.clone());
-                self.load(m.1, &mut nodes[m.1], index, encoder);
-            }
-        } else {
+        while !self.missing.is_empty() && self.slots.len() < self.size {
+            let m = self.missing.pop().unwrap();
+            let index = self.slots.len();
+            self.slots.push(m.clone());
+            self.load(m.1, &mut nodes[m.1], index, encoder);
+        }
+
+        if !self.missing.is_empty() {
             let mut possible: Vec<_> = self.slots
                 .iter()
                 .cloned()
