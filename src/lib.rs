@@ -28,8 +28,10 @@ mod utils;
 mod runtime_texture;
 
 pub mod cache;
+pub mod sky;
 pub mod terrain;
 
+pub use sky::Skybox;
 pub use terrain::clipmap::Clipmap;
 pub use terrain::dem::{DigitalElevationModel, DigitalElevationModelParams, DemSource};
 pub use terrain::file::{TerrainFile, TerrainFileParams};

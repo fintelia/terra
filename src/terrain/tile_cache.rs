@@ -27,20 +27,22 @@ impl Ord for Priority {
     }
 }
 
-pub const NUM_LAYERS: usize = 3;
+pub const NUM_LAYERS: usize = 4;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Heights = 0,
     Colors = 1,
     Normals = 2,
+    Water = 3,
 }
 impl LayerType {
     pub fn cache_size(&self) -> u16 {
         match *self {
-            LayerType::Heights => 1024,
-            LayerType::Colors => 512,
-            LayerType::Normals => 96,
+            LayerType::Heights => 256,
+            LayerType::Colors => 256,
+            LayerType::Normals => 32,
+            LayerType::Water => 256,
         }
     }
     pub fn index(&self) -> usize {

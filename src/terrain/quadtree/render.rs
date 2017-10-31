@@ -15,6 +15,7 @@ gfx_defines!{
         texture_origin: [f32; 2] ="textureOrigin",
         colors_layer: f32 = "colorsLayer",
         normals_layer: f32 = "normalsLayer",
+        water_layer: f32 = "waterLayer",
         texture_step: f32 = "textureStep",
     }
 }
@@ -29,7 +30,9 @@ gfx_pipeline!( pipe {
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     colors: gfx::TextureSampler<[f32; 4]> = "colors",
+    water: gfx::TextureSampler<[f32; 4]> = "water",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
+    sky: gfx::TextureSampler<[f32; 4]> = "sky",
     noise: gfx::TextureSampler<[f32; 4]> = "noise",
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
 
@@ -91,23 +94,28 @@ where
             tile_cache_layers: &VecMap<TileCache<R>>,
             id: NodeId,
             texture_ratio: f32,
-        ) -> (f32, f32, Vector2<f32>, f32) {
+        ) -> (f32, f32, f32, Vector2<f32>, f32) {
             let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
                 tile_cache_layers[LayerType::Colors.index()].contains(id)
             }).unwrap();
             let colors_slot = tile_cache_layers[LayerType::Colors.index()]
                 .get_slot(ancestor)
+                .map(|s| s as f32)
                 .unwrap();
             let normals_slot = tile_cache_layers[LayerType::Normals.index()]
                 .get_slot(ancestor)
                 .map(|s| s as f32)
                 .unwrap_or(-1.0);
+            let water_slot = tile_cache_layers[LayerType::Water.index()]
+                .get_slot(ancestor)
+                .map(|s| s as f32)
+                .unwrap();
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(
                 offset.x as f32 * texture_ratio * scale,
                 offset.y as f32 * texture_ratio * scale,
             );
-            (colors_slot as f32, normals_slot, offset, scale)
+            (colors_slot, normals_slot, water_slot, offset, scale)
         };
 
         self.node_states.clear();
@@ -115,7 +123,7 @@ where
             let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                 .get_slot(id)
                 .unwrap() as f32;
-            let (colors_layer, normals_layer, texture_offset, texture_step_scale) =
+            let (colors_layer, normals_layer, water_layer, texture_offset, texture_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
@@ -128,6 +136,7 @@ where
                 ],
                 colors_layer,
                 normals_layer,
+                water_layer,
                 texture_step: texture_step * texture_step_scale,
             });
         }
@@ -140,7 +149,11 @@ where
                     let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                         .get_slot(id)
                         .unwrap() as f32;
-                    let (colors_layer, normals_layer, texture_offset, texture_step_scale) =
+                    let (colors_layer,
+                         normals_layer,
+                         water_layer,
+                         texture_offset,
+                         texture_step_scale) =
                         find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
                     self.node_states.push(NodeState {
                         position: [
@@ -162,6 +175,7 @@ where
                         ],
                         colors_layer,
                         normals_layer,
+                        water_layer,
                         texture_step: texture_step * texture_step_scale,
                     });
                 }

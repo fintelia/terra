@@ -10,7 +10,7 @@ use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
 use vecmath::traits::Sqrt;
 
-use terra::{MaterialSet, DemSource, TerrainFileParams};
+use terra::{MaterialSet, DemSource, Skybox, TerrainFileParams};
 
 fn main() {
     let mut window: PistonWindow = WindowSettings::new("terra preview", [1920 / 2, 1080 / 2])
@@ -24,11 +24,14 @@ fn main() {
     let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
+    let sky = Skybox::new(&mut window.factory);
+
     let mut terrain = TerrainFileParams {
-        latitude: 44,
-        longitude: -74,
+        latitude: 42,
+        longitude: -71,
         source: DemSource::Usgs30m,
         materials,
+        sky,
     }.build_quadtree(
         window.factory.clone(),
         &window.output_color,
@@ -41,15 +44,15 @@ fn main() {
         CameraPerspective {
             fov: 90.0,
             near_clip: 0.5,
-            far_clip: 100000.0,
+            far_clip: 500000.0,
             aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
         }.projection()
     };
 
     let mut projection = get_projection(&window);
     let mut first_person = FirstPerson::new([0.0, 30.0, 0.0], FirstPersonSettings::keyboard_wasd());
-    first_person.settings.speed_vertical = 500.0;
-    first_person.settings.speed_horizontal = 200.0;
+    first_person.settings.speed_vertical = 5000.0;
+    first_person.settings.speed_horizontal = 5000.0;
 
     let mut detached_camera = false;
     let mut camera_position = cgmath::Point3::new(0.0, 0.0, 0.0);

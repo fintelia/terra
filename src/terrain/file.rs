@@ -9,6 +9,7 @@ use rand;
 use rand::distributions::{Normal, IndependentSample};
 
 use cache::{MMappedAsset, WebAsset};
+use sky::Skybox;
 use terrain::dem::{self, DemSource, DigitalElevationModelParams, DigitalElevationModelSet};
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
@@ -25,6 +26,7 @@ pub struct TerrainFileParams<R: gfx::Resources> {
     pub longitude: i16,
     pub source: DemSource,
     pub materials: MaterialSet<R>,
+    pub sky: Skybox<R>,
 }
 impl<R: gfx::Resources> TerrainFileParams<R> {
     pub fn build_quadtree<F: gfx::Factory<R>>(
@@ -39,6 +41,7 @@ impl<R: gfx::Resources> TerrainFileParams<R> {
             header,
             data,
             self.materials,
+            self.sky,
             factory,
             color_buffer,
             depth_buffer,
@@ -68,10 +71,10 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let dem = {
             let mut dems = Vec::new();
-            for y in -1..2 {
-                for x in -1..2 {
+            for y in -2..3 {
+                for x in -2..3 {
                     if let Ok(dem) = (DigitalElevationModelParams {
-                        latitude: self.latitude - y + 1,
+                        latitude: self.latitude + y + 1,
                         longitude: self.longitude + x,
                         source: self.source,
                     }.load())
@@ -89,7 +92,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let scale_x = (1.0 / 360.0) * (EARTH_CIRCUMFERENCE as f32) *
             world_center.y.to_radians().cos();
-        let scale_y = (1.0 / 360.0) * EARTH_CIRCUMFERENCE as f32;
+        let scale_y = (-1.0 / 360.0) * EARTH_CIRCUMFERENCE as f32;
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
@@ -100,7 +103,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-        let world_size = 524288.0;
+        let world_size = 262144.0;
         let max_level = 12i32;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
@@ -245,7 +248,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                     for x in 0..heightmap_resolution {
                         if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 &&
                             x < heightmap_resolution - 1 &&
-                            y < heightmap_resolution - 1
+                            y < heightmap_resolution - 1 &&
+                            heightmap.at(x, y) > 0.0
                         {
                             let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
                             let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
@@ -423,6 +427,46 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::RGBA8,
             tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
         });
+
+        // Water
+        assert!(skirt >= 2);
+        let watermap_resolution = heightmap_resolution - 5;
+        layers.push(LayerParams {
+            layer_type: LayerType::Water,
+            offset: bytes_written,
+            tile_count: heightmaps.len(),
+            tile_resolution: watermap_resolution as u32,
+            border_size: skirt as u32 - 2,
+            format: TextureFormat::RGBA8,
+            tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
+        });
+        for i in 0..heightmaps.len() {
+            nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
+
+            let heights = &heightmaps[i];
+            for y in 2..(2 + watermap_resolution) {
+                for x in 2..(2 + watermap_resolution) {
+                    let mut w = 0.0;
+                    if heights.at(x, y) <= 0.0 {
+                        w += 0.25;
+                    }
+                    if heights.at(x + 1, y) <= 0.0 {
+                        w += 0.25;
+                    }
+                    if heights.at(x, y + 1) <= 0.0 {
+                        w += 0.25;
+                    }
+                    if heights.at(x + 1, y + 1) <= 0.0 {
+                        w += 0.25;
+                    }
+                    writer.write_u8(((w * 255.0) as u8))?;
+                    writer.write_u8(0)?;
+                    writer.write_u8(255)?;
+                    writer.write_u8(0)?;
+                    bytes_written += 4;
+                }
+            }
+        }
 
         let noise = NoiseParams {
             offset: bytes_written,

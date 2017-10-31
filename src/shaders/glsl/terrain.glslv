@@ -13,11 +13,13 @@ in vec2 textureOrigin;
 in float textureStep;
 in float colorsLayer;
 in float normalsLayer;
+in float waterLayer;
 
 out vec3 fPosition;
 out vec2 fTexcoord;
 out float fColorsLayer;
 out float fNormalsLayer;
+out float fWaterLayer;
 
 const ivec2 OFFSETS[6] = ivec2[6](
 	ivec2(0,0),
@@ -62,5 +64,6 @@ void main() {
 	fTexcoord = textureOrigin + nPosition * textureStep;
 	fColorsLayer = colorsLayer;
 	fNormalsLayer = normalsLayer;
+	fWaterLayer = waterLayer;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

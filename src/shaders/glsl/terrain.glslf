@@ -1,17 +1,24 @@
 #line 2
+#extension GL_ARB_texture_query_lod : enable
+#extension GL_ARB_gpu_shader_fp64 : enable
+
 uniform mat4 modelViewProjection;
 
 uniform sampler2DArray colors;
 uniform sampler2DArray normals;
+uniform sampler2DArray water;
 uniform sampler2DArray materials;
+uniform samplerCube sky;
 
 uniform sampler2D noise;
 uniform float noiseWavelength;
+uniform vec3 cameraPosition;
 
 in vec3 fPosition;
 in vec2 fTexcoord;
 in float fColorsLayer;
 in float fNormalsLayer;
+in float fWaterLayer;
 
 out vec4 OutColor;
 
@@ -41,12 +48,23 @@ float fractal2(vec2 pos) {
 	return value;
 }
 
-// float compute_fog(vec3 position) {
-// 	float b = 0.01;
-// 	float distance = distance(position, eyePosition);
-// 	vec3 rayDir = normalize(position - eyePosition);
-// 	return clamp(0.0005 * exp(-b*eyePosition.y) * (1.0 - exp(-b*rayDir.y*distance)) / (b*rayDir.y), 0, 0.3);
-// }
+float compute_fog(vec3 position) {
+	// NOTE: When `-b*height` gets close to -88, `exp(-b*height)` would round to
+	// zero. This means that when the camera is above around 17000 meters
+	// elevation, the fog would vanish. To prevent this, we clamp the height to
+	// 15000 meters.
+	float MAX_HEIGHT = 15000;
+
+	float b = 0.005;
+	float distance = distance(position, cameraPosition);
+	vec3 rayDir = normalize(position - cameraPosition);
+	float height = cameraPosition.y;
+	if(height > MAX_HEIGHT) {
+		distance *= MAX_HEIGHT / height;
+		height = MAX_HEIGHT;
+	}
+	return clamp(0.05 * (exp(-b*height) * (1.0 - exp(-b*rayDir.y*distance))) / rayDir.y, 0, 1.0);
+}
 
 vec3 material(vec3 pos, uint mat) {
 	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb;// * (1.0 + fractal2(pos.xz) * 0.2);
@@ -70,7 +88,7 @@ void main() {
 		vec3 normal = normalize(texture(normals, vec3(fTexcoord, fNormalsLayer)).xyz * 2.0 - 1.0);
 
 		OutColor.rgb = compute_splatting(fPosition, fTexcoord);
-		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1))) * vec3(1.5, .5, .5);
+		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1)));
 	} else {
 		vec4 color = texture(colors, vec3(fTexcoord, fColorsLayer));
 
@@ -78,7 +96,33 @@ void main() {
 		OutColor.rgb *= color.a;
 	}
 
-	if(fPosition.y == 0.0) {
-		OutColor.rgb = vec3(1,0,0);
+	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
+	if(waterAmount > 0) {
+		vec2 tcoord = fPosition.xz * 0.00004;
+		float sx = texture(noise, tcoord + vec2(0.001,0)).x
+			- texture(noise, tcoord - vec2(0.001,0)).x;
+		float sz = texture(noise, tcoord + vec2(0, 0.001)).x
+			- texture(noise, tcoord - vec2(0,0.001)).x;
+		tcoord = fPosition.xz * 0.00008;
+		sx += (texture(noise, tcoord + vec2(0.001,0)).x
+			   - texture(noise, tcoord - vec2(0.001,0)).x)*3;
+		sz += (texture(noise, tcoord + vec2(0, 0.001)).x
+			   - texture(noise, tcoord - vec2(0,0.001)).x)*3;
+
+		float earthRadius = 6.371e6;
+		vec3 normal = normalize(vec3(sx, 4, sz));//normalize(vec3(fPosition.x, earthRadius, fPosition.z));
+		vec3 ray = normalize(fPosition - cameraPosition);
+		vec3 reflected = reflect(ray, normal);
+		//		vec3 waterColor = vec3(0,0,1);
+		//		OutColor.rgb = reflected.yyy;
+		vec3 reflectedColor = texture(sky, normalize(reflected)).rgb;
+		vec3 refractedColor = vec3(0,0.1,0.2);
+
+		float R0 = pow(0.333 / 2.333, 2);
+		float R = R0 + (1 - R0) * pow(1 - reflected.y, 5);
+		vec3 waterColor = mix(refractedColor, reflectedColor, R);
+		OutColor.rgb = mix(OutColor.rgb, waterColor, waterAmount);
 	}
+
+	OutColor.rgb = mix(OutColor.rgb, vec3(0.6), compute_fog(fPosition));
 }

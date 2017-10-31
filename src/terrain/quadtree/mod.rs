@@ -14,6 +14,8 @@ use std::collections::VecDeque;
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
 
+use sky::Skybox;
+
 pub(crate) mod id;
 pub(crate) mod node;
 pub(crate) mod render;
@@ -56,6 +58,7 @@ where
         header: TileHeader,
         data_file: Mmap,
         materials: MaterialSet<R>,
+        sky: Skybox<R>,
         mut factory: F,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
@@ -107,6 +110,10 @@ where
             .get_texture_view_rgba8()
             .unwrap()
             .clone();
+        let water_texture_view = tile_cache_layers[LayerType::Water.index()]
+            .get_texture_view_rgba8()
+            .unwrap()
+            .clone();
 
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Bilinear,
@@ -129,8 +136,10 @@ where
                 resolution: 0,
                 heights: (heights_texture_view, sampler.clone()),
                 colors: (colors_texture_view, sampler.clone()),
-                normals: (normals_texture_view, sampler),
+                normals: (normals_texture_view, sampler.clone()),
+                water: (water_texture_view, sampler.clone()),
                 materials: (materials.texture_view.clone(), sampler_wrap.clone()),
+                sky: (sky.texture_view.clone(), sampler.clone()),
                 noise: (noise_texture_view, sampler_wrap),
                 noise_wavelength: header.noise.wavelength,
                 color_buffer: color_buffer.clone(),
