@@ -10,6 +10,7 @@ uniform sampler2DArray water;
 uniform sampler2DArray materials;
 uniform samplerCube sky;
 
+uniform sampler2DArray oceanSurface;
 uniform sampler2D noise;
 uniform float noiseWavelength;
 uniform vec3 cameraPosition;
@@ -98,23 +99,10 @@ void main() {
 
 	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
 	if(waterAmount > 0) {
-		vec2 tcoord = fPosition.xz * 0.00004;
-		float sx = texture(noise, tcoord + vec2(0.001,0)).x
-			- texture(noise, tcoord - vec2(0.001,0)).x;
-		float sz = texture(noise, tcoord + vec2(0, 0.001)).x
-			- texture(noise, tcoord - vec2(0,0.001)).x;
-		tcoord = fPosition.xz * 0.00008;
-		sx += (texture(noise, tcoord + vec2(0.001,0)).x
-			   - texture(noise, tcoord - vec2(0.001,0)).x)*3;
-		sz += (texture(noise, tcoord + vec2(0, 0.001)).x
-			   - texture(noise, tcoord - vec2(0,0.001)).x)*3;
-
-		float earthRadius = 6.371e6;
-		vec3 normal = normalize(vec3(sx, 4, sz));//normalize(vec3(fPosition.x, earthRadius, fPosition.z));
 		vec3 ray = normalize(fPosition - cameraPosition);
-		vec3 reflected = reflect(ray, normal);
-		//		vec3 waterColor = vec3(0,0,1);
-		//		OutColor.rgb = reflected.yyy;
+		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.0001, 0)).xzy * 2 - 1;
+		vec3 reflected = reflect(ray, normalize(normal));
+
 		vec3 reflectedColor = texture(sky, normalize(reflected)).rgb;
 		vec3 refractedColor = vec3(0,0.1,0.2);
 

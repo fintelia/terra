@@ -29,6 +29,7 @@ memmap = "0.5.2"
 notify = "4.0"
 rand = "0.3"
 rshader = { path = "rshader", features = [] }
+rustfft = "2.0.0"
 safe-transmute = "0.3"
 serde = "1.0"
 serde_derive = "1.0"

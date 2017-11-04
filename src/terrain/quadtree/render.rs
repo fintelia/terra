@@ -33,6 +33,7 @@ gfx_pipeline!( pipe {
     water: gfx::TextureSampler<[f32; 4]> = "water",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
     sky: gfx::TextureSampler<[f32; 4]> = "sky",
+    ocean_surface: gfx::TextureSampler<[f32; 4]> = "oceanSurface",
     noise: gfx::TextureSampler<[f32; 4]> = "noise",
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
 

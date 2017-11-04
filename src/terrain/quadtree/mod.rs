@@ -15,6 +15,7 @@ use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
 
 use sky::Skybox;
+use ocean::Ocean;
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -31,6 +32,7 @@ where
 {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
+    ocean: Ocean<R>,
 
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
@@ -115,6 +117,8 @@ where
             .unwrap()
             .clone();
 
+        let ocean = Ocean::new(&mut factory);
+
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Bilinear,
             gfx::texture::WrapMode::Clamp,
@@ -140,11 +144,13 @@ where
                 water: (water_texture_view, sampler.clone()),
                 materials: (materials.texture_view.clone(), sampler_wrap.clone()),
                 sky: (sky.texture_view.clone(), sampler.clone()),
+                ocean_surface: (ocean.texture_view.clone(), sampler_wrap.clone()),
                 noise: (noise_texture_view, sampler_wrap),
                 noise_wavelength: header.noise.wavelength,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
+            ocean,
             factory,
             shaders_watcher,
             shader,
@@ -231,11 +237,14 @@ where
         mvp_mat: vecmath::Matrix4<f32>,
         camera: Point3<f32>,
         encoder: &mut gfx::Encoder<R, C>,
+        dt: f32,
     ) {
         self.update_priorities(camera);
         self.update_cache(encoder);
         self.update_visibility();
         self.update_shaders();
+
+        self.ocean.update(encoder, dt);
 
         self.pipeline_data.model_view_projection = mvp_mat;
         self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];

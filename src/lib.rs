@@ -15,6 +15,7 @@ extern crate notify;
 extern crate rand;
 #[macro_use]
 extern crate rshader;
+extern crate rustfft;
 extern crate safe_transmute;
 extern crate serde;
 #[macro_use]
@@ -28,6 +29,7 @@ mod utils;
 mod runtime_texture;
 
 pub mod cache;
+pub mod ocean;
 pub mod sky;
 pub mod terrain;
 

@@ -5,6 +5,8 @@ extern crate terra;
 extern crate vecmath;
 extern crate cgmath;
 
+use std::time::Instant;
+
 use piston_window::*;
 use camera_controllers::{FirstPersonSettings, FirstPerson, CameraPerspective,
                          model_view_projection};
@@ -57,6 +59,7 @@ fn main() {
     let mut detached_camera = false;
     let mut camera_position = cgmath::Point3::new(0.0, 0.0, 0.0);
 
+    let mut last_frame = Instant::now();
     while let Some(e) = window.next() {
         first_person.event(&e);
 
@@ -71,6 +74,11 @@ fn main() {
 
         window.draw_3d(&e, |window| {
             let args = e.render_args().unwrap();
+
+            let now = Instant::now();
+            let dt = (now - last_frame).as_secs() as f32 +
+                (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
+            last_frame = now;
 
             window.encoder.clear_depth(&window.output_stencil, 1.0);
             window.encoder.clear(
@@ -101,10 +109,12 @@ fn main() {
             // {
             //     camera.position[1] += h + 2.0;
             // }
+
             terrain.update(
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
                 camera_position,
                 &mut window.encoder,
+                dt,
             );
             terrain.render(&mut window.encoder);
         });
