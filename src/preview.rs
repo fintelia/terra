@@ -26,7 +26,7 @@ fn main() {
     let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
     window.encoder.flush(&mut window.device);
 
-    let sky = Skybox::new(&mut window.factory);
+    let sky = Skybox::new(&mut window.factory, &mut window.encoder);
 
     let mut terrain = TerrainFileParams {
         latitude: 42,
@@ -45,14 +45,15 @@ fn main() {
         let draw_size = w.window.draw_size();
         CameraPerspective {
             fov: 90.0,
-            near_clip: 0.5,
+            near_clip: 50.0,
             far_clip: 500000.0,
             aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
         }.projection()
     };
 
     let mut projection = get_projection(&window);
-    let mut first_person = FirstPerson::new([0.0, 30.0, 0.0], FirstPersonSettings::keyboard_wasd());
+    let mut first_person =
+        FirstPerson::new([0.0, 100.0, 0.0], FirstPersonSettings::keyboard_wasd());
     first_person.settings.speed_vertical = 5000.0;
     first_person.settings.speed_horizontal = 5000.0;
 

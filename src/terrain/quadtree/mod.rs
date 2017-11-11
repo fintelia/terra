@@ -120,7 +120,7 @@ where
         let ocean = Ocean::new(&mut factory);
 
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Bilinear,
+            gfx::texture::FilterMethod::Trilinear,
             gfx::texture::WrapMode::Clamp,
         ));
 

@@ -73,7 +73,10 @@ pub struct Skybox<R: gfx::Resources> {
     pub(crate) _texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
 }
 impl<R: gfx::Resources> Skybox<R> {
-    pub fn new<F: gfx::Factory<R>>(factory: &mut F) -> Self {
+    pub fn new<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
+        factory: &mut F,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) -> Self {
         let mut raw = SkyboxAsset::default().load().unwrap();
         let mut data = Vec::new();
         let mut data_slices = Vec::new();
@@ -84,12 +87,46 @@ impl<R: gfx::Resources> Skybox<R> {
             data_slices.push(gfx::memory::cast_slice(&face[..]));
         }
 
-        let (texture, texture_view) = factory
-            .create_texture_immutable::<(R8_G8_B8_A8, gfx_core::format::Unorm)>(
+        let mipmaps = 1 + (raw.resolution.next_power_of_two() as f32).log2() as u8;
+        let texture = factory
+            .create_texture::<R8_G8_B8_A8>(
                 Kind::Cube(raw.resolution),
-                &data_slices[..],
+                mipmaps,
+                gfx::SHADER_RESOURCE,
+                gfx::memory::Usage::Dynamic,
+                Some(ChannelType::Srgb),
             )
             .unwrap();
+
+        for (i, face) in gfx::texture::CUBE_FACES.iter().cloned().enumerate() {
+            encoder
+                .update_texture::<R8_G8_B8_A8, gfx::format::Srgba8>(
+                    &texture,
+                    Some(face),
+                    gfx_core::texture::NewImageInfo {
+                        xoffset: 0,
+                        yoffset: 0,
+                        zoffset: 0,
+                        width: raw.resolution,
+                        height: raw.resolution,
+                        depth: 1,
+                        format: (),
+                        mipmap: 0,
+                    },
+                    &data_slices[i][..],
+                )
+                .unwrap();
+        }
+
+        let texture_view = factory
+            .view_texture_as_shader_resource::<gfx::format::Srgba8>(
+                &texture,
+                (0, mipmaps),
+                Swizzle::new(),
+            )
+            .unwrap();
+
+        encoder.generate_mipmap(&texture_view);
 
         Self {
             texture_view,

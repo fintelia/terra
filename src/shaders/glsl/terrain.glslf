@@ -64,7 +64,7 @@ float compute_fog(vec3 position) {
 		distance *= MAX_HEIGHT / height;
 		height = MAX_HEIGHT;
 	}
-	return clamp(0.05 * (exp(-b*height) * (1.0 - exp(-b*rayDir.y*distance))) / rayDir.y, 0, 1.0);
+	return clamp(0.05 * (exp(-b*height) * (1.0 - exp(-b*rayDir.y*distance))) / rayDir.y, 0.0, 1.0);
 }
 
 vec3 material(vec3 pos, uint mat) {
@@ -100,10 +100,10 @@ void main() {
 	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
 	if(waterAmount > 0) {
 		vec3 ray = normalize(fPosition - cameraPosition);
-		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.0001, 0)).xzy * 2 - 1;
+		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
 		vec3 reflected = reflect(ray, normalize(normal));
 
-		vec3 reflectedColor = texture(sky, normalize(reflected)).rgb;
+		vec3 reflectedColor = textureLod(sky, normalize(reflected), 5).rgb;
 		vec3 refractedColor = vec3(0,0.1,0.2);
 
 		float R0 = pow(0.333 / 2.333, 2);
@@ -113,4 +113,6 @@ void main() {
 	}
 
 	OutColor.rgb = mix(OutColor.rgb, vec3(0.6), compute_fog(fPosition));
+	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
+	// 	OutColor.rgb = vec3(0);
 }
