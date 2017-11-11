@@ -104,6 +104,7 @@ impl WebAsset for DigitalElevationModelParams {
         let mut yllcorner = None;
         let mut cell_size = None;
         let mut byte_order = None;
+        let mut nodata_value = None;
         for line in hdr.lines() {
             let mut parts = line.split_whitespace();
             let key = parts.next();
@@ -115,6 +116,7 @@ impl WebAsset for DigitalElevationModelParams {
                     "xllcorner" => xllcorner = f64::from_str(value).ok(),
                     "yllcorner" => yllcorner = f64::from_str(value).ok(),
                     "cellsize" => cell_size = f64::from_str(value).ok(),
+                    "NODATA_value" => nodata_value = f32::from_str(value).ok(),
                     "byteorder" => {
                         byte_order = match value {
                             "LSBFIRST" => Some(ByteOrder::LsbFirst),
@@ -133,6 +135,7 @@ impl WebAsset for DigitalElevationModelParams {
         let yllcorner = yllcorner.ok_or(DemError::ParseError)?;
         let cell_size = cell_size.ok_or(DemError::ParseError)?;
         let byte_order = byte_order.ok_or(DemError::ParseError)?;
+        let nodata_value = nodata_value.ok_or(DemError::ParseError)?;
 
         let size = width * height;
         if flt.len() != size * 4 {
@@ -147,7 +150,8 @@ impl WebAsset for DigitalElevationModelParams {
                 ByteOrder::LsbFirst => f.to_le(),
                 ByteOrder::MsbFirst => f.to_be(),
             };
-            elevations.push(unsafe { mem::transmute::<u32, f32>(e) });
+            let e = unsafe { mem::transmute::<u32, f32>(e) };
+            elevations.push(if e == nodata_value { 0.0 } else { e });
         }
 
         Ok(Self::Type {
