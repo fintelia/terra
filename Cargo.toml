@@ -1,15 +1,15 @@
 [package]
 name = "terra"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jonathan Behrens <fintelia@gmail.com>"]
 license = "Apache-2.0"
 description = "A rendering library for large scale terrains"
 repository = "https://github.com/fintelia/terra"
 homepage = "https://github.com/fintelia/terra"
-documentation = "https://docs.rs/terra/0.1.0/terra"
+documentation = "https://docs.rs/terra"
 categories = ["game-engines", "rendering"]
 readme = "README.md"
-include = ["src/*", "Cargo.toml", "README.md", "LICENSE"]
+include = ["src/*", "rshader/*", "Cargo.toml", "README.md", "LICENSE", "screenshot.png"]
 
 [[bin]]
 name = "preview"
@@ -29,7 +29,7 @@ lru-cache = "0.1.1"
 memmap = "0.5.2"
 notify = "4.0"
 rand = "0.3"
-rshader = { path = "rshader", features = [] }
+rshader = { path = "rshader", features = [], version = "0.1.0" }
 rustfft = "2.0.0"
 safe-transmute = "0.3"
 serde = "1.0"
