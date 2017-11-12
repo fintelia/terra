@@ -155,7 +155,8 @@ impl<R: gfx::Resources> TileCache<R> {
             let m = self.missing.pop().unwrap();
             let index = self.slots.len();
             self.slots.push(m.clone());
-            self.load(m.1, &mut nodes[m.1], index, encoder);
+            self.reverse.insert(m.1.index(), index);
+            self.load(&mut nodes[m.1], index, encoder);
         }
 
         if !self.missing.is_empty() {
@@ -180,8 +181,10 @@ impl<R: gfx::Resources> TileCache<R> {
                     index += 1;
                 }
 
+                self.reverse.remove(self.slots[index].1.index());
+                self.reverse.insert(m.1.index(), index);
                 self.slots[index] = m.clone();
-                self.load(m.1, &mut nodes[m.1], index, encoder);
+                self.load(&mut nodes[m.1], index, encoder);
                 index += 1;
             }
         }
@@ -189,16 +192,10 @@ impl<R: gfx::Resources> TileCache<R> {
 
     fn load<C: gfx_core::command::Buffer<R>>(
         &mut self,
-        id: NodeId,
         node: &mut Node,
         slot: usize,
         encoder: &mut gfx::Encoder<R, C>,
     ) {
-        if slot < self.slots.len() {
-            self.reverse.remove(self.slots[slot].1.index());
-        }
-        self.reverse.insert(id.index(), slot);
-
         let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
         let len = self.layer_params.tile_bytes;
         let offset = self.layer_params.offset + tile * len;
