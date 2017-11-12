@@ -64,51 +64,6 @@ impl<T> Heightmap<T> {
         let y = modulo(y, self.height as i64);
         self.heights[x + y * self.width as usize].clone()
     }
-
-    /// Produces a Vec of arrays where each array consists of the height at that point followed by
-    /// the slope in the x and y directions respectively.
-    pub fn as_height_and_slopes(&self, spacing: f32) -> Vec<[f32; 3]>
-    where
-        f32: From<T>,
-        T: Clone,
-    {
-        let mut result = Vec::with_capacity(self.width as usize * self.height as usize);
-        let scale_factor = 0.5 / spacing;
-
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let mx: f32 = if x > 0 {
-                    self.get(x - 1, y).unwrap().into()
-                } else {
-                    self.get(self.width - 1, y).unwrap().into()
-                };
-                let px: f32 = if x < self.width - 1 {
-                    self.get(x + 1, y).unwrap().into()
-                } else {
-                    self.get(0, y).unwrap().into()
-                };
-                let my: f32 = if y > 0 {
-                    self.get(x, y - 1).unwrap().into()
-                } else {
-                    self.get(x, self.height - 1).unwrap().into()
-                };
-                let py: f32 = if y < self.height - 1 {
-                    self.get(x, y + 1).unwrap().into()
-                } else {
-                    self.get(x, 0).unwrap().into()
-                };
-                let v = [
-                    self.heights[x as usize + y as usize * self.width as usize]
-                        .clone()
-                        .into(),
-                    (px - mx) * scale_factor,
-                    (py - my) * scale_factor,
-                ];
-                result.push(v);
-            }
-        }
-        result
-    }
 }
 
 #[allow(dead_code)]
