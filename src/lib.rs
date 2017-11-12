@@ -10,6 +10,7 @@ extern crate gfx_core;
 extern crate image;
 #[macro_use]
 extern crate lazy_static;
+extern crate lru_cache;
 extern crate memmap;
 extern crate notify;
 extern crate rand;

@@ -8,9 +8,9 @@ use gfx;
 use rand;
 use rand::distributions::{Normal, IndependentSample};
 
-use cache::{MMappedAsset, WebAsset};
+use cache::MMappedAsset;
 use sky::Skybox;
-use terrain::dem::{self, DemSource, DigitalElevationModelParams, DigitalElevationModelSet};
+use terrain::dem::{self, DemSource, DigitalElevationModelCache};
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
@@ -69,22 +69,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let mut layers = Vec::new();
         let mut bytes_written = 0;
 
-        let dem = {
-            let mut dems = Vec::new();
-            for y in -2..3 {
-                for x in -2..3 {
-                    if let Ok(dem) = (DigitalElevationModelParams {
-                        latitude: self.latitude + y + 1,
-                        longitude: self.longitude + x,
-                        source: self.source,
-                    }.load())
-                    {
-                        dems.push(dem);
-                    }
-                }
-            }
-            DigitalElevationModelSet::new(dems)
-        };
+        let mut dem_cache = DigitalElevationModelCache::new(self.source, 32);
 
         let world_center =
             Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
@@ -96,14 +81,14 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
-        let dem_cell_size_y = scale_y * dem.cell_size() as f32;
+        let dem_cell_size_y = scale_y * self.source.resolution() as f32;
 
         const HEIGHTS_RESOLUTION: u16 = 33;
         const TEXTURE_RESOLUTION: u16 = 513;
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-        let world_size = 262144.0;
+        let world_size = 1048576.0 / 2.0;
         let max_level = 12i32;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
@@ -314,7 +299,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                         );
 
                         let p = world_center + world_position;
-                        let height = dem.get_elevation(p.x as f64, p.y as f64).unwrap_or(0.0);
+                        let height = dem_cache.get_elevation(p.y as f64, p.x as f64).unwrap_or(
+                            0.0,
+                        );
                         heights.push(height);
 
                         if (x - skirt as i32) % resolution_ratio as i32 == 0 &&

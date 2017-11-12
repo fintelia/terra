@@ -1,11 +1,13 @@
-use zip::ZipArchive;
+use lru_cache::LruCache;
 use safe_transmute;
+use zip::ZipArchive;
 
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
-use std::mem;
+use std::{env, mem};
 
 use cache::WebAsset;
 
@@ -24,22 +26,43 @@ impl Display for DemError {
     }
 }
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
+const EARTHDATA_WARNING: &'static str =
+    "WARNING: Earthdata credentials from https://urs.earthdata.nasa.gov//users/new are \
+     required to download elevation data. Once you have them, please remember to \
+     `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
+
+
 #[derive(Copy, Clone)]
 pub enum DemSource {
     Usgs30m,
     Usgs10m,
+    Srtm30m,
 }
 impl DemSource {
-    pub(crate) fn as_str(&self) -> &str {
+    pub(crate) fn url_str(&self) -> &str {
         match *self {
-            DemSource::Usgs30m => "1",
-            DemSource::Usgs10m => "13",
+            DemSource::Usgs30m => {
+                "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/GridFloat/"
+            }
+            DemSource::Usgs10m => {
+                "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/GridFloat/"
+            }
+            DemSource::Srtm30m => "https://e4ftl01.cr.usgs.gov/SRTM/SRTMGL1.003/2000.02.11/",
+        }
+    }
+    pub(crate) fn directory_str(&self) -> &str {
+        match *self {
+            DemSource::Usgs30m => "dems/ned1",
+            DemSource::Usgs10m => "dems/ned13",
+            DemSource::Srtm30m => "dems/srtm1",
         }
     }
     pub(crate) fn resolution(&self) -> u32 {
         match *self {
             DemSource::Usgs30m => 30,
             DemSource::Usgs10m => 10,
+            DemSource::Srtm30m => 30,
         }
     }
 }
@@ -53,31 +76,89 @@ impl WebAsset for DigitalElevationModelParams {
     type Type = DigitalElevationModel;
 
     fn url(&self) -> String {
-        let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
-        let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
-        format!(
-            "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/{}/GridFloat/\
-                       {}{:02}{}{:03}.zip",
-            self.source.as_str(),
-            n_or_s,
-            self.latitude.abs(),
-            e_or_w,
-            self.longitude.abs()
-        )
+        let (latitude, longitude) = match self.source {
+            DemSource::Usgs30m |
+            DemSource::Usgs10m => (self.latitude + 1, self.longitude),
+            _ => (self.latitude, self.longitude),
+        };
+
+        let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+        let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+
+        match self.source {
+            DemSource::Usgs30m |
+            DemSource::Usgs10m => {
+                format!(
+                    "{}{}{:02}{}{:03}.zip",
+                    self.source.url_str(),
+                    n_or_s,
+                    latitude.abs(),
+                    e_or_w,
+                    longitude.abs()
+                )
+            }
+            DemSource::Srtm30m => {
+                format!(
+                    "{}{}{:02}{}{:03}.SRTMGL1.hgt.zip",
+                    self.source.url_str(),
+                    n_or_s.to_uppercase().next().unwrap(),
+                    latitude.abs(),
+                    e_or_w.to_uppercase().next().unwrap(),
+                    longitude.abs()
+                )
+            }
+        }
     }
     fn filename(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "dems/ned{}/{}{:02}_{}{:03}_GridFloat.zip",
-            self.source.as_str(),
+            "{}/{}{:02}_{}{:03}.zip",
+            self.source.directory_str(),
             n_or_s,
             self.latitude.abs(),
             e_or_w,
             self.longitude.abs()
         )
     }
+    fn credentials(&self) -> Option<(String, String)> {
+        match self.source {
+            DemSource::Srtm30m => {
+                let credentials = env::var("EARTHDATA_CREDENTIALS").expect(EARTHDATA_WARNING);
+                let mut split = credentials.split(':');
+                let username = split.next().unwrap_or("").to_owned();
+                let password = split.next().unwrap_or("").to_owned();
+                Some((username, password))
+            }
+            _ => None,
+        }
+    }
+
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {
+        match self.source {
+            DemSource::Usgs30m |
+            DemSource::Usgs10m => DigitalElevationModel::from_ned_zip(data),
+            DemSource::Srtm30m => {
+                DigitalElevationModel::from_srtm1_zip(self.latitude, self.longitude, data)
+            }
+        }
+    }
+}
+
+pub struct DigitalElevationModel {
+    pub width: usize,
+    pub height: usize,
+    pub cell_size: f64,
+
+    pub xllcorner: f64,
+    pub yllcorner: f64,
+
+    pub elevations: Vec<f32>,
+}
+
+impl DigitalElevationModel {
+    /// Load a zip file in the format for the USGS's National Elevation Dataset.
+    pub fn from_ned_zip(data: Vec<u8>) -> Result<Self, Box<Error>> {
         let mut hdr = String::new();
         let mut flt = Vec::new();
 
@@ -154,7 +235,7 @@ impl WebAsset for DigitalElevationModelParams {
             elevations.push(if e == nodata_value { 0.0 } else { e });
         }
 
-        Ok(Self::Type {
+        Ok(Self {
             width,
             height,
             xllcorner,
@@ -162,22 +243,55 @@ impl WebAsset for DigitalElevationModelParams {
             cell_size,
             elevations,
         })
-
     }
-}
 
-pub struct DigitalElevationModel {
-    pub width: usize,
-    pub height: usize,
-    pub cell_size: f64,
+    /// Load a zip file in the format for the NASA's STRM 30m dataset.
+    pub fn from_srtm1_zip(
+        latitude: i16,
+        longitude: i16,
+        data: Vec<u8>,
+    ) -> Result<Self, Box<Error>> {
+        let resolution = 3601;
+        let cell_size = 1.0 / 3600.0;
 
-    pub xllcorner: f64,
-    pub yllcorner: f64,
+        let mut hgt = Vec::new();
+        let mut zip = ZipArchive::new(Cursor::new(data))?;
+        for i in 0..zip.len() {
+            let mut file = zip.by_index(i)?;
+            if file.name().ends_with(".hgt") {
+                assert_eq!(hgt.len(), 0);
+                file.read_to_end(&mut hgt)?;
+            }
+        }
 
-    pub elevations: Vec<f32>,
-}
+        assert_eq!(hgt.len(), resolution * resolution * 2);
+        let hgt =
+            unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
+        let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
-impl DigitalElevationModel {
+        for x in 0..resolution {
+            for y in 0..resolution {
+                let h = i16::from_be(
+                    hgt[(resolution - x - 1) + (resolution - y - 1) * resolution],
+                );
+                if h == -32768 {
+                    elevations.push(0.0);
+                } else {
+                    elevations.push(h as f32);
+                }
+            }
+        }
+
+        Ok(Self {
+            width: resolution,
+            height: resolution,
+            xllcorner: latitude as f64,
+            yllcorner: longitude as f64,
+            cell_size,
+            elevations,
+        })
+    }
+
     pub fn crop(&self, width: usize, height: usize) -> Self {
         assert!(width > 0 && width <= self.width);
         assert!(height > 0 && height <= self.height);
@@ -206,7 +320,7 @@ impl DigitalElevationModel {
         let x = (latitude - self.xllcorner) / self.cell_size;
         let y = (longitude - self.yllcorner) / self.cell_size;
 
-        let y = self.height as f64 - y;
+        let y = (self.height - 1) as f64 - y;
 
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
@@ -224,32 +338,47 @@ impl DigitalElevationModel {
     }
 }
 
-pub struct DigitalElevationModelSet {
-    dems: Vec<DigitalElevationModel>,
-    cell_size: f64,
+pub struct DigitalElevationModelCache {
+    source: DemSource,
+    holes: HashSet<(i16, i16)>,
+    dems: LruCache<(i16, i16), DigitalElevationModel>,
 }
 
-impl DigitalElevationModelSet {
-    pub fn new(dems: Vec<DigitalElevationModel>) -> Self {
-        assert!(!dems.is_empty());
+impl DigitalElevationModelCache {
+    pub fn new(source: DemSource, size: usize) -> Self {
+        Self {
+            source,
+            holes: HashSet::new(),
+            dems: LruCache::new(size),
+        }
+    }
+    pub fn get_elevation(&mut self, latitude: f64, longitude: f64) -> Option<f32> {
+        let key = (latitude.floor() as i16, longitude.floor() as i16);
 
-        let cell_size = dems[0].cell_size;
-        for d in &dems {
-            assert!((cell_size - d.cell_size).abs() / cell_size < 0.001);
+        if self.holes.contains(&key) {
+            return None;
+        }
+        if let Some(dem) = self.dems.get_mut(&key) {
+            return dem.get_elevation(latitude, longitude);
         }
 
-        Self { dems, cell_size }
-    }
-    pub fn get_elevation(&self, latitude: f64, longitude: f64) -> Option<f32> {
-        for d in &self.dems {
-            if let Some(elevation) = d.get_elevation(latitude, longitude) {
-                return Some(elevation);
+        let dem = DigitalElevationModelParams {
+            latitude: key.0,
+            longitude: key.1,
+            source: self.source,
+        }.load();
+
+        match dem {
+            Ok(dem) => {
+                let elevation = dem.get_elevation(latitude, longitude);
+                assert!(elevation.is_some());
+                assert!(self.dems.insert(key.clone(), dem).is_none());
+                elevation
+            }
+            Err(_) => {
+                self.holes.insert(key);
+                None
             }
         }
-        return None;
-    }
-
-    pub fn cell_size(&self) -> f64 {
-        self.cell_size
     }
 }

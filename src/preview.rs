@@ -30,8 +30,8 @@ fn main() {
 
     let mut terrain = TerrainFileParams {
         latitude: 42,
-        longitude: -71,
-        source: DemSource::Usgs30m,
+        longitude: -73,
+        source: DemSource::Srtm30m,
         materials,
         sky,
     }.build_quadtree(

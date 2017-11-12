@@ -22,6 +22,10 @@ pub trait WebAsset {
     fn filename(&self) -> String;
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<Error>>;
 
+    fn credentials(&self) -> Option<(String, String)> {
+        None
+    }
+
     fn load(&self) -> Result<Self::Type, Box<Error>> {
         let filename = TERRA_DIRECTORY.join(self.filename());
 
@@ -40,6 +44,14 @@ pub trait WebAsset {
             use curl::easy::Easy;
             let mut easy = Easy::new();
             easy.url(&self.url())?;
+            easy.follow_location(true)?;
+            easy.progress(true)?;
+            if let Some((username, password)) = self.credentials() {
+                easy.cookie_file("")?;
+                easy.unrestricted_auth(true)?;
+                easy.username(&username)?;
+                easy.password(&password)?;
+            }
             let mut easy = easy.transfer();
             easy.write_function(|d| {
                 let len = d.len();
