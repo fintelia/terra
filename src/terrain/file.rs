@@ -81,7 +81,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
-        let dem_cell_size_y = scale_y * self.source.resolution() as f32;
+        let dem_cell_size_y = self.source.cell_size() / (360.0 * 60.0 * 60.0) *
+            EARTH_CIRCUMFERENCE as f32;
 
         const HEIGHTS_RESOLUTION: u16 = 33;
         const TEXTURE_RESOLUTION: u16 = 513;
@@ -433,7 +434,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             let heights = &heightmaps[i];
             for y in 2..(2 + watermap_resolution) {
                 for x in 2..(2 + watermap_resolution) {
-                    let mut w = 0.0;
+                    let mut w = 0.0f32;
                     if heights.at(x, y) <= 0.0 {
                         w += 0.25;
                     }

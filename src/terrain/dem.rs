@@ -58,11 +58,20 @@ impl DemSource {
             DemSource::Srtm30m => "dems/srtm1",
         }
     }
+    /// Returns the approximate resolution of data from this source in meters.
     pub(crate) fn resolution(&self) -> u32 {
         match *self {
             DemSource::Usgs30m => 30,
             DemSource::Usgs10m => 10,
             DemSource::Srtm30m => 30,
+        }
+    }
+    /// Returns the size of cells from this data source in arcseconds.
+    pub(crate) fn cell_size(&self) -> f32 {
+        match *self {
+            DemSource::Usgs30m => 1.0,
+            DemSource::Usgs10m => 1.0 / 3.0,
+            DemSource::Srtm30m => 1.0,
         }
     }
 }
