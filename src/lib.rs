@@ -35,7 +35,7 @@ pub mod sky;
 pub mod terrain;
 
 pub use sky::Skybox;
-pub use terrain::dem::{DigitalElevationModel, DigitalElevationModelParams, DemSource};
+pub use terrain::dem::{DigitalElevationModelParams, DemSource};
 pub use terrain::file::TerrainFileParams;
 pub use terrain::material::MaterialSet;
 pub use terrain::quadtree::QuadTree;

@@ -1,8 +1,6 @@
-use lru_cache::LruCache;
 use safe_transmute;
 use zip::ZipArchive;
 
-use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::{self, Display};
 use std::io::{Cursor, Read};
@@ -10,6 +8,7 @@ use std::str::FromStr;
 use std::{env, mem};
 
 use cache::WebAsset;
+use terrain::raster::Raster;
 
 #[derive(Debug)]
 pub enum DemError {
@@ -82,7 +81,7 @@ pub struct DigitalElevationModelParams {
     pub source: DemSource,
 }
 impl WebAsset for DigitalElevationModelParams {
-    type Type = DigitalElevationModel;
+    type Type = Raster;
 
     fn url(&self) -> String {
         let (latitude, longitude) = match self.source {
@@ -146,248 +145,137 @@ impl WebAsset for DigitalElevationModelParams {
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {
         match self.source {
             DemSource::Usgs30m |
-            DemSource::Usgs10m => DigitalElevationModel::from_ned_zip(data),
-            DemSource::Srtm30m => {
-                DigitalElevationModel::from_srtm1_zip(self.latitude, self.longitude, data)
-            }
+            DemSource::Usgs10m => parse_ned_zip(data),
+            DemSource::Srtm30m => parse_srtm1_zip(self.latitude, self.longitude, data),
         }
     }
 }
 
-pub struct DigitalElevationModel {
-    pub width: usize,
-    pub height: usize,
-    pub cell_size: f64,
+/// Load a zip file in the format for the USGS's National Elevation Dataset.
+fn parse_ned_zip(data: Vec<u8>) -> Result<Raster, Box<Error>> {
+    let mut hdr = String::new();
+    let mut flt = Vec::new();
 
-    pub xllcorner: f64,
-    pub yllcorner: f64,
-
-    pub elevations: Vec<f32>,
-}
-
-impl DigitalElevationModel {
-    /// Load a zip file in the format for the USGS's National Elevation Dataset.
-    pub fn from_ned_zip(data: Vec<u8>) -> Result<Self, Box<Error>> {
-        let mut hdr = String::new();
-        let mut flt = Vec::new();
-
-        let mut zip = ZipArchive::new(Cursor::new(data))?;
-        for i in 0..zip.len() {
-            let mut file = zip.by_index(i)?;
-            if file.name().ends_with(".hdr") {
-                assert_eq!(hdr.len(), 0);
-                file.read_to_string(&mut hdr)?;
-            } else if file.name().ends_with(".flt") {
-                assert_eq!(flt.len(), 0);
-                file.read_to_end(&mut flt)?;
-            }
+    let mut zip = ZipArchive::new(Cursor::new(data))?;
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i)?;
+        if file.name().ends_with(".hdr") {
+            assert_eq!(hdr.len(), 0);
+            file.read_to_string(&mut hdr)?;
+        } else if file.name().ends_with(".flt") {
+            assert_eq!(flt.len(), 0);
+            file.read_to_end(&mut flt)?;
         }
+    }
 
-        enum ByteOrder {
-            LsbFirst,
-            MsbFirst,
-        }
+    enum ByteOrder {
+        LsbFirst,
+        MsbFirst,
+    }
 
-        let mut width = None;
-        let mut height = None;
-        let mut xllcorner = None;
-        let mut yllcorner = None;
-        let mut cell_size = None;
-        let mut byte_order = None;
-        let mut nodata_value = None;
-        for line in hdr.lines() {
-            let mut parts = line.split_whitespace();
-            let key = parts.next();
-            let value = parts.next();
-            if let (Some(key), Some(value)) = (key, value) {
-                match key {
-                    "ncols" => width = usize::from_str(value).ok(),
-                    "nrows" => height = usize::from_str(value).ok(),
-                    "xllcorner" => xllcorner = f64::from_str(value).ok(),
-                    "yllcorner" => yllcorner = f64::from_str(value).ok(),
-                    "cellsize" => cell_size = f64::from_str(value).ok(),
-                    "NODATA_value" => nodata_value = f32::from_str(value).ok(),
-                    "byteorder" => {
-                        byte_order = match value {
-                            "LSBFIRST" => Some(ByteOrder::LsbFirst),
-                            "MSBFIRST" => Some(ByteOrder::MsbFirst),
-                            _ => panic!("unrecognized byte order: {}", value),
-                        }
+    let mut width = None;
+    let mut height = None;
+    let mut xllcorner = None;
+    let mut yllcorner = None;
+    let mut cell_size = None;
+    let mut byte_order = None;
+    let mut nodata_value = None;
+    for line in hdr.lines() {
+        let mut parts = line.split_whitespace();
+        let key = parts.next();
+        let value = parts.next();
+        if let (Some(key), Some(value)) = (key, value) {
+            match key {
+                "ncols" => width = usize::from_str(value).ok(),
+                "nrows" => height = usize::from_str(value).ok(),
+                "xllcorner" => xllcorner = f64::from_str(value).ok(),
+                "yllcorner" => yllcorner = f64::from_str(value).ok(),
+                "cellsize" => cell_size = f64::from_str(value).ok(),
+                "NODATA_value" => nodata_value = f32::from_str(value).ok(),
+                "byteorder" => {
+                    byte_order = match value {
+                        "LSBFIRST" => Some(ByteOrder::LsbFirst),
+                        "MSBFIRST" => Some(ByteOrder::MsbFirst),
+                        _ => panic!("unrecognized byte order: {}", value),
                     }
-                    _ => {}
                 }
+                _ => {}
             }
-        }
-
-        let width = width.ok_or(DemError::ParseError)?;
-        let height = height.ok_or(DemError::ParseError)?;
-        let xllcorner = xllcorner.ok_or(DemError::ParseError)?;
-        let yllcorner = yllcorner.ok_or(DemError::ParseError)?;
-        let cell_size = cell_size.ok_or(DemError::ParseError)?;
-        let byte_order = byte_order.ok_or(DemError::ParseError)?;
-        let nodata_value = nodata_value.ok_or(DemError::ParseError)?;
-
-        let size = width * height;
-        if flt.len() != size * 4 {
-            return Err(Box::new(DemError::ParseError));
-        }
-
-        let flt =
-            unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
-        let mut elevations: Vec<f32> = Vec::with_capacity(size);
-        for f in flt {
-            let e = match byte_order {
-                ByteOrder::LsbFirst => f.to_le(),
-                ByteOrder::MsbFirst => f.to_be(),
-            };
-            let e = unsafe { mem::transmute::<u32, f32>(e) };
-            elevations.push(if e == nodata_value { 0.0 } else { e });
-        }
-
-        Ok(Self {
-            width,
-            height,
-            xllcorner,
-            yllcorner,
-            cell_size,
-            elevations,
-        })
-    }
-
-    /// Load a zip file in the format for the NASA's STRM 30m dataset.
-    pub fn from_srtm1_zip(
-        latitude: i16,
-        longitude: i16,
-        data: Vec<u8>,
-    ) -> Result<Self, Box<Error>> {
-        let resolution = 3601;
-        let cell_size = 1.0 / 3600.0;
-
-        let mut hgt = Vec::new();
-        let mut zip = ZipArchive::new(Cursor::new(data))?;
-        for i in 0..zip.len() {
-            let mut file = zip.by_index(i)?;
-            if file.name().ends_with(".hgt") {
-                assert_eq!(hgt.len(), 0);
-                file.read_to_end(&mut hgt)?;
-            }
-        }
-
-        assert_eq!(hgt.len(), resolution * resolution * 2);
-        let hgt =
-            unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
-        let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
-
-        for x in 0..resolution {
-            for y in 0..resolution {
-                let h = i16::from_be(
-                    hgt[(resolution - x - 1) + (resolution - y - 1) * resolution],
-                );
-                if h == -32768 {
-                    elevations.push(0.0);
-                } else {
-                    elevations.push(h as f32);
-                }
-            }
-        }
-
-        Ok(Self {
-            width: resolution,
-            height: resolution,
-            xllcorner: latitude as f64,
-            yllcorner: longitude as f64,
-            cell_size,
-            elevations,
-        })
-    }
-
-    pub fn crop(&self, width: usize, height: usize) -> Self {
-        assert!(width > 0 && width <= self.width);
-        assert!(height > 0 && height <= self.height);
-
-        let xoffset = (self.width - width) / 2;
-        let yoffset = (self.height - height) / 2;
-
-        let mut elevations = Vec::with_capacity(width * height);
-        for y in 0..height {
-            for x in 0..width {
-                elevations.push(self.elevations[(x + xoffset) + (y + yoffset) * self.width]);
-            }
-        }
-
-        Self {
-            width,
-            height,
-            cell_size: self.cell_size,
-            xllcorner: self.xllcorner + self.cell_size * (xoffset as f64),
-            yllcorner: self.yllcorner + self.cell_size * (yoffset as f64),
-            elevations,
         }
     }
 
-    pub fn get_elevation(&self, latitude: f64, longitude: f64) -> Option<f32> {
-        let x = (latitude - self.xllcorner) / self.cell_size;
-        let y = (longitude - self.yllcorner) / self.cell_size;
+    let width = width.ok_or(DemError::ParseError)?;
+    let height = height.ok_or(DemError::ParseError)?;
+    let xllcorner = xllcorner.ok_or(DemError::ParseError)?;
+    let yllcorner = yllcorner.ok_or(DemError::ParseError)?;
+    let cell_size = cell_size.ok_or(DemError::ParseError)?;
+    let byte_order = byte_order.ok_or(DemError::ParseError)?;
+    let nodata_value = nodata_value.ok_or(DemError::ParseError)?;
 
-        let y = (self.height - 1) as f64 - y;
-
-        let fx = x.floor() as usize;
-        let fy = y.floor() as usize;
-        if x < 0.0 || fx >= self.width - 1 || y < 0.0 || fy >= self.height - 1 {
-            return None;
-        }
-
-        let h00 = self.elevations[fx + fy * self.width];
-        let h10 = self.elevations[fx + 1 + fy * self.width];
-        let h01 = self.elevations[fx + (fy + 1) * self.width];
-        let h11 = self.elevations[fx + 1 + (fy + 1) * self.width];
-        let h0 = h00 + (h01 - h00) * (y - fy as f64) as f32;
-        let h1 = h10 + (h11 - h10) * (y - fy as f64) as f32;
-        Some(h0 + (h1 - h0) * (x - fx as f64) as f32)
+    let size = width * height;
+    if flt.len() != size * 4 {
+        return Err(Box::new(DemError::ParseError));
     }
+
+    let flt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
+    let mut elevations: Vec<f32> = Vec::with_capacity(size);
+    for f in flt {
+        let e = match byte_order {
+            ByteOrder::LsbFirst => f.to_le(),
+            ByteOrder::MsbFirst => f.to_be(),
+        };
+        let e = unsafe { mem::transmute::<u32, f32>(e) };
+        elevations.push(if e == nodata_value { 0.0 } else { e });
+    }
+
+    Ok(Raster {
+        width,
+        height,
+        xllcorner,
+        yllcorner,
+        cell_size,
+        values: elevations,
+    })
 }
 
-pub struct DigitalElevationModelCache {
-    source: DemSource,
-    holes: HashSet<(i16, i16)>,
-    dems: LruCache<(i16, i16), DigitalElevationModel>,
-}
+/// Load a zip file in the format for the NASA's STRM 30m dataset.
+fn parse_srtm1_zip(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster, Box<Error>> {
+    let resolution = 3601;
+    let cell_size = 1.0 / 3600.0;
 
-impl DigitalElevationModelCache {
-    pub fn new(source: DemSource, size: usize) -> Self {
-        Self {
-            source,
-            holes: HashSet::new(),
-            dems: LruCache::new(size),
+    let mut hgt = Vec::new();
+    let mut zip = ZipArchive::new(Cursor::new(data))?;
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i)?;
+        if file.name().ends_with(".hgt") {
+            assert_eq!(hgt.len(), 0);
+            file.read_to_end(&mut hgt)?;
         }
     }
-    pub fn get_elevation(&mut self, latitude: f64, longitude: f64) -> Option<f32> {
-        let key = (latitude.floor() as i16, longitude.floor() as i16);
 
-        if self.holes.contains(&key) {
-            return None;
-        }
-        if let Some(dem) = self.dems.get_mut(&key) {
-            return dem.get_elevation(latitude, longitude);
-        }
+    assert_eq!(hgt.len(), resolution * resolution * 2);
+    let hgt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
+    let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
-        let dem = DigitalElevationModelParams {
-            latitude: key.0,
-            longitude: key.1,
-            source: self.source,
-        }.load();
-
-        match dem {
-            Ok(dem) => {
-                let elevation = dem.get_elevation(latitude, longitude);
-                assert!(elevation.is_some());
-                assert!(self.dems.insert(key.clone(), dem).is_none());
-                elevation
-            }
-            Err(_) => {
-                self.holes.insert(key);
-                None
+    for x in 0..resolution {
+        for y in 0..resolution {
+            let h = i16::from_be(
+                hgt[(resolution - x - 1) + (resolution - y - 1) * resolution],
+            );
+            if h == -32768 {
+                elevations.push(0.0);
+            } else {
+                elevations.push(h as f32);
             }
         }
     }
+
+    Ok(Raster {
+        width: resolution,
+        height: resolution,
+        xllcorner: latitude as f64,
+        yllcorner: longitude as f64,
+        cell_size,
+        values: elevations,
+    })
 }

@@ -8,14 +8,17 @@ use gfx;
 use rand;
 use rand::distributions::{Normal, IndependentSample};
 
-use cache::MMappedAsset;
+use cache::{GeneratedAsset, MMappedAsset, WebAsset};
 use sky::Skybox;
-use terrain::dem::{DemSource, DigitalElevationModelCache};
+use terrain::dem::{DemSource, DigitalElevationModelParams};
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
+use terrain::raster::RasterCache;
 use terrain::tile_cache::{TileHeader, LayerParams, LayerType, NoiseParams};
+use terrain::treecover::TreeCoverParams;
 use runtime_texture::TextureFormat;
+use utils::math::BoundingBox;
 
 // This file assumes that all coordinates are provided relative to the earth represented as a
 // perfect sphere. This isn't quite accurate: The coordinate system of the input datasets are
@@ -69,7 +72,30 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let mut layers = Vec::new();
         let mut bytes_written = 0;
 
-        let mut dem_cache = DigitalElevationModelCache::new(self.source, 32);
+        let mut dem_cache = RasterCache::new(
+            |latitude, longitude| {
+                DigitalElevationModelParams {
+                    latitude,
+                    longitude,
+                    source: self.source,
+                }.load()
+                    .ok()
+            },
+            32,
+        );
+
+        let mut treecover_cache = RasterCache::new(
+            |latitude, longitude| {
+                Some(
+                    TreeCoverParams {
+                        latitude,
+                        longitude,
+                    }.load()
+                        .unwrap(),
+                )
+            },
+            32,
+        );
 
         let world_center =
             Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
@@ -111,6 +137,18 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let in_skirt = |x, y| -> bool {
             x < skirt && y < skirt || x >= heightmap_resolution - skirt ||
                 y >= heightmap_resolution - skirt
+        };
+
+        let world_position = |x, y, bounds: BoundingBox| -> Vector2<f32> {
+            let fx = (x - skirt as i32) as f32 / (heightmap_resolution - 1 - 2 * skirt) as f32;
+            let fy = (y - skirt as i32) as f32 / (heightmap_resolution - 1 - 2 * skirt) as f32;
+
+            let world_position = Vector2::<f32>::new(
+                (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) / scale_x,
+                (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) / scale_y,
+            );
+
+            world_center + world_position
         };
 
         let random = {
@@ -287,22 +325,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 );
                 for y in 0..(heightmap_resolution as i32) {
                     for x in 0..(heightmap_resolution as i32) {
-                        let fx = (x - skirt as i32) as f32 /
-                            (heightmap_resolution - 1 - 2 * skirt) as f32;
-                        let fy = (y - skirt as i32) as f32 /
-                            (heightmap_resolution - 1 - 2 * skirt) as f32;
-
-                        let world_position = Vector2::<f32>::new(
-                            (node.bounds.min.x + (node.bounds.max.x - node.bounds.min.x) * fx) /
-                                scale_x,
-                            (node.bounds.min.z + (node.bounds.max.z - node.bounds.min.z) * fy) /
-                                scale_y,
-                        );
-
-                        let p = world_center + world_position;
-                        let height = dem_cache.get_elevation(p.y as f64, p.x as f64).unwrap_or(
-                            0.0,
-                        );
+                        let p = world_position(x, y, node.bounds);
+                        let height = dem_cache.interpolate(p.y as f64, p.x as f64).unwrap_or(0.0);
                         heights.push(height);
 
                         if (x - skirt as i32) % resolution_ratio as i32 == 0 &&
@@ -344,6 +368,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
+                    let p = world_position(x as i32, y as i32, nodes[i].bounds);
+                    let treecover = treecover_cache.interpolate(p.y as f64, p.x as f64);
+
                     let h00 = heights.get(x, y).unwrap();
                     let h01 = heights.get(x, y + 1).unwrap();
                     let h10 = heights.get(x + 1, y).unwrap();
@@ -355,16 +382,17 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                     let light = (normal.dot(sun_direction).max(0.0) * 255.0) as u8;
 
                     if normal.y > 0.9 {
-                        writer.write_u8(grass[0])?;
-                        writer.write_u8(grass[1])?;
-                        writer.write_u8(grass[2])?;
-                        writer.write_u8(light)?;
+                        let t = 1.0 - treecover.unwrap_or(0.0);
+                        writer.write_u8((grass[0] as f32 * t) as u8)?;
+                        writer.write_u8((grass[1] as f32 * t) as u8)?;
+                        writer.write_u8((grass[2] as f32 * t) as u8)?;
+
                     } else {
                         writer.write_u8(rock[0])?;
                         writer.write_u8(rock[1])?;
                         writer.write_u8(rock[2])?;
-                        writer.write_u8(light)?;
                     }
+                    writer.write_u8(light)?;
                     bytes_written += 4;
                 }
             }
