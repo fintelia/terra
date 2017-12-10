@@ -1,5 +1,7 @@
 use std::error::Error;
+use std::io::{Cursor, Read};
 
+use zip::ZipArchive;
 use image::{self, GenericImage, ImageLuma8, ImageFormat};
 
 use cache::{GeneratedAsset, WebAsset};
@@ -21,7 +23,7 @@ impl WebAsset for RawTreeCoverParams {
         let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
-        let s = format!("https://storage.googleapis.com/earthenginepartners-hansen/GFC-2016-v1.4/Hansen_GFC-2016-v1.4_treecover2000_{:02}{}_{:03}{}.tif",
+        let s = format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
@@ -36,7 +38,7 @@ impl WebAsset for RawTreeCoverParams {
         let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
-        format!("treecover/raw/{:02}{}_{:03}{}.tif",
+        format!("treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
@@ -78,14 +80,13 @@ impl GeneratedAsset for TreeCoverParams {
 
     fn generate(&self) -> Result<Self::Type, Box<Error>> {
         let raw = self.raw_params().load().unwrap();
+        let mut zip = ZipArchive::new(Cursor::new(raw))?;
+        assert_eq!(zip.len(), 1);
 
-        let mut image = match image::load_from_memory_with_format(&raw[..], ImageFormat::TIFF) {
-            Ok(img) => img,
-            Err(e) => {
-                println!("{}: {:?}", self.raw_params().filename(), e);
-                return Err(Box::new(e));
-            }
-        };
+        let mut data = Vec::new();
+        zip.by_index(0)?.read_to_end(&mut data)?;
+
+        let mut image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF).unwrap();
         let (w, h) = (image.width(), image.height());
         assert_eq!(w, h);
 
@@ -93,8 +94,8 @@ impl GeneratedAsset for TreeCoverParams {
             .crop(
                 (w / 10) * ((self.longitude % 10 + 10) % 10) as u32,
                 (h / 10) * (9 - ((self.latitude % 10 + 10) % 10) as u32),
-                w / 10,
-                h / 10,
+                w / 10 + 1,
+                h / 10 + 1,
             )
             .rotate90()
             .flipv();
@@ -109,9 +110,9 @@ impl GeneratedAsset for TreeCoverParams {
         };
 
         Ok(Raster {
-            width: w as usize / 10,
-            height: h as usize / 10,
-            cell_size: 10.0 / w as f64,
+            width: w as usize / 10 + 1,
+            height: h as usize / 10 + 1,
+            cell_size: 10.0 / (w - 1) as f64,
             xllcorner: self.latitude as f64,
             yllcorner: self.longitude as f64,
             values,
