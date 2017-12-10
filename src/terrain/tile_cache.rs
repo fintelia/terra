@@ -249,4 +249,16 @@ impl<R: gfx::Resources> TileCache<R> {
     pub fn border(&self) -> u32 {
         self.layer_params.border_size
     }
+
+    pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
+        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
+        let len = self.layer_params.tile_bytes;
+        let offset = self.layer_params.offset + tile * len;
+        let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + len)] };
+        let resolution = self.layer_params.tile_resolution as usize;
+        let border = self.layer_params.border_size as usize;
+        let bytes_per_texel = self.layer_params.format.bytes_per_texel();
+        let index = ((x + border) + (y + border) * resolution) * bytes_per_texel;
+        &tile_data[index..(index + bytes_per_texel)]
+    }
 }

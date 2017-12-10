@@ -7,6 +7,15 @@ pub(crate) enum TextureFormat {
     RGBA8,
     SRGBA,
 }
+impl TextureFormat {
+    pub fn bytes_per_texel(&self) -> usize {
+        match *self {
+            TextureFormat::F32 => 4,
+            TextureFormat::RGBA8 => 4,
+            TextureFormat::SRGBA => 4,
+        }
+    }
+}
 
 pub(crate) enum TextureArray<R: gfx::Resources> {
     F32 {

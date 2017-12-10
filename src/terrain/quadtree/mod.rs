@@ -1,3 +1,4 @@
+use byteorder::{ReadBytesExt, LittleEndian};
 use cgmath::*;
 use gfx;
 use gfx::traits::FactoryExt;
@@ -266,6 +267,64 @@ where
                     }
                 }
             }
+        }
+    }
+
+    pub fn get_height(&self, p: Point2<f32>) -> Option<f32> {
+        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x ||
+            self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
+        {
+            return None;
+        }
+
+        let mut id = NodeId::root();
+        while self.nodes[id].children.iter().any(|c| c.is_some()) {
+            for c in self.nodes[id].children.iter() {
+                if let Some(c) = *c {
+                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x &&
+                        self.nodes[c].bounds.min.z <= p.y &&
+                        self.nodes[c].bounds.max.z >= p.y
+                    {
+                        id = c;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let layer = &self.tile_cache_layers[LayerType::Heights.index()];
+        let resolution = (layer.resolution() - 1) as f32;
+        let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length * resolution;
+        let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;
+
+        let get_texel = |x, y| {
+            layer
+                .get_texel(&self.nodes[id], x, y)
+                .read_f32::<LittleEndian>()
+                .unwrap()
+        };
+
+        let (mut fx, mut fy) = (x.fract(), y.fract());
+        let (mut ix, mut iy) = (x.floor() as usize, y.floor() as usize);
+        if ix == layer.resolution() as usize - 1 {
+            ix = layer.resolution() as usize - 2;
+            fx = 1.0;
+        }
+        if iy == layer.resolution() as usize - 1 {
+            iy = layer.resolution() as usize - 2;
+            fy = 1.0;
+        }
+
+        if fx + fy < 1.0 {
+            Some(
+                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy) +
+                    fy * get_texel(ix, iy + 1),
+            )
+        } else {
+            Some(
+                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1) +
+                    (1.0 - fy) * get_texel(ix + 1, iy),
+            )
         }
     }
 }
