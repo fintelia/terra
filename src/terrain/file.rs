@@ -5,6 +5,7 @@ use std::io::Write;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
+use progress::Bar;
 use rand;
 use rand::distributions::{Normal, IndependentSample};
 
@@ -169,7 +170,10 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::F32,
             tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
         });
+        let mut progress_bar = Bar::new();
+        progress_bar.set_job_title("Generating heightmaps...");
         for i in 0..nodes.len() {
+            progress_bar.reach_percent((100 * i / nodes.len()) as i32);
             nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             if nodes[i].level as i32 > max_texture_level {
@@ -346,6 +350,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 ));
             }
         }
+        progress_bar.reach_percent(100);
+        progress_bar.jobs_done();
 
         // Colors
         assert!(skirt >= 2);
@@ -361,7 +367,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         });
         let rock = self.materials.get_average_albedo(0);
         let grass = self.materials.get_average_albedo(1);
+        progress_bar.set_job_title("Generating colormaps...");
         for i in 0..heightmaps.len() {
+            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
             nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
             let heights = &heightmaps[i];
@@ -397,13 +405,17 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 }
             }
         }
+        progress_bar.reach_percent(100);
+        progress_bar.jobs_done();
 
         // Normals
         assert!(skirt >= 2);
         let normalmap_resolution = heightmap_resolution - 5;
         let normalmap_offset = bytes_written;
         let mut normalmap_count = 0;
+        progress_bar.set_job_title("Generating normalmaps...");
         for i in 0..heightmaps.len() {
+            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
             if nodes[i].level as i32 != max_texture_level {
                 continue;
             }
@@ -443,6 +455,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::RGBA8,
             tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
         });
+        progress_bar.reach_percent(100);
+        progress_bar.jobs_done();
 
         // Water
         assert!(skirt >= 2);
@@ -456,7 +470,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::RGBA8,
             tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
+        progress_bar.set_job_title("Generating water masks...");
         for i in 0..heightmaps.len() {
+            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
             nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
 
             let heights = &heightmaps[i];
@@ -483,6 +499,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 }
             }
         }
+        progress_bar.reach_percent(100);
+        progress_bar.jobs_done();
 
         let noise = NoiseParams {
             offset: bytes_written,

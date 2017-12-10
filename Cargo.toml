@@ -29,6 +29,7 @@ lazy_static = "0.2"
 lru-cache = "0.1.1"
 memmap = "0.5.2"
 notify = "4.0"
+progress = "0.2"
 rand = "0.3"
 rshader = { path = "rshader", features = [], version = "0.1.0" }
 rustfft = "2.0.0"

@@ -13,6 +13,7 @@ extern crate lazy_static;
 extern crate lru_cache;
 extern crate memmap;
 extern crate notify;
+extern crate progress;
 extern crate rand;
 #[macro_use]
 extern crate rshader;
