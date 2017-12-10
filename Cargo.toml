@@ -23,6 +23,7 @@ cgmath = { version = "0.15", features = ["serde"] }
 curl = "0.4"
 gfx = "0.16"
 gfx_core = "0.7"
+gfx_text = "0.20"
 image = "0.15"
 lazy_static = "0.2"
 lru-cache = "0.1.1"
@@ -42,10 +43,11 @@ zip = "0.2"
 # For preview
 camera_controllers = {version = "0.21", optional = true}
 piston_window = {version = "0.67", optional = true}
+fps_counter = {version = "1.0", optional = true}
 
 [features]
 default = []
-preview = ["piston_window", "camera_controllers"]
+preview = ["camera_controllers", "fps_counter", "piston_window"]
 dynamic_shaders = ["rshader/dynamic_shaders"]
 
 [profile.release]

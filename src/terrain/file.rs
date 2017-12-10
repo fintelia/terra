@@ -84,8 +84,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let dem_cell_size_y = self.source.cell_size() / (360.0 * 60.0 * 60.0) *
             EARTH_CIRCUMFERENCE as f32;
 
-        const HEIGHTS_RESOLUTION: u16 = 33;
-        const TEXTURE_RESOLUTION: u16 = 513;
+        const HEIGHTS_RESOLUTION: u16 = 65;
+        const TEXTURE_RESOLUTION: u16 = 1025;
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
