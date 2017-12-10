@@ -100,7 +100,7 @@ void main() {
 	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
 	if(waterAmount > 0) {
 		vec3 ray = normalize(fPosition - cameraPosition);
-		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
+		vec3 normal = vec3(0,1,0);// texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
 		vec3 reflected = reflect(ray, normalize(normal));
 
 		vec3 reflectedColor = textureLod(sky, normalize(reflected), 5).rgb;

@@ -7,13 +7,20 @@ use image::{self, GenericImage, ImageLuma8, ImageFormat};
 use cache::{GeneratedAsset, WebAsset};
 use terrain::raster::Raster;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LandCoverKind {
+    TreeCover,
+    WaterMask,
+}
+
 /// Coordinates are of the lower left corner of the 10x10 degree cell.
 #[derive(Debug, Eq, PartialEq)]
-struct RawTreeCoverParams {
+struct RawLandCoverParams {
     pub latitude: i16,
     pub longitude: i16,
+    pub kind: LandCoverKind,
 }
-impl WebAsset for RawTreeCoverParams {
+impl WebAsset for RawLandCoverParams {
     type Type = Vec<u8>;
 
     fn url(&self) -> String {
@@ -23,13 +30,27 @@ impl WebAsset for RawTreeCoverParams {
         let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
-        let s = format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
+        match self.kind {
+            LandCoverKind::TreeCover => {
+                format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
+                         treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
                 e_or_w,
-        );
-        s
+            )
+            }
+            LandCoverKind::WaterMask => {
+                format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
+                         WaterMask2010_UMD_individual/Hansen_GFC2013_datamask_{:02}{}_{:03}{}\
+                         .tif.zip",
+                latitude.abs(),
+                n_or_s,
+                longitude.abs(),
+                e_or_w,
+            )
+            }
+        }
     }
     fn filename(&self) -> String {
         let (latitude, longitude) = (self.latitude + 10, self.longitude);
@@ -38,12 +59,24 @@ impl WebAsset for RawTreeCoverParams {
         let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
-        format!("treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
-                latitude.abs(),
-                n_or_s,
-                longitude.abs(),
-                e_or_w,
-        )
+        match self.kind {
+            LandCoverKind::TreeCover => {
+                format!("treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
+                        latitude.abs(),
+                        n_or_s,
+                        longitude.abs(),
+                        e_or_w,
+                )
+            }
+            LandCoverKind::WaterMask => {
+                format!("watermask/raw/Hansen_GFC2013_datamask_{:02}{}_{:03}{}.tif.zip",
+                        latitude.abs(),
+                        n_or_s,
+                        longitude.abs(),
+                        e_or_w,
+                )
+            }
+        }
     }
     fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {
         Ok(data)
@@ -51,26 +84,34 @@ impl WebAsset for RawTreeCoverParams {
 }
 
 #[derive(Debug)]
-pub struct TreeCoverParams {
+pub struct LandCoverParams {
     pub latitude: i16,
     pub longitude: i16,
+    pub kind: LandCoverKind,
 }
-impl TreeCoverParams {
-    fn raw_params(&self) -> RawTreeCoverParams {
-        RawTreeCoverParams {
+impl LandCoverParams {
+    fn raw_params(&self) -> RawLandCoverParams {
+        RawLandCoverParams {
             latitude: self.latitude - ((self.latitude % 10) + 10) % 10,
             longitude: self.longitude - ((self.longitude % 10) + 10) % 10,
+            kind: self.kind,
         }
     }
 }
-impl GeneratedAsset for TreeCoverParams {
+impl GeneratedAsset for LandCoverParams {
     type Type = Raster;
 
     fn filename(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'N' } else { 'S' };
         let e_or_w = if self.longitude >= 0 { 'E' } else { 'W' };
 
-        format!("treecover/processed/{:02}{}_{:03}{}.raster",
+        let directory = match self.kind {
+            LandCoverKind::TreeCover => "treecover/processed",
+            LandCoverKind::WaterMask => "watermask/processed",
+        };
+
+        format!("{}/{:02}{}_{:03}{}.raster",
+                directory,
                 self.latitude.abs(),
                 n_or_s,
                 self.longitude.abs(),
@@ -79,14 +120,14 @@ impl GeneratedAsset for TreeCoverParams {
     }
 
     fn generate(&self) -> Result<Self::Type, Box<Error>> {
-        let raw = self.raw_params().load().unwrap();
+        let raw = self.raw_params().load()?;
         let mut zip = ZipArchive::new(Cursor::new(raw))?;
         assert_eq!(zip.len(), 1);
 
         let mut data = Vec::new();
         zip.by_index(0)?.read_to_end(&mut data)?;
 
-        let mut image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF).unwrap();
+        let mut image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
         let (w, h) = (image.width(), image.height());
         assert_eq!(w, h);
 
@@ -100,13 +141,29 @@ impl GeneratedAsset for TreeCoverParams {
             .rotate90()
             .flipv();
         let values = if let ImageLuma8(image) = image {
-            image
-                .into_raw()
-                .into_iter()
-                .map(|v| v as f32 / 255.0)
-                .collect()
+            image.into_raw().into_iter()
         } else {
             unreachable!()
+        };
+
+        let values = match self.kind {
+            LandCoverKind::TreeCover => {
+                values
+                    .map(|v| v as f32 / 100.0)
+                    .inspect(|v| assert!(*v >= 0.0 && *v <= 1.0))
+                    .collect()
+            }
+            LandCoverKind::WaterMask => {
+                values
+                    .map(|v| if v == 1 {
+                        0.0
+                    } else if v == 0 || v == 2 {
+                        1.0
+                    } else {
+                        unreachable!()
+                    })
+                    .collect()
+            }
         };
 
         Ok(Raster {
@@ -127,46 +184,54 @@ mod tests {
     #[test]
     fn to_raw_params() {
         assert_eq!(
-            TreeCoverParams {
+            LandCoverParams {
                 latitude: 165,
                 longitude: 31,
+                kind: LandCoverKind::TreeCover,
             }.raw_params(),
-            RawTreeCoverParams {
+            RawLandCoverParams {
                 latitude: 160,
                 longitude: 30,
+                kind: LandCoverKind::TreeCover,
             }
         );
 
         assert_eq!(
-            TreeCoverParams {
+            LandCoverParams {
                 latitude: 20,
                 longitude: 20,
+                kind: LandCoverKind::TreeCover,
             }.raw_params(),
-            RawTreeCoverParams {
+            RawLandCoverParams {
                 latitude: 20,
                 longitude: 20,
+                kind: LandCoverKind::TreeCover,
             }
         );
 
         assert_eq!(
-            TreeCoverParams {
+            LandCoverParams {
                 latitude: -18,
                 longitude: -18,
+                kind: LandCoverKind::TreeCover,
             }.raw_params(),
-            RawTreeCoverParams {
+            RawLandCoverParams {
                 latitude: -20,
                 longitude: -20,
+                kind: LandCoverKind::TreeCover,
             }
         );
 
         assert_eq!(
-            TreeCoverParams {
+            LandCoverParams {
                 latitude: -30,
                 longitude: -30,
+                kind: LandCoverKind::TreeCover,
             }.raw_params(),
-            RawTreeCoverParams {
+            RawLandCoverParams {
                 latitude: -30,
                 longitude: -30,
+                kind: LandCoverKind::TreeCover,
             }
         );
     }

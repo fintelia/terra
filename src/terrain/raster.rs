@@ -87,7 +87,7 @@ impl<F: FnMut(i16, i16) -> Option<Raster>> RasterCache<F> {
         match (self.load)(key.0, key.1) {
             Some(dem) => {
                 let elevation = dem.interpolate(latitude, longitude);
-                // TODO: assert elevation is some...
+                assert!(elevation.is_some());
                 self.rasters.insert(key, dem);
                 elevation
             }

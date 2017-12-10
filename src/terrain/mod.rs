@@ -6,4 +6,4 @@ pub mod quadtree;
 mod heightmap;
 mod tile_cache;
 mod raster;
-mod treecover;
+mod landcover;

@@ -56,7 +56,7 @@ fn main() {
 
     let mut projection = get_projection(&window);
     let mut first_person =
-        FirstPerson::new([0.0, 100.0, 0.0], FirstPersonSettings::keyboard_wasd());
+        FirstPerson::new([0.0, 1000.0, 0.0], FirstPersonSettings::keyboard_wasd());
     first_person.settings.speed_vertical = 5000.0;
     first_person.settings.speed_horizontal = 5000.0;
 
@@ -127,8 +127,8 @@ fn main() {
 
             let fps = fps_counter.tick();
             text.add(&fps.to_string(), [5, 5], [0.0, 0.0, 0.0, 1.0]);
-            text.draw(&mut window.encoder, &window.output_color)
-                .unwrap();
+            // text.draw(&mut window.encoder, &window.output_color)
+            //     .unwrap();
         });
     }
 }
