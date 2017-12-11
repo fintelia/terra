@@ -45,8 +45,11 @@ where
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
     pipeline_data: pipe::Data<R>,
+    sky_pso: gfx::PipelineState<R, sky_pipe::Meta>,
+    sky_pipeline_data: sky_pipe::Data<R>,
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::Shader<R>,
+    sky_shader: rshader::Shader<R>,
     node_states: Vec<NodeState>,
     _materials: MaterialSet<R>,
 }
@@ -73,8 +76,25 @@ where
         let shader = rshader::Shader::simple(
             &mut factory,
             &mut shaders_watcher,
-            shader_source!("../../shaders/glsl", "version", "terrain.glslv"),
-            shader_source!("../../shaders/glsl", "version", "terrain.glslf"),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "terrain.glslv"
+            ),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "terrain.glslf"
+            ),
+        ).unwrap();
+
+        let sky_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "sky.glslv"),
+            shader_source!("../../shaders/glsl", "version", "atmosphere", "sky.glslf"),
         ).unwrap();
 
         let mut data_view = data_file.into_view_sync();
@@ -138,6 +158,7 @@ where
                 instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
                 camera_position: [0.0, 0.0, 0.0],
+                sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 resolution: 0,
                 heights: (heights_texture_view, sampler.clone()),
                 colors: (colors_texture_view, sampler.clone()),
@@ -148,6 +169,19 @@ where
                 ocean_surface: (ocean.texture_view.clone(), sampler_wrap.clone()),
                 noise: (noise_texture_view, sampler_wrap),
                 noise_wavelength: header.noise.wavelength,
+                planet_radius: 6371000.0,
+                atmosphere_radius: 6471000.0,
+                color_buffer: color_buffer.clone(),
+                depth_buffer: depth_buffer.clone(),
+            },
+            sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set()),
+            sky_pipeline_data: sky_pipe::Data {
+                inv_model_view_projection: [[0.0; 4]; 4],
+                camera_position: [0.0, 0.0, 0.0],
+                sun_direction: [0.0, 0.70710678118, 0.70710678118],
+                sky: (sky.texture_view.clone(), sampler.clone()),
+                planet_radius: 6371000.0,
+                atmosphere_radius: 6471000.0,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -155,6 +189,7 @@ where
             factory,
             shaders_watcher,
             shader,
+            sky_shader,
             nodes: header.nodes,
             node_states: Vec::new(),
             tile_cache_layers,
@@ -249,6 +284,9 @@ where
 
         self.pipeline_data.model_view_projection = mvp_mat;
         self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+
+        self.sky_pipeline_data.inv_model_view_projection = vecmath::mat4_inv(mvp_mat);
+        self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

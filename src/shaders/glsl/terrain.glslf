@@ -14,6 +14,7 @@ uniform sampler2DArray oceanSurface;
 uniform sampler2D noise;
 uniform float noiseWavelength;
 uniform vec3 cameraPosition;
+uniform vec3 sunDirection;
 
 in vec3 fPosition;
 in vec2 fTexcoord;
@@ -49,22 +50,9 @@ float fractal2(vec2 pos) {
 	return value;
 }
 
-float compute_fog(vec3 position) {
-	// NOTE: When `-b*height` gets close to -88, `exp(-b*height)` would round to
-	// zero. This means that when the camera is above around 17000 meters
-	// elevation, the fog would vanish. To prevent this, we clamp the height to
-	// 15000 meters.
-	float MAX_HEIGHT = 15000;
-
-	float b = 0.005;
-	float distance = distance(position, cameraPosition);
-	vec3 rayDir = normalize(position - cameraPosition);
-	float height = cameraPosition.y;
-	if(height > MAX_HEIGHT) {
-		distance *= MAX_HEIGHT / height;
-		height = MAX_HEIGHT;
-	}
-	return clamp(0.05 * (exp(-b*height) * (1.0 - exp(-b*rayDir.y*distance))) / rayDir.y, 0.0, 1.0);
+vec3 aerial_perspective(vec3 color, vec3 position) {
+	vec3 air = atmosphere(cameraPosition, position, sunDirection);
+    return 1.0 - exp(-0.75 * air) + color;
 }
 
 vec3 material(vec3 pos, uint mat) {
@@ -100,11 +88,11 @@ void main() {
 	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
 	if(waterAmount > 0) {
 		vec3 ray = normalize(fPosition - cameraPosition);
-		vec3 normal = vec3(0,1,0);// texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
+		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
 		vec3 reflected = reflect(ray, normalize(normal));
 
-		vec3 reflectedColor = textureLod(sky, normalize(reflected), 5).rgb;
-		vec3 refractedColor = vec3(0,0.1,0.2);
+		vec3 reflectedColor = vec3(0,0.05,0.1);//textureLod(sky, normalize(reflected), 5).rgb;
+		vec3 refractedColor = vec3(0,0.1,0.2)*0.5;
 
 		float R0 = pow(0.333 / 2.333, 2);
 		float R = R0 + (1 - R0) * pow(1 - reflected.y, 5);
@@ -112,7 +100,7 @@ void main() {
 		OutColor.rgb = mix(OutColor.rgb, waterColor, waterAmount);
 	}
 
-	OutColor.rgb = mix(OutColor.rgb, vec3(0.6), compute_fog(fPosition));
+	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition);
 	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
 	// 	OutColor.rgb = vec3(0);
 }

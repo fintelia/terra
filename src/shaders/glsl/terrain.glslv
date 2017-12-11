@@ -56,9 +56,8 @@ void main() {
 
 	fPosition = position;
 
-	float earthRadius = 6.371e6;
-	vec2 r = position.xz / earthRadius;
-	position.y += earthRadius * (sqrt(1.0 - dot(r,r)) - 1.0);
+	vec2 r = position.xz / planetRadius;
+	position.y += planetRadius * (sqrt(1.0 - dot(r,r)) - 1.0);
 
 
 	fTexcoord = textureOrigin + nPosition * textureStep;

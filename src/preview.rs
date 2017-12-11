@@ -124,6 +124,7 @@ fn main() {
                 dt,
             );
             terrain.render(&mut window.encoder);
+            terrain.render_sky(&mut window.encoder);
 
             let fps = fps_counter.tick();
             text.add(&fps.to_string(), [5, 5], [0.0, 0.0, 0.0, 1.0]);

@@ -26,6 +26,7 @@ gfx_pipeline!( pipe {
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     resolution: gfx::Global<i32> = "resolution",
     camera_position: gfx::Global<[f32;3]> = "cameraPosition",
+    sun_direction: gfx::Global<[f32;3]> = "sunDirection",
 
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
@@ -36,6 +37,21 @@ gfx_pipeline!( pipe {
     ocean_surface: gfx::TextureSampler<[f32; 4]> = "oceanSurface",
     noise: gfx::TextureSampler<[f32; 4]> = "noise",
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
+    planet_radius: gfx::Global<f32> = "planetRadius",
+    atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
+
+    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
+    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+});
+
+gfx_pipeline!( sky_pipe {
+    inv_model_view_projection: gfx::Global<[[f32; 4]; 4]> = "invModelViewProjection",
+
+    camera_position: gfx::Global<[f32;3]> = "cameraPosition",
+    sun_direction: gfx::Global<[f32;3]> = "sunDirection",
+    sky: gfx::TextureSampler<[f32; 4]> = "sky",
+    planet_radius: gfx::Global<f32> = "planetRadius",
+    atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
 
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
@@ -66,6 +82,26 @@ where
             .unwrap()
     }
 
+    pub(crate) fn make_sky_pso(
+        factory: &mut F,
+        shader: &gfx::ShaderSet<R>,
+    ) -> gfx::PipelineState<R, sky_pipe::Meta> {
+        factory
+            .create_pipeline_state(
+                shader,
+                gfx::Primitive::TriangleList,
+                gfx::state::Rasterizer {
+                    front_face: gfx::state::FrontFace::Clockwise,
+                    cull_face: gfx::state::CullFace::Nothing,
+                    method: gfx::state::RasterMethod::Fill,
+                    offset: None,
+                    samples: None,
+                },
+                sky_pipe::new(),
+            )
+            .unwrap()
+    }
+
     pub fn update_shaders(&mut self) {
         if self.shader.refresh(
             &mut self.factory,
@@ -73,6 +109,14 @@ where
         )
         {
             self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set());
+        }
+
+        if self.sky_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
+        {
+            self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set());
         }
     }
 
@@ -214,6 +258,23 @@ where
             },
             &self.pso,
             &self.pipeline_data,
+        );
+    }
+
+    pub fn render_sky<C: gfx_core::command::Buffer<R>>(
+        &mut self,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) {
+        encoder.draw(
+            &gfx::Slice {
+                start: 0,
+                end: 6,
+                base_vertex: 0,
+                instances: None,
+                buffer: gfx::IndexBuffer::Auto,
+            },
+            &self.sky_pso,
+            &self.sky_pipeline_data,
         );
     }
 }
