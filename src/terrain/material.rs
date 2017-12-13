@@ -7,7 +7,7 @@ use gfx_core;
 use image::{self, GenericImage};
 use zip::ZipArchive;
 
-use cache::{WebAsset, GeneratedAsset};
+use cache::{AssetLoadContext, WebAsset, GeneratedAsset};
 
 #[derive(Clone, Copy)]
 enum MaterialType {
@@ -34,7 +34,11 @@ impl WebAsset for MaterialTypeRaw {
         format!("materials/raw/{}", name)
     }
 
-    fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<Error>> {
+    fn parse(
+        &self,
+        _context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<Error>> {
         let name = match self.0 {
             MaterialType::Rock => "ground_mud2_d.jpg",
             MaterialType::Grass => "grass_ground_d.jpg",
@@ -64,11 +68,13 @@ impl GeneratedAsset for MaterialType {
         format!("materials/filtered/{}", name)
     }
 
-    fn generate(&self) -> Result<Self::Type, Box<Error>> {
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+        context.set_progress_and_total(0, 7);
+
         let resolution = 1024;
         let mipmaps = 11;
 
-        let raw = MaterialTypeRaw(*self).load()?;
+        let raw = MaterialTypeRaw(*self).load(context)?;
         let mut albedo_image =
             image::DynamicImage::ImageRgba8(image::load_from_memory(&raw.albedo[..])?.to_rgba());
         if albedo_image.width() != resolution || albedo_image.height() != resolution {
@@ -78,7 +84,7 @@ impl GeneratedAsset for MaterialType {
 
         let albedo_image_blurred = {
             let sigma = 32;
-            println!("tiling...");
+            context.set_progress(1);
             let tiled =
                 image::RgbaImage::from_fn(resolution + 4 * sigma, resolution + 4 * sigma, |x, y| {
                     albedo_image.get_pixel(
@@ -86,13 +92,13 @@ impl GeneratedAsset for MaterialType {
                         (y + resolution - 2 * sigma) % resolution,
                     )
                 });
-            println!("blurring...");
+            context.set_progress(2);
             let mut tiled = image::DynamicImage::ImageRgba8(tiled).blur(sigma as f32);
-            println!("cropping...");
+            context.set_progress(3);
             tiled.crop(2 * sigma, 2 * sigma, resolution, resolution)
         };
 
-        println!("computing average albedo...");
+        context.set_progress(4);
         let mut albedo_sum = [0u64; 4];
         for (_, _, color) in albedo_image.pixels() {
             for i in 0..4 {
@@ -107,7 +113,7 @@ impl GeneratedAsset for MaterialType {
             (albedo_sum[3] / num_pixels) as u8,
         ];
 
-        println!("high pass filter...");
+        context.set_progress(5);
         for (x, y, blurred_color) in albedo_image_blurred.pixels() {
             let mut color = albedo_image.get_pixel(x, y);
             for i in 0..4 {
@@ -122,7 +128,7 @@ impl GeneratedAsset for MaterialType {
             albedo_image.put_pixel(x, y, color);
         }
 
-        println!("generating mipmaps...");
+        context.set_progress(6);
         let mut albedo = Vec::new();
         for level in 0..mipmaps {
             let level_resolution = (resolution >> level) as u32;
@@ -143,7 +149,7 @@ impl GeneratedAsset for MaterialType {
                     .collect(),
             );
         }
-        println!("done.");
+        context.set_progress(7);
         Ok(Material {
             resolution: resolution as u16,
             mipmaps,
@@ -180,7 +186,10 @@ impl<R: gfx::Resources> MaterialSet<R> {
         let resolution = 1024;
         let mipmaps = 11;
 
-        let materials = vec![MaterialType::Rock.load()?, MaterialType::Grass.load()?];
+        let materials = vec![
+            MaterialType::Rock.load(&mut AssetLoadContext::new())?,
+            MaterialType::Grass.load(&mut AssetLoadContext::new())?,
+        ];
 
         let mut average_albedos = Vec::new();
 

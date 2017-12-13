@@ -7,7 +7,7 @@ use std::io::{Cursor, Read};
 use std::str::FromStr;
 use std::{env, mem};
 
-use cache::WebAsset;
+use cache::{AssetLoadContext, WebAsset};
 use terrain::raster::Raster;
 
 #[derive(Debug)]
@@ -142,7 +142,11 @@ impl WebAsset for DigitalElevationModelParams {
         }
     }
 
-    fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(
+        &self,
+        _context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<::std::error::Error>> {
         match self.source {
             DemSource::Usgs30m |
             DemSource::Usgs10m => parse_ned_zip(data),

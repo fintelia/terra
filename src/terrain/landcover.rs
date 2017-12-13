@@ -4,7 +4,7 @@ use std::io::{Cursor, Read};
 use zip::ZipArchive;
 use image::{self, GenericImage, ImageLuma8, ImageFormat};
 
-use cache::{GeneratedAsset, WebAsset};
+use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use terrain::raster::Raster;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -78,7 +78,11 @@ impl WebAsset for RawLandCoverParams {
             }
         }
     }
-    fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(
+        &self,
+        _context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<::std::error::Error>> {
         Ok(data)
     }
 }
@@ -119,8 +123,8 @@ impl GeneratedAsset for LandCoverParams {
         )
     }
 
-    fn generate(&self) -> Result<Self::Type, Box<Error>> {
-        let raw = self.raw_params().load()?;
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+        let raw = self.raw_params().load(context)?;
         let mut zip = ZipArchive::new(Cursor::new(raw))?;
         assert_eq!(zip.len(), 1);
 

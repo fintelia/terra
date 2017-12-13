@@ -1,4 +1,5 @@
 #![feature(ord_max_min)]
+#![feature(unboxed_closures)]
 
 extern crate bincode;
 extern crate byteorder;
@@ -13,7 +14,8 @@ extern crate lazy_static;
 extern crate lru_cache;
 extern crate memmap;
 extern crate notify;
-extern crate progress;
+extern crate num;
+extern crate pbr;
 extern crate rand;
 #[macro_use]
 extern crate rshader;

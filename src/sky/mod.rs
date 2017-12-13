@@ -10,7 +10,7 @@ use gfx_core;
 use image::{self, RgbaImage};
 use zip::ZipArchive;
 
-use cache::WebAsset;
+use cache::{AssetLoadContext, WebAsset};
 
 const FACE_NAMES: [&'static str; 6] = ["east", "west", "up", "down", "north", "south"];
 
@@ -29,11 +29,16 @@ impl WebAsset for SkyboxAsset {
     fn filename(&self) -> String {
         format!("sky/{}", self.0)
     }
-    fn parse(&self, data: Vec<u8>) -> Result<Self::Type, Box<Error>> {
+    fn parse(
+        &self,
+        context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<Error>> {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         let mut faces = HashMap::new();
 
         for i in 0..zip.len() {
+            context.set_progress(100 * i / zip.len());
             let mut file = zip.by_index(i)?;
             for face in FACE_NAMES.iter() {
                 if file.name().contains(face) {
@@ -47,6 +52,7 @@ impl WebAsset for SkyboxAsset {
                 }
             }
         }
+        context.set_progress(100);
 
         assert_eq!(faces.len(), 6);
         let width = faces.iter().next().unwrap().1.width();
@@ -77,7 +83,9 @@ impl<R: gfx::Resources> Skybox<R> {
         factory: &mut F,
         encoder: &mut gfx::Encoder<R, C>,
     ) -> Self {
-        let mut raw = SkyboxAsset::default().load().unwrap();
+        let mut raw = SkyboxAsset::default()
+            .load(&mut AssetLoadContext::new())
+            .unwrap();
         let mut data = Vec::new();
         let mut data_slices = Vec::new();
         for face in FACE_NAMES.iter() {

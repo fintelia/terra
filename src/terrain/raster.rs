@@ -1,5 +1,7 @@
 use lru_cache::LruCache;
 
+use cache::AssetLoadContext;
+
 use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize)]
@@ -15,30 +17,6 @@ pub struct Raster {
 }
 
 impl Raster {
-    pub fn crop(&self, width: usize, height: usize) -> Self {
-        assert!(width > 0 && width <= self.width);
-        assert!(height > 0 && height <= self.height);
-
-        let xoffset = (self.width - width) / 2;
-        let yoffset = (self.height - height) / 2;
-
-        let mut values = Vec::with_capacity(width * height);
-        for y in 0..height {
-            for x in 0..width {
-                values.push(self.values[(x + xoffset) + (y + yoffset) * self.width]);
-            }
-        }
-
-        Self {
-            width,
-            height,
-            cell_size: self.cell_size,
-            xllcorner: self.xllcorner + self.cell_size * (xoffset as f64),
-            yllcorner: self.yllcorner + self.cell_size * (yoffset as f64),
-            values,
-        }
-    }
-
     pub fn interpolate(&self, latitude: f64, longitude: f64) -> Option<f32> {
         let x = (latitude - self.xllcorner) / self.cell_size;
         let y = (longitude - self.yllcorner) / self.cell_size;
@@ -61,12 +39,12 @@ impl Raster {
     }
 }
 
-pub struct RasterCache<F> {
+pub(crate) struct RasterCache<F> {
     load: F,
     holes: HashSet<(i16, i16)>,
     rasters: LruCache<(i16, i16), Raster>,
 }
-impl<F: FnMut(i16, i16) -> Option<Raster>> RasterCache<F> {
+impl<F: FnMut(&mut AssetLoadContext, i16, i16) -> Option<Raster>> RasterCache<F> {
     pub fn new(load: F, size: usize) -> Self {
         Self {
             load,
@@ -74,7 +52,12 @@ impl<F: FnMut(i16, i16) -> Option<Raster>> RasterCache<F> {
             rasters: LruCache::new(size),
         }
     }
-    pub fn interpolate(&mut self, latitude: f64, longitude: f64) -> Option<f32> {
+    pub fn interpolate(
+        &mut self,
+        context: &mut AssetLoadContext,
+        latitude: f64,
+        longitude: f64,
+    ) -> Option<f32> {
         let key = (latitude.floor() as i16, longitude.floor() as i16);
 
         if self.holes.contains(&key) {
@@ -84,7 +67,7 @@ impl<F: FnMut(i16, i16) -> Option<Raster>> RasterCache<F> {
             return dem.interpolate(latitude, longitude);
         }
 
-        match (self.load)(key.0, key.1) {
+        match (self.load)(context, key.0, key.1) {
             Some(dem) => {
                 let elevation = dem.interpolate(latitude, longitude);
                 assert!(elevation.is_some());

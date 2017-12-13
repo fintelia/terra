@@ -5,11 +5,10 @@ use std::io::Write;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
-use progress::Bar;
 use rand;
 use rand::distributions::{Normal, IndependentSample};
 
-use cache::{GeneratedAsset, MMappedAsset, WebAsset};
+use cache::{AssetLoadContext, GeneratedAsset, MMappedAsset, WebAsset};
 use sky::Skybox;
 use terrain::dem::{DemSource, DigitalElevationModelParams};
 use terrain::heightmap::{self, Heightmap};
@@ -39,7 +38,7 @@ impl<R: gfx::Resources> TerrainFileParams<R> {
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Result<QuadTree<R, F>, Box<Error>> {
-        let (header, data) = self.load()?;
+        let (header, data) = self.load(&mut AssetLoadContext::new())?;
 
         Ok(QuadTree::new(
             header,
@@ -69,30 +68,36 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         )
     }
 
-    fn generate<W: Write>(&self, mut writer: W) -> Result<Self::Header, Box<Error>> {
+    fn generate<W: Write>(
+        &self,
+        context: &mut AssetLoadContext,
+        mut writer: W,
+    ) -> Result<Self::Header, Box<Error>> {
+        context.set_progress_and_total(0, 4);
+
         let mut layers = Vec::new();
         let mut bytes_written = 0;
 
         let mut dem_cache = RasterCache::new(
-            |latitude, longitude| {
+            |context, latitude, longitude| {
                 DigitalElevationModelParams {
                     latitude,
                     longitude,
                     source: self.source,
-                }.load()
+                }.load(context)
                     .ok()
             },
             32,
         );
 
         let mut treecover_cache = RasterCache::new(
-            |latitude, longitude| {
+            |context, latitude, longitude| {
                 Some(
                     LandCoverParams {
                         latitude,
                         longitude,
                         kind: LandCoverKind::TreeCover,
-                    }.load()
+                    }.load(context)
                         .unwrap(),
                 )
             },
@@ -100,12 +105,12 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         );
 
         let mut watermask_cache = RasterCache::new(
-            |latitude, longitude| {
+            |context, latitude, longitude| {
                 LandCoverParams {
                     latitude,
                     longitude,
                     kind: LandCoverKind::WaterMask,
-                }.load()
+                }.load(context)
                     .ok()
             },
             32,
@@ -129,8 +134,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-        let world_size = 1048576.0;
-        let max_level = 13i32;
+        let world_size = 1048576.0 / 2.0;
+        let max_level = 13i32 - 1;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
@@ -183,10 +188,10 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::F32,
             tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
         });
-        let mut progress_bar = Bar::new();
-        progress_bar.set_job_title("Generating heightmaps...");
+
+        context.increment_level("Generating heightmaps... ", nodes.len());
         for i in 0..nodes.len() {
-            progress_bar.reach_percent((100 * i / nodes.len()) as i32);
+            context.set_progress(i as u64);
             nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             if nodes[i].level as i32 > max_texture_level {
@@ -343,7 +348,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 for y in 0..(heightmap_resolution as i32) {
                     for x in 0..(heightmap_resolution as i32) {
                         let p = world_position(x, y, node.bounds);
-                        let height = dem_cache.interpolate(p.y as f64, p.x as f64).unwrap_or(0.0);
+                        let height = dem_cache
+                            .interpolate(context, p.y as f64, p.x as f64)
+                            .unwrap_or(0.0);
                         heights.push(height);
 
                         if (x - skirt as i32) % resolution_ratio as i32 == 0 &&
@@ -363,8 +370,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 ));
             }
         }
-        progress_bar.reach_percent(100);
-        progress_bar.jobs_done();
+        context.decrement_level();
+        context.set_progress(1);
 
         // Colors
         assert!(skirt >= 2);
@@ -380,9 +387,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         });
         let rock = self.materials.get_average_albedo(0);
         let grass = self.materials.get_average_albedo(1);
-        progress_bar.set_job_title("Generating colormaps...");
+        context.increment_level("Generating colormaps... ", heightmaps.len());
         for i in 0..heightmaps.len() {
-            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
+            context.set_progress(i as u64);
             nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
             let heights = &heightmaps[i];
@@ -390,7 +397,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
                     let p = world_position(x as i32, y as i32, nodes[i].bounds);
-                    let treecover = treecover_cache.interpolate(p.y as f64, p.x as f64);
+                    let treecover = treecover_cache.interpolate(context, p.y as f64, p.x as f64);
 
                     let h00 = heights.get(x, y).unwrap();
                     let h01 = heights.get(x, y + 1).unwrap();
@@ -418,26 +425,31 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 }
             }
         }
-        progress_bar.reach_percent(100);
-        progress_bar.jobs_done();
+        context.decrement_level();
+        context.set_progress(2);
 
         // Normals
         assert!(skirt >= 2);
         let normalmap_resolution = heightmap_resolution - 5;
-        let normalmap_offset = bytes_written;
-        let mut normalmap_count = 0;
-        progress_bar.set_job_title("Generating normalmaps...");
-        for i in 0..heightmaps.len() {
-            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
-            if nodes[i].level as i32 != max_texture_level {
-                continue;
-            }
+        let normalmap_nodes: Vec<_> = (0..heightmaps.len())
+            .filter(|&i| nodes[i].level as i32 == max_texture_level)
+            .collect();
+        layers.push(LayerParams {
+            layer_type: LayerType::Normals,
+            offset: bytes_written,
+            tile_count: normalmap_nodes.len(),
+            tile_resolution: normalmap_resolution as u32,
+            border_size: skirt as u32 - 2,
+            format: TextureFormat::RGBA8,
+            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
+        });
+        context.increment_level("Generating normalmaps... ", normalmap_nodes.len());
+        for (i, id) in normalmap_nodes.into_iter().enumerate() {
+            context.set_progress(i as u64);
+            nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
-            nodes[i].tile_indices[LayerType::Normals.index()] = Some(normalmap_count as u32);
-            normalmap_count += 1;
-
-            let heights = &heightmaps[i];
-            let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
+            let heights = &heightmaps[id];
+            let spacing = nodes[id].side_length / (heightmap_resolution - 2 * skirt) as f32;
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {
                     let h00 = heights.get(x, y).unwrap();
@@ -459,17 +471,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 }
             }
         }
-        layers.push(LayerParams {
-            layer_type: LayerType::Normals,
-            offset: normalmap_offset,
-            tile_count: normalmap_count,
-            tile_resolution: normalmap_resolution as u32,
-            border_size: skirt as u32 - 2,
-            format: TextureFormat::RGBA8,
-            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
-        });
-        progress_bar.reach_percent(100);
-        progress_bar.jobs_done();
+        context.decrement_level();
+        context.set_progress(3);
 
         // Water
         assert!(skirt >= 2);
@@ -483,9 +486,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             format: TextureFormat::RGBA8,
             tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
-        progress_bar.set_job_title("Generating water masks...");
+        context.increment_level("Generating water masks... ", heightmaps.len());
         for i in 0..heightmaps.len() {
-            progress_bar.reach_percent((100 * i / heightmaps.len()) as i32);
+            context.set_progress(i as u64);
             nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
 
             let heights = &heightmaps[i];
@@ -493,7 +496,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 for x in 2..(2 + watermap_resolution) {
                     let p = world_position(x as i32, y as i32, nodes[i].bounds);
                     let w2 = watermask_cache
-                        .interpolate(p.y as f64, p.x as f64)
+                        .interpolate(context, p.y as f64, p.x as f64)
                         .unwrap_or(0.0);
 
                     let mut w = 0.0f32;
@@ -517,8 +520,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 }
             }
         }
-        progress_bar.reach_percent(100);
-        progress_bar.jobs_done();
+        context.decrement_level();
+        context.set_progress(4);
 
         let noise = NoiseParams {
             offset: bytes_written,

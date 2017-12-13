@@ -29,7 +29,8 @@ lazy_static = "0.2"
 lru-cache = "0.1.1"
 memmap = "0.5.2"
 notify = "4.0"
-progress = "0.2"
+num = "0.1"
+pbr = { git = "https://github.com/fintelia/pb", rev = "039f8afb32f4f3869550dc58267666fa0675ed49" }
 rand = "0.3"
 rshader = { path = "rshader", features = [], version = "0.1.0" }
 rustfft = "2.0.0"
