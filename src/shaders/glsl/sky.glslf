@@ -8,8 +8,17 @@ out vec4 OutColor;
 
 void main() {
 	vec3 r = normalize(ray);
+
+	// Check ray atmosphere intersection points.
 	vec2 p = rsi(cameraPosition+vec3(0,planetRadius,0), r, atmosphereRadius);
-	if (p.x > p.y) {
+	if (p.x > p.y || p.y < 0.0) {
+		OutColor = vec4(0,0,0,1);
+		return;
+	}
+
+	// Check ray planet intersection points.
+	vec2 p2 = rsi(cameraPosition+vec3(0,planetRadius,0), r, planetRadius);
+	if (p2.x < p2.y && p2.y > 0.0) {
 		OutColor = vec4(0,0,0,1);
 		return;
 	}

@@ -54,12 +54,10 @@ void main() {
 	position.y = mix(morphHeight, position.y, morph);
 	position.xz = nPosition * (vSideLength / (resolution)) + vPosition;
 
-	fPosition = position;
-
 	vec2 r = position.xz / planetRadius;
 	position.y += planetRadius * (sqrt(1.0 - dot(r,r)) - 1.0);
 
-
+	fPosition = position;
 	fTexcoord = textureOrigin + nPosition * textureStep;
 	fColorsLayer = colorsLayer;
 	fNormalsLayer = normalsLayer;
