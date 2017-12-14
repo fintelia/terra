@@ -4,6 +4,7 @@ use cache::AssetLoadContext;
 
 use std::collections::HashSet;
 
+/// Currently assumes that values are taken at the lower left corner of each cell.
 #[derive(Serialize, Deserialize)]
 pub struct Raster {
     pub width: usize,
@@ -79,5 +80,38 @@ impl<F: FnMut(&mut AssetLoadContext, i16, i16) -> Option<Raster>> RasterCache<F>
                 None
             }
         }
+    }
+}
+
+/// Currently assumes that values are taken at the *center* of cells.
+pub(crate) struct GlobalRaster<T: Into<f64> + Copy> {
+    pub width: usize,
+    pub height: usize,
+    pub bands: usize,
+    pub values: Vec<T>,
+}
+impl<T: Into<f64> + Copy> GlobalRaster<T> {
+    fn get(&self, x: i64, y: i64, band: usize) -> f64 {
+        let y = y.max(0).min(self.height as i64) as usize;
+        let x = (((x % self.width as i64) + self.width as i64) % self.width as i64) as usize;
+        self.values[(x + y * self.width) * self.bands + band].into()
+    }
+
+    pub fn interpolate(&self, latitude: f64, longitude: f64, band: usize) -> f64 {
+        assert!(latitude >= -90.0 && latitude <= 90.0);
+
+        let x = (longitude + 180.0) / 360.0 * self.width as f64 - 0.5;
+        let y = (90.0 - latitude) / 180.0 * self.height as f64 - 0.5;
+
+        let fx = x.floor() as i64;
+        let fy = y.floor() as i64;
+
+        let h00 = self.get(fx, fy, band);
+        let h10 = self.get(fx, 1 + fy, band);
+        let h01 = self.get(fx, fy + 1, band);
+        let h11 = self.get(fx + 1, fy + 1, band);
+        let h0 = h00 + (h01 - h00) * (y - fy as f64);
+        let h1 = h10 + (h11 - h10) * (y - fy as f64);
+        h0 + (h1 - h0) * (x - fx as f64)
     }
 }

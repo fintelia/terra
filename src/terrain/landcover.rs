@@ -5,7 +5,7 @@ use zip::ZipArchive;
 use image::{self, GenericImage, ImageLuma8, ImageFormat};
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use terrain::raster::Raster;
+use terrain::raster::{GlobalRaster, Raster};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
@@ -177,6 +177,34 @@ impl GeneratedAsset for LandCoverParams {
             xllcorner: self.latitude as f64,
             yllcorner: self.longitude as f64,
             values,
+        })
+    }
+}
+
+pub struct BlueMarble;
+impl WebAsset for BlueMarble {
+    type Type = GlobalRaster<u8>;
+
+    fn url(&self) -> String {
+        "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74218/\
+         world.200412.3x21600x10800.png"
+            .to_owned()
+    }
+    fn filename(&self) -> String {
+        "bluemarble/world.200412.3x21600x10800.png".to_owned()
+    }
+    fn parse(
+        &self,
+        _context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<::std::error::Error>> {
+        let image = image::load_from_memory_with_format(&data, ImageFormat::PNG)?
+            .to_rgb();
+        Ok(GlobalRaster {
+            width: image.width() as usize,
+            height: image.height() as usize,
+            bands: 3,
+            values: image.into_raw(),
         })
     }
 }

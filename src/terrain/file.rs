@@ -16,7 +16,7 @@ use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::RasterCache;
 use terrain::tile_cache::{TileHeader, LayerParams, LayerType, NoiseParams};
-use terrain::landcover::{LandCoverParams, LandCoverKind};
+use terrain::landcover::{BlueMarble, LandCoverParams, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
 
@@ -116,6 +116,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             32,
         );
 
+        let bluemarble = BlueMarble.load(context)?;
+
         let world_center =
             Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
         let sun_direction = Vector3::new(0.0, 1.0, 1.0).normalize();
@@ -134,8 +136,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
-        let world_size = 1048576.0 / 2.0;
-        let max_level = 13i32 - 1;
+        let world_size = 1048576.0 / 2.0 * 8.0;
+        let max_level = 13i32 - 1 + 3;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
@@ -158,16 +160,19 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 y >= heightmap_resolution - skirt
         };
 
-        let world_position = |x, y, bounds: BoundingBox| -> Vector2<f32> {
+        let world_position = |x, y, bounds: BoundingBox| -> (Vector2<f32>, f32) {
             let fx = (x - skirt as i32) as f32 / (heightmap_resolution - 1 - 2 * skirt) as f32;
             let fy = (y - skirt as i32) as f32 / (heightmap_resolution - 1 - 2 * skirt) as f32;
 
-            let world_position = Vector2::<f32>::new(
-                (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) / scale_x,
-                (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) / scale_y,
+            let mut world_position = Vector2::<f32>::new(
+                (bounds.min.x + (bounds.max.x - bounds.min.x) * fx),
+                (bounds.min.z + (bounds.max.z - bounds.min.z) * fy),
             );
+            let d2 = world_position.magnitude2();
+            world_position.x /= scale_x;
+            world_position.y /= scale_y;
 
-            world_center + world_position
+            (world_center + world_position, d2)
         };
 
         let random = {
@@ -347,10 +352,14 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 );
                 for y in 0..(heightmap_resolution as i32) {
                     for x in 0..(heightmap_resolution as i32) {
-                        let p = world_position(x, y, node.bounds);
-                        let height = dem_cache
-                            .interpolate(context, p.y as f64, p.x as f64)
-                            .unwrap_or(0.0);
+                        let (p, d2) = world_position(x, y, node.bounds);
+                        let height = if d2 < 250000.0 * 250000.0 {
+                            dem_cache
+                                .interpolate(context, p.y as f64, p.x as f64)
+                                .unwrap_or(0.0)
+                        } else {
+                            0.0
+                        };
                         heights.push(height);
 
                         if (x - skirt as i32) % resolution_ratio as i32 == 0 &&
@@ -396,8 +405,16 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    let p = world_position(x as i32, y as i32, nodes[i].bounds);
-                    let treecover = treecover_cache.interpolate(context, p.y as f64, p.x as f64);
+                    let (p, d2) = world_position(x as i32, y as i32, nodes[i].bounds);
+                    if d2 >= 250000.0 * 250000.0 {
+                        let (lat, long) = (p.y as f64, p.x as f64);
+                        writer.write_u8(bluemarble.interpolate(lat, long, 0) as u8)?;
+                        writer.write_u8(bluemarble.interpolate(lat, long, 1) as u8)?;
+                        writer.write_u8(bluemarble.interpolate(lat, long, 2) as u8)?;
+                        writer.write_u8(255)?;
+                        bytes_written += 4;
+                        continue;
+                    };
 
                     let h00 = heights.get(x, y).unwrap();
                     let h01 = heights.get(x, y + 1).unwrap();
@@ -410,6 +427,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                     let light = (normal.dot(sun_direction).max(0.0) * 255.0) as u8;
 
                     if normal.y > 0.9 {
+                        let treecover =
+                            treecover_cache.interpolate(context, p.y as f64, p.x as f64);
                         let t = 1.0 - 0.4 * treecover.unwrap_or(0.0);
                         writer.write_u8((grass[0] as f32 * t) as u8)?;
                         writer.write_u8((grass[1] as f32 * t) as u8)?;
@@ -494,25 +513,29 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             let heights = &heightmaps[i];
             for y in 2..(2 + watermap_resolution) {
                 for x in 2..(2 + watermap_resolution) {
-                    let p = world_position(x as i32, y as i32, nodes[i].bounds);
-                    let w2 = watermask_cache
-                        .interpolate(context, p.y as f64, p.x as f64)
-                        .unwrap_or(0.0);
+                    let (p, d2) = world_position(x as i32, y as i32, nodes[i].bounds);
+                    let w = if d2 < 250000.0 * 250000.0 {
+                        let mut w = 0.0f32;
+                        if heights.at(x, y) <= 0.0 {
+                            w += 0.25;
+                        }
+                        if heights.at(x + 1, y) <= 0.0 {
+                            w += 0.25;
+                        }
+                        if heights.at(x, y + 1) <= 0.0 {
+                            w += 0.25;
+                        }
+                        if heights.at(x + 1, y + 1) <= 0.0 {
+                            w += 0.25;
+                        }
+                        (watermask_cache
+                             .interpolate(context, p.y as f64, p.x as f64)
+                             .unwrap_or(w) * 255.0) as u8
+                    } else {
+                        0
+                    };
 
-                    let mut w = 0.0f32;
-                    if heights.at(x, y) <= 0.0 {
-                        w += 0.25;
-                    }
-                    if heights.at(x + 1, y) <= 0.0 {
-                        w += 0.25;
-                    }
-                    if heights.at(x, y + 1) <= 0.0 {
-                        w += 0.25;
-                    }
-                    if heights.at(x + 1, y + 1) <= 0.0 {
-                        w += 0.25;
-                    }
-                    writer.write_u8(((w.max(w2) * 255.0) as u8))?;
+                    writer.write_u8(w)?;
                     writer.write_u8(0)?;
                     writer.write_u8(255)?;
                     writer.write_u8(0)?;
