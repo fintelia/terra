@@ -17,9 +17,11 @@ path = "src/preview.rs"
 required-features = ["preview"]
 
 [dependencies]
+approx = "0.1.1"
 bincode = "0.8.0"
 byteorder = "1.1.0"
 cgmath = { version = "0.15", features = ["serde"] }
+coord_transforms = { git = "https://github.com/DaveKram/coord_transforms" }
 curl = "0.4"
 gfx = "0.16"
 gfx_core = "0.7"
@@ -28,6 +30,7 @@ image = "0.18"
 lazy_static = "0.2"
 lru-cache = "0.1.1"
 memmap = "0.5.2"
+nalgebra = "0.13"
 notify = "4.0"
 num = "0.1"
 pbr = { git = "https://github.com/fintelia/pb", rev = "039f8afb32f4f3869550dc58267666fa0675ed49" }

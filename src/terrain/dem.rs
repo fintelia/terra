@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::{env, mem};
 
 use cache::{AssetLoadContext, WebAsset};
-use terrain::raster::Raster;
+use terrain::raster::{Raster, RasterSource};
 
 #[derive(Debug)]
 pub enum DemError {
@@ -72,6 +72,21 @@ impl DemSource {
             DemSource::Usgs10m => 1.0 / 3.0,
             DemSource::Srtm30m => 1.0,
         }
+    }
+}
+impl RasterSource for DemSource {
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster> {
+        DigitalElevationModelParams {
+            latitude,
+            longitude,
+            source: *self,
+        }.load(context)
+            .ok()
     }
 }
 

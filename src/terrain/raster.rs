@@ -40,15 +40,20 @@ impl Raster {
     }
 }
 
-pub(crate) struct RasterCache<F> {
-    load: F,
+pub(crate) trait RasterSource {
+    fn load(&self, context: &mut AssetLoadContext, latitude: i16, longitude: i16)
+        -> Option<Raster>;
+}
+
+pub(crate) struct RasterCache {
+    source: Box<RasterSource>,
     holes: HashSet<(i16, i16)>,
     rasters: LruCache<(i16, i16), Raster>,
 }
-impl<F: FnMut(&mut AssetLoadContext, i16, i16) -> Option<Raster>> RasterCache<F> {
-    pub fn new(load: F, size: usize) -> Self {
+impl RasterCache {
+    pub fn new(source: Box<RasterSource>, size: usize) -> Self {
         Self {
-            load,
+            source,
             holes: HashSet::new(),
             rasters: LruCache::new(size),
         }
@@ -68,10 +73,10 @@ impl<F: FnMut(&mut AssetLoadContext, i16, i16) -> Option<Raster>> RasterCache<F>
             return dem.interpolate(latitude, longitude);
         }
 
-        match (self.load)(context, key.0, key.1) {
+        match self.source.load(context, key.0, key.1) {
             Some(dem) => {
                 let elevation = dem.interpolate(latitude, longitude);
-                assert!(elevation.is_some());
+                // assert!(elevation.is_some());
                 self.rasters.insert(key, dem);
                 elevation
             }

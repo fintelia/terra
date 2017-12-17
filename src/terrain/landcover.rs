@@ -5,12 +5,27 @@ use zip::ZipArchive;
 use image::{self, GenericImage, ImageLuma8, ImageFormat};
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use terrain::raster::{GlobalRaster, Raster};
+use terrain::raster::{GlobalRaster, Raster, RasterSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
     TreeCover,
     WaterMask,
+}
+impl RasterSource for LandCoverKind {
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster> {
+        LandCoverParams {
+            latitude,
+            longitude,
+            kind: *self,
+        }.load(context)
+            .ok()
+    }
 }
 
 /// Coordinates are of the lower left corner of the 10x10 degree cell.
