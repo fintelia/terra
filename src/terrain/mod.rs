@@ -1,9 +1,8 @@
 pub mod dem;
-pub mod file;
 pub mod material;
 pub mod quadtree;
 
-mod heightmap;
-mod tile_cache;
-mod raster;
-mod landcover;
+pub(crate) mod heightmap;
+pub(crate) mod tile_cache;
+pub(crate) mod raster;
+pub(crate) mod landcover;

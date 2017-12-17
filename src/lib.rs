@@ -1,6 +1,9 @@
 #![feature(ord_max_min)]
 #![feature(unboxed_closures)]
 
+#[cfg(test)]
+#[macro_use]
+extern crate approx;
 extern crate bincode;
 extern crate byteorder;
 extern crate cgmath;
@@ -31,6 +34,7 @@ extern crate zip;
 
 mod utils;
 mod runtime_texture;
+mod generate;
 
 pub mod cache;
 pub mod ocean;
@@ -39,7 +43,7 @@ pub mod terrain;
 
 pub use sky::Skybox;
 pub use terrain::dem::{DigitalElevationModelParams, DemSource};
-pub use terrain::file::TerrainFileParams;
+pub use generate::TerrainFileParams;
 pub use terrain::material::MaterialSet;
 pub use terrain::quadtree::QuadTree;
 
