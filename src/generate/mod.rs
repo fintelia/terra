@@ -227,13 +227,13 @@ struct State<
 }
 
 impl<'a, W: Write, R: gfx::Resources, F1, F2, F3> State<'a, W, R, F1, F2, F3>
-where
+    where
     F1: FnMut(&mut AssetLoadContext, i16, i16)
-          -> Option<Raster>,
+              -> Option<Raster>,
     F2: FnMut(&mut AssetLoadContext, i16, i16)
-          -> Option<Raster>,
+              -> Option<Raster>,
     F3: FnMut(&mut AssetLoadContext, i16, i16)
-          -> Option<Raster>,
+              -> Option<Raster>,
 {
     fn in_skirt(&self, x: u16, y: u16) -> bool {
         x < self.skirt && y < self.skirt || x >= self.heightmap_resolution - self.skirt ||
@@ -257,6 +257,171 @@ where
         (self.world_center + world_position, d2)
     }
 
+    pub fn write_detail_heightmap(&mut self, i: usize) -> Result<(), Box<Error>>{
+        let (ancestor, generations, mut offset) =
+            Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
+                self.nodes[id].level as i32 <= self.max_texture_level
+            }).unwrap();
+
+        let ancestor = ancestor.index();
+        let offset_scale = 1 << generations;
+        let step = self.resolution_ratio >> generations;
+        let ancestor_heightmap = &self.heightmaps[ancestor];
+        offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
+        let offset = Vector2::new(offset.x as u16, offset.y as u16);
+
+        for y in 0..HEIGHTS_RESOLUTION {
+            for x in 0..HEIGHTS_RESOLUTION {
+                let height = ancestor_heightmap
+                    .get(
+                        x * step + offset.x + self.skirt,
+                        y * step + offset.y + self.skirt,
+                    )
+                    .unwrap();
+
+                self.writer.write_f32::<LittleEndian>(height)?;
+                self.bytes_written += 4;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn generate_interpolated_heightmap(&mut self, i: usize)
+                                           -> Result<Heightmap<f32>, Box<Error>> {
+        let mut heights = Vec::with_capacity(
+            self.heightmap_resolution as usize *
+                self.heightmap_resolution as usize,
+        );
+        let offset = node::OFFSETS[self.nodes[i].parent.as_ref().unwrap().1 as usize];
+        let offset =
+            Point2::new(
+                self.skirt / 2 + offset.x as u16 * (self.heightmap_resolution / 2 - self.skirt),
+                self.skirt / 2 + offset.y as u16 * (self.heightmap_resolution / 2 - self.skirt),
+            );
+
+        let layer_scale = self.nodes[i].size /
+            (self.heightmap_resolution - 2 * self.skirt - 1) as i32;
+        let layer_origin = Vector2::new(
+            (self.nodes[i].center.x - self.nodes[i].size / 2) / layer_scale,
+            (self.nodes[i].center.y - self.nodes[i].size / 2) / layer_scale,
+        );
+
+// Extra scope needed due to lack of support for non-lexical lifetimes.
+        {
+            let ph = &self.heightmaps[self.nodes[i].parent.as_ref().unwrap().0.index()];
+            for y in 0..self.heightmap_resolution {
+                for x in 0..self.heightmap_resolution {
+                    let height = if x % 2 == 0 && y % 2 == 0 {
+                        ph.at(x / 2 + offset.x, y / 2 + offset.y)
+                    } else if x % 2 == 0 {
+                        let h0 = ph.at(x / 2 + offset.x, y / 2 + offset.y - 1);
+                        let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
+                        let h2 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 1);
+                        let h3 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 2);
+                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
+                    } else if y % 2 == 0 {
+                        let h0 = ph.at(x / 2 + offset.x - 1, y / 2 + offset.y);
+                        let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
+                        let h2 = ph.at(x / 2 + offset.x + 1, y / 2 + offset.y);
+                        let h3 = ph.at(x / 2 + offset.x + 2, y / 2 + offset.y);
+                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
+                    } else {
+let h0 = //rustfmt
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 2) * -0.0625;
+let h1 = //rustfmt
+                                    ph.at(x / 2 + offset.x , y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 2) * -0.0625;
+let h2 = //rustfmt
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y - 1) * -0.0625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 0) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 1) * 0.5625 +
+                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 2) * -0.0625;
+let h3 = //rustfmt
+                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y - 1) * -0.0625 +
+                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 0) * 0.5625 +
+                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 1) * 0.5625 +
+                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 2) * -0.0625;
+                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
+                    };
+                    heights.push(height);
+                }
+            }
+        }
+        let mut heightmap = Heightmap::new(
+            heights,
+            self.heightmap_resolution,
+            self.heightmap_resolution,
+        );
+
+// Compute noise.
+        let mut noise = Vec::with_capacity(
+            self.heightmap_resolution as usize *
+                self.heightmap_resolution as usize,
+        );
+        let noise_scale = self.nodes[i].side_length /
+            (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+        let slope_scale = 0.5 * (self.heightmap_resolution - 1) as f32 /
+            self.nodes[i].side_length;
+        for y in 0..self.heightmap_resolution {
+            for x in 0..self.heightmap_resolution {
+                if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 &&
+                    x < self.heightmap_resolution - 1 &&
+                    y < self.heightmap_resolution - 1 &&
+                    heightmap.at(x, y) > 0.0
+                {
+                    let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
+                    let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
+                    let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() *
+                        slope_scale;
+
+                    let bias = -noise_scale * 0.3 * (slope - 0.5).max(0.0);
+
+                    let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
+                    let wx = layer_origin.x + (x as i32 - self.skirt as i32);
+                    let wy = layer_origin.y + (y as i32 - self.skirt as i32);
+                    noise.push(
+                        0.15 * self.random.get_wrapping(wx as i64, wy as i64) *
+                            noise_scale *
+                            noise_strength + bias,
+                    );
+                } else {
+                    noise.push(0.0);
+                }
+            }
+        }
+
+// Apply noise.
+        for y in 0..self.heightmap_resolution {
+            for x in 0..self.heightmap_resolution {
+                heightmap.raise(
+                    x,
+                    y,
+                    noise[x as usize +
+                          y as usize * self.heightmap_resolution as usize],
+                );
+            }
+        }
+
+// Write tile.
+        let step = (self.heightmap_resolution - 2 * self.skirt - 1) /
+            (HEIGHTS_RESOLUTION - 1);
+        for y in 0..HEIGHTS_RESOLUTION {
+            for x in 0..HEIGHTS_RESOLUTION {
+                let height = heightmap
+                    .get(x * step + self.skirt, y * step + self.skirt)
+                    .unwrap();
+                self.writer.write_f32::<LittleEndian>(height)?;
+                self.bytes_written += 4;
+            }
+        }
+        Ok(heightmap)
+    }
+
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
@@ -274,165 +439,9 @@ where
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             if self.nodes[i].level as i32 > self.max_texture_level {
-                let (ancestor, generations, mut offset) =
-                    Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
-                        self.nodes[id].level as i32 <= self.max_texture_level
-                    }).unwrap();
-
-                let ancestor = ancestor.index();
-                let offset_scale = 1 << generations;
-                let step = self.resolution_ratio >> generations;
-                let ancestor_heightmap = &self.heightmaps[ancestor];
-                offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
-                let offset = Vector2::new(offset.x as u16, offset.y as u16);
-
-                for y in 0..HEIGHTS_RESOLUTION {
-                    for x in 0..HEIGHTS_RESOLUTION {
-                        let height = ancestor_heightmap
-                            .get(
-                                x * step + offset.x + self.skirt,
-                                y * step + offset.y + self.skirt,
-                            )
-                            .unwrap();
-
-                        self.writer.write_f32::<LittleEndian>(height)?;
-                        self.bytes_written += 4;
-                    }
-                }
-
+                self.write_detail_heightmap(i)?;
             } else if self.nodes[i].level as i32 > self.max_dem_level {
-                let mut heights = Vec::with_capacity(
-                    self.heightmap_resolution as usize *
-                        self.heightmap_resolution as usize,
-                );
-                let offset = node::OFFSETS[self.nodes[i].parent.as_ref().unwrap().1 as usize];
-                let offset =
-                    Point2::new(
-                        self.skirt / 2 + offset.x as u16 * (self.heightmap_resolution / 2 - self.skirt),
-                        self.skirt / 2 + offset.y as u16 * (self.heightmap_resolution / 2 - self.skirt),
-                    );
-
-                let layer_scale = self.nodes[i].size /
-                    (self.heightmap_resolution - 2 * self.skirt - 1) as i32;
-                let layer_origin = Vector2::new(
-                    (self.nodes[i].center.x - self.nodes[i].size / 2) / layer_scale,
-                    (self.nodes[i].center.y - self.nodes[i].size / 2) / layer_scale,
-                );
-
-// Extra scope needed due to lack of support for non-lexical lifetimes.
-                {
-                    let ph = &self.heightmaps[self.nodes[i].parent.as_ref().unwrap().0.index()];
-                    for y in 0..self.heightmap_resolution {
-                        for x in 0..self.heightmap_resolution {
-                            let height = if x % 2 == 0 && y % 2 == 0 {
-                                ph.at(x / 2 + offset.x, y / 2 + offset.y)
-                            } else if x % 2 == 0 {
-                                let h0 = ph.at(x / 2 + offset.x, y / 2 + offset.y - 1);
-                                let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
-                                let h2 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 1);
-                                let h3 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 2);
-                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                            } else if y % 2 == 0 {
-                                let h0 = ph.at(x / 2 + offset.x - 1, y / 2 + offset.y);
-                                let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
-                                let h2 = ph.at(x / 2 + offset.x + 1, y / 2 + offset.y);
-                                let h3 = ph.at(x / 2 + offset.x + 2, y / 2 + offset.y);
-                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                            } else {
-let h0 = //rustfmt
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 2) * -0.0625;
-let h1 = //rustfmt
-                                    ph.at(x / 2 + offset.x , y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 2) * -0.0625;
-let h2 = //rustfmt
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 2) * -0.0625;
-let h3 = //rustfmt
-                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 2) * -0.0625;
-                                -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                            };
-                            heights.push(height);
-                        }
-                    }
-                }
-                let mut heightmap = Heightmap::new(
-                    heights,
-                    self.heightmap_resolution,
-                    self.heightmap_resolution,
-                );
-
-// Compute noise.
-                let mut noise = Vec::with_capacity(
-                    self.heightmap_resolution as usize *
-                        self.heightmap_resolution as usize,
-                );
-                let noise_scale = self.nodes[i].side_length /
-                    (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-                let slope_scale = 0.5 * (self.heightmap_resolution - 1) as f32 /
-                    self.nodes[i].side_length;
-                for y in 0..self.heightmap_resolution {
-                    for x in 0..self.heightmap_resolution {
-                        if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 &&
-                            x < self.heightmap_resolution - 1 &&
-                            y < self.heightmap_resolution - 1 &&
-                            heightmap.at(x, y) > 0.0
-                        {
-                            let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
-                            let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
-                            let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() *
-                                slope_scale;
-
-                            let bias = -noise_scale * 0.3 * (slope - 0.5).max(0.0);
-
-                            let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
-                            let wx = layer_origin.x + (x as i32 - self.skirt as i32);
-                            let wy = layer_origin.y + (y as i32 - self.skirt as i32);
-                            noise.push(
-                                0.15 * self.random.get_wrapping(wx as i64, wy as i64) *
-                                    noise_scale *
-                                    noise_strength + bias,
-                            );
-                        } else {
-                            noise.push(0.0);
-                        }
-                    }
-                }
-
-// Apply noise.
-                for y in 0..self.heightmap_resolution {
-                    for x in 0..self.heightmap_resolution {
-                        heightmap.raise(
-                            x,
-                            y,
-                            noise[x as usize +
-                                      y as usize * self.heightmap_resolution as usize],
-                        );
-                    }
-                }
-
-// Write tile.
-                let step = (self.heightmap_resolution - 2 * self.skirt - 1) /
-                    (HEIGHTS_RESOLUTION - 1);
-                for y in 0..HEIGHTS_RESOLUTION {
-                    for x in 0..HEIGHTS_RESOLUTION {
-                        let height = heightmap
-                            .get(x * step + self.skirt, y * step + self.skirt)
-                            .unwrap();
-                        self.writer.write_f32::<LittleEndian>(height)?;
-                        self.bytes_written += 4;
-                    }
-                }
-
+                let heightmap = self.generate_interpolated_heightmap(i)?;
                 self.heightmaps.push(heightmap);
             } else {
                 assert_eq!(self.heightmaps.len(), i);
@@ -521,7 +530,7 @@ let h3 = //rustfmt
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
-                            .normalize();
+                        .normalize();
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     if normal.y > 0.9 {
@@ -580,7 +589,7 @@ let h3 = //rustfmt
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
-                            .normalize();
+                        .normalize();
 
                     let splat = if normal.y > 0.9 { 1 } else { 0 };
 
@@ -631,8 +640,8 @@ let h3 = //rustfmt
                             w += 0.25;
                         }
                         (self.watermask_cache
-                             .interpolate(context, p.y as f64, p.x as f64)
-                             .unwrap_or(w) * 255.0) as u8
+                         .interpolate(context, p.y as f64, p.x as f64)
+                         .unwrap_or(w) * 255.0) as u8
                     } else {
                         0
                     };
