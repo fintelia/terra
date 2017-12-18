@@ -18,6 +18,10 @@ gfx_defines!{
         water_layer: f32 = "waterLayer",
         texture_step: f32 = "textureStep",
     }
+
+    vertex PlanetMeshVertex {
+        position: [f32; 3] = "vPosition",
+    }
 }
 
 gfx_pipeline!( pipe {
@@ -53,6 +57,13 @@ gfx_pipeline!( sky_pipe {
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
 
+    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
+    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+});
+
+gfx_pipeline!( planet_mesh_pipe {
+    vertices: gfx::VertexBuffer<PlanetMeshVertex> = (),
+    model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -102,6 +113,26 @@ where
             .unwrap()
     }
 
+    pub(crate) fn make_planet_mesh_pso(
+        factory: &mut F,
+        shader: &gfx::ShaderSet<R>,
+    ) -> gfx::PipelineState<R, planet_mesh_pipe::Meta> {
+        factory
+            .create_pipeline_state(
+                shader,
+                gfx::Primitive::TriangleList,
+                gfx::state::Rasterizer {
+                    front_face: gfx::state::FrontFace::Clockwise,
+                    cull_face: gfx::state::CullFace::Nothing,
+                    method: gfx::state::RasterMethod::Line(1),
+                    offset: None,
+                    samples: None,
+                },
+                planet_mesh_pipe::new(),
+            )
+            .unwrap()
+    }
+
     pub fn update_shaders(&mut self) {
         if self.shader.refresh(
             &mut self.factory,
@@ -118,9 +149,32 @@ where
         {
             self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set());
         }
+
+        if self.planet_mesh_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
+        {
+            self.planet_mesh_pso = Self::make_planet_mesh_pso(
+                &mut self.factory,
+                self.planet_mesh_shader.as_shader_set(),
+            );
+        }
     }
 
     pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
+        encoder.draw(
+            &gfx::Slice {
+                start: 0,
+                end: self.num_planet_mesh_vertices as u32,
+                base_vertex: 0,
+                instances: None,
+                buffer: gfx::IndexBuffer::Auto,
+            },
+            &self.planet_mesh_pso,
+            &self.planet_mesh_pipeline_data,
+        );
+
         assert_eq!(self.tile_cache_layers[LayerType::Colors.index()].resolution(),
                    self.tile_cache_layers[LayerType::Normals.index()].resolution());
         assert_eq!(self.tile_cache_layers[LayerType::Colors.index()].border(),

@@ -1,7 +1,7 @@
 // Based on: https://github.com/wwwtyro/glsl-atmosphere/blob/master/index.glsl
 
 #define PI 3.141592
-#define iSteps 16
+#define iSteps 4
 #define jSteps 4
 
 uniform float planetRadius;

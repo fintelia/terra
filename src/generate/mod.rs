@@ -16,7 +16,7 @@ use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{GlobalRaster, RasterCache};
-use terrain::tile_cache::{TileHeader, LayerParams, LayerType, NoiseParams};
+use terrain::tile_cache::{TileHeader, LayerParams, LayerType, MeshDescriptor, NoiseParams};
 use terrain::landcover::{BlueMarble, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -148,10 +148,12 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         state.generate_watermasks(context)?;
         context.set_progress(4);
 
+        let planet_mesh = state.generate_planet_mesh(context)?;
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, .. } = state;
 
         Ok(TileHeader {
+            planet_mesh,
             layers,
             noise,
             nodes,
@@ -653,5 +655,67 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
         assert_eq!(self.bytes_written, noise.offset + noise.bytes);
         Ok(noise)
+    }
+
+    fn generate_planet_mesh(
+        &mut self,
+        _context: &mut AssetLoadContext,
+    ) -> Result<MeshDescriptor, Box<Error>> {
+        let root_bounds = self.nodes[0].bounds;
+        let offset = self.bytes_written;
+        let mut num_vertices = 0;
+
+        {
+            let mut vertices = Vec::new();
+            for y in 0..HEIGHTS_RESOLUTION {
+                for x in 0..HEIGHTS_RESOLUTION {
+                    let world = self.world_position(x as i32, y as i32, root_bounds);
+                    let mut world3 = Vector3::new(world.x, -2.0 * EARTH_RADIUS, world.y);
+                    for _ in 0..5 {
+                        world3.x = world.x;
+                        world3.z = world.y;
+                        let mut lla = self.system.world_to_lla(world3);
+                        lla.z = 0.0;
+                        world3 = self.system.lla_to_world(lla);
+                    }
+
+                    vertices.push(Vector3::<f32>::new(
+                        world3.x as f32,
+                        world3.y as f32,
+                        world3.z as f32,
+                    ));
+                }
+            }
+
+            let mut write_vertex = |v: Vector3<f32>| -> Result<(), Box<Error>> {
+                self.writer.write_f32::<LittleEndian>(v.x)?;
+                self.writer.write_f32::<LittleEndian>(v.y)?;
+                self.writer.write_f32::<LittleEndian>(v.z)?;
+                self.bytes_written += 12;
+                num_vertices += 1;
+                Ok(())
+            };
+            for y in 0..(HEIGHTS_RESOLUTION - 1) as usize {
+                for x in 0..(HEIGHTS_RESOLUTION - 1) as usize {
+                    let v00 = vertices[x + y * HEIGHTS_RESOLUTION as usize];
+                    let v10 = vertices[x + 1 + y * HEIGHTS_RESOLUTION as usize];
+                    let v01 = vertices[x + (y + 1) * HEIGHTS_RESOLUTION as usize];
+                    let v11 = vertices[x + 1 + (y + 1) * HEIGHTS_RESOLUTION as usize];
+
+                    write_vertex(v00)?;
+                    write_vertex(v10)?;
+                    write_vertex(v01)?;
+
+                    write_vertex(v11)?;
+                    write_vertex(v01)?;
+                    write_vertex(v10)?;
+                }
+            }
+        }
+        Ok(MeshDescriptor {
+            bytes: self.bytes_written - offset,
+            offset,
+            num_vertices,
+        })
     }
 }

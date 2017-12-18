@@ -19,6 +19,7 @@ use terra::{MaterialSet, DemSource, Skybox, TerrainFileParams};
 
 fn main() {
     let mut window: PistonWindow = WindowSettings::new("terra preview", [1920, 1080])
+        .vsync(true)
         .exit_on_esc(true)
         .opengl(OpenGL::V3_3)
         .fullscreen(true)
@@ -48,8 +49,8 @@ fn main() {
         let draw_size = w.window.draw_size();
         CameraPerspective {
             fov: 90.0,
-            near_clip: 1.0,
-            far_clip: 500000.0,
+            near_clip: 100.0,
+            far_clip: 50000000.0,
             aspect_ratio: (draw_size.width as f32) / (draw_size.height as f32),
         }.projection()
     };
@@ -105,6 +106,10 @@ fn main() {
                     first_person.position[2] = camera.position[2] / (center_distance / 30000.0);
                     camera = first_person.camera(0.0);
                 }
+                // if camera.position[1] > 19500.0 {
+                //     first_person.position[1] = 19500.0;
+                //     camera = first_person.camera(0.0);
+                // }
 
                 camera_position =
                     cgmath::Point3::new(camera.position[0], camera.position[1], camera.position[2]);
@@ -116,6 +121,8 @@ fn main() {
             // {
             //     camera.position[1] += h + 2.0;
             // }
+            first_person.settings.speed_vertical =
+                (5.0 * first_person.position[1] as f32).max(100.0f32);
 
             terrain.update(
                 model_view_projection(vecmath::mat4_id(), camera.orthogonal(), projection),
@@ -128,8 +135,8 @@ fn main() {
 
             let fps = fps_counter.tick();
             text.add(&fps.to_string(), [5, 5], [0.0, 0.0, 0.0, 1.0]);
-            // text.draw(&mut window.encoder, &window.output_color)
-            //     .unwrap();
+            text.draw(&mut window.encoder, &window.output_color)
+                .unwrap();
         });
     }
 }
