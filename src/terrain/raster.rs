@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
 #[derive(Serialize, Deserialize)]
-pub struct Raster {
+pub struct Raster<T: Into<f64> + Copy> {
     pub width: usize,
     pub height: usize,
     pub cell_size: f64,
@@ -14,11 +14,11 @@ pub struct Raster {
     pub xllcorner: f64,
     pub yllcorner: f64,
 
-    pub values: Vec<f32>,
+    pub values: Vec<T>,
 }
 
-impl Raster {
-    pub fn interpolate(&self, latitude: f64, longitude: f64) -> Option<f32> {
+impl<T: Into<f64> + Copy> Raster<T> {
+    pub fn interpolate(&self, latitude: f64, longitude: f64) -> Option<f64> {
         let x = (latitude - self.xllcorner) / self.cell_size;
         let y = (longitude - self.yllcorner) / self.cell_size;
 
@@ -30,28 +30,33 @@ impl Raster {
             return None;
         }
 
-        let h00 = self.values[fx + fy * self.width];
-        let h10 = self.values[fx + 1 + fy * self.width];
-        let h01 = self.values[fx + (fy + 1) * self.width];
-        let h11 = self.values[fx + 1 + (fy + 1) * self.width];
-        let h0 = h00 + (h01 - h00) * (y - fy as f64) as f32;
-        let h1 = h10 + (h11 - h10) * (y - fy as f64) as f32;
-        Some(h0 + (h1 - h0) * (x - fx as f64) as f32)
+        let h00 = self.values[fx + fy * self.width].into();
+        let h10 = self.values[fx + 1 + fy * self.width].into();
+        let h01 = self.values[fx + (fy + 1) * self.width].into();
+        let h11 = self.values[fx + 1 + (fy + 1) * self.width].into();
+        let h0 = h00 + (h01 - h00) * (y - fy as f64);
+        let h1 = h10 + (h11 - h10) * (y - fy as f64);
+        Some(h0 + (h1 - h0) * (x - fx as f64))
     }
 }
 
 pub(crate) trait RasterSource {
-    fn load(&self, context: &mut AssetLoadContext, latitude: i16, longitude: i16)
-        -> Option<Raster>;
+    type Type: Into<f64> + Copy;
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster<Self::Type>>;
 }
 
-pub(crate) struct RasterCache {
-    source: Box<RasterSource>,
+pub(crate) struct RasterCache<T: Into<f64> + Copy> {
+    source: Box<RasterSource<Type = T>>,
     holes: HashSet<(i16, i16)>,
-    rasters: LruCache<(i16, i16), Raster>,
+    rasters: LruCache<(i16, i16), Raster<T>>,
 }
-impl RasterCache {
-    pub fn new(source: Box<RasterSource>, size: usize) -> Self {
+impl<T: Into<f64> + Copy> RasterCache<T> {
+    pub fn new(source: Box<RasterSource<Type = T>>, size: usize) -> Self {
         Self {
             source,
             holes: HashSet::new(),
@@ -63,7 +68,7 @@ impl RasterCache {
         context: &mut AssetLoadContext,
         latitude: f64,
         longitude: f64,
-    ) -> Option<f32> {
+    ) -> Option<f64> {
         let key = (latitude.floor() as i16, longitude.floor() as i16);
 
         if self.holes.contains(&key) {
@@ -74,11 +79,11 @@ impl RasterCache {
         }
 
         match self.source.load(context, key.0, key.1) {
-            Some(dem) => {
-                let elevation = dem.interpolate(latitude, longitude);
-                // assert!(elevation.is_some());
-                self.rasters.insert(key, dem);
-                elevation
+            Some(raster) => {
+                let value = raster.interpolate(latitude, longitude);
+                // assert!(value.is_some());
+                self.rasters.insert(key, raster);
+                value
             }
             None => {
                 self.holes.insert(key);

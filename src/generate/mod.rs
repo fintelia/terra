@@ -26,7 +26,7 @@ const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
 const HEIGHTS_RESOLUTION: u16 = 65;
-const TEXTURE_RESOLUTION: u16 = 513;
+const TEXTURE_RESOLUTION: u16 = 257;
 
 pub struct TerrainFileParams<R: gfx::Resources> {
     pub latitude: i16,
@@ -109,8 +109,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let mut state = State {
             dem_cache: RasterCache::new(Box::new(self.source), 32),
-            treecover_cache: RasterCache::new(Box::new(LandCoverKind::TreeCover), 32),
-            watermask_cache: RasterCache::new(Box::new(LandCoverKind::WaterMask), 32),
+            treecover_cache: RasterCache::new(Box::new(LandCoverKind::TreeCover), 128),
+            watermask_cache: RasterCache::new(Box::new(LandCoverKind::WaterMask), 128),
             bluemarble: BlueMarble.load(context)?,
             random: {
                 let normal = Normal::new(0.0, 1.0);
@@ -161,9 +161,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 }
 
 struct State<'a, W: Write, R: gfx::Resources> {
-    dem_cache: RasterCache,
-    treecover_cache: RasterCache,
-    watermask_cache: RasterCache,
+    dem_cache: RasterCache<f32>,
+    treecover_cache: RasterCache<u8>,
+    watermask_cache: RasterCache<u8>,
     bluemarble: GlobalRaster<u8>,
 
     random: Heightmap<f32>,
@@ -401,7 +401,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             world3.x = world.x;
                             world3.z = world.y;
                             let mut lla = self.system.world_to_lla(world3);
-                            lla.z = if i >= 3 && world.magnitude2() < 500000.0 * 500000.0 {
+                            lla.z = if i >= 3 && world.magnitude2() < 250000.0 * 250000.0 {
                                 self.dem_cache
                                     .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
                                     .unwrap_or(0.0) as f64
@@ -471,7 +471,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
 
-                    if world.magnitude2() >= 500000.0 * 500000.0 {
+                    if world.magnitude2() >= 1000000.0 * 1000000.0 {
                         self.writer.write_u8(self.bluemarble.interpolate(
                             lla.x.to_degrees(),
                             lla.y.to_degrees(),
@@ -504,11 +504,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             lla.x.to_degrees(),
                             lla.y.to_degrees(),
                         );
-                        let t = 1.0 - 0.4 * treecover.unwrap_or(0.0);
-                        self.writer.write_u8((grass[0] as f32 * t) as u8)?;
-                        self.writer.write_u8((grass[1] as f32 * t) as u8)?;
-                        self.writer.write_u8((grass[2] as f32 * t) as u8)?;
-
+                        let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
+                        self.writer.write_u8((grass[0] as f64 * t) as u8)?;
+                        self.writer.write_u8((grass[1] as f64 * t) as u8)?;
+                        self.writer.write_u8((grass[2] as f64 * t) as u8)?;
                     } else {
                         self.writer.write_u8(rock[0])?;
                         self.writer.write_u8(rock[1])?;
@@ -596,8 +595,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 = heights.get(x + 1, y + 1).unwrap();
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    let w = if world.magnitude2() < 500000.0 * 500000.0 {
-                        let mut w = 0.0f32;
+                    let w = if world.magnitude2() < 1000000.0 * 1000000.0 {
+                        let mut w = 0.0;
                         if h00 <= 0.0 {
                             w += 0.25;
                         }
@@ -610,9 +609,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         if h11 <= 0.0 {
                             w += 0.25;
                         }
-                        (self.watermask_cache
-                             .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
-                             .unwrap_or(w) * 255.0) as u8
+                        self.watermask_cache
+                            .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
+                            .unwrap_or(w * 255.0) as u8
                     } else {
                         0
                     };

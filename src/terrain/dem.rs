@@ -75,12 +75,13 @@ impl DemSource {
     }
 }
 impl RasterSource for DemSource {
+    type Type = f32;
     fn load(
         &self,
         context: &mut AssetLoadContext,
         latitude: i16,
         longitude: i16,
-    ) -> Option<Raster> {
+    ) -> Option<Raster<f32>> {
         DigitalElevationModelParams {
             latitude,
             longitude,
@@ -96,7 +97,7 @@ pub struct DigitalElevationModelParams {
     pub source: DemSource,
 }
 impl WebAsset for DigitalElevationModelParams {
-    type Type = Raster;
+    type Type = Raster<f32>;
 
     fn url(&self) -> String {
         let (latitude, longitude) = match self.source {
@@ -171,7 +172,7 @@ impl WebAsset for DigitalElevationModelParams {
 }
 
 /// Load a zip file in the format for the USGS's National Elevation Dataset.
-fn parse_ned_zip(data: Vec<u8>) -> Result<Raster, Box<Error>> {
+fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Box<Error>> {
     let mut hdr = String::new();
     let mut flt = Vec::new();
 
@@ -258,7 +259,11 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster, Box<Error>> {
 }
 
 /// Load a zip file in the format for the NASA's STRM 30m dataset.
-fn parse_srtm1_zip(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster, Box<Error>> {
+fn parse_srtm1_zip(
+    latitude: i16,
+    longitude: i16,
+    data: Vec<u8>,
+) -> Result<Raster<f32>, Box<Error>> {
     let resolution = 3601;
     let cell_size = 1.0 / 3600.0;
 

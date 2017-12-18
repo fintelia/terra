@@ -1,8 +1,9 @@
 use std::error::Error;
 use std::io::{Cursor, Read};
+use std::sync::{Arc, Mutex};
 
 use zip::ZipArchive;
-use image::{self, GenericImage, ImageLuma8, ImageFormat};
+use image::{self, DynamicImage, GenericImage, ImageLuma8, ImageFormat};
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use terrain::raster::{GlobalRaster, Raster, RasterSource};
@@ -13,16 +14,18 @@ pub enum LandCoverKind {
     WaterMask,
 }
 impl RasterSource for LandCoverKind {
+    type Type = u8;
     fn load(
         &self,
         context: &mut AssetLoadContext,
         latitude: i16,
         longitude: i16,
-    ) -> Option<Raster> {
+    ) -> Option<Raster<u8>> {
         LandCoverParams {
             latitude,
             longitude,
             kind: *self,
+            raw: None,
         }.load(context)
             .ok()
     }
@@ -36,7 +39,7 @@ struct RawLandCoverParams {
     pub kind: LandCoverKind,
 }
 impl WebAsset for RawLandCoverParams {
-    type Type = Vec<u8>;
+    type Type = Arc<Mutex<DynamicImage>>;
 
     fn url(&self) -> String {
         let (latitude, longitude) = (self.latitude + 10, self.longitude);
@@ -95,18 +98,40 @@ impl WebAsset for RawLandCoverParams {
     }
     fn parse(
         &self,
-        _context: &mut AssetLoadContext,
+        context: &mut AssetLoadContext,
         data: Vec<u8>,
     ) -> Result<Self::Type, Box<::std::error::Error>> {
-        Ok(data)
+        let mut zip = ZipArchive::new(Cursor::new(data))?;
+        assert_eq!(zip.len(), 1);
+
+        let mut data = Vec::new();
+        zip.by_index(0)?.read_to_end(&mut data)?;
+
+        let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
+        let image = Arc::new(Mutex::new(image));
+
+        for latitude in self.latitude..(self.latitude + 9) {
+            for longitude in self.longitude..(self.longitude + 9) {
+                let params = LandCoverParams {
+                    latitude,
+                    longitude,
+                    kind: self.kind,
+                    raw: Some(image.clone()),
+                };
+                assert_eq!(params.raw_params(), *self);
+                params.load(context)?;
+            }
+        }
+
+        Ok(image)
     }
 }
 
-#[derive(Debug)]
 pub struct LandCoverParams {
     pub latitude: i16,
     pub longitude: i16,
     pub kind: LandCoverKind,
+    pub raw: Option<Arc<Mutex<DynamicImage>>>,
 }
 impl LandCoverParams {
     fn raw_params(&self) -> RawLandCoverParams {
@@ -116,9 +141,56 @@ impl LandCoverParams {
             kind: self.kind,
         }
     }
+
+    fn generate_from_raw(&self) -> Result<Raster<u8>, Box<Error>> {
+        let (w, h, image) = {
+            let mut image = self.raw.as_ref().unwrap().lock().unwrap();
+            let (w, h) = (image.width(), image.height());
+            assert_eq!(w, h);
+            let image = image
+                .crop(
+                    (w / 10) * ((self.longitude % 10 + 10) % 10) as u32,
+                    (h / 10) * (9 - ((self.latitude % 10 + 10) % 10) as u32),
+                    w / 10 + 1,
+                    h / 10 + 1,
+                )
+                .clone();
+            (w, h, image)
+        };
+        let image = image.rotate90().flipv();
+        let values = if let ImageLuma8(image) = image {
+            image.into_raw().into_iter()
+        } else {
+            unreachable!()
+        };
+
+        let values = match self.kind {
+            LandCoverKind::TreeCover => values.collect(),
+            LandCoverKind::WaterMask => {
+                values
+                    .map(|v| if v == 1 {
+                        0
+                    } else if v == 0 || v == 2 {
+                        255
+                    } else {
+                        unreachable!()
+                    })
+                    .collect()
+            }
+        };
+
+        Ok(Raster {
+            width: w as usize / 10 + 1,
+            height: h as usize / 10 + 1,
+            cell_size: 10.0 / (w - 1) as f64,
+            xllcorner: self.latitude as f64,
+            yllcorner: self.longitude as f64,
+            values,
+        })
+    }
 }
 impl GeneratedAsset for LandCoverParams {
-    type Type = Raster;
+    type Type = Raster<u8>;
 
     fn filename(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'N' } else { 'S' };
@@ -139,60 +211,16 @@ impl GeneratedAsset for LandCoverParams {
     }
 
     fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
-        let raw = self.raw_params().load(context)?;
-        let mut zip = ZipArchive::new(Cursor::new(raw))?;
-        assert_eq!(zip.len(), 1);
+        if self.raw.is_some() {
+            return self.generate_from_raw();
+        }
 
-        let mut data = Vec::new();
-        zip.by_index(0)?.read_to_end(&mut data)?;
-
-        let mut image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
-        let (w, h) = (image.width(), image.height());
-        assert_eq!(w, h);
-
-        let image = image
-            .crop(
-                (w / 10) * ((self.longitude % 10 + 10) % 10) as u32,
-                (h / 10) * (9 - ((self.latitude % 10 + 10) % 10) as u32),
-                w / 10 + 1,
-                h / 10 + 1,
-            )
-            .rotate90()
-            .flipv();
-        let values = if let ImageLuma8(image) = image {
-            image.into_raw().into_iter()
-        } else {
-            unreachable!()
-        };
-
-        let values = match self.kind {
-            LandCoverKind::TreeCover => {
-                values
-                    .map(|v| v as f32 / 100.0)
-                    .inspect(|v| assert!(*v >= 0.0 && *v <= 1.0))
-                    .collect()
-            }
-            LandCoverKind::WaterMask => {
-                values
-                    .map(|v| if v == 1 {
-                        0.0
-                    } else if v == 0 || v == 2 {
-                        1.0
-                    } else {
-                        unreachable!()
-                    })
-                    .collect()
-            }
-        };
-
-        Ok(Raster {
-            width: w as usize / 10 + 1,
-            height: h as usize / 10 + 1,
-            cell_size: 10.0 / (w - 1) as f64,
-            xllcorner: self.latitude as f64,
-            yllcorner: self.longitude as f64,
-            values,
-        })
+        Self {
+            latitude: self.latitude,
+            longitude: self.longitude,
+            kind: self.kind,
+            raw: Some(self.raw_params().load(context)?),
+        }.generate_from_raw()
     }
 }
 
