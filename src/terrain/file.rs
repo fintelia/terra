@@ -90,7 +90,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
         let world_size = 524288.0 / 8.0;
-        let max_level = 12i32;
+        let max_level = 10i32;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
@@ -320,9 +320,41 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             }
         }
 
+        let aomap_resolution = heightmap_resolution - 4;
+        let mut aomaps: Vec<Heightmap<f32>> = Vec::new();
+        for i in 0..heightmaps.len() {
+            let heights = &heightmaps[i];
+            let mut ao = Vec::new();
+            let inv_spacing = (heightmap_resolution - 2 * skirt - 1) as f32 / nodes[i].side_length;
+            for y in 2..(heights.height - 2) {
+                for x in 2..(heights.width - 2) {
+                    let h = heights.at(x, y);
+                    let hh = [
+                        (heights.at(x - 1, y) - h).max(0.5 * (heights.at(x - 2, y) - h)),
+                        (heights.at(x + 1, y) - h).max(0.5 * (heights.at(x + 2, y) - h)),
+                        (heights.at(x, y - 1) - h).max(0.5 * (heights.at(x, y - 2) - h)),
+                        (heights.at(x, y + 1) - h).max(0.5 * (heights.at(x, y + 2) - h)),
+                    ];
+
+                    // Divide each height by the spacing, take the arctanget and then scale by 1 /
+                    // 4pi. When summed, this produces a value between zero and one representing how
+                    // occluded each vertex is.
+                    ao.push(
+                        hh.into_iter()
+                            .map(|h| {
+                                (1.0 - 0.31831 * (h * inv_spacing).atan()).max(0.0).min(1.0)
+                            })
+                            .sum::<f32>(),
+                    );
+                }
+            }
+            aomaps.push(Heightmap::new(ao, aomap_resolution, aomap_resolution));
+        }
+
         // Colors
         assert!(skirt >= 2);
         let colormap_resolution = heightmap_resolution - 5;
+        assert_eq!(colormap_resolution, aomap_resolution - 1);
         layers.push(LayerParams {
             layer_type: LayerType::Colors,
             offset: bytes_written,
@@ -337,20 +369,27 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         for i in 0..heightmaps.len() {
             nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
+            let ao = &aomaps[i];
             let heights = &heightmaps[i];
             let spacing = nodes[i].side_length / (heightmap_resolution - 2 * skirt) as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    let h00 = heights.get(x, y).unwrap();
-                    let h01 = heights.get(x, y + 1).unwrap();
-                    let h10 = heights.get(x + 1, y).unwrap();
-                    let h11 = heights.get(x + 1, y + 1).unwrap();
+                    let h00 = heights.at(x, y);
+                    let h01 = heights.at(x, y + 1);
+                    let h10 = heights.at(x + 1, y);
+                    let h11 = heights.at(x + 1, y + 1);
+
+                    let a00 = ao.at(x - 2, y - 2);
+                    let a01 = ao.at(x - 2, y - 1);
+                    let a10 = ao.at(x - 1, y - 2);
+                    let a11 = ao.at(x - 1, y - 1);
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
-                    let light = (normal.dot(sun_direction).max(0.0) * 255.0) as u8;
-
+                    let light = (normal.dot(sun_direction).max(0.0).min(1.0) *
+                                     (a00 + a01 + a10 + a11) *
+                                     63.75) as u8;
                     if normal.y > 0.9 {
                         writer.write_u8(grass[0])?;
                         writer.write_u8(grass[1])?;
