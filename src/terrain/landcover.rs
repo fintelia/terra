@@ -263,6 +263,7 @@ mod tests {
                 latitude: 165,
                 longitude: 31,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: 160,
@@ -276,6 +277,7 @@ mod tests {
                 latitude: 20,
                 longitude: 20,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: 20,
@@ -289,6 +291,7 @@ mod tests {
                 latitude: -18,
                 longitude: -18,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: -20,
@@ -302,6 +305,7 @@ mod tests {
                 latitude: -30,
                 longitude: -30,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: -30,
