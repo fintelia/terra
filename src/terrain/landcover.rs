@@ -110,8 +110,8 @@ impl WebAsset for RawLandCoverParams {
         let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
         let image = Arc::new(Mutex::new(image));
 
-        for latitude in self.latitude..(self.latitude + 9) {
-            for longitude in self.longitude..(self.longitude + 9) {
+        for latitude in self.latitude..(self.latitude + 10) {
+            for longitude in self.longitude..(self.longitude + 10) {
                 let params = LandCoverParams {
                     latitude,
                     longitude,
