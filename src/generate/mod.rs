@@ -109,8 +109,6 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         let mut state = State {
             dem_cache: RasterCache::new(Box::new(self.source), 32),
-            treecover_cache: RasterCache::new(Box::new(LandCoverKind::TreeCover), 128),
-            watermask_cache: RasterCache::new(Box::new(LandCoverKind::WaterMask), 128),
             bluemarble: BlueMarble.load(context)?,
             random: {
                 let normal = Normal::new(0.0, 1.0);
@@ -164,8 +162,6 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
 struct State<'a, W: Write, R: gfx::Resources> {
     dem_cache: RasterCache<f32>,
-    treecover_cache: RasterCache<u8>,
-    watermask_cache: RasterCache<u8>,
     bluemarble: GlobalRaster<u8>,
 
     random: Heightmap<f32>,
@@ -456,6 +452,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let rock = self.materials.get_average_albedo(0);
         let grass = self.materials.get_average_albedo(1);
         context.increment_level("Generating colormaps... ", self.heightmaps.len());
+        let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
@@ -501,7 +498,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     if normal.y > 0.9 {
-                        let treecover = self.treecover_cache.interpolate(
+                        let treecover = treecover_cache.interpolate(
                             context,
                             lla.x.to_degrees(),
                             lla.y.to_degrees(),
@@ -583,6 +580,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
         context.increment_level("Generating water masks... ", self.heightmaps.len());
+        let mut watermask_cache = RasterCache::new(Box::new(LandCoverKind::WaterMask), 256);
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
@@ -611,7 +609,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         if h11 <= 0.0 {
                             w += 0.25;
                         }
-                        self.watermask_cache
+                        watermask_cache
                             .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
                             .unwrap_or(w * 255.0) as u8
                     } else {

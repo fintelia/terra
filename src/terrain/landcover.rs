@@ -21,13 +21,13 @@ impl RasterSource for LandCoverKind {
         latitude: i16,
         longitude: i16,
     ) -> Option<Raster<u8>> {
-        LandCoverParams {
+        Some(LandCoverParams {
             latitude,
             longitude,
             kind: *self,
             raw: None,
         }.load(context)
-            .ok()
+            .unwrap())
     }
 }
 
