@@ -1,6 +1,4 @@
 #line 2
-#extension GL_ARB_texture_query_lod : enable
-#extension GL_ARB_gpu_shader_fp64 : enable
 
 uniform mat4 modelViewProjection;
 
