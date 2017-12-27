@@ -229,12 +229,12 @@ impl WebAsset for BlueMarble {
     type Type = GlobalRaster<u8>;
 
     fn url(&self) -> String {
-        "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74218/\
-         world.200412.3x21600x10800.png"
+        "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/\
+         world.200406.3x21600x10800.png"
             .to_owned()
     }
     fn filename(&self) -> String {
-        "bluemarble/world.200412.3x21600x10800.png".to_owned()
+        "bluemarble/world.200406.3x21600x10800.png".to_owned()
     }
     fn parse(
         &self,
