@@ -117,7 +117,7 @@ impl<T: Into<f64> + Copy> GlobalRaster<T> {
         let fy = y.floor() as i64;
 
         let h00 = self.get(fx, fy, band);
-        let h10 = self.get(fx, 1 + fy, band);
+        let h10 = self.get(fx + 1, fy, band);
         let h01 = self.get(fx, fy + 1, band);
         let h11 = self.get(fx + 1, fy + 1, band);
         let h0 = h00 + (h01 - h00) * (y - fy as f64);
