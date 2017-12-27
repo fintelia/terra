@@ -1,8 +1,10 @@
 use lru_cache::LruCache;
 
 use cache::AssetLoadContext;
+use coordinates;
 
 use std::collections::HashSet;
+use std::f64::consts::PI;
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
 #[derive(Serialize, Deserialize)]
@@ -101,6 +103,13 @@ pub(crate) struct GlobalRaster<T: Into<f64> + Copy> {
     pub values: Vec<T>,
 }
 impl<T: Into<f64> + Copy> GlobalRaster<T> {
+    /// Returns the approximate grid spacing in meters.
+    pub fn spacing(&self) -> f64 {
+        let sx = 2.0 * PI * coordinates::PLANET_RADIUS / self.width as f64;
+        let sy = PI * coordinates::PLANET_RADIUS / self.height as f64;
+        sx.min(sy)
+    }
+
     fn get(&self, x: i64, y: i64, band: usize) -> f64 {
         let y = y.max(0).min(self.height as i64) as usize;
         let x = (((x % self.width as i64) + self.width as i64) % self.width as i64) as usize;

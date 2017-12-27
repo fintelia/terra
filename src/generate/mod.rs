@@ -460,6 +460,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             let heights = &self.heightmaps[i];
             let spacing = self.nodes[i].side_length /
                 (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let use_blue_marble = spacing >= self.bluemarble.spacing() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
                     let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
@@ -470,7 +471,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
 
-                    if world.magnitude2() >= 1000000.0 * 1000000.0 {
+                    if use_blue_marble {
                         self.writer.write_u8(self.bluemarble.interpolate(
                             lla.x.to_degrees(),
                             lla.y.to_degrees(),
@@ -490,7 +491,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         self.bytes_written += 4;
                         continue;
                     };
-
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)

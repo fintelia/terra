@@ -10,7 +10,7 @@ lazy_static! {
     };
 }
 
-const PLANET_RADIUS: f64 = 6371000.0;
+pub const PLANET_RADIUS: f64 = 6371000.0;
 
 /// This struct uses a number of different coordinate systems and provides conversions between them.
 ///
