@@ -3,7 +3,8 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
 use zip::ZipArchive;
-use image::{self, DynamicImage, GenericImage, ImageLuma8, ImageFormat};
+use image::{self, ColorType, DynamicImage, GenericImage, ImageDecoder, ImageLuma8, ImageFormat};
+use image::png::PNGDecoder;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use terrain::raster::{GlobalRaster, Raster, RasterSource};
@@ -238,16 +239,27 @@ impl WebAsset for BlueMarble {
     }
     fn parse(
         &self,
-        _context: &mut AssetLoadContext,
+        context: &mut AssetLoadContext,
         data: Vec<u8>,
     ) -> Result<Self::Type, Box<::std::error::Error>> {
-        let image = image::load_from_memory_with_format(&data, ImageFormat::PNG)?
-            .to_rgb();
+        let mut decoder = PNGDecoder::new(Cursor::new(data));
+        let (width, height) = decoder.dimensions()?;
+        let (width, height) = (width as usize, height as usize);
+        assert_eq!(decoder.colortype()?, ColorType::RGB(8));
+
+        context.set_progress_and_total(0, height);
+        let row_len = decoder.row_len()?;
+        let mut values = vec![0; row_len * height];
+        for row in 0..height {
+            decoder.read_scanline(&mut values[(row * row_len)..((row+1) * row_len)])?;
+            context.set_progress(row);
+        }
+
         Ok(GlobalRaster {
-            width: image.width() as usize,
-            height: image.height() as usize,
+            width,
+            height,
             bands: 3,
-            values: image.into_raw(),
+            values,
         })
     }
 }
