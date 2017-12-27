@@ -1,7 +1,8 @@
+#![feature(iterator_step_by)]
 #![feature(ord_max_min)]
+#![feature(test)]
 #![feature(unboxed_closures)]
 #![feature(use_nested_groups)]
-#![feature(test)]
 
 #[cfg(test)]
 #[macro_use]

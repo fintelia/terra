@@ -433,6 +433,24 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         Ok(())
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+        /// Takes a f64 in the range [0, 1] an converts it to a u8 in the sRGB color space.
+        fn linear_to_srgb(linear: f64) -> u8 {
+            let srgb = if linear <= 0.00313066844250063 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(0.41666666666) - 0.055
+            };
+            (srgb * 255.0) as u8
+        }
+        fn srgb_to_linear(srgb: u8) -> f64 {
+            let srgb = (srgb as f64) * (1.0 / 255.0);
+            if srgb <= 0.0404482362771082 {
+                srgb / 12.92
+            } else {
+                ((srgb + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
         assert!(self.skirt >= 2);
         let colormap_resolution = self.heightmap_resolution - 5;
         self.layers.push(LayerParams {
@@ -448,10 +466,13 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let grass = self.materials.get_average_albedo(1);
         context.increment_level("Generating colormaps... ", self.heightmaps.len());
         let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
+
+        let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
+            let mut colormap = Vec::new();
             let heights = &self.heightmaps[i];
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
@@ -465,52 +486,75 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 = heights.get(x + 1, y + 1).unwrap();
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-
-                    if use_blue_marble {
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            0,
-                        ) as u8)?;
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            1,
-                        ) as u8)?;
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            2,
-                        ) as u8)?;
-                        self.writer.write_u8(255)?;
-                        self.bytes_written += 4;
-                        continue;
-                    };
+                    let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
-                    if normal.y > 0.9 {
-                        let treecover = treecover_cache.interpolate(
-                            context,
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                        );
-                        let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
-                        self.writer.write_u8((grass[0] as f64 * t) as u8)?;
-                        self.writer.write_u8((grass[1] as f64 * t) as u8)?;
-                        self.writer.write_u8((grass[2] as f64 * t) as u8)?;
+                    let color = if use_blue_marble {
+                        let r = self.bluemarble.interpolate(lat, long, 0) as u8;
+                        let g = self.bluemarble.interpolate(lat, long, 1) as u8;
+                        let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+                        [r, g, b, light]
                     } else {
-                        self.writer.write_u8(rock[0])?;
-                        self.writer.write_u8(rock[1])?;
-                        self.writer.write_u8(rock[2])?;
-                    }
-                    self.writer.write_u8(light)?;
-                    self.bytes_written += 4;
+                        if normal.y > 0.9 {
+                            let treecover = treecover_cache.interpolate(context, lat, long);
+                            let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
+                            let r = (grass[0] as f64 * t) as u8;
+                            let g = (grass[1] as f64 * t) as u8;
+                            let b = (grass[2] as f64 * t) as u8;
+                            [r, g, b, light]
+                        } else {
+                            [rock[0], rock[1], rock[2], light]
+                        }
+                    };
+                    colormap.extend_from_slice(&color);
                 }
             }
+
+            if let (Some(parent), false) = (self.nodes[i].parent.as_ref(), use_blue_marble) {
+                let resolution = colormap_resolution as usize;
+                let skirt = self.skirt as usize - 2;
+                let offset = node::OFFSETS[parent.1 as usize];
+                let offset = Point2::new(
+                    skirt / 2 + offset.x as usize * (resolution / 2 - skirt),
+                    skirt / 2 + offset.y as usize * (resolution / 2 - skirt),
+                );
+                let pc = &colormaps[parent.0.index()];
+                for y in (0..resolution).step_by(2) {
+                    for x in (0..resolution).step_by(2) {
+                        for i in 0..3 {
+                            let p = srgb_to_linear(
+                                pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4],
+                            );
+                            let c00 = srgb_to_linear(colormap[i + (x + y * resolution) * 4]);
+                            let c10 = srgb_to_linear(colormap[i + ((x + 1) + y * resolution) * 4]);
+                            let c01 = srgb_to_linear(colormap[i + (x + (y + 1) * resolution) * 4]);
+                            let c11 =
+                                srgb_to_linear(colormap[i + ((x + 1) + (y + 1) * resolution) * 4]);
+
+                            let shift = (p - (c00 + c01 + c10 + c11) * 0.25) * 0.5;
+
+                            colormap[i + (x + y * resolution) * 4] =
+                                linear_to_srgb((c00 + shift).max(0.0).min(1.0));
+                            colormap[i + ((x + 1) + y * resolution) * 4] =
+                                linear_to_srgb((c10 + shift).max(0.0).min(1.0));
+                            colormap[i + (x + (y + 1) * resolution) * 4] =
+                                linear_to_srgb((c01 + shift).max(0.0).min(1.0));
+                            colormap[i + ((x + 1) + (y + 1) * resolution) * 4] =
+                                linear_to_srgb((c11 + shift).max(0.0).min(1.0));
+                        }
+                    }
+                }
+            }
+            colormaps.push(colormap);
+        }
+
+        for colormap in colormaps {
+            self.writer.write_all(&colormap[..])?;
+            self.bytes_written += colormap.len();
         }
         context.decrement_level();
         Ok(())
