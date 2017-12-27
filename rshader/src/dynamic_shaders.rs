@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use gfx;
-use notify::{self, DebouncedEvent, RecommendedWatcher, Watcher, RecursiveMode};
+use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::*;
 

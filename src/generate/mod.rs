@@ -6,7 +6,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
 use rand;
-use rand::distributions::{Normal, IndependentSample};
+use rand::distributions::{IndependentSample, Normal};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use coordinates::CoordinateSystem;
@@ -16,7 +16,7 @@ use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{GlobalRaster, RasterCache};
-use terrain::tile_cache::{TileHeader, LayerParams, LayerType, MeshDescriptor, NoiseParams};
+use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TileHeader};
 use terrain::landcover::{BlueMarble, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -83,8 +83,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
-        let dem_cell_size_y = self.source.cell_size() / (360.0 * 60.0 * 60.0) *
-            EARTH_CIRCUMFERENCE as f32;
+        let dem_cell_size_y =
+            self.source.cell_size() / (360.0 * 60.0 * 60.0) * EARTH_CIRCUMFERENCE as f32;
 
         let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
 
@@ -156,7 +156,6 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             noise,
             nodes,
         })
-
     }
 }
 
@@ -185,10 +184,10 @@ struct State<'a, W: Write, R: gfx::Resources> {
 
 impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn world_position(&self, x: i32, y: i32, bounds: BoundingBox) -> Vector2<f64> {
-        let fx = (x - self.skirt as i32) as f32 /
-            (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-        let fy = (y - self.skirt as i32) as f32 /
-            (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+        let fx = (x - self.skirt as i32) as f32
+            / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+        let fy = (y - self.skirt as i32) as f32
+            / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
 
         Vector2::new(
             (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
@@ -233,14 +232,13 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             self.heightmap_resolution as usize * self.heightmap_resolution as usize,
         );
         let offset = node::OFFSETS[self.nodes[i].parent.as_ref().unwrap().1 as usize];
-        let offset =
-            Point2::new(
-                self.skirt / 2 + offset.x as u16 * (self.heightmap_resolution / 2 - self.skirt),
-                self.skirt / 2 + offset.y as u16 * (self.heightmap_resolution / 2 - self.skirt),
-            );
+        let offset = Point2::new(
+            self.skirt / 2 + offset.x as u16 * (self.heightmap_resolution / 2 - self.skirt),
+            self.skirt / 2 + offset.y as u16 * (self.heightmap_resolution / 2 - self.skirt),
+        );
 
-        let layer_scale = self.nodes[i].size /
-            (self.heightmap_resolution - 2 * self.skirt - 1) as i32;
+        let layer_scale =
+            self.nodes[i].size / (self.heightmap_resolution - 2 * self.skirt - 1) as i32;
         let layer_origin = Vector2::new(
             (self.nodes[i].center.x - self.nodes[i].size / 2) / layer_scale,
             (self.nodes[i].center.y - self.nodes[i].size / 2) / layer_scale,
@@ -302,15 +300,14 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let mut noise = Vec::with_capacity(
             self.heightmap_resolution as usize * self.heightmap_resolution as usize,
         );
-        let noise_scale = self.nodes[i].side_length /
-            (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+        let noise_scale =
+            self.nodes[i].side_length / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
         let slope_scale = 0.5 * (self.heightmap_resolution - 1) as f32 / self.nodes[i].side_length;
         for y in 0..self.heightmap_resolution {
             for x in 0..self.heightmap_resolution {
-                if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 &&
-                    x < self.heightmap_resolution - 1 &&
-                    y < self.heightmap_resolution - 1 &&
-                    heightmap.at(x, y) > 0.0
+                if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 && x < self.heightmap_resolution - 1
+                    && y < self.heightmap_resolution - 1
+                    && heightmap.at(x, y) > 0.0
                 {
                     let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
                     let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
@@ -322,8 +319,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let wx = layer_origin.x + (x as i32 - self.skirt as i32);
                     let wy = layer_origin.y + (y as i32 - self.skirt as i32);
                     noise.push(
-                        0.15 * self.random.get_wrapping(wx as i64, wy as i64) * noise_scale *
-                            noise_strength + bias,
+                        0.15 * self.random.get_wrapping(wx as i64, wy as i64) * noise_scale
+                            * noise_strength + bias,
                     );
                 } else {
                     noise.push(0.0);
@@ -381,18 +378,16 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 assert_eq!(self.heightmaps.len(), i);
                 let node = &self.nodes[i];
                 let mut heights = Vec::with_capacity(
-                    self.heightmap_resolution as usize *
-                        self.heightmap_resolution as usize,
+                    self.heightmap_resolution as usize * self.heightmap_resolution as usize,
                 );
                 for y in 0..(self.heightmap_resolution as i32) {
                     for x in 0..(self.heightmap_resolution as i32) {
                         let world = self.world_position(x, y, node.bounds);
                         let mut world3 = Vector3::new(
                             world.x,
-                            EARTH_RADIUS *
-                                ((1.0 - world.magnitude2() / EARTH_RADIUS)
-                                     .max(0.25)
-                                     .sqrt() - 1.0),
+                            EARTH_RADIUS
+                                * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt()
+                                    - 1.0),
                             world.y,
                         );
                         for i in 0..5 {
@@ -419,8 +414,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 );
 
                 // Write tile.
-                let step = (self.heightmap_resolution - 2 * self.skirt - 1) /
-                    (HEIGHTS_RESOLUTION - 1);
+                let step =
+                    (self.heightmap_resolution - 2 * self.skirt - 1) / (HEIGHTS_RESOLUTION - 1);
                 for y in 0..HEIGHTS_RESOLUTION {
                     for x in 0..HEIGHTS_RESOLUTION {
                         let height = heightmap
@@ -458,8 +453,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
             let heights = &self.heightmaps[i];
-            let spacing = self.nodes[i].side_length /
-                (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let spacing =
+                self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
             let use_blue_marble = spacing >= self.bluemarble.spacing() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
@@ -541,8 +536,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             self.nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
             let heights = &self.heightmaps[id];
-            let spacing = self.nodes[id].side_length /
-                (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let spacing =
+                self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {
                     let h00 = heights.get(x, y).unwrap();

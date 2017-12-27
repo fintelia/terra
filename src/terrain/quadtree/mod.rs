@@ -1,4 +1,4 @@
-use byteorder::{ReadBytesExt, LittleEndian};
+use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
 use gfx;
 use gfx::traits::FactoryExt;
@@ -13,7 +13,7 @@ use std::env;
 use std::collections::VecDeque;
 
 use terrain::material::MaterialSet;
-use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
+use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
 use sky::Skybox;
 use ocean::Ocean;
@@ -101,18 +101,17 @@ where
             shader_source!("../../shaders/glsl", "version", "atmosphere", "sky.glslf"),
         ).unwrap();
 
-        let planet_mesh_shader =
-            rshader::Shader::simple(
-                &mut factory,
-                &mut shaders_watcher,
-                shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
-                shader_source!(
-                    "../../shaders/glsl",
-                    "version",
-                    "atmosphere",
-                    "planet_mesh.glslf"
-                ),
-            ).unwrap();
+        let planet_mesh_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "planet_mesh.glslf"
+            ),
+        ).unwrap();
 
         let mut data_view = data_file.into_view_sync();
         let mut tile_cache_layers = VecMap::new();
@@ -140,7 +139,8 @@ where
 
         let planet_mesh_start = header.planet_mesh.offset;
         let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
-        let planet_mesh_data = unsafe { &data_view.as_slice()[planet_mesh_start..planet_mesh_end] };
+        let planet_mesh_data =
+            unsafe { &data_view.as_slice()[planet_mesh_start..planet_mesh_end] };
         let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
 
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
@@ -234,8 +234,8 @@ where
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
             node.priority = Priority::from_f32(
-                (node.min_distance * node.min_distance) /
-                    node.bounds.square_distance(camera).max(0.001),
+                (node.min_distance * node.min_distance)
+                    / node.bounds.square_distance(camera).max(0.001),
             );
         }
         for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
@@ -250,8 +250,8 @@ where
             }
 
             for layer in 0..NUM_LAYERS {
-                if qt.nodes[id].tile_indices[layer].is_some() &&
-                    !qt.tile_cache_layers[layer].contains(id)
+                if qt.nodes[id].tile_indices[layer].is_some()
+                    && !qt.tile_cache_layers[layer].contains(id)
                 {
                     qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
                 }
@@ -275,30 +275,32 @@ where
             qt.nodes[id].visible
         });
         // ...Except if all its children are visible instead.
-        self.breadth_first(|qt, id| if qt.nodes[id].visible {
-            let mut mask = 0;
-            let mut has_visible_children = false;
-            for (i, c) in qt.nodes[id].children.iter().enumerate() {
-                if c.is_none() || !qt.nodes[c.unwrap()].visible {
-                    mask = mask | (1 << i);
+        self.breadth_first(|qt, id| {
+            if qt.nodes[id].visible {
+                let mut mask = 0;
+                let mut has_visible_children = false;
+                for (i, c) in qt.nodes[id].children.iter().enumerate() {
+                    if c.is_none() || !qt.nodes[c.unwrap()].visible {
+                        mask = mask | (1 << i);
+                    }
+
+                    if c.is_some() && qt.nodes[c.unwrap()].visible {
+                        has_visible_children = true;
+                    }
                 }
 
-                if c.is_some() && qt.nodes[c.unwrap()].visible {
-                    has_visible_children = true;
+                if mask == 0 {
+                    qt.nodes[id].visible = false;
+                } else if has_visible_children {
+                    qt.partially_visible_nodes.push((id, mask));
+                } else {
+                    qt.visible_nodes.push(id);
                 }
-            }
 
-            if mask == 0 {
-                qt.nodes[id].visible = false;
-            } else if has_visible_children {
-                qt.partially_visible_nodes.push((id, mask));
+                true
             } else {
-                qt.visible_nodes.push(id);
+                false
             }
-
-            true
-        } else {
-            false
         });
     }
 
@@ -345,8 +347,8 @@ where
     }
 
     pub fn get_height(&self, p: Point2<f32>) -> Option<f32> {
-        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x ||
-            self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
+        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x
+            || self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
         {
             return None;
         }
@@ -355,9 +357,9 @@ where
         while self.nodes[id].children.iter().any(|c| c.is_some()) {
             for c in self.nodes[id].children.iter() {
                 if let Some(c) = *c {
-                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x &&
-                        self.nodes[c].bounds.min.z <= p.y &&
-                        self.nodes[c].bounds.max.z >= p.y
+                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x
+                        && self.nodes[c].bounds.min.z <= p.y
+                        && self.nodes[c].bounds.max.z >= p.y
                     {
                         id = c;
                         break;
@@ -391,13 +393,13 @@ where
 
         if fx + fy < 1.0 {
             Some(
-                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy) +
-                    fy * get_texel(ix, iy + 1),
+                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy)
+                    + fy * get_texel(ix, iy + 1),
             )
         } else {
             Some(
-                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1) +
-                    (1.0 - fy) * get_texel(ix + 1, iy),
+                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1)
+                    + (1.0 - fy) * get_texel(ix + 1, iy),
             )
         }
     }

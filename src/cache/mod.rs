@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Stdout, Write};
 use std::path::PathBuf;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 use std::thread;
 
 use bincode::{self, Infinite};
@@ -38,7 +38,9 @@ impl AssetLoadContext {
             bars.push(b);
         }
 
-        thread::spawn(move || { mb.listen(); });
+        thread::spawn(move || {
+            mb.listen();
+        });
 
         Self { bars, level: 0 }
     }

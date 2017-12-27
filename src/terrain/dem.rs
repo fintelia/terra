@@ -31,7 +31,6 @@ const EARTHDATA_WARNING: &'static str =
      required to download elevation data. Once you have them, please remember to \
      `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
 
-
 #[derive(Copy, Clone)]
 pub enum DemSource {
     Usgs30m,
@@ -101,8 +100,7 @@ impl WebAsset for DigitalElevationModelParams {
 
     fn url(&self) -> String {
         let (latitude, longitude) = match self.source {
-            DemSource::Usgs30m |
-            DemSource::Usgs10m => (self.latitude + 1, self.longitude),
+            DemSource::Usgs30m | DemSource::Usgs10m => (self.latitude + 1, self.longitude),
             _ => (self.latitude, self.longitude),
         };
 
@@ -110,27 +108,22 @@ impl WebAsset for DigitalElevationModelParams {
         let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
 
         match self.source {
-            DemSource::Usgs30m |
-            DemSource::Usgs10m => {
-                format!(
-                    "{}{}{:02}{}{:03}.zip",
-                    self.source.url_str(),
-                    n_or_s,
-                    latitude.abs(),
-                    e_or_w,
-                    longitude.abs()
-                )
-            }
-            DemSource::Srtm30m => {
-                format!(
-                    "{}{}{:02}{}{:03}.SRTMGL1.hgt.zip",
-                    self.source.url_str(),
-                    n_or_s.to_uppercase().next().unwrap(),
-                    latitude.abs(),
-                    e_or_w.to_uppercase().next().unwrap(),
-                    longitude.abs()
-                )
-            }
+            DemSource::Usgs30m | DemSource::Usgs10m => format!(
+                "{}{}{:02}{}{:03}.zip",
+                self.source.url_str(),
+                n_or_s,
+                latitude.abs(),
+                e_or_w,
+                longitude.abs()
+            ),
+            DemSource::Srtm30m => format!(
+                "{}{}{:02}{}{:03}.SRTMGL1.hgt.zip",
+                self.source.url_str(),
+                n_or_s.to_uppercase().next().unwrap(),
+                latitude.abs(),
+                e_or_w.to_uppercase().next().unwrap(),
+                longitude.abs()
+            ),
         }
     }
     fn filename(&self) -> String {
@@ -164,8 +157,7 @@ impl WebAsset for DigitalElevationModelParams {
         data: Vec<u8>,
     ) -> Result<Self::Type, Box<::std::error::Error>> {
         match self.source {
-            DemSource::Usgs30m |
-            DemSource::Usgs10m => parse_ned_zip(data),
+            DemSource::Usgs30m | DemSource::Usgs10m => parse_ned_zip(data),
             DemSource::Srtm30m => parse_srtm1_zip(self.latitude, self.longitude, data),
         }
     }
@@ -237,7 +229,8 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Box<Error>> {
         return Err(Box::new(DemError::ParseError));
     }
 
-    let flt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
+    let flt =
+        unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
     let mut elevations: Vec<f32> = Vec::with_capacity(size);
     for f in flt {
         let e = match byte_order {
@@ -278,14 +271,13 @@ fn parse_srtm1_zip(
     }
 
     assert_eq!(hgt.len(), resolution * resolution * 2);
-    let hgt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
+    let hgt =
+        unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
     let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
     for x in 0..resolution {
         for y in 0..resolution {
-            let h = i16::from_be(
-                hgt[(resolution - x - 1) + (resolution - y - 1) * resolution],
-            );
+            let h = i16::from_be(hgt[(resolution - x - 1) + (resolution - y - 1) * resolution]);
             if h == -32768 {
                 elevations.push(0.0);
             } else {

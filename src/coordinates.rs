@@ -1,4 +1,4 @@
-use cgmath::{Vector2, Vector3, Matrix, Matrix3};
+use cgmath::{Matrix, Matrix3, Vector2, Vector3};
 use coord_transforms::geo;
 use coord_transforms::structs::geo_ellipsoid::*;
 use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
@@ -115,18 +115,14 @@ impl CoordinateSystem {
 
     #[inline]
     pub fn warped_to_world(&self, warped: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS *
-            (f64::sqrt(
-                1.0 - (warped.x * warped.x - warped.z * warped.z) / PLANET_RADIUS,
-            ) - 1.0);
+        let shift = PLANET_RADIUS
+            * (f64::sqrt(1.0 - (warped.x * warped.x - warped.z * warped.z) / PLANET_RADIUS) - 1.0);
         Vector3::new(warped.x, warped.y - shift, warped.z)
     }
     #[inline]
     pub fn world_to_warped(&self, world: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS *
-            (f64::sqrt(
-                1.0 - (world.x * world.x - world.z * world.z) / PLANET_RADIUS,
-            ) - 1.0);
+        let shift = PLANET_RADIUS
+            * (f64::sqrt(1.0 - (world.x * world.x - world.z * world.z) / PLANET_RADIUS) - 1.0);
         Vector3::new(world.x, world.y + shift, world.z)
     }
 
@@ -184,7 +180,10 @@ mod tests {
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
         assert_eq!(
             system.lla_to_ecef(Vector3::new(0.2345, -0.637, 10.0)),
-            vec3_na2cgmath(geo::lla2ecef(&na::Vector3::new(0.2345, -0.637, 10.0), &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ecef(
+                &na::Vector3::new(0.2345, -0.637, 10.0),
+                &ELLIPSOID
+            )),
         );
         assert_relative_eq!(
             system.lla_to_ecef(Vector3::new(
@@ -237,17 +236,27 @@ mod tests {
         let system = CoordinateSystem::from_lla(vec3_na2cgmath(lla_origin));
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(0.0, 0.0, 7.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(0.0, 0.0, 7.0), &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(0.0, 0.0, 7.0),
+                &ELLIPSOID
+            )),
         );
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(43.0, -450.0, 10.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(43.0, -450.0, 10.0),
-                                        &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(43.0, -450.0, 10.0),
+                &ELLIPSOID
+            )),
         );
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(-865.0, 1.0, -9.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(-865.0, 1.0, -9.0),
-                                        &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(-865.0, 1.0, -9.0),
+                &ELLIPSOID
+            )),
         );
     }
 
@@ -368,9 +377,7 @@ mod tests {
         b.iter(|| {
             let p = Vector3::new(10.0, 20.0, 30.0);
             system
-                .ecef_to_lla(system.ned_to_ecef(
-                    system.world_to_ned(system.warped_to_world(p)),
-                ))
+                .ecef_to_lla(system.ned_to_ecef(system.world_to_ned(system.warped_to_world(p))))
                 .x
         });
     }

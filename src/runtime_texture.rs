@@ -1,5 +1,5 @@
 use gfx;
-use gfx_core::{self, handle, format};
+use gfx_core::{self, format, handle};
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum TextureFormat {
@@ -119,7 +119,6 @@ impl<R: gfx::Resources> TextureArray<R> {
             }
         }
     }
-
 
     pub fn update_layer<C: gfx_core::command::Buffer<R>>(
         &self,

@@ -33,8 +33,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate shader_version;
 extern crate test;
-extern crate vecmath;
 extern crate vec_map;
+extern crate vecmath;
 extern crate zip;
 
 mod utils;
@@ -48,7 +48,7 @@ pub mod sky;
 pub mod terrain;
 
 pub use sky::Skybox;
-pub use terrain::dem::{DigitalElevationModelParams, DemSource};
+pub use terrain::dem::{DemSource, DigitalElevationModelParams};
 pub use generate::TerrainFileParams;
 pub use terrain::material::MaterialSet;
 pub use terrain::quadtree::QuadTree;
