@@ -698,16 +698,55 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         &mut self,
         _context: &mut AssetLoadContext,
     ) -> Result<MeshDescriptor, Box<Error>> {
-        let root_bounds = self.nodes[0].bounds;
+        fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Box<Error>> {
+            writer.write_f32::<LittleEndian>(v.x)?;
+            writer.write_f32::<LittleEndian>(v.y)?;
+            writer.write_f32::<LittleEndian>(v.z)?;
+            Ok(())
+        };
+
+        let root_side_length = self.nodes[0].side_length;
         let offset = self.bytes_written;
         let mut num_vertices = 0;
 
-        {
+        let resolution = Vector2::new(HEIGHTS_RESOLUTION / 8, (HEIGHTS_RESOLUTION - 1) / 2 + 1);
+        for i in 0..4 {
             let mut vertices = Vec::new();
-            for y in 0..HEIGHTS_RESOLUTION {
-                for x in 0..HEIGHTS_RESOLUTION {
-                    let world = self.world_position(x as i32, y as i32, root_bounds);
-                    let mut world3 = Vector3::new(world.x, -2.0 * EARTH_RADIUS, world.y);
+            for y in 0..resolution.y {
+                for x in 0..resolution.x {
+                    // grid coordinates
+                    let fx = x as f64 / (resolution.x - 1) as f64;
+                    let fy = y as f64 / (resolution.y - 1) as f64;
+
+                    // circle coordinates
+                    let theta = PI * (0.25 + 0.5 * fy);
+                    let cx = (theta.sin() - (PI * 0.25).sin()) * 0.5 * 2f64.sqrt();
+                    let cy = ((PI * 0.25).cos() - theta.cos()) / 2f64.sqrt();
+
+                    // Interpolate between the two points.
+                    let x = fx * cx;
+                    let y = fy * (1.0 - fx) + cy * fx;
+
+                    // Compute location in world space.
+                    let world = Vector2::new(
+                        (x + 0.5) * root_side_length as f64,
+                        (y - 0.5) * root_side_length as f64,
+                    );
+                    let world = match i {
+                        0 => world,
+                        1 => Vector2::new(world.y, world.x),
+                        2 => Vector2::new(-world.x, world.y),
+                        3 => Vector2::new(world.y, -world.x),
+                        _ => unreachable!(),
+                    };
+
+                    // Project onto ellipsoid.
+                    let mut world3 = Vector3::new(
+                        world.x,
+                        EARTH_RADIUS
+                            * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+                        world.y,
+                    );
                     for _ in 0..5 {
                         world3.x = world.x;
                         world3.z = world.y;
@@ -716,39 +755,100 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         world3 = self.system.lla_to_world(lla);
                     }
 
-                    vertices.push(Vector3::<f32>::new(
-                        world3.x as f32,
+                    vertices.push(Vector3::new(
+                        world.x as f32,
                         world3.y as f32,
-                        world3.z as f32,
+                        world.y as f32,
                     ));
                 }
             }
 
-            let mut write_vertex = |v: Vector3<f32>| -> Result<(), Box<Error>> {
-                self.writer.write_f32::<LittleEndian>(v.x)?;
-                self.writer.write_f32::<LittleEndian>(v.y)?;
-                self.writer.write_f32::<LittleEndian>(v.z)?;
-                self.bytes_written += 12;
-                num_vertices += 1;
-                Ok(())
-            };
-            for y in 0..(HEIGHTS_RESOLUTION - 1) as usize {
-                for x in 0..(HEIGHTS_RESOLUTION - 1) as usize {
-                    let v00 = vertices[x + y * HEIGHTS_RESOLUTION as usize];
-                    let v10 = vertices[x + 1 + y * HEIGHTS_RESOLUTION as usize];
-                    let v01 = vertices[x + (y + 1) * HEIGHTS_RESOLUTION as usize];
-                    let v11 = vertices[x + 1 + (y + 1) * HEIGHTS_RESOLUTION as usize];
+            for y in 0..(resolution.y - 1) as usize {
+                for x in 0..(resolution.x - 1) as usize {
+                    let v00 = vertices[x + y * resolution.x as usize];
+                    let v10 = vertices[x + 1 + y * resolution.x as usize];
+                    let v01 = vertices[x + (y + 1) * resolution.x as usize];
+                    let v11 = vertices[x + 1 + (y + 1) * resolution.x as usize];
 
-                    write_vertex(v00)?;
-                    write_vertex(v10)?;
-                    write_vertex(v01)?;
+                    write_vertex(&mut self.writer, v00)?;
+                    write_vertex(&mut self.writer, v10)?;
+                    write_vertex(&mut self.writer, v01)?;
 
-                    write_vertex(v11)?;
-                    write_vertex(v01)?;
-                    write_vertex(v10)?;
+                    write_vertex(&mut self.writer, v11)?;
+                    write_vertex(&mut self.writer, v01)?;
+                    write_vertex(&mut self.writer, v10)?;
+
+                    self.bytes_written += 72;
+                    num_vertices += 6;
                 }
             }
         }
+
+        let mut vertices = Vec::new();
+        let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
+        let resolution = Vector2::new(HEIGHTS_RESOLUTION, ((HEIGHTS_RESOLUTION - 1) / 2) * 4);
+        for y in 0..resolution.y {
+            for x in 0..resolution.x {
+                let fx = x as f64 / (resolution.x - 1) as f64;
+                let fy = y as f64 / (resolution.y - 1) as f64;
+                let theta = 2.0 * PI * fy;
+                let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
+                let mut world3 = Vector3::new(
+                    world.x,
+                    EARTH_RADIUS * ((1.0 - radius / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+                    world.y,
+                );
+                for _ in 0..5 {
+                    world3.x = world.x;
+                    world3.z = world.y;
+                    let mut lla = self.system.world_to_lla(world3);
+                    lla.z = 0.0;
+                    world3 = self.system.lla_to_world(lla);
+                }
+
+                if x > 0 {
+                    world3 = Vector3::new(world.x, world3.y - EARTH_RADIUS * 2.0 * fx, world.y);
+                    let mut lla = self.system.world_to_lla(world3);
+                    lla.z = 0.0;
+                    world3 = self.system.lla_to_world(lla);
+                }
+
+                vertices.push(Vector3::new(
+                    world3.x as f32,
+                    world3.y as f32,
+                    world3.z as f32,
+                ));
+            }
+        }
+        for y in 0..resolution.y as usize {
+            for x in 0..(resolution.x - 1) as usize {
+                let v00 = vertices[x + y * resolution.x as usize];
+                let v10 = vertices[x + 1 + y * resolution.x as usize];
+                let v01 = vertices[x + ((y + 1) % resolution.y as usize) * resolution.x as usize];
+                let v11 =
+                    vertices[x + 1 + ((y + 1) % resolution.y as usize) * resolution.x as usize];
+
+                write_vertex(&mut self.writer, v00)?;
+                write_vertex(&mut self.writer, v10)?;
+                write_vertex(&mut self.writer, v01)?;
+
+                write_vertex(&mut self.writer, v11)?;
+                write_vertex(&mut self.writer, v01)?;
+                write_vertex(&mut self.writer, v10)?;
+
+                self.bytes_written += 72;
+                num_vertices += 6;
+            }
+        }
+        for y in 0..(resolution.y - 2) as usize {
+            for i in [0, y + 1, y + 2].iter() {
+                let v = vertices[(resolution.x as usize - 1) + i * resolution.x as usize];
+                write_vertex(&mut self.writer, v)?;
+            }
+            self.bytes_written += 36;
+            num_vertices += 3;
+        }
+
         Ok(MeshDescriptor {
             bytes: self.bytes_written - offset,
             offset,
