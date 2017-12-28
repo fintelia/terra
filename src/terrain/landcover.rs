@@ -246,12 +246,14 @@ impl WebAsset for BlueMarble {
         let (width, height) = (width as usize, height as usize);
         assert_eq!(decoder.colortype()?, ColorType::RGB(8));
 
-        context.set_progress_and_total(0, height);
+        context.set_progress_and_total(0, height / 108);
         let row_len = decoder.row_len()?;
         let mut values = vec![0; row_len * height];
         for row in 0..height {
             decoder.read_scanline(&mut values[(row * row_len)..((row + 1) * row_len)])?;
-            context.set_progress(row);
+            if (row + 1) % 108 == 0 {
+                context.set_progress((row + 1) / 108);
+            }
         }
 
         Ok(GlobalRaster {
