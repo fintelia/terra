@@ -271,7 +271,8 @@ where
         }
         // Any node with all needed layers in cache is visible...
         self.breadth_first(|qt, id| {
-            qt.nodes[id].visible = qt.nodes[id].priority >= Priority::cutoff();
+            qt.nodes[id].visible =
+                id == NodeId::root() || qt.nodes[id].priority >= Priority::cutoff();
             qt.nodes[id].visible
         });
         // ...Except if all its children are visible instead.
