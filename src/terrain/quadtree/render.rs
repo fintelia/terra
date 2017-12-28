@@ -83,7 +83,7 @@ where
                 gfx::Primitive::TriangleList,
                 gfx::state::Rasterizer {
                     front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Nothing,
+                    cull_face: gfx::state::CullFace::Back,
                     method: gfx::state::RasterMethod::Fill,
                     offset: None,
                     samples: None,
@@ -123,8 +123,8 @@ where
                 gfx::Primitive::TriangleList,
                 gfx::state::Rasterizer {
                     front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Nothing,
-                    method: gfx::state::RasterMethod::Line(1),
+                    cull_face: gfx::state::CullFace::Back,
+                    method: gfx::state::RasterMethod::Fill,
                     offset: None,
                     samples: None,
                 },

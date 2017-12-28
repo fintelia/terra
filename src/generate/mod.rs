@@ -770,13 +770,25 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let v01 = vertices[x + (y + 1) * resolution.x as usize];
                     let v11 = vertices[x + 1 + (y + 1) * resolution.x as usize];
 
-                    write_vertex(&mut self.writer, v00)?;
-                    write_vertex(&mut self.writer, v10)?;
-                    write_vertex(&mut self.writer, v01)?;
+                    // To support back face culling, we must invert draw order if the vertices were
+                    // flipped above.
+                    if i == 0 || i == 3 {
+                        write_vertex(&mut self.writer, v00)?;
+                        write_vertex(&mut self.writer, v10)?;
+                        write_vertex(&mut self.writer, v01)?;
 
-                    write_vertex(&mut self.writer, v11)?;
-                    write_vertex(&mut self.writer, v01)?;
-                    write_vertex(&mut self.writer, v10)?;
+                        write_vertex(&mut self.writer, v11)?;
+                        write_vertex(&mut self.writer, v01)?;
+                        write_vertex(&mut self.writer, v10)?;
+                    } else {
+                        write_vertex(&mut self.writer, v00)?;
+                        write_vertex(&mut self.writer, v01)?;
+                        write_vertex(&mut self.writer, v10)?;
+
+                        write_vertex(&mut self.writer, v11)?;
+                        write_vertex(&mut self.writer, v10)?;
+                        write_vertex(&mut self.writer, v01)?;
+                    }
 
                     self.bytes_written += 72;
                     num_vertices += 6;
@@ -841,7 +853,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             }
         }
         for y in 0..(resolution.y - 2) as usize {
-            for i in [0, y + 1, y + 2].iter() {
+            for i in [0, y + 2, y + 1].iter() {
                 let v = vertices[(resolution.x as usize - 1) + i * resolution.x as usize];
                 write_vertex(&mut self.writer, v)?;
             }
