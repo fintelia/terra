@@ -64,6 +64,9 @@ gfx_pipeline!( sky_pipe {
 gfx_pipeline!( planet_mesh_pipe {
     vertices: gfx::VertexBuffer<PlanetMeshVertex> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
+    sun_direction: gfx::Global<[f32;3]> = "sunDirection",
+    planet_radius: gfx::Global<f32> = "planetRadius",
+    atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });

@@ -214,6 +214,9 @@ where
             planet_mesh_pipeline_data: planet_mesh_pipe::Data {
                 vertices: factory.create_vertex_buffer(planet_mesh_vertices),
                 model_view_projection: [[0.0; 4]; 4],
+                sun_direction: [0.0, 0.70710678118, 0.70710678118],
+                planet_radius: 6371000.0,
+                atmosphere_radius: 6471000.0,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
