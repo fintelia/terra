@@ -802,12 +802,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         for y in 0..resolution.y {
             for x in 0..resolution.x {
                 let fx = x as f64 / (resolution.x - 1) as f64;
-                let fy = y as f64 / (resolution.y - 1) as f64;
+                let fy = y as f64 / resolution.y as f64;
                 let theta = 2.0 * PI * fy;
                 let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
                 let mut world3 = Vector3::new(
                     world.x,
-                    EARTH_RADIUS * ((1.0 - radius / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+                    EARTH_RADIUS * ((1.0 - radius * radius / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
                     world.y,
                 );
                 for _ in 0..5 {
@@ -818,7 +818,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     world3 = self.system.lla_to_world(lla);
                 }
 
-                if x > 0 {
+                if x == 0 {
+                    world3 = Vector3::new(world.x, world3.y, world.y);
+                } else {
                     world3 = Vector3::new(world.x, world3.y - EARTH_RADIUS * 2.0 * fx, world.y);
                     let mut lla = self.system.world_to_lla(world3);
                     lla.z = 0.0;
