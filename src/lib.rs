@@ -50,7 +50,7 @@ pub mod terrain;
 
 pub use sky::Skybox;
 pub use terrain::dem::{DemSource, DigitalElevationModelParams};
-pub use generate::TerrainFileParams;
+pub use generate::{TerrainFileParams, TextureQuality, VertexQuality};
 pub use terrain::material::MaterialSet;
 pub use terrain::quadtree::QuadTree;
 

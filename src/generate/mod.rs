@@ -25,13 +25,70 @@ use utils::math::BoundingBox;
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-const HEIGHTS_RESOLUTION: u16 = 65;
-const TEXTURE_RESOLUTION: u16 = 257;
+/// How much detail should be used when rendering. Higher values require more resources to render,
+/// but produce nicer results.
+pub enum VertexQuality {
+    /// Use up to about 4M triangles per frame.
+    High,
+    /// About 1M triangles per frame.
+    Medium,
+    /// A couple hundred thousand triangles per frame.
+    Low,
+}
+impl VertexQuality {
+    fn resolution(&self) -> u16 {
+        match *self {
+            VertexQuality::Low => 33,
+            VertexQuality::Medium => 65,
+            VertexQuality::High => 129,
+        }
+    }
+    fn as_str(&self) -> &str {
+        match *self {
+            VertexQuality::Low => "vl",
+            VertexQuality::Medium => "vm",
+            VertexQuality::High => "vh",
+        }
+    }
+}
+
+// `TextureQuality` controls the resolutions of textures. Higher values consume much more GPU memory and increase the size of
+pub enum TextureQuality {
+    /// Quality suitable for a 4K display.
+    Ultra,
+    /// Good for resolutions up to 1080p.
+    High,
+    /// About half the quality `High`.
+    Low,
+    /// Bad looking at virtually any resolution, but very fast. Requires vertex quality of medium or
+    /// lower.
+    VeryLow,
+}
+impl TextureQuality {
+    fn resolution(&self) -> u16 {
+        match *self {
+            TextureQuality::VeryLow => 64,
+            TextureQuality::Low => 256,
+            TextureQuality::High => 512,
+            TextureQuality::Ultra => 1024,
+        }
+    }
+    fn as_str(&self) -> &str {
+        match *self {
+            TextureQuality::VeryLow => "tvl",
+            TextureQuality::Low => "tl",
+            TextureQuality::High => "th",
+            TextureQuality::Ultra => "tu",
+        }
+    }
+}
 
 pub struct TerrainFileParams<R: gfx::Resources> {
     pub latitude: i16,
     pub longitude: i16,
     pub source: DemSource,
+    pub vertex_quality: VertexQuality,
+    pub texture_quality: TextureQuality,
     pub materials: MaterialSet<R>,
     pub sky: Skybox<R>,
 }
@@ -63,12 +120,14 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "maps/{}{:02}_{}{:03}_{}m",
+            "maps/{}{:02}_{}{:03}_{}m_{}_{}",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
             self.longitude.abs(),
             self.source.resolution(),
+            self.vertex_quality.as_str(),
+            self.texture_quality.as_str(),
         )
     }
 
@@ -86,13 +145,16 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let dem_cell_size_y =
             self.source.cell_size() / (360.0 * 60.0 * 60.0) * EARTH_CIRCUMFERENCE as f32;
 
-        let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
+        let resolution_ratio =
+            self.texture_quality.resolution() / (self.vertex_quality.resolution() - 1);
+        assert!(resolution_ratio > 0);
 
         let world_size = 1048576.0 / 2.0 * 8.0;
         let max_level = 10i32 - 1 + 3;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
-        let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
+        let cell_size =
+            world_size / ((self.vertex_quality.resolution() - 1) as f32) * (0.5f32).powi(max_level);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
@@ -101,11 +163,9 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let skirt = 4;
         assert_eq!(skirt % 2, 0);
 
-        // Heightmaps for all nodes in layers 0...max_texture_level.
-        // let heightmaps: Vec<Heightmap<f32>> = Vec::new();
-        // Resolution of each heightmap stored in heightmaps. They are at higher resolution that
-        // HEIGHTS_RESOLUTION so that the more detailed textures can be derived from them.
-        let heightmap_resolution = TEXTURE_RESOLUTION as u16 + 2 * skirt;
+        // Resolution of each heightmap stored in heightmaps. They are at higher resolution than
+        // self.vertex_quality.resolution() so that the more detailed textures can be derived from them.
+        let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
             dem_cache: RasterCache::new(Box::new(self.source), 32),
@@ -118,6 +178,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 Heightmap::new(v, 15, 15)
             },
             heightmap_resolution,
+            heights_resolution: self.vertex_quality.resolution(),
             max_texture_level,
             resolution_ratio,
             writer,
@@ -166,8 +227,13 @@ struct State<'a, W: Write, R: gfx::Resources> {
     random: Heightmap<f32>,
     heightmaps: Vec<Heightmap<f32>>,
 
-    skirt: u16,
+    /// Resolution of the heightmap for each quadtree node.
+    heights_resolution: u16,
+    /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
+    /// colormaps. Derived from the target texture resolution.
     heightmap_resolution: u16,
+
+    skirt: u16,
     max_texture_level: i32,
     max_dem_level: i32,
     resolution_ratio: u16,
@@ -208,8 +274,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
         let offset = Vector2::new(offset.x as u16, offset.y as u16);
 
-        for y in 0..HEIGHTS_RESOLUTION {
-            for x in 0..HEIGHTS_RESOLUTION {
+        for y in 0..self.heights_resolution {
+            for x in 0..self.heights_resolution {
                 let height = ancestor_heightmap
                     .get(
                         x * step + offset.x + self.skirt,
@@ -340,9 +406,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
 
         // Write tile.
-        let step = (self.heightmap_resolution - 2 * self.skirt - 1) / (HEIGHTS_RESOLUTION - 1);
-        for y in 0..HEIGHTS_RESOLUTION {
-            for x in 0..HEIGHTS_RESOLUTION {
+        let step = (self.heightmap_resolution - 2 * self.skirt - 1) / (self.heights_resolution - 1);
+        for y in 0..self.heights_resolution {
+            for x in 0..self.heights_resolution {
                 let height = heightmap
                     .get(x * step + self.skirt, y * step + self.skirt)
                     .unwrap();
@@ -358,10 +424,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             layer_type: LayerType::Heights,
             offset: 0,
             tile_count: self.nodes.len(),
-            tile_resolution: HEIGHTS_RESOLUTION as u32,
+            tile_resolution: self.heights_resolution as u32,
             border_size: 0,
             format: TextureFormat::F32,
-            tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
+            tile_bytes: 4 * self.heights_resolution as usize * self.heights_resolution as usize,
         });
 
         context.increment_level("Generating heightmaps... ", self.nodes.len());
@@ -414,10 +480,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 );
 
                 // Write tile.
-                let step =
-                    (self.heightmap_resolution - 2 * self.skirt - 1) / (HEIGHTS_RESOLUTION - 1);
-                for y in 0..HEIGHTS_RESOLUTION {
-                    for x in 0..HEIGHTS_RESOLUTION {
+                let step = (self.heightmap_resolution - 2 * self.skirt - 1)
+                    / (self.heights_resolution - 1);
+                for y in 0..self.heights_resolution {
+                    for x in 0..self.heights_resolution {
                         let height = heightmap
                             .get(x * step + self.skirt, y * step + self.skirt)
                             .unwrap();
@@ -709,7 +775,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let offset = self.bytes_written;
         let mut num_vertices = 0;
 
-        let resolution = Vector2::new(HEIGHTS_RESOLUTION / 8, (HEIGHTS_RESOLUTION - 1) / 2 + 1);
+        let resolution = Vector2::new(
+            self.heights_resolution / 8,
+            (self.heights_resolution - 1) / 2 + 1,
+        );
         for i in 0..4 {
             let mut vertices = Vec::new();
             for y in 0..resolution.y {
@@ -798,7 +867,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
         let mut vertices = Vec::new();
         let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
-        let resolution = Vector2::new(HEIGHTS_RESOLUTION, ((HEIGHTS_RESOLUTION - 1) / 2) * 4);
+        let resolution = Vector2::new(
+            self.heights_resolution,
+            ((self.heights_resolution - 1) / 2) * 4,
+        );
         for y in 0..resolution.y {
             for x in 0..resolution.x {
                 let fx = x as f64 / (resolution.x - 1) as f64;
