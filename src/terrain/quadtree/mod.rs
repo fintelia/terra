@@ -42,6 +42,9 @@ where
     /// Cache holding nearby tiles for each layer.
     tile_cache_layers: VecMap<TileCache<R>>,
 
+    index_buffer: gfx::handle::Buffer<R, u16>,
+    index_buffer_partial: gfx::handle::Buffer<R, u16>,
+
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
     pipeline_data: pipe::Data<R>,
@@ -172,9 +175,39 @@ where
             gfx::texture::WrapMode::Tile,
         ));
 
+        // Extra scope to work around lack of non-lexical lifetimes.
+        let (index_buffer, index_buffer_partial) = {
+            let mut make_index_buffer = |resolution| -> gfx::handle::Buffer<R, u16> {
+                let width = resolution + 1;
+                let mut indices = Vec::new();
+                for y in 0..resolution {
+                    for x in 0..resolution {
+                        for offset in [0, 1, width, 1, width + 1, width].iter() {
+                            indices.push(offset + (x + y * width));
+                        }
+                    }
+                }
+                factory
+                    .create_buffer_immutable(
+                        &indices[..],
+                        gfx::buffer::Role::Index,
+                        gfx::memory::Bind::empty(),
+                    )
+                    .unwrap()
+            };
+            let resolution =
+                (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
+            (
+                make_index_buffer(resolution),
+                make_index_buffer(resolution / 2),
+            )
+        };
+
         Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
+            index_buffer,
+            index_buffer_partial,
             pso: Self::make_pso(&mut factory, shader.as_shader_set()),
             pipeline_data: pipe::Data {
                 instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
