@@ -1,4 +1,5 @@
 use cgmath::*;
+use collision::Aabb3;
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct BoundingBox {
@@ -18,5 +19,12 @@ impl BoundingBox {
         let dy = (self.min.y - p.y).max(0.0).max(p.y - self.max.y);
         let dz = (self.min.z - p.z).max(0.0).max(p.z - self.max.z);
         dx * dx + dy * dy + dz * dz
+    }
+
+    pub fn as_aabb3(&self) -> Aabb3<f32> {
+        Aabb3 {
+            min: self.min,
+            max: self.max,
+        }
     }
 }

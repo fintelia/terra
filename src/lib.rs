@@ -10,6 +10,7 @@ extern crate approx;
 extern crate bincode;
 extern crate byteorder;
 extern crate cgmath;
+extern crate collision;
 extern crate coord_transforms;
 extern crate curl;
 #[macro_use]
