@@ -3,6 +3,7 @@
 #![feature(test)]
 #![feature(unboxed_closures)]
 #![feature(use_nested_groups)]
+#![feature(try_from)]
 
 #[cfg(test)]
 #[macro_use]

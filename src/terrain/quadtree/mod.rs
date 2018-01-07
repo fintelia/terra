@@ -5,13 +5,15 @@ use gfx;
 use gfx::traits::FactoryExt;
 use gfx_core;
 use memmap::Mmap;
+use std::convert::TryFrom;
 use vecmath;
 use vec_map::VecMap;
 
 use rshader;
 
-use std::env;
 use std::collections::VecDeque;
+use std::fmt::Debug;
+use std::env;
 
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
@@ -43,8 +45,8 @@ where
     /// Cache holding nearby tiles for each layer.
     tile_cache_layers: VecMap<TileCache<R>>,
 
-    index_buffer: gfx::handle::Buffer<R, u16>,
-    index_buffer_partial: gfx::handle::Buffer<R, u16>,
+    index_buffer: gfx::IndexBuffer<R>,
+    index_buffer_partial: gfx::IndexBuffer<R>,
 
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
@@ -178,26 +180,40 @@ where
 
         // Extra scope to work around lack of non-lexical lifetimes.
         let (index_buffer, index_buffer_partial) = {
-            let mut make_index_buffer = |resolution| -> gfx::handle::Buffer<R, u16> {
-                let width = resolution + 1;
-                let mut indices = Vec::new();
-                for y in 0..resolution {
-                    for x in 0..resolution {
-                        for offset in [0, 1, width, 1, width + 1, width].iter() {
-                            indices.push(offset + (x + y * width));
+            let mut make_index_buffer = |resolution: u32| -> gfx::IndexBuffer<R> {
+                fn make_indices_inner<R: gfx::Resources, F: gfx::Factory<R>, T>(
+                    factory: &mut F,
+                    resolution: u32,
+                ) -> gfx::handle::Buffer<R, T>
+                where
+                    T: TryFrom<u32> + gfx_core::memory::Pod,
+                    <T as TryFrom<u32>>::Error: Debug,
+                {
+                    let width = resolution + 1;
+                    let mut indices = Vec::new();
+                    for y in 0..resolution {
+                        for x in 0..resolution {
+                            for offset in [0, 1, width, 1, width + 1, width].iter() {
+                                indices.push(T::try_from(offset + (x + y * width)).unwrap());
+                            }
                         }
                     }
+                    factory
+                        .create_buffer_immutable(
+                            &indices[..],
+                            gfx::buffer::Role::Index,
+                            gfx::memory::Bind::empty(),
+                        )
+                        .unwrap()
                 }
-                factory
-                    .create_buffer_immutable(
-                        &indices[..],
-                        gfx::buffer::Role::Index,
-                        gfx::memory::Bind::empty(),
-                    )
-                    .unwrap()
+                if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
+                    gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution))
+                } else {
+                    gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution))
+                }
             };
             let resolution = (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as
-                u16;
+                u32;
             (
                 make_index_buffer(resolution),
                 make_index_buffer(resolution / 2),

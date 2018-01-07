@@ -28,6 +28,8 @@ const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 /// How much detail should be used when rendering. Higher values require more resources to render,
 /// but produce nicer results.
 pub enum VertexQuality {
+    /// Probably overkill. Uses 4x as many triangles as high does.
+    Ultra,
     /// Use up to about 4M triangles per frame.
     High,
     /// About 1M triangles per frame.
@@ -41,6 +43,7 @@ impl VertexQuality {
             VertexQuality::Low => 33,
             VertexQuality::Medium => 65,
             VertexQuality::High => 129,
+            VertexQuality::Ultra => 257,
         }
     }
     fn as_str(&self) -> &str {
@@ -48,6 +51,7 @@ impl VertexQuality {
             VertexQuality::Low => "vl",
             VertexQuality::Medium => "vm",
             VertexQuality::High => "vh",
+            VertexQuality::Ultra => "vu",
         }
     }
 }
