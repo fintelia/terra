@@ -52,7 +52,8 @@ impl VertexQuality {
     }
 }
 
-// `TextureQuality` controls the resolutions of textures. Higher values consume much more GPU memory and increase the size of
+// `TextureQuality` controls the resolutions of textures. Higher values consume much more GPU memory
+// and increase the size of
 pub enum TextureQuality {
     /// Quality suitable for a 4K display.
     Ultra,
@@ -164,7 +165,8 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         assert_eq!(skirt % 2, 0);
 
         // Resolution of each heightmap stored in heightmaps. They are at higher resolution than
-        // self.vertex_quality.resolution() so that the more detailed textures can be derived from them.
+        // self.vertex_quality.resolution() so that the more detailed textures can be derived from
+        // them.
         let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
@@ -636,9 +638,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     for x in (0..resolution).step_by(2) {
                         for i in 0..3 {
                             let p =
-                                srgb_to_linear(
-                                    pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4],
-                                );
+                                pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4];
+                            let p = srgb_to_linear(p);
                             let c00 = srgb_to_linear(colormap[i + (x + y * resolution) * 4]);
                             let c10 = srgb_to_linear(colormap[i + ((x + 1) + y * resolution) * 4]);
                             let c01 = srgb_to_linear(colormap[i + (x + (y + 1) * resolution) * 4]);
@@ -922,12 +923,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 let fy = y as f64 / resolution.y as f64;
                 let theta = 2.0 * PI * fy;
                 let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
-                let mut world3 =
-                    Vector3::new(
-                        world.x,
-                        EARTH_RADIUS * ((1.0 - radius * radius / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
-                        world.y,
-                    );
+                let mut world3 = Vector3::new(
+                    world.x,
+                    EARTH_RADIUS * (1.0 - radius * radius / EARTH_RADIUS).max(0.25).sqrt() -
+                        EARTH_RADIUS,
+                    world.y,
+                );
                 for _ in 0..5 {
                     world3.x = world.x;
                     world3.z = world.y;

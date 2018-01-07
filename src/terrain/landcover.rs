@@ -52,15 +52,18 @@ impl WebAsset for RawLandCoverParams {
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
         match self.kind {
-            LandCoverKind::TreeCover => format!(
+            LandCoverKind::TreeCover => {
+                format!(
                 "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
                  treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
                 e_or_w,
-            ),
-            LandCoverKind::WaterMask => format!(
+            )
+            }
+            LandCoverKind::WaterMask => {
+                format!(
                 "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
                  WaterMask2010_UMD_individual/Hansen_GFC2013_datamask_{:02}{}_{:03}{}\
                  .tif.zip",
@@ -68,7 +71,8 @@ impl WebAsset for RawLandCoverParams {
                 n_or_s,
                 longitude.abs(),
                 e_or_w,
-            ),
+            )
+            }
         }
     }
     fn filename(&self) -> String {
@@ -79,20 +83,24 @@ impl WebAsset for RawLandCoverParams {
         let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
 
         match self.kind {
-            LandCoverKind::TreeCover => format!(
+            LandCoverKind::TreeCover => {
+                format!(
                 "treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
                 e_or_w,
-            ),
-            LandCoverKind::WaterMask => format!(
+            )
+            }
+            LandCoverKind::WaterMask => {
+                format!(
                 "watermask/raw/Hansen_GFC2013_datamask_{:02}{}_{:03}{}.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
                 e_or_w,
-            ),
+            )
+            }
         }
     }
     fn parse(
@@ -165,17 +173,17 @@ impl LandCoverParams {
 
         let values = match self.kind {
             LandCoverKind::TreeCover => values.collect(),
-            LandCoverKind::WaterMask => values
-                .map(|v| {
-                    if v == 1 {
+            LandCoverKind::WaterMask => {
+                values
+                    .map(|v| if v == 1 {
                         0
                     } else if v == 0 || v == 2 {
                         255
                     } else {
                         unreachable!()
-                    }
-                })
-                .collect(),
+                    })
+                    .collect()
+            }
         };
 
         Ok(Raster {
@@ -250,7 +258,9 @@ impl WebAsset for BlueMarble {
         let row_len = decoder.row_len()?;
         let mut values = vec![0; row_len * height];
         for row in 0..height {
-            decoder.read_scanline(&mut values[(row * row_len)..((row + 1) * row_len)])?;
+            decoder.read_scanline(
+                &mut values[(row * row_len)..((row + 1) * row_len)],
+            )?;
             if (row + 1) % 108 == 0 {
                 context.set_progress((row + 1) / 108);
             }

@@ -143,11 +143,9 @@ impl<R: gfx::Resources> TileCache<R> {
             *priority = nodes[id].priority();
         }
 
-        self.min_priority = self.slots
-            .iter()
-            .map(|s| s.0)
-            .min()
-            .unwrap_or(Priority::none());
+        self.min_priority = self.slots.iter().map(|s| s.0).min().unwrap_or(
+            Priority::none(),
+        );
     }
 
     pub fn add_missing(&mut self, element: (Priority, NodeId)) {

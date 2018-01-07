@@ -71,15 +71,15 @@ impl<R: gfx::Resources> Ocean<R> {
                     let kx = (2.0 * PI * x as f32 - PI * RESOLUTION as f32) / side_length;
                     let ky = (2.0 * PI * y as f32 - PI * RESOLUTION as f32) / side_length;
                     let k2 = kx * kx + ky * ky;
-                    if (x as i64 - RESOLUTION as i64 / 2).abs() < RESOLUTION as i64 / 8
-                        || (y as i64 - RESOLUTION as i64 / 2).abs() < RESOLUTION as i64 / 8
+                    if (x as i64 - RESOLUTION as i64 / 2).abs() < RESOLUTION as i64 / 8 ||
+                        (y as i64 - RESOLUTION as i64 / 2).abs() < RESOLUTION as i64 / 8
                     {
                         Zero::zero()
                     } else {
-                        let power = 1.0 * f32::exp(-1.0 / (k2 * l * l))
-                            * f32::exp(-k2 * min_wave_size * min_wave_size)
-                            * f32::powi(kx * wx + ky * wy, 2)
-                            / (k2 * k2);
+                        let power = 1.0 * f32::exp(-1.0 / (k2 * l * l)) *
+                            f32::exp(-k2 * min_wave_size * min_wave_size) *
+                            f32::powi(kx * wx + ky * wy, 2) /
+                            (k2 * k2);
                         Complex::new(
                             normal.ind_sample(&mut rng) as f32,
                             normal.ind_sample(&mut rng) as f32,
@@ -120,44 +120,47 @@ impl<R: gfx::Resources> Ocean<R> {
 
             for y in 0..(resolution as i64) {
                 for x in 0..(resolution as i64) {
-                    self.texture_data[i as usize][x as usize + y as usize * resolution] = if i == 0
-                    {
-                        let sx = get(x + 1, y) - get(x - 1, y);
-                        let sy = get(x, y + 1) - get(x, y - 1);
-                        let n = Vector3::new(sx, 2000.0, sy).normalize();
+                    self.texture_data[i as usize][x as usize + y as usize * resolution] =
+                        if i == 0 {
+                            let sx = get(x + 1, y) - get(x - 1, y);
+                            let sy = get(x, y + 1) - get(x, y - 1);
+                            let n = Vector3::new(sx, 2000.0, sy).normalize();
 
-                        [
-                            (n.x * 127.5 + 127.5) as u8,
-                            (n.z * 127.5 + 127.5) as u8,
-                            (n.y * 127.5 + 127.5) as u8,
-                            ((get(x, y) - min) / (max - min) * 255.0) as u8,
-                        ]
-                    } else if i < 3 {
-                        let (px, py, presolution) =
-                            (x as usize * 2, y as usize * 2, resolution * 2);
-                        let p = [
-                            self.texture_data[i as usize - 1][px + py * presolution],
-                            self.texture_data[i as usize - 1][(px + 1) + py * presolution],
-                            self.texture_data[i as usize - 1][px + (py + 1) * presolution],
-                            self.texture_data[i as usize - 1][(px + 1) + (py + 1) * presolution],
-                        ];
+                            [
+                                (n.x * 127.5 + 127.5) as u8,
+                                (n.z * 127.5 + 127.5) as u8,
+                                (n.y * 127.5 + 127.5) as u8,
+                                ((get(x, y) - min) / (max - min) * 255.0) as u8,
+                            ]
+                        } else if i < 3 {
+                            let (px, py, presolution) =
+                                (x as usize * 2, y as usize * 2, resolution * 2);
+                            let p = [
+                                self.texture_data[i as usize - 1][px + py * presolution],
+                                self.texture_data[i as usize - 1][(px + 1) + py * presolution],
+                                self.texture_data[i as usize - 1][px + (py + 1) * presolution],
+                                self.texture_data[i as usize - 1][(px + 1) +
+                                                                      (py + 1) * presolution],
+                            ];
 
-                        let mut sum = [0.0; 4];
-                        for j in 0..4 {
-                            for k in 0..4 {
-                                sum[j] += p[k][j] as f32;
+                            let mut sum = [0.0; 4];
+                            for j in 0..4 {
+                                for k in 0..4 {
+                                    sum[j] += p[k][j] as f32;
+                                }
                             }
-                        }
 
-                        [
-                            ((sum[0] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
-                            ((sum[1] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
-                            ((sum[2] / 4.0 - 127.5) / i as f32 + 255.0 - 127.5 / i as f32) as u8,
-                            ((sum[3] / 4.0) / i as f32) as u8,
-                        ]
-                    } else {
-                        [128, 128, 255, 0]
-                    };
+                            [
+                                ((sum[0] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
+                                ((sum[1] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
+                                ((sum[2] / 4.0 - 127.5) / i as f32 +
+                                     255.0 * (1.0 - 0.5 / i as f32)) as
+                                    u8,
+                                ((sum[3] / 4.0) / i as f32) as u8,
+                            ]
+                        } else {
+                            [128, 128, 255, 0]
+                        };
                 }
             }
         }
@@ -202,11 +205,11 @@ impl<R: gfx::Resources> Ocean<R> {
                 };
 
                 let h0_k = self.spectrum[x + y * (RESOLUTION + 1)];
-                let h0_nk =
-                    self.spectrum[(RESOLUTION - x) + (RESOLUTION - y) * (RESOLUTION + 1)].conj();
+                let h0_nk = self.spectrum[(RESOLUTION - x) + (RESOLUTION - y) * (RESOLUTION + 1)]
+                    .conj();
 
-                input[x + y * RESOLUTION] =
-                    h0_k * Complex::exp(&exponent) + h0_nk * Complex::exp(&-exponent);
+                input[x + y * RESOLUTION] = h0_k * Complex::exp(&exponent) +
+                    h0_nk * Complex::exp(&-exponent);
             }
         }
 

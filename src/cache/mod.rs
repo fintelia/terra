@@ -38,9 +38,7 @@ impl AssetLoadContext {
             bars.push(b);
         }
 
-        thread::spawn(move || {
-            mb.listen();
-        });
+        thread::spawn(move || { mb.listen(); });
 
         Self { bars, level: 0 }
     }

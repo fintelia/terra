@@ -111,8 +111,8 @@ pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f3
 
                     let height = interp(interp(ad, bd, v.1), interp(cd, dd, v.1), v.0);
 
-                    let i = (h + x * grid_spacing)
-                        + (k + y * grid_spacing) * grid_resolution * grid_spacing;
+                    let i = (h + x * grid_spacing) +
+                        (k + y * grid_spacing) * grid_resolution * grid_spacing;
                     heights[i] = height;
                 }
             }
@@ -260,8 +260,8 @@ pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f
     }
 
     let mean = heights.iter().sum::<f32>() / heights.len() as f32;
-    let variance =
-        heights.iter().map(|n| (n - mean) * (n - mean)).sum::<f32>() / heights.len() as f32;
+    let variance = heights.iter().map(|n| (n - mean) * (n - mean)).sum::<f32>() /
+        heights.len() as f32;
 
     let inv_variance = 1.0 / variance;
     for h in &mut heights {

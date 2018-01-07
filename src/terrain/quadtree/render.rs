@@ -137,20 +137,26 @@ where
     }
 
     pub fn update_shaders(&mut self) {
-        if self.shader
-            .refresh(&mut self.factory, &mut self.shaders_watcher)
+        if self.shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
         {
             self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set());
         }
 
-        if self.sky_shader
-            .refresh(&mut self.factory, &mut self.shaders_watcher)
+        if self.sky_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
         {
             self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set());
         }
 
-        if self.planet_mesh_shader
-            .refresh(&mut self.factory, &mut self.shaders_watcher)
+        if self.planet_mesh_shader.refresh(
+            &mut self.factory,
+            &mut self.shaders_watcher,
+        )
         {
             self.planet_mesh_pso = Self::make_planet_mesh_pso(
                 &mut self.factory,
@@ -184,8 +190,8 @@ where
         let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
         let texture_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
         let texture_border = self.tile_cache_layers[LayerType::Normals.index()].border();
-        let texture_ratio =
-            (texture_resolution - 2 * texture_border) as f32 / texture_resolution as f32;
+        let texture_ratio = (texture_resolution - 2 * texture_border) as f32 /
+            texture_resolution as f32;
         let texture_step = texture_ratio / resolution as f32;
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
@@ -249,13 +255,12 @@ where
                     let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                         .get_slot(id)
                         .unwrap() as f32;
-                    let (
-                        colors_layer,
-                        normals_layer,
-                        water_layer,
-                        texture_offset,
-                        texture_step_scale,
-                    ) = find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
+                    let (colors_layer,
+                         normals_layer,
+                         water_layer,
+                         texture_offset,
+                         texture_step_scale) =
+                        find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -269,10 +274,10 @@ where
                             heights_slot,
                         ],
                         texture_origin: [
-                            texture_origin + texture_offset.x
-                                + offset.0 * (0.5 - texture_origin) * texture_step_scale,
-                            texture_origin + texture_offset.y
-                                + offset.1 * (0.5 - texture_origin) * texture_step_scale,
+                            texture_origin + texture_offset.x +
+                                offset.0 * (0.5 - texture_origin) * texture_step_scale,
+                            texture_origin + texture_offset.y +
+                                offset.1 * (0.5 - texture_origin) * texture_step_scale,
                         ],
                         colors_layer,
                         normals_layer,
