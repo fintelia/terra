@@ -16,13 +16,6 @@ void main() {
 		return;
 	}
 
-	// Check ray planet intersection points.
-	vec2 p2 = rsi(cameraPosition+vec3(0,planetRadius,0), r, planetRadius);
-	if (p2.x < p2.y && p2.y > 0.0) {
-		OutColor = vec4(0,0,0,1);
-		return;
-	}
-
 	vec3 color = atmosphere(cameraPosition, cameraPosition + r * p.y, sunDirection);
 
     // Apply exposure.

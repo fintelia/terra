@@ -1,4 +1,4 @@
-use cgmath::{Vector2, Vector3, Matrix, Matrix3};
+use cgmath::{Matrix, Matrix3, Vector2, Vector3};
 use coord_transforms::geo;
 use coord_transforms::structs::geo_ellipsoid::*;
 use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
@@ -10,7 +10,7 @@ lazy_static! {
     };
 }
 
-const PLANET_RADIUS: f64 = 6371000.0;
+pub const PLANET_RADIUS: f64 = 6371000.0;
 
 /// This struct uses a number of different coordinate systems and provides conversions between them.
 ///
@@ -184,7 +184,10 @@ mod tests {
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
         assert_eq!(
             system.lla_to_ecef(Vector3::new(0.2345, -0.637, 10.0)),
-            vec3_na2cgmath(geo::lla2ecef(&na::Vector3::new(0.2345, -0.637, 10.0), &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ecef(
+                &na::Vector3::new(0.2345, -0.637, 10.0),
+                &ELLIPSOID
+            )),
         );
         assert_relative_eq!(
             system.lla_to_ecef(Vector3::new(
@@ -237,17 +240,27 @@ mod tests {
         let system = CoordinateSystem::from_lla(vec3_na2cgmath(lla_origin));
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(0.0, 0.0, 7.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(0.0, 0.0, 7.0), &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(0.0, 0.0, 7.0),
+                &ELLIPSOID
+            )),
         );
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(43.0, -450.0, 10.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(43.0, -450.0, 10.0),
-                                        &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(43.0, -450.0, 10.0),
+                &ELLIPSOID
+            )),
         );
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(-865.0, 1.0, -9.0))),
-            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(-865.0, 1.0, -9.0),
-                                        &ELLIPSOID)),
+            vec3_na2cgmath(geo::lla2ned(
+                &lla_origin,
+                &na::Vector3::new(-865.0, 1.0, -9.0),
+                &ELLIPSOID
+            )),
         );
     }
 

@@ -1,19 +1,22 @@
-use byteorder::{ReadBytesExt, LittleEndian};
+use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
+use collision::{Frustum, Relation};
 use gfx;
 use gfx::traits::FactoryExt;
 use gfx_core;
 use memmap::Mmap;
+use std::convert::TryFrom;
 use vecmath;
 use vec_map::VecMap;
 
 use rshader;
 
-use std::env;
 use std::collections::VecDeque;
+use std::fmt::Debug;
+use std::env;
 
 use terrain::material::MaterialSet;
-use terrain::tile_cache::{LayerType, NUM_LAYERS, Priority, TileCache, TileHeader};
+use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
 use sky::Skybox;
 use ocean::Ocean;
@@ -42,14 +45,21 @@ where
     /// Cache holding nearby tiles for each layer.
     tile_cache_layers: VecMap<TileCache<R>>,
 
+    index_buffer: gfx::IndexBuffer<R>,
+    index_buffer_partial: gfx::IndexBuffer<R>,
+
     factory: F,
     pso: gfx::PipelineState<R, pipe::Meta>,
     pipeline_data: pipe::Data<R>,
     sky_pso: gfx::PipelineState<R, sky_pipe::Meta>,
     sky_pipeline_data: sky_pipe::Data<R>,
+    planet_mesh_pso: gfx::PipelineState<R, planet_mesh_pipe::Meta>,
+    planet_mesh_pipeline_data: planet_mesh_pipe::Data<R>,
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::Shader<R>,
     sky_shader: rshader::Shader<R>,
+    planet_mesh_shader: rshader::Shader<R>,
+    num_planet_mesh_vertices: usize,
     node_states: Vec<NodeState>,
     _materials: MaterialSet<R>,
 }
@@ -69,9 +79,10 @@ where
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Self {
-        let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
-            env::var("TERRA_SHADER_DIRECTORY").unwrap_or(".".to_string()),
-        ).unwrap();
+        let mut shaders_watcher =
+            rshader::ShaderDirectoryWatcher::new(env::var("TERRA_SHADER_DIRECTORY").unwrap_or(
+                "src/shaders/glsl".to_string(),
+            )).unwrap();
 
         let shader = rshader::Shader::simple(
             &mut factory,
@@ -97,6 +108,19 @@ where
             shader_source!("../../shaders/glsl", "version", "atmosphere", "sky.glslf"),
         ).unwrap();
 
+        let planet_mesh_shader =
+            rshader::Shader::simple(
+                &mut factory,
+                &mut shaders_watcher,
+                shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
+                shader_source!(
+                    "../../shaders/glsl",
+                    "version",
+                    "atmosphere",
+                    "planet_mesh.glslf"
+                ),
+            ).unwrap();
+
         let mut data_view = data_file.into_view_sync();
         let mut tile_cache_layers = VecMap::new();
         for layer in header.layers.iter().cloned() {
@@ -118,6 +142,26 @@ where
                     gfx::texture::AaMode::Single,
                 ),
                 &[gfx::memory::cast_slice(noise_data)],
+            )
+            .unwrap();
+
+        let planet_mesh_start = header.planet_mesh.offset;
+        let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
+        let planet_mesh_data = unsafe { &data_view.as_slice()[planet_mesh_start..planet_mesh_end] };
+        let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
+
+        let pm_texture_start = header.planet_mesh_texture.offset;
+        let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
+        let pm_texture_data = unsafe { &data_view.as_slice()[pm_texture_start..pm_texture_end] };
+        let (planet_mesh_texture, planet_mesh_texture_view) =
+            factory.create_texture_immutable_u8
+            ::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+                gfx::texture::Kind::D2(
+                    header.planet_mesh_texture.resolution as u16,
+                    header.planet_mesh_texture.resolution as u16,
+                    gfx::texture::AaMode::Single,
+                ),
+                &[gfx::memory::cast_slice(pm_texture_data)],
             )
             .unwrap();
 
@@ -150,9 +194,53 @@ where
             gfx::texture::WrapMode::Tile,
         ));
 
+        // Extra scope to work around lack of non-lexical lifetimes.
+        let (index_buffer, index_buffer_partial) = {
+            let mut make_index_buffer = |resolution: u32| -> gfx::IndexBuffer<R> {
+                fn make_indices_inner<R: gfx::Resources, F: gfx::Factory<R>, T>(
+                    factory: &mut F,
+                    resolution: u32,
+                ) -> gfx::handle::Buffer<R, T>
+                where
+                    T: TryFrom<u32> + gfx_core::memory::Pod,
+                    <T as TryFrom<u32>>::Error: Debug,
+                {
+                    let width = resolution + 1;
+                    let mut indices = Vec::new();
+                    for y in 0..resolution {
+                        for x in 0..resolution {
+                            for offset in [0, 1, width, 1, width + 1, width].iter() {
+                                indices.push(T::try_from(offset + (x + y * width)).unwrap());
+                            }
+                        }
+                    }
+                    factory
+                        .create_buffer_immutable(
+                            &indices[..],
+                            gfx::buffer::Role::Index,
+                            gfx::memory::Bind::empty(),
+                        )
+                        .unwrap()
+                }
+                if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
+                    gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution))
+                } else {
+                    gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution))
+                }
+            };
+            let resolution = (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as
+                u32;
+            (
+                make_index_buffer(resolution),
+                make_index_buffer(resolution / 2),
+            )
+        };
+
         Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
+            index_buffer,
+            index_buffer_partial,
             pso: Self::make_pso(&mut factory, shader.as_shader_set()),
             pipeline_data: pipe::Data {
                 instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
@@ -185,11 +273,28 @@ where
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
+            planet_mesh_pso: Self::make_planet_mesh_pso(
+                &mut factory,
+                planet_mesh_shader.as_shader_set(),
+            ),
+            planet_mesh_pipeline_data: planet_mesh_pipe::Data {
+                vertices: factory.create_vertex_buffer(planet_mesh_vertices),
+                model_view_projection: [[0.0; 4]; 4],
+                camera_position: [0.0, 0.0, 0.0],
+                sun_direction: [0.0, 0.70710678118, 0.70710678118],
+                planet_radius: 6371000.0,
+                atmosphere_radius: 6471000.0,
+                color: (planet_mesh_texture_view, sampler.clone()),
+                color_buffer: color_buffer.clone(),
+                depth_buffer: depth_buffer.clone(),
+            },
             ocean,
             factory,
             shaders_watcher,
             shader,
             sky_shader,
+            planet_mesh_shader,
+            num_planet_mesh_vertices: header.planet_mesh.num_vertices,
             nodes: header.nodes,
             node_states: Vec::new(),
             tile_cache_layers,
@@ -229,7 +334,7 @@ where
         }
     }
 
-    fn update_visibility(&mut self) {
+    fn update_visibility(&mut self, cull_frustum: Option<Frustum<f32>>) {
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
         for node in self.nodes.iter_mut() {
@@ -237,7 +342,8 @@ where
         }
         // Any node with all needed layers in cache is visible...
         self.breadth_first(|qt, id| {
-            qt.nodes[id].visible = qt.nodes[id].priority >= Priority::cutoff();
+            qt.nodes[id].visible = id == NodeId::root() ||
+                qt.nodes[id].priority >= Priority::cutoff();
             qt.nodes[id].visible
         });
         // ...Except if all its children are visible instead.
@@ -251,6 +357,13 @@ where
 
                 if c.is_some() && qt.nodes[c.unwrap()].visible {
                     has_visible_children = true;
+                }
+            }
+
+            if let Some(frustum) = cull_frustum {
+                // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
+                if frustum.contains(&qt.nodes[id].bounds.as_aabb3()) == Relation::Out {
+                    mask = 0;
                 }
             }
 
@@ -270,14 +383,24 @@ where
 
     pub fn update<C: gfx_core::command::Buffer<R>>(
         &mut self,
-        mvp_mat: vecmath::Matrix4<f32>,
+        mvp_mat: Matrix4<f32>,
         camera: Point3<f32>,
+        cull_frustum: Option<Frustum<f32>>,
         encoder: &mut gfx::Encoder<R, C>,
         dt: f32,
     ) {
+        // Convert the MVP matrix to "vecmath encoding".
+        let to_array = |v: Vector4<f32>| [v.x, v.y, v.z, v.w];
+        let mvp_mat = [
+            to_array(mvp_mat.x),
+            to_array(mvp_mat.y),
+            to_array(mvp_mat.z),
+            to_array(mvp_mat.w),
+        ];
+
         self.update_priorities(camera);
         self.update_cache(encoder);
-        self.update_visibility();
+        self.update_visibility(cull_frustum);
         self.update_shaders();
 
         self.ocean.update(encoder, dt);
@@ -287,6 +410,9 @@ where
 
         self.sky_pipeline_data.inv_model_view_projection = vecmath::mat4_inv(mvp_mat);
         self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+
+        self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
+        self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

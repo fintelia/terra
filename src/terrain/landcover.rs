@@ -3,7 +3,8 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
 use zip::ZipArchive;
-use image::{self, DynamicImage, GenericImage, ImageLuma8, ImageFormat};
+use image::{self, ColorType, DynamicImage, GenericImage, ImageDecoder, ImageFormat, ImageLuma8};
+use image::png::PNGDecoder;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use terrain::raster::{GlobalRaster, Raster, RasterSource};
@@ -21,13 +22,15 @@ impl RasterSource for LandCoverKind {
         latitude: i16,
         longitude: i16,
     ) -> Option<Raster<u8>> {
-        LandCoverParams {
-            latitude,
-            longitude,
-            kind: *self,
-            raw: None,
-        }.load(context)
-            .ok()
+        Some(
+            LandCoverParams {
+                latitude,
+                longitude,
+                kind: *self,
+                raw: None,
+            }.load(context)
+                .unwrap(),
+        )
     }
 }
 
@@ -50,8 +53,9 @@ impl WebAsset for RawLandCoverParams {
 
         match self.kind {
             LandCoverKind::TreeCover => {
-                format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
-                         treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
+                format!(
+                "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
+                 treecover2010_v3_individual/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
@@ -59,9 +63,10 @@ impl WebAsset for RawLandCoverParams {
             )
             }
             LandCoverKind::WaterMask => {
-                format!("https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
-                         WaterMask2010_UMD_individual/Hansen_GFC2013_datamask_{:02}{}_{:03}{}\
-                         .tif.zip",
+                format!(
+                "https://edcintl.cr.usgs.gov/downloads/sciweb1/shared/gtc/downloads/\
+                 WaterMask2010_UMD_individual/Hansen_GFC2013_datamask_{:02}{}_{:03}{}\
+                 .tif.zip",
                 latitude.abs(),
                 n_or_s,
                 longitude.abs(),
@@ -79,20 +84,22 @@ impl WebAsset for RawLandCoverParams {
 
         match self.kind {
             LandCoverKind::TreeCover => {
-                format!("treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
-                        latitude.abs(),
-                        n_or_s,
-                        longitude.abs(),
-                        e_or_w,
-                )
+                format!(
+                "treecover/raw/{:02}{}_{:03}{}_treecover2010_v3.tif.zip",
+                latitude.abs(),
+                n_or_s,
+                longitude.abs(),
+                e_or_w,
+            )
             }
             LandCoverKind::WaterMask => {
-                format!("watermask/raw/Hansen_GFC2013_datamask_{:02}{}_{:03}{}.tif.zip",
-                        latitude.abs(),
-                        n_or_s,
-                        longitude.abs(),
-                        e_or_w,
-                )
+                format!(
+                "watermask/raw/Hansen_GFC2013_datamask_{:02}{}_{:03}{}.tif.zip",
+                latitude.abs(),
+                n_or_s,
+                longitude.abs(),
+                e_or_w,
+            )
             }
         }
     }
@@ -110,8 +117,8 @@ impl WebAsset for RawLandCoverParams {
         let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
         let image = Arc::new(Mutex::new(image));
 
-        for latitude in self.latitude..(self.latitude + 9) {
-            for longitude in self.longitude..(self.longitude + 9) {
+        for latitude in self.latitude..(self.latitude + 10) {
+            for longitude in self.longitude..(self.longitude + 10) {
                 let params = LandCoverParams {
                     latitude,
                     longitude,
@@ -201,12 +208,13 @@ impl GeneratedAsset for LandCoverParams {
             LandCoverKind::WaterMask => "watermask/processed",
         };
 
-        format!("{}/{:02}{}_{:03}{}.raster",
-                directory,
-                self.latitude.abs(),
-                n_or_s,
-                self.longitude.abs(),
-                e_or_w,
+        format!(
+            "{}/{:02}{}_{:03}{}.raster",
+            directory,
+            self.latitude.abs(),
+            n_or_s,
+            self.longitude.abs(),
+            e_or_w,
         )
     }
 
@@ -229,25 +237,40 @@ impl WebAsset for BlueMarble {
     type Type = GlobalRaster<u8>;
 
     fn url(&self) -> String {
-        "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74218/\
-         world.200412.3x21600x10800.png"
+        "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/\
+         world.200406.3x21600x10800.png"
             .to_owned()
     }
     fn filename(&self) -> String {
-        "bluemarble/world.200412.3x21600x10800.png".to_owned()
+        "bluemarble/world.200406.3x21600x10800.png".to_owned()
     }
     fn parse(
         &self,
-        _context: &mut AssetLoadContext,
+        context: &mut AssetLoadContext,
         data: Vec<u8>,
     ) -> Result<Self::Type, Box<::std::error::Error>> {
-        let image = image::load_from_memory_with_format(&data, ImageFormat::PNG)?
-            .to_rgb();
+        let mut decoder = PNGDecoder::new(Cursor::new(data));
+        let (width, height) = decoder.dimensions()?;
+        let (width, height) = (width as usize, height as usize);
+        assert_eq!(decoder.colortype()?, ColorType::RGB(8));
+
+        context.set_progress_and_total(0, height / 108);
+        let row_len = decoder.row_len()?;
+        let mut values = vec![0; row_len * height];
+        for row in 0..height {
+            decoder.read_scanline(
+                &mut values[(row * row_len)..((row + 1) * row_len)],
+            )?;
+            if (row + 1) % 108 == 0 {
+                context.set_progress((row + 1) / 108);
+            }
+        }
+
         Ok(GlobalRaster {
-            width: image.width() as usize,
-            height: image.height() as usize,
+            width,
+            height,
             bands: 3,
-            values: image.into_raw(),
+            values,
         })
     }
 }
@@ -263,6 +286,7 @@ mod tests {
                 latitude: 165,
                 longitude: 31,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: 160,
@@ -276,6 +300,7 @@ mod tests {
                 latitude: 20,
                 longitude: 20,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: 20,
@@ -289,6 +314,7 @@ mod tests {
                 latitude: -18,
                 longitude: -18,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: -20,
@@ -302,6 +328,7 @@ mod tests {
                 latitude: -30,
                 longitude: -30,
                 kind: LandCoverKind::TreeCover,
+                raw: None,
             }.raw_params(),
             RawLandCoverParams {
                 latitude: -30,

@@ -1,6 +1,4 @@
 #line 2
-#extension GL_ARB_texture_query_lod : enable
-#extension GL_ARB_gpu_shader_fp64 : enable
 
 uniform mat4 modelViewProjection;
 
@@ -100,7 +98,7 @@ void main() {
 		OutColor.rgb = mix(OutColor.rgb, waterColor, waterAmount);
 	}
 
-	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition);
+	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
 	// 	OutColor.rgb = vec3(0);
 }

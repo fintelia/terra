@@ -1,6 +1,6 @@
 use rand;
 use rand::Rng;
-use rand::distributions::{Normal, IndependentSample};
+use rand::distributions::{IndependentSample, Normal};
 
 use std::f32::consts::PI;
 use std::ops::AddAssign;

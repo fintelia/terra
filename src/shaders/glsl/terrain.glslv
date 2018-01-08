@@ -21,19 +21,10 @@ out float fColorsLayer;
 out float fNormalsLayer;
 out float fWaterLayer;
 
-const ivec2 OFFSETS[6] = ivec2[6](
-	ivec2(0,0),
-	ivec2(1,0),
-	ivec2(1,1),
-	ivec2(0,1),
-	ivec2(0,0),
-	ivec2(1,1));
-
 void main() {
 	vec3 position = vec3(0);
-	ivec2 iPosition = ivec2((gl_VertexID/6) % (resolution),
-							(gl_VertexID/6) / (resolution))
-		+ OFFSETS[gl_VertexID % 6];
+	ivec2 iPosition = ivec2((gl_VertexID) % (resolution+1),
+							(gl_VertexID) / (resolution+1));
 
 	vec3 cp = cameraPosition;
 	cp.y = 0;

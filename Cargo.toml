@@ -20,13 +20,15 @@ required-features = ["preview"]
 approx = "0.1.1"
 bincode = "0.8.0"
 byteorder = "1.1.0"
-cgmath = { version = "0.15", features = ["serde"] }
+cgmath = { version = "0.16", features = ["serde"] }
+collision = "0.14.0"
 coord_transforms = { git = "https://github.com/DaveKram/coord_transforms" }
 curl = "0.4"
+flate2 = { version = "1.0.1", features = ["zlib"], default-features = false }
 gfx = "0.16"
 gfx_core = "0.7"
 gfx_text = "0.20"
-image = "0.18"
+image = { git = "https://github.com/PistonDevelopers/image" }
 lazy_static = "0.2"
 lru-cache = "0.1.1"
 memmap = "0.5.2"
@@ -43,7 +45,7 @@ serde_derive = "1.0"
 shader_version = "0.2.1"
 vec_map = "0.8"
 vecmath = "0.3.0"
-zip = "0.2"
+zip = "0.2.7"
 
 # For preview
 camera_controllers = {version = "0.21", optional = true}

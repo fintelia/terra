@@ -1,7 +1,9 @@
+#![feature(iterator_step_by)]
 #![feature(ord_max_min)]
+#![feature(test)]
 #![feature(unboxed_closures)]
 #![feature(use_nested_groups)]
-#![feature(test)]
+#![feature(try_from)]
 
 #[cfg(test)]
 #[macro_use]
@@ -9,6 +11,7 @@ extern crate approx;
 extern crate bincode;
 extern crate byteorder;
 extern crate cgmath;
+extern crate collision;
 extern crate coord_transforms;
 extern crate curl;
 #[macro_use]
@@ -33,8 +36,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate shader_version;
 extern crate test;
-extern crate vecmath;
 extern crate vec_map;
+extern crate vecmath;
 extern crate zip;
 
 mod utils;
@@ -48,8 +51,8 @@ pub mod sky;
 pub mod terrain;
 
 pub use sky::Skybox;
-pub use terrain::dem::{DigitalElevationModelParams, DemSource};
-pub use generate::TerrainFileParams;
+pub use terrain::dem::{DemSource, DigitalElevationModelParams};
+pub use generate::{TerrainFileParams, TextureQuality, VertexQuality};
 pub use terrain::material::MaterialSet;
 pub use terrain::quadtree::QuadTree;
 

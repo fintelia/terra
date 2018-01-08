@@ -28,7 +28,9 @@ impl<R: gfx::Resources> Shader<R> {
     ) -> Result<Self, Box<Error>> {
         let v = create_vertex_shader(factory, &vertex_source.source.unwrap()).unwrap();
         let f = create_pixel_shader(factory, &pixel_source.source.unwrap()).unwrap();
-        Ok(Self { shader_set: gfx::ShaderSet::Simple(v, f) })
+        Ok(Self {
+            shader_set: gfx::ShaderSet::Simple(v, f),
+        })
     }
 
     pub fn as_shader_set(&self) -> &gfx::ShaderSet<R> {

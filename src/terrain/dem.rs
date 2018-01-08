@@ -31,7 +31,6 @@ const EARTHDATA_WARNING: &'static str =
      required to download elevation data. Once you have them, please remember to \
      `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
 
-
 #[derive(Copy, Clone)]
 pub enum DemSource {
     Usgs30m,

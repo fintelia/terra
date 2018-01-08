@@ -5,7 +5,7 @@ use gfx;
 use gfx::format::*;
 use gfx_core;
 use rand;
-use rand::distributions::{Normal, IndependentSample};
+use rand::distributions::{IndependentSample, Normal};
 use rustfft::FFT;
 use rustfft::algorithm::Radix4;
 use rustfft::num_complex::Complex;
@@ -15,7 +15,6 @@ use rustfft::num_traits::Zero;
 
 const RESOLUTION: usize = 128;
 const MIPMAPS: u8 = 8;
-
 
 pub struct Ocean<R: gfx::Resources> {
     side_length: f32,
@@ -154,7 +153,9 @@ impl<R: gfx::Resources> Ocean<R> {
                             [
                                 ((sum[0] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
                                 ((sum[1] / 4.0 - 127.5) / i as f32 + 127.0) as u8,
-                                ((sum[2] / 4.0 - 127.5) / i as f32 + 255.0 - 127.5 / i as f32) as u8,
+                                ((sum[2] / 4.0 - 127.5) / i as f32 +
+                                     255.0 * (1.0 - 0.5 / i as f32)) as
+                                    u8,
                                 ((sum[3] / 4.0) / i as f32) as u8,
                             ]
                         } else {
@@ -209,7 +210,6 @@ impl<R: gfx::Resources> Ocean<R> {
 
                 input[x + y * RESOLUTION] = h0_k * Complex::exp(&exponent) +
                     h0_nk * Complex::exp(&-exponent);
-
             }
         }
 

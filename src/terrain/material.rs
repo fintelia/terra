@@ -7,7 +7,7 @@ use gfx_core;
 use image::{self, GenericImage};
 use zip::ZipArchive;
 
-use cache::{AssetLoadContext, WebAsset, GeneratedAsset};
+use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 
 #[derive(Clone, Copy)]
 enum MaterialType {

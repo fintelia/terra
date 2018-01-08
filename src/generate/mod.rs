@@ -6,7 +6,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
 use rand;
-use rand::distributions::{Normal, IndependentSample};
+use rand::distributions::{IndependentSample, Normal};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use coordinates::CoordinateSystem;
@@ -16,7 +16,8 @@ use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{GlobalRaster, RasterCache};
-use terrain::tile_cache::{TileHeader, LayerParams, LayerType, NoiseParams};
+use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
+                          TileHeader};
 use terrain::landcover::{BlueMarble, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -25,13 +26,75 @@ use utils::math::BoundingBox;
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-const HEIGHTS_RESOLUTION: u16 = 65;
-const TEXTURE_RESOLUTION: u16 = 257;
+/// How much detail should be used when rendering. Higher values require more resources to render,
+/// but produce nicer results.
+pub enum VertexQuality {
+    /// Probably overkill. Uses 4x as many triangles as high does.
+    Ultra,
+    /// Use up to about 4M triangles per frame.
+    High,
+    /// About 1M triangles per frame.
+    Medium,
+    /// A couple hundred thousand triangles per frame.
+    Low,
+}
+impl VertexQuality {
+    fn resolution(&self) -> u16 {
+        match *self {
+            VertexQuality::Low => 33,
+            VertexQuality::Medium => 65,
+            VertexQuality::High => 129,
+            VertexQuality::Ultra => 257,
+        }
+    }
+    fn as_str(&self) -> &str {
+        match *self {
+            VertexQuality::Low => "vl",
+            VertexQuality::Medium => "vm",
+            VertexQuality::High => "vh",
+            VertexQuality::Ultra => "vu",
+        }
+    }
+}
+
+// `TextureQuality` controls the resolutions of textures. Higher values consume much more GPU memory
+// and increase the size of
+pub enum TextureQuality {
+    /// Quality suitable for a 4K display.
+    Ultra,
+    /// Good for resolutions up to 1080p.
+    High,
+    /// About half the quality `High`.
+    Low,
+    /// Bad looking at virtually any resolution, but very fast. Requires vertex quality of medium or
+    /// lower.
+    VeryLow,
+}
+impl TextureQuality {
+    fn resolution(&self) -> u16 {
+        match *self {
+            TextureQuality::VeryLow => 64,
+            TextureQuality::Low => 256,
+            TextureQuality::High => 512,
+            TextureQuality::Ultra => 1024,
+        }
+    }
+    fn as_str(&self) -> &str {
+        match *self {
+            TextureQuality::VeryLow => "tvl",
+            TextureQuality::Low => "tl",
+            TextureQuality::High => "th",
+            TextureQuality::Ultra => "tu",
+        }
+    }
+}
 
 pub struct TerrainFileParams<R: gfx::Resources> {
     pub latitude: i16,
     pub longitude: i16,
     pub source: DemSource,
+    pub vertex_quality: VertexQuality,
+    pub texture_quality: TextureQuality,
     pub materials: MaterialSet<R>,
     pub sky: Skybox<R>,
 }
@@ -63,12 +126,14 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "maps/{}{:02}_{}{:03}_{}m",
+            "maps/{}{:02}_{}{:03}_{}m_{}_{}",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
             self.longitude.abs(),
             self.source.resolution(),
+            self.vertex_quality.as_str(),
+            self.texture_quality.as_str(),
         )
     }
 
@@ -86,13 +151,16 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let dem_cell_size_y = self.source.cell_size() / (360.0 * 60.0 * 60.0) *
             EARTH_CIRCUMFERENCE as f32;
 
-        let resolution_ratio = ((TEXTURE_RESOLUTION - 1) / (HEIGHTS_RESOLUTION - 1)) as u16;
+        let resolution_ratio = self.texture_quality.resolution() /
+            (self.vertex_quality.resolution() - 1);
+        assert!(resolution_ratio > 0);
 
         let world_size = 1048576.0 / 2.0 * 8.0;
         let max_level = 10i32 - 1 + 3;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
-        let cell_size = world_size / ((HEIGHTS_RESOLUTION - 1) as f32) * (0.5f32).powi(max_level);
+        let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32) *
+            (0.5f32).powi(max_level);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
@@ -101,16 +169,13 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let skirt = 4;
         assert_eq!(skirt % 2, 0);
 
-        // Heightmaps for all nodes in layers 0...max_texture_level.
-        // let heightmaps: Vec<Heightmap<f32>> = Vec::new();
-        // Resolution of each heightmap stored in heightmaps. They are at higher resolution that
-        // HEIGHTS_RESOLUTION so that the more detailed textures can be derived from them.
-        let heightmap_resolution = TEXTURE_RESOLUTION as u16 + 2 * skirt;
+        // Resolution of each heightmap stored in heightmaps. They are at higher resolution than
+        // self.vertex_quality.resolution() so that the more detailed textures can be derived from
+        // them.
+        let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
             dem_cache: RasterCache::new(Box::new(self.source), 32),
-            treecover_cache: RasterCache::new(Box::new(LandCoverKind::TreeCover), 128),
-            watermask_cache: RasterCache::new(Box::new(LandCoverKind::WaterMask), 128),
             bluemarble: BlueMarble.load(context)?,
             random: {
                 let normal = Normal::new(0.0, 1.0);
@@ -120,6 +185,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
                 Heightmap::new(v, 15, 15)
             },
             heightmap_resolution,
+            heights_resolution: self.vertex_quality.resolution(),
             max_texture_level,
             resolution_ratio,
             writer,
@@ -148,29 +214,35 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         state.generate_watermasks(context)?;
         context.set_progress(4);
 
+        let planet_mesh = state.generate_planet_mesh(context)?;
+        let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, .. } = state;
 
         Ok(TileHeader {
+            planet_mesh,
+            planet_mesh_texture,
             layers,
             noise,
             nodes,
         })
-
     }
 }
 
 struct State<'a, W: Write, R: gfx::Resources> {
     dem_cache: RasterCache<f32>,
-    treecover_cache: RasterCache<u8>,
-    watermask_cache: RasterCache<u8>,
     bluemarble: GlobalRaster<u8>,
 
     random: Heightmap<f32>,
     heightmaps: Vec<Heightmap<f32>>,
 
-    skirt: u16,
+    /// Resolution of the heightmap for each quadtree node.
+    heights_resolution: u16,
+    /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
+    /// colormaps. Derived from the target texture resolution.
     heightmap_resolution: u16,
+
+    skirt: u16,
     max_texture_level: i32,
     max_dem_level: i32,
     resolution_ratio: u16,
@@ -211,8 +283,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
         let offset = Vector2::new(offset.x as u16, offset.y as u16);
 
-        for y in 0..HEIGHTS_RESOLUTION {
-            for x in 0..HEIGHTS_RESOLUTION {
+        let mut miny = None;
+        let mut maxy = None;
+        for y in 0..self.heights_resolution {
+            for x in 0..self.heights_resolution {
                 let height = ancestor_heightmap
                     .get(
                         x * step + offset.x + self.skirt,
@@ -220,10 +294,22 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     )
                     .unwrap();
 
+                miny = Some(match miny {
+                    Some(y) if y < height => y,
+                    _ => height,
+                });
+                maxy = Some(match maxy {
+                    Some(y) if y > height => y,
+                    _ => height,
+                });
+
                 self.writer.write_f32::<LittleEndian>(height)?;
                 self.bytes_written += 4;
             }
         }
+        self.nodes[i].bounds.min.y = miny.unwrap();
+        self.nodes[i].bounds.max.y = maxy.unwrap();
+
         Ok(())
     }
 
@@ -345,16 +431,29 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
 
         // Write tile.
-        let step = (self.heightmap_resolution - 2 * self.skirt - 1) / (HEIGHTS_RESOLUTION - 1);
-        for y in 0..HEIGHTS_RESOLUTION {
-            for x in 0..HEIGHTS_RESOLUTION {
+        let mut miny = None;
+        let mut maxy = None;
+        let step = (self.heightmap_resolution - 2 * self.skirt - 1) / (self.heights_resolution - 1);
+        for y in 0..self.heights_resolution {
+            for x in 0..self.heights_resolution {
                 let height = heightmap
                     .get(x * step + self.skirt, y * step + self.skirt)
                     .unwrap();
+                miny = Some(match miny {
+                    Some(y) if y < height => y,
+                    _ => height,
+                });
+                maxy = Some(match maxy {
+                    Some(y) if y > height => y,
+                    _ => height,
+                });
                 self.writer.write_f32::<LittleEndian>(height)?;
                 self.bytes_written += 4;
             }
         }
+        self.nodes[i].bounds.min.y = miny.unwrap();
+        self.nodes[i].bounds.max.y = maxy.unwrap();
+
         Ok(heightmap)
     }
 
@@ -363,10 +462,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             layer_type: LayerType::Heights,
             offset: 0,
             tile_count: self.nodes.len(),
-            tile_resolution: HEIGHTS_RESOLUTION as u32,
+            tile_resolution: self.heights_resolution as u32,
             border_size: 0,
             format: TextureFormat::F32,
-            tile_bytes: 4 * HEIGHTS_RESOLUTION as usize * HEIGHTS_RESOLUTION as usize,
+            tile_bytes: 4 * self.heights_resolution as usize * self.heights_resolution as usize,
         });
 
         context.increment_level("Generating heightmaps... ", self.nodes.len());
@@ -381,14 +480,14 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 self.heightmaps.push(heightmap);
             } else {
                 assert_eq!(self.heightmaps.len(), i);
-                let node = &self.nodes[i];
+                let bounds = self.nodes[i].bounds;
                 let mut heights = Vec::with_capacity(
                     self.heightmap_resolution as usize *
                         self.heightmap_resolution as usize,
                 );
                 for y in 0..(self.heightmap_resolution as i32) {
                     for x in 0..(self.heightmap_resolution as i32) {
-                        let world = self.world_position(x, y, node.bounds);
+                        let world = self.world_position(x, y, bounds);
                         let mut world3 = Vector3::new(
                             world.x,
                             EARTH_RADIUS *
@@ -421,17 +520,29 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 );
 
                 // Write tile.
+                let mut miny = None;
+                let mut maxy = None;
                 let step = (self.heightmap_resolution - 2 * self.skirt - 1) /
-                    (HEIGHTS_RESOLUTION - 1);
-                for y in 0..HEIGHTS_RESOLUTION {
-                    for x in 0..HEIGHTS_RESOLUTION {
+                    (self.heights_resolution - 1);
+                for y in 0..self.heights_resolution {
+                    for x in 0..self.heights_resolution {
                         let height = heightmap
                             .get(x * step + self.skirt, y * step + self.skirt)
                             .unwrap();
+                        miny = Some(match miny {
+                            Some(y) if y < height => y,
+                            _ => height,
+                        });
+                        maxy = Some(match maxy {
+                            Some(y) if y > height => y,
+                            _ => height,
+                        });
                         self.writer.write_f32::<LittleEndian>(height)?;
                         self.bytes_written += 4;
                     }
                 }
+                self.nodes[i].bounds.min.y = miny.unwrap();
+                self.nodes[i].bounds.max.y = maxy.unwrap();
 
                 self.heightmaps.push(heightmap);
             }
@@ -440,6 +551,24 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         Ok(())
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+        /// Takes a f64 in the range [0, 1] an converts it to a u8 in the sRGB color space.
+        fn linear_to_srgb(linear: f64) -> u8 {
+            let srgb = if linear <= 0.00313066844250063 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(0.41666666666) - 0.055
+            };
+            (srgb * 255.0) as u8
+        }
+        fn srgb_to_linear(srgb: u8) -> f64 {
+            let srgb = (srgb as f64) * (1.0 / 255.0);
+            if srgb <= 0.0404482362771082 {
+                srgb / 12.92
+            } else {
+                ((srgb + 0.055) / 1.055).powf(2.4)
+            }
+        }
+
         assert!(self.skirt >= 2);
         let colormap_resolution = self.heightmap_resolution - 5;
         self.layers.push(LayerParams {
@@ -454,13 +583,18 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let rock = self.materials.get_average_albedo(0);
         let grass = self.materials.get_average_albedo(1);
         context.increment_level("Generating colormaps... ", self.heightmaps.len());
+        let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
+
+        let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
+            let mut colormap = Vec::new();
             let heights = &self.heightmaps[i];
             let spacing = self.nodes[i].side_length /
                 (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let use_blue_marble = spacing >= self.bluemarble.spacing() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
                     let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
@@ -470,53 +604,75 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 = heights.get(x + 1, y + 1).unwrap();
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-
-                    if world.magnitude2() >= 1000000.0 * 1000000.0 {
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            0,
-                        ) as u8)?;
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            1,
-                        ) as u8)?;
-                        self.writer.write_u8(self.bluemarble.interpolate(
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                            2,
-                        ) as u8)?;
-                        self.writer.write_u8(255)?;
-                        self.bytes_written += 4;
-                        continue;
-                    };
-
+                    let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
-                    if normal.y > 0.9 {
-                        let treecover = self.treecover_cache.interpolate(
-                            context,
-                            lla.x.to_degrees(),
-                            lla.y.to_degrees(),
-                        );
-                        let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
-                        self.writer.write_u8((grass[0] as f64 * t) as u8)?;
-                        self.writer.write_u8((grass[1] as f64 * t) as u8)?;
-                        self.writer.write_u8((grass[2] as f64 * t) as u8)?;
+                    let color = if use_blue_marble {
+                        let r = self.bluemarble.interpolate(lat, long, 0) as u8;
+                        let g = self.bluemarble.interpolate(lat, long, 1) as u8;
+                        let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+                        [r, g, b, light]
                     } else {
-                        self.writer.write_u8(rock[0])?;
-                        self.writer.write_u8(rock[1])?;
-                        self.writer.write_u8(rock[2])?;
-                    }
-                    self.writer.write_u8(light)?;
-                    self.bytes_written += 4;
+                        if normal.y > 0.9 {
+                            let treecover = treecover_cache.interpolate(context, lat, long);
+                            let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
+                            let r = (grass[0] as f64 * t) as u8;
+                            let g = (grass[1] as f64 * t) as u8;
+                            let b = (grass[2] as f64 * t) as u8;
+                            [r, g, b, light]
+                        } else {
+                            [rock[0], rock[1], rock[2], light]
+                        }
+                    };
+                    colormap.extend_from_slice(&color);
                 }
             }
+
+            if let (Some(parent), false) = (self.nodes[i].parent.as_ref(), use_blue_marble) {
+                let resolution = colormap_resolution as usize;
+                let skirt = self.skirt as usize - 2;
+                let offset = node::OFFSETS[parent.1 as usize];
+                let offset = Point2::new(
+                    skirt / 2 + offset.x as usize * (resolution / 2 - skirt),
+                    skirt / 2 + offset.y as usize * (resolution / 2 - skirt),
+                );
+                let pc = &colormaps[parent.0.index()];
+                for y in (0..resolution).step_by(2) {
+                    for x in (0..resolution).step_by(2) {
+                        for i in 0..3 {
+                            let p =
+                                pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4];
+                            let p = srgb_to_linear(p);
+                            let c00 = srgb_to_linear(colormap[i + (x + y * resolution) * 4]);
+                            let c10 = srgb_to_linear(colormap[i + ((x + 1) + y * resolution) * 4]);
+                            let c01 = srgb_to_linear(colormap[i + (x + (y + 1) * resolution) * 4]);
+                            let c11 =
+                                srgb_to_linear(colormap[i + ((x + 1) + (y + 1) * resolution) * 4]);
+
+                            let shift = (p - (c00 + c01 + c10 + c11) * 0.25) * 0.5;
+
+                            colormap[i + (x + y * resolution) * 4] =
+                                linear_to_srgb((c00 + shift).max(0.0).min(1.0));
+                            colormap[i + ((x + 1) + y * resolution) * 4] =
+                                linear_to_srgb((c10 + shift).max(0.0).min(1.0));
+                            colormap[i + (x + (y + 1) * resolution) * 4] =
+                                linear_to_srgb((c01 + shift).max(0.0).min(1.0));
+                            colormap[i + ((x + 1) + (y + 1) * resolution) * 4] =
+                                linear_to_srgb((c11 + shift).max(0.0).min(1.0));
+                        }
+                    }
+                }
+            }
+            colormaps.push(colormap);
+        }
+
+        for colormap in colormaps {
+            self.writer.write_all(&colormap[..])?;
+            self.bytes_written += colormap.len();
         }
         context.decrement_level();
         Ok(())
@@ -581,6 +737,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
         context.increment_level("Generating water masks... ", self.heightmaps.len());
+        let mut watermask_cache = RasterCache::new(Box::new(LandCoverKind::WaterMask), 256);
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
@@ -595,7 +752,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 = heights.get(x + 1, y + 1).unwrap();
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    let w = if world.magnitude2() < 1000000.0 * 1000000.0 {
+                    let w = if world.magnitude2() < 1000000.0 * 1000000.0 && false {
                         let mut w = 0.0;
                         if h00 <= 0.0 {
                             w += 0.25;
@@ -609,7 +766,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         if h11 <= 0.0 {
                             w += 0.25;
                         }
-                        self.watermask_cache
+                        watermask_cache
                             .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
                             .unwrap_or(w * 255.0) as u8
                     } else {
@@ -653,5 +810,232 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
         assert_eq!(self.bytes_written, noise.offset + noise.bytes);
         Ok(noise)
+    }
+
+    fn generate_planet_mesh(
+        &mut self,
+        _context: &mut AssetLoadContext,
+    ) -> Result<MeshDescriptor, Box<Error>> {
+        fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Box<Error>> {
+            writer.write_f32::<LittleEndian>(v.x)?;
+            writer.write_f32::<LittleEndian>(v.y)?;
+            writer.write_f32::<LittleEndian>(v.z)?;
+            Ok(())
+        };
+
+        let root_side_length = self.nodes[0].side_length;
+        let offset = self.bytes_written;
+        let mut num_vertices = 0;
+
+        let resolution = Vector2::new(
+            self.heights_resolution / 8,
+            (self.heights_resolution - 1) / 2 + 1,
+        );
+        for i in 0..4 {
+            let mut vertices = Vec::new();
+            for y in 0..resolution.y {
+                for x in 0..resolution.x {
+                    // grid coordinates
+                    let fx = x as f64 / (resolution.x - 1) as f64;
+                    let fy = y as f64 / (resolution.y - 1) as f64;
+
+                    // circle coordinates
+                    let theta = PI * (0.25 + 0.5 * fy);
+                    let cx = (theta.sin() - (PI * 0.25).sin()) * 0.5 * 2f64.sqrt();
+                    let cy = ((PI * 0.25).cos() - theta.cos()) / 2f64.sqrt();
+
+                    // Interpolate between the two points.
+                    let x = fx * cx;
+                    let y = fy * (1.0 - fx) + cy * fx;
+
+                    // Compute location in world space.
+                    let world = Vector2::new(
+                        (x + 0.5) * root_side_length as f64,
+                        (y - 0.5) * root_side_length as f64,
+                    );
+                    let world = match i {
+                        0 => world,
+                        1 => Vector2::new(world.y, world.x),
+                        2 => Vector2::new(-world.x, world.y),
+                        3 => Vector2::new(world.y, -world.x),
+                        _ => unreachable!(),
+                    };
+
+                    // Project onto ellipsoid.
+                    let mut world3 =
+                        Vector3::new(
+                            world.x,
+                            EARTH_RADIUS *
+                                ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+                            world.y,
+                        );
+                    for _ in 0..5 {
+                        world3.x = world.x;
+                        world3.z = world.y;
+                        let mut lla = self.system.world_to_lla(world3);
+                        lla.z = 0.0;
+                        world3 = self.system.lla_to_world(lla);
+                    }
+
+                    vertices.push(Vector3::new(
+                        world.x as f32,
+                        world3.y as f32,
+                        world.y as f32,
+                    ));
+                }
+            }
+
+            for y in 0..(resolution.y - 1) as usize {
+                for x in 0..(resolution.x - 1) as usize {
+                    let v00 = vertices[x + y * resolution.x as usize];
+                    let v10 = vertices[x + 1 + y * resolution.x as usize];
+                    let v01 = vertices[x + (y + 1) * resolution.x as usize];
+                    let v11 = vertices[x + 1 + (y + 1) * resolution.x as usize];
+
+                    // To support back face culling, we must invert draw order if the vertices were
+                    // flipped above.
+                    if i == 0 || i == 3 {
+                        write_vertex(&mut self.writer, v00)?;
+                        write_vertex(&mut self.writer, v10)?;
+                        write_vertex(&mut self.writer, v01)?;
+
+                        write_vertex(&mut self.writer, v11)?;
+                        write_vertex(&mut self.writer, v01)?;
+                        write_vertex(&mut self.writer, v10)?;
+                    } else {
+                        write_vertex(&mut self.writer, v00)?;
+                        write_vertex(&mut self.writer, v01)?;
+                        write_vertex(&mut self.writer, v10)?;
+
+                        write_vertex(&mut self.writer, v11)?;
+                        write_vertex(&mut self.writer, v10)?;
+                        write_vertex(&mut self.writer, v01)?;
+                    }
+
+                    self.bytes_written += 72;
+                    num_vertices += 6;
+                }
+            }
+        }
+
+        let mut vertices = Vec::new();
+        let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
+        let resolution = Vector2::new(
+            self.heights_resolution,
+            ((self.heights_resolution - 1) / 2) * 4,
+        );
+        for y in 0..resolution.y {
+            for x in 0..resolution.x {
+                let fx = x as f64 / (resolution.x - 1) as f64;
+                let fy = y as f64 / resolution.y as f64;
+                let theta = 2.0 * PI * fy;
+                let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
+                let mut world3 = Vector3::new(
+                    world.x,
+                    EARTH_RADIUS * (1.0 - radius * radius / EARTH_RADIUS).max(0.25).sqrt() -
+                        EARTH_RADIUS,
+                    world.y,
+                );
+                for _ in 0..5 {
+                    world3.x = world.x;
+                    world3.z = world.y;
+                    let mut lla = self.system.world_to_lla(world3);
+                    lla.z = 0.0;
+                    world3 = self.system.lla_to_world(lla);
+                }
+
+                if x == 0 {
+                    world3 = Vector3::new(world.x, world3.y, world.y);
+                } else {
+                    world3 = Vector3::new(world.x, world3.y - EARTH_RADIUS * 2.0 * fx, world.y);
+                    let mut lla = self.system.world_to_lla(world3);
+                    lla.z = 0.0;
+                    world3 = self.system.lla_to_world(lla);
+                }
+
+                vertices.push(Vector3::new(
+                    world3.x as f32,
+                    world3.y as f32,
+                    world3.z as f32,
+                ));
+            }
+        }
+        for y in 0..resolution.y as usize {
+            for x in 0..(resolution.x - 1) as usize {
+                let v00 = vertices[x + y * resolution.x as usize];
+                let v10 = vertices[x + 1 + y * resolution.x as usize];
+                let v01 = vertices[x + ((y + 1) % resolution.y as usize) * resolution.x as usize];
+                let v11 = vertices[x + 1 +
+                                       ((y + 1) % resolution.y as usize) * resolution.x as usize];
+
+                write_vertex(&mut self.writer, v00)?;
+                write_vertex(&mut self.writer, v10)?;
+                write_vertex(&mut self.writer, v01)?;
+
+                write_vertex(&mut self.writer, v11)?;
+                write_vertex(&mut self.writer, v01)?;
+                write_vertex(&mut self.writer, v10)?;
+
+                self.bytes_written += 72;
+                num_vertices += 6;
+            }
+        }
+        for y in 0..(resolution.y - 2) as usize {
+            for i in [0, y + 2, y + 1].iter() {
+                let v = vertices[(resolution.x as usize - 1) + i * resolution.x as usize];
+                write_vertex(&mut self.writer, v)?;
+            }
+            self.bytes_written += 36;
+            num_vertices += 3;
+        }
+
+        Ok(MeshDescriptor {
+            bytes: self.bytes_written - offset,
+            offset,
+            num_vertices,
+        })
+    }
+
+    fn generate_planet_mesh_texture(
+        &mut self,
+        _context: &mut AssetLoadContext,
+    ) -> Result<TextureDescriptor, Box<Error>> {
+        let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
+        let descriptor = TextureDescriptor {
+            offset: self.bytes_written,
+            resolution: resolution as u32,
+            format: TextureFormat::SRGBA,
+            bytes: resolution * resolution * 4,
+        };
+
+        for y in 0..resolution {
+            for x in 0..resolution {
+                let fx = 2.0 * (x as f64 + 0.5) / resolution as f64 - 1.0;
+                let fy = 2.0 * (y as f64 + 0.5) / resolution as f64 - 1.0;
+                let r = (fx * fx + fy * fy).sqrt().min(1.0);
+
+                let phi = r * PI;
+                let theta = f64::atan2(fy, fx);
+
+                let world3 = Vector3::new(
+                    EARTH_RADIUS * theta.cos() * phi.sin(),
+                    EARTH_RADIUS * (phi.cos() - 1.0),
+                    EARTH_RADIUS * theta.sin() * phi.sin(),
+                );
+                let lla = self.system.world_to_lla(world3);
+
+                let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+                let r = self.bluemarble.interpolate(lat, long, 0) as u8;
+                let g = self.bluemarble.interpolate(lat, long, 1) as u8;
+                let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+
+                self.writer.write_u8(r)?;
+                self.writer.write_u8(g)?;
+                self.writer.write_u8(b)?;
+                self.writer.write_u8(255)?;
+                self.bytes_written += 4;
+            }
+        }
+        Ok(descriptor)
     }
 }
