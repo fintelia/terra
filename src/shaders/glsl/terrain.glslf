@@ -98,7 +98,7 @@ void main() {
 		OutColor.rgb = mix(OutColor.rgb, waterColor, waterAmount);
 	}
 
-	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition);
+	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
 	// 	OutColor.rgb = vec3(0);
 }

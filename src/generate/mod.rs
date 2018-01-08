@@ -16,7 +16,8 @@ use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{GlobalRaster, RasterCache};
-use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TileHeader};
+use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
+                          TileHeader};
 use terrain::landcover::{BlueMarble, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -214,11 +215,13 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         context.set_progress(4);
 
         let planet_mesh = state.generate_planet_mesh(context)?;
+        let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, .. } = state;
 
         Ok(TileHeader {
             planet_mesh,
+            planet_mesh_texture,
             layers,
             noise,
             nodes,
@@ -991,5 +994,48 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             offset,
             num_vertices,
         })
+    }
+
+    fn generate_planet_mesh_texture(
+        &mut self,
+        _context: &mut AssetLoadContext,
+    ) -> Result<TextureDescriptor, Box<Error>> {
+        let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
+        let descriptor = TextureDescriptor {
+            offset: self.bytes_written,
+            resolution: resolution as u32,
+            format: TextureFormat::SRGBA,
+            bytes: resolution * resolution * 4,
+        };
+
+        for y in 0..resolution {
+            for x in 0..resolution {
+                let fx = 2.0 * (x as f64 + 0.5) / resolution as f64 - 1.0;
+                let fy = 2.0 * (y as f64 + 0.5) / resolution as f64 - 1.0;
+                let r = (fx * fx + fy * fy).sqrt().min(1.0);
+
+                let phi = r * PI;
+                let theta = f64::atan2(fy, fx);
+
+                let world3 = Vector3::new(
+                    EARTH_RADIUS * theta.cos() * phi.sin(),
+                    EARTH_RADIUS * (phi.cos() - 1.0),
+                    EARTH_RADIUS * theta.sin() * phi.sin(),
+                );
+                let lla = self.system.world_to_lla(world3);
+
+                let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+                let r = self.bluemarble.interpolate(lat, long, 0) as u8;
+                let g = self.bluemarble.interpolate(lat, long, 1) as u8;
+                let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+
+                self.writer.write_u8(r)?;
+                self.writer.write_u8(g)?;
+                self.writer.write_u8(b)?;
+                self.writer.write_u8(255)?;
+                self.bytes_written += 4;
+            }
+        }
+        Ok(descriptor)
     }
 }

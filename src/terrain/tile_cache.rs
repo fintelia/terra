@@ -85,11 +85,20 @@ pub(crate) struct MeshDescriptor {
 }
 
 #[derive(Serialize, Deserialize)]
+pub(crate) struct TextureDescriptor {
+    pub offset: usize,
+    pub resolution: u32,
+    pub format: TextureFormat,
+    pub bytes: usize,
+}
+
+#[derive(Serialize, Deserialize)]
 pub(crate) struct TileHeader {
     pub layers: Vec<LayerParams>,
     pub noise: NoiseParams,
     pub nodes: Vec<Node>,
     pub planet_mesh: MeshDescriptor,
+    pub planet_mesh_texture: TextureDescriptor,
 }
 
 pub(crate) struct TileCache<R: gfx::Resources> {

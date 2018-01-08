@@ -79,9 +79,10 @@ where
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Self {
-        let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
-            env::var("TERRA_SHADER_DIRECTORY").unwrap_or(".".to_string()),
-        ).unwrap();
+        let mut shaders_watcher =
+            rshader::ShaderDirectoryWatcher::new(env::var("TERRA_SHADER_DIRECTORY").unwrap_or(
+                "src/shaders/glsl".to_string(),
+            )).unwrap();
 
         let shader = rshader::Shader::simple(
             &mut factory,
@@ -148,6 +149,21 @@ where
         let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
         let planet_mesh_data = unsafe { &data_view.as_slice()[planet_mesh_start..planet_mesh_end] };
         let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
+
+        let pm_texture_start = header.planet_mesh_texture.offset;
+        let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
+        let pm_texture_data = unsafe { &data_view.as_slice()[pm_texture_start..pm_texture_end] };
+        let (planet_mesh_texture, planet_mesh_texture_view) =
+            factory.create_texture_immutable_u8
+            ::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+                gfx::texture::Kind::D2(
+                    header.planet_mesh_texture.resolution as u16,
+                    header.planet_mesh_texture.resolution as u16,
+                    gfx::texture::AaMode::Single,
+                ),
+                &[gfx::memory::cast_slice(pm_texture_data)],
+            )
+            .unwrap();
 
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
             .get_texture_view_f32()
@@ -264,9 +280,11 @@ where
             planet_mesh_pipeline_data: planet_mesh_pipe::Data {
                 vertices: factory.create_vertex_buffer(planet_mesh_vertices),
                 model_view_projection: [[0.0; 4]; 4],
+                camera_position: [0.0, 0.0, 0.0],
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                color: (planet_mesh_texture_view, sampler.clone()),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -394,6 +412,7 @@ where
         self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
 
         self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
+        self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

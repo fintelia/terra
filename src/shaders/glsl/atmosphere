@@ -111,3 +111,8 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
     // Calculate and return the final color.
     return iSun * (pRlh * kRlh * totalRlh + pMie * kMie * totalMie);
 }
+
+vec3 aerial_perspective(vec3 color, vec3 position, vec3 cameraPosition, vec3 sunDirection) {
+	vec3 air = atmosphere(cameraPosition, position, sunDirection);
+    return 1.0 - exp(-0.75 * air) + color;
+}
