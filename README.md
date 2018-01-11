@@ -3,6 +3,8 @@
 Terra is a large scale terrain rendering library built on top of
 [gfx](https://github.com/gfx-rs/gfx).
 
+![Screenshot](/screenshot.png?raw=true)
+
 # Features
 
 ### Open World
@@ -31,8 +33,6 @@ Terra is also capable of generating terrains based on real world data. Elevation
 from either the STRM 30m dataset or USGS's National Elevation Dataset and then enhanced using
 fractal refinement, while water masks and land cover data are incorporated to generate other terrain
 features.
-
-![Screenshot](/screenshot.png?raw=true)
 
 # Status
 Terrain:
