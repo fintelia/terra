@@ -53,8 +53,8 @@ Atmosphere:
 
 # Data Sources / Credits
 
-During operation, Terra downloads and merges datasets from a variety of sources. If you integrate
-Terra into your own project, please be sure to give proper credit to all of the following.
+During operation, this library downloads and merges datasets from a variety of sources. If you integrate
+it into your own project, please be sure to give proper credit to all of the following as applicable.
 
 ## Elevation data
 
