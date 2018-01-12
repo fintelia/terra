@@ -7,7 +7,7 @@ use image::{self, ColorType, DynamicImage, GenericImage, ImageDecoder, ImageForm
 use image::png::PNGDecoder;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use terrain::raster::{GlobalRaster, Raster, RasterSource};
+use terrain::raster::{BitContainer, GlobalRaster, Raster, RasterSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
@@ -272,6 +272,45 @@ impl WebAsset for BlueMarble {
             bands: 3,
             values,
         })
+    }
+}
+
+pub struct GlobalWaterMask;
+impl WebAsset for GlobalWaterMask {
+    type Type = GlobalRaster<f64, BitContainer>;
+
+    fn url(&self) -> String {
+        "https://landcover.usgs.gov/documents/GlobalLandCover_tif.zip".to_owned()
+    }
+    fn filename(&self) -> String {
+        "watermask/GlobalLandCover_tif.zip".to_owned()
+    }
+    fn parse(
+        &self,
+        context: &mut AssetLoadContext,
+        data: Vec<u8>,
+    ) -> Result<Self::Type, Box<::std::error::Error>> {
+        context.set_progress_and_total(0, 100);
+        let mut zip = ZipArchive::new(Cursor::new(data))?;
+        assert_eq!(zip.len(), 1);
+
+        let mut data = Vec::new();
+        zip.by_index(0)?.read_to_end(&mut data)?;
+
+        let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
+        context.set_progress(100);
+        let (width, height) = image.dimensions();
+        let (width, height) = (width as usize, height as usize);
+        if let DynamicImage::ImageLuma8(image) = image {
+            Ok(GlobalRaster {
+                width,
+                height,
+                bands: 1,
+                values: BitContainer(image.into_raw().into_iter().map(|v| v == 0).collect()),
+            })
+        } else {
+            unreachable!()
+        }
     }
 }
 

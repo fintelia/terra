@@ -15,10 +15,10 @@ use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::raster::{GlobalRaster, RasterCache};
+use terrain::raster::{BitContainer, GlobalRaster, RasterCache};
 use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
                           TileHeader};
-use terrain::landcover::{BlueMarble, LandCoverKind};
+use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
 
@@ -177,6 +177,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
         let mut state = State {
             dem_cache: RasterCache::new(Box::new(self.source), 32),
             bluemarble: BlueMarble.load(context)?,
+            global_watermask: GlobalWaterMask.load(context)?,
             random: {
                 let normal = Normal::new(0.0, 1.0);
                 let v = (0..(15 * 15))
@@ -232,6 +233,7 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
 struct State<'a, W: Write, R: gfx::Resources> {
     dem_cache: RasterCache<f32>,
     bluemarble: GlobalRaster<u8>,
+    global_watermask: GlobalRaster<f64, BitContainer>,
 
     random: Heightmap<f32>,
     heightmaps: Vec<Heightmap<f32>>,
@@ -752,7 +754,17 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 = heights.get(x + 1, y + 1).unwrap();
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    let w = if world.magnitude2() < 1000000.0 * 1000000.0 && false {
+
+                    let spacing = self.nodes[i].side_length /
+                        (self.heightmap_resolution - 2 * self.skirt) as f32;
+                    let use_global_watermask = spacing >= self.global_watermask.spacing() as f32;
+                    let w = if use_global_watermask {
+                        self.global_watermask.interpolate(
+                            lla.x.to_degrees(),
+                            lla.y.to_degrees(),
+                            0,
+                        )
+                    } else {
                         let mut w = 0.0;
                         if h00 <= 0.0 {
                             w += 0.25;
@@ -768,12 +780,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         }
                         watermask_cache
                             .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
-                            .unwrap_or(w * 255.0) as u8
-                    } else {
-                        0
+                            .unwrap_or(w * 255.0)
                     };
 
-                    self.writer.write_u8(w)?;
+                    self.writer.write_u8(w as u8)?;
                     self.writer.write_u8(0)?;
                     self.writer.write_u8(255)?;
                     self.writer.write_u8(0)?;
@@ -1028,11 +1038,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 let r = self.bluemarble.interpolate(lat, long, 0) as u8;
                 let g = self.bluemarble.interpolate(lat, long, 1) as u8;
                 let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+                let aa = self.global_watermask.interpolate(lat, long, 0) as u8;
 
                 self.writer.write_u8(r)?;
                 self.writer.write_u8(g)?;
                 self.writer.write_u8(b)?;
-                self.writer.write_u8(255)?;
+                self.writer.write_u8(aa)?;
                 self.bytes_written += 4;
             }
         }

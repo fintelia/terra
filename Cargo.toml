@@ -19,6 +19,7 @@ required-features = ["preview"]
 [dependencies]
 approx = "0.1.1"
 bincode = "0.8.0"
+bit-vec = "0.4.4"
 byteorder = "1.1.0"
 cgmath = { version = "0.16", features = ["serde"] }
 collision = "0.14.0"

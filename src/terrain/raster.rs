@@ -1,3 +1,4 @@
+use bit_vec::BitVec;
 use lru_cache::LruCache;
 
 use cache::AssetLoadContext;
@@ -5,6 +6,17 @@ use coordinates;
 
 use std::collections::HashSet;
 use std::f64::consts::PI;
+use std::ops::Index;
+
+/// Wrapper around BitVec that converts values to f64's so that it can be uses as a backing for a
+/// GlobalRaster.
+pub struct BitContainer(pub BitVec<u32>);
+impl Index<usize> for BitContainer {
+    type Output = f64;
+    fn index(&self, i: usize) -> &f64 {
+        if self.0[i] { &255.0 } else { &0.0 }
+    }
+}
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
 #[derive(Serialize, Deserialize)]
@@ -96,13 +108,13 @@ impl<T: Into<f64> + Copy> RasterCache<T> {
 }
 
 /// Currently assumes that values are taken at the *center* of cells.
-pub(crate) struct GlobalRaster<T: Into<f64> + Copy> {
+pub(crate) struct GlobalRaster<T: Into<f64> + Copy, C: Index<usize, Output = T> = Vec<T>> {
     pub width: usize,
     pub height: usize,
     pub bands: usize,
-    pub values: Vec<T>,
+    pub values: C,
 }
-impl<T: Into<f64> + Copy> GlobalRaster<T> {
+impl<T: Into<f64> + Copy, C: Index<usize, Output = T>> GlobalRaster<T, C> {
     /// Returns the approximate grid spacing in meters.
     pub fn spacing(&self) -> f64 {
         let sx = 2.0 * PI * coordinates::PLANET_RADIUS / self.width as f64;

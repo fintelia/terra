@@ -97,6 +97,7 @@ where
                 "../../shaders/glsl",
                 "version",
                 "atmosphere",
+                "hash",
                 "terrain.glslf"
             ),
         ).unwrap();
@@ -105,7 +106,13 @@ where
             &mut factory,
             &mut shaders_watcher,
             shader_source!("../../shaders/glsl", "version", "sky.glslv"),
-            shader_source!("../../shaders/glsl", "version", "atmosphere", "sky.glslf"),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "hash",
+                "sky.glslf"
+            ),
         ).unwrap();
 
         let planet_mesh_shader =
@@ -117,6 +124,7 @@ where
                     "../../shaders/glsl",
                     "version",
                     "atmosphere",
+                    "hash",
                     "planet_mesh.glslf"
                 ),
             ).unwrap();

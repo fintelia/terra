@@ -58,7 +58,7 @@ vec3 material(vec3 pos, uint mat) {
 }
 
 vec3 compute_splatting(vec3 pos, vec2 t) {
-	//	t += 0.0001 * fractal(pos.xz).xy * 10;
+//	t += 0.0001 * fractal(pos.xz).xy * 10;
 
 	vec2 weights = fract(t.xy * textureSize(normals, 0).xy - 0.5);
 	uvec4 m = uvec4(ceil(textureGather(normals, vec3(t, fNormalsLayer), 3) * 255));
@@ -70,35 +70,39 @@ vec3 compute_splatting(vec3 pos, vec2 t) {
 		material(pos, m.z) * w.z +
 		material(pos, m.w) * w.w;
 }
+
+vec3 water_color() {
+	vec3 ray = normalize(fPosition - cameraPosition);
+	vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
+	vec3 reflected = reflect(ray, normalize(normal));
+
+	vec3 reflectedColor = vec3(0,0.05,0.1);//textureLod(sky, normalize(reflected), 5).rgb;
+	vec3 refractedColor = vec3(0,0.1,0.2)*0.5;
+
+	float R0 = pow(0.333 / 2.333, 2);
+	float R = R0 + (1 - R0) * pow(1 - reflected.y, 5);
+	return mix(refractedColor, reflectedColor, R);
+}
+
 void main() {
+	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
 	if(fNormalsLayer >= 0) {
 		vec3 normal = normalize(texture(normals, vec3(fTexcoord, fNormalsLayer)).xyz * 2.0 - 1.0);
 
 		OutColor.rgb = compute_splatting(fPosition, fTexcoord);
+		OutColor.rgb = mix(OutColor.rgb, vec3(0,0.05,0.1), waterAmount);
 		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1)));
 	} else {
 		vec4 color = texture(colors, vec3(fTexcoord, fColorsLayer));
 
 		OutColor = vec4(color.rgb, 1);
+		OutColor.rgb = mix(OutColor.rgb, vec3(0,0.05,0.1), waterAmount);
 		OutColor.rgb *= color.a;
 	}
 
-	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
-	if(waterAmount > 0) {
-		vec3 ray = normalize(fPosition - cameraPosition);
-		vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
-		vec3 reflected = reflect(ray, normalize(normal));
-
-		vec3 reflectedColor = vec3(0,0.05,0.1);//textureLod(sky, normalize(reflected), 5).rgb;
-		vec3 refractedColor = vec3(0,0.1,0.2)*0.5;
-
-		float R0 = pow(0.333 / 2.333, 2);
-		float R = R0 + (1 - R0) * pow(1 - reflected.y, 5);
-		vec3 waterColor = mix(refractedColor, reflectedColor, R);
-		OutColor.rgb = mix(OutColor.rgb, waterColor, waterAmount);
-	}
 
 	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
 	// 	OutColor.rgb = vec3(0);
+	OutColor.rgb += dither();
 }

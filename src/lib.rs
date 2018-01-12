@@ -9,6 +9,7 @@
 #[macro_use]
 extern crate approx;
 extern crate bincode;
+extern crate bit_vec;
 extern crate byteorder;
 extern crate cgmath;
 extern crate collision;
