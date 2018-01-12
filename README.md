@@ -65,7 +65,7 @@ it into your own project, please be sure to give proper credit to all of the fol
 
 * [Global Surface Water](https://landcover.usgs.gov/glc/WaterDescriptionAndDownloads.php)
 * [Global Tree Canopy Cover circa 2010](https://landcover.usgs.gov/glc/TreeCoverDescriptionAndDownloads.php)
-* [Global Land Cover by National Mapping Organizations: GLCNMO Version 3 © Geospatial Information Authority of Japan, Chiba University and Collaborating Organizations](https://github.com/globalmaps/gm_lc_v3)
+* [0.5 km MODIS-based Global Land Cover Climatology](https://landcover.usgs.gov/global_climatology.php)
 
 ## Other Datasets
 
