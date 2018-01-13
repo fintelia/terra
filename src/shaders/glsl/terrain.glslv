@@ -11,15 +11,19 @@ in float vMinDistance;
 in vec3 heightsOrigin;
 in vec2 textureOrigin;
 in float textureStep;
-in float colorsLayer;
-in float normalsLayer;
-in float waterLayer;
+in vec2 parentTextureOrigin;
+in float parentTextureStep;
+in vec2 colorsLayer;
+in vec2 normalsLayer;
+in vec2 waterLayer;
 
 out vec3 fPosition;
 out vec2 fTexcoord;
-out float fColorsLayer;
-out float fNormalsLayer;
-out float fWaterLayer;
+out vec2 fParentTexcoord;
+out vec2 fColorsLayer;
+out vec2 fNormalsLayer;
+out vec2 fWaterLayer;
+out float fMorph;
 
 void main() {
 	vec3 position = vec3(0);
@@ -33,6 +37,8 @@ void main() {
 	    * (vSideLength / (resolution)) + vPosition;
 	float morph = 1 - smoothstep(0.7, 0.95, distance(position, cameraPosition) / vMinDistance);
 	morph = min(morph * 2, 1);
+	if(colorsLayer.y < 0)
+		morph = 1;
 
 	position.y = texture(heights,
 						 heightsOrigin + vec3(vec2(iPosition + 0.5) / textureSize(heights, 0).xy, 0)).r;
@@ -47,8 +53,10 @@ void main() {
 
 	fPosition = position;
 	fTexcoord = textureOrigin + nPosition * textureStep;
+	fParentTexcoord = parentTextureOrigin + nPosition * parentTextureStep;
 	fColorsLayer = colorsLayer;
 	fNormalsLayer = normalsLayer;
 	fWaterLayer = waterLayer;
+	fMorph = morph;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

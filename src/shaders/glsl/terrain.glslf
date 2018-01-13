@@ -16,9 +16,11 @@ uniform vec3 sunDirection;
 
 in vec3 fPosition;
 in vec2 fTexcoord;
-in float fColorsLayer;
-in float fNormalsLayer;
-in float fWaterLayer;
+in vec2 fParentTexcoord;
+in vec2 fColorsLayer;
+in vec2 fNormalsLayer;
+in vec2 fWaterLayer;
+in float fMorph;
 
 out vec4 OutColor;
 
@@ -84,22 +86,33 @@ vec3 water_color() {
 	return mix(refractedColor, reflectedColor, R);
 }
 
-void main() {
-	float waterAmount = texture(water, vec3(fTexcoord, fWaterLayer)).x;
-	if(fNormalsLayer >= 0) {
-		vec3 normal = normalize(texture(normals, vec3(fTexcoord, fNormalsLayer)).xyz * 2.0 - 1.0);
+vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float waterLayer) {
+	float waterAmount = texture(water, vec3(texcoord, waterLayer)).x;
+	if(normalsLayer >= 0 && false) {
+		vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);
 
-		OutColor.rgb = compute_splatting(fPosition, fTexcoord);
-		OutColor.rgb = mix(OutColor.rgb, vec3(0,0.05,0.1), waterAmount);
-		OutColor.rgb *= dot(normal, normalize(vec3(0,1,1)));
+		vec3 color = compute_splatting(fPosition, texcoord);
+		color = mix(color, vec3(0,0.05,0.1), waterAmount);
+		color *= dot(normal, sunDirection);
+		return color;
 	} else {
-		vec4 color = texture(colors, vec3(fTexcoord, fColorsLayer));
-
-		OutColor = vec4(color.rgb, 1);
-		OutColor.rgb = mix(OutColor.rgb, vec3(0,0.05,0.1), waterAmount);
-		OutColor.rgb *= color.a;
+		vec4 color = texture(colors, vec3(texcoord, colorsLayer));
+		color.rgb = mix(color.rgb, vec3(0,0.05,0.1), waterAmount);
+		color.rgb *= color.a;
+		return color.rgb;
 	}
+}
 
+void main() {
+	OutColor = vec4(0,0,0,1);
+	if(fMorph < 0.9999) {
+		OutColor.rgb += land_color(fParentTexcoord, fColorsLayer.y, fNormalsLayer.y, fWaterLayer.y)
+			* (1.0 - fMorph);
+	}
+	if(fMorph > 0.0) {
+		OutColor.rgb += land_color(fTexcoord, fColorsLayer.x, fNormalsLayer.x, fWaterLayer.x)
+			* fMorph;
+	}
 
 	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)

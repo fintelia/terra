@@ -12,11 +12,13 @@ gfx_defines!{
         side_length: f32 = "vSideLength",
         min_distance: f32 = "vMinDistance",
         heights_origin: [f32; 3] = "heightsOrigin",
-        texture_origin: [f32; 2] ="textureOrigin",
-        colors_layer: f32 = "colorsLayer",
-        normals_layer: f32 = "normalsLayer",
-        water_layer: f32 = "waterLayer",
+        texture_origin: [f32; 2] = "textureOrigin",
+        parent_texture_origin: [f32; 2] = "parentTextureOrigin",
+        colors_layer: [f32; 2] = "colorsLayer",
+        normals_layer: [f32; 2] = "normalsLayer",
+        water_layer: [f32; 2] = "waterLayer",
         texture_step: f32 = "textureStep",
+        parent_texture_step: f32 = "parentTextureStep",
     }
 
     vertex PlanetMeshVertex {
@@ -225,6 +227,24 @@ where
             );
             (colors_slot, normals_slot, water_slot, offset, scale)
         };
+        fn find_parent_texture_slots<R: gfx::Resources>(
+            nodes: &Vec<Node>,
+            tile_cache_layers: &VecMap<TileCache<R>>,
+            id: NodeId,
+            texture_ratio: f32,
+        ) -> (f32, f32, f32, Vector2<f32>, f32) {
+            if let Some((parent, child_index)) = nodes[id].parent {
+                let (c, n, w, offset, scale) =
+                    find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
+                let child_offset = node::OFFSETS[child_index as usize];
+                let offset = offset +
+                    Vector2::new(child_offset.x as f32, child_offset.y as f32) * scale *
+                        texture_ratio * 0.5;
+                (c, n, w, offset, scale * 0.5)
+            } else {
+                (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
+            }
+        }
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
@@ -233,6 +253,8 @@ where
                 .unwrap() as f32;
             let (colors_layer, normals_layer, water_layer, texture_offset, texture_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
+            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset, ptexture_step_scale) =
+                find_parent_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
                 side_length: self.nodes[id].side_length,
@@ -242,10 +264,15 @@ where
                     texture_origin + texture_offset.x,
                     texture_origin + texture_offset.y,
                 ],
-                colors_layer,
-                normals_layer,
-                water_layer,
+                parent_texture_origin: [
+                    texture_origin + ptexture_offset.x,
+                    texture_origin + ptexture_offset.y,
+                ],
+                colors_layer: [colors_layer, pcolors_layer],
+                normals_layer: [normals_layer, pnormals_layer],
+                water_layer: [water_layer, pwater_layer],
                 texture_step: texture_step * texture_step_scale,
+                parent_texture_step: texture_step * ptexture_step_scale,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -263,6 +290,16 @@ where
                          texture_offset,
                          texture_step_scale) =
                         find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
+                    let (pcolors_layer,
+                         pnormals_layer,
+                         pwater_layer,
+                         ptexture_offset,
+                         ptexture_step_scale) = find_parent_texture_slots(
+                        &self.nodes,
+                        &self.tile_cache_layers,
+                        id,
+                        texture_ratio,
+                    );
                     self.node_states.push(NodeState {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
@@ -281,10 +318,19 @@ where
                             texture_origin + texture_offset.y +
                                 offset.1 * (0.5 - texture_origin) * texture_step_scale,
                         ],
-                        colors_layer,
-                        normals_layer,
-                        water_layer,
+                        parent_texture_origin: [
+                            texture_origin + ptexture_offset.x +
+                                offset.0 * (0.5 - texture_origin) *
+                                    ptexture_step_scale,
+                            texture_origin + ptexture_offset.y +
+                                offset.1 * (0.5 - texture_origin) *
+                                    ptexture_step_scale,
+                        ],
+                        colors_layer: [colors_layer, pcolors_layer],
+                        normals_layer: [normals_layer, pnormals_layer],
+                        water_layer: [water_layer, pwater_layer],
                         texture_step: texture_step * texture_step_scale,
+                        parent_texture_step: texture_step * ptexture_step_scale,
                     });
                 }
             }
