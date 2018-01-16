@@ -47,6 +47,11 @@ impl VertexQuality {
             VertexQuality::Ultra => 257,
         }
     }
+    fn resolution_log2(&self) -> u32 {
+        let r = self.resolution() - 1;
+        assert!(r.is_power_of_two());
+        r.trailing_zeros()
+    }
     fn as_str(&self) -> &str {
         match *self {
             VertexQuality::Low => "vl",
@@ -155,12 +160,13 @@ impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
             (self.vertex_quality.resolution() - 1);
         assert!(resolution_ratio > 0);
 
-        let world_size = 1048576.0 / 2.0 * 8.0;
-        let max_level = 10i32 - 1 + 3;
+        let world_size = 4194304.0;
+        let max_level = 22i32 - self.vertex_quality.resolution_log2() as i32 - 1;
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32) *
             (0.5f32).powi(max_level);
+        assert_eq!(cell_size, 2.0);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
