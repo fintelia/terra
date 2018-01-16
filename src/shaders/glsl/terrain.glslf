@@ -115,7 +115,12 @@ void main() {
 	}
 
 	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
-	// if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01)
-	// 	OutColor.rgb = vec3(0);
+	// if(length(fPosition.xz) > 3000) {
+	// 	OutColor.rgb *= vec3(2,.5,.5);
+	// 	if(length(fPosition.xz) < 3030)
+	// 		OutColor.rgb += vec3(.0,-.1,-.1);
+	// } else if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01) {
+	// 	OutColor.rgb = vec3(.15);
+	// }
 	OutColor.rgb += dither();
 }
