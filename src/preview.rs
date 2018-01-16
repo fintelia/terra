@@ -115,11 +115,11 @@ fn main() {
                     first_person.position[2] * first_person.position[2];
                 let center_distance = center_distance.sqrt();
 
-                if center_distance > 30000.0 {
+                if center_distance > 3000.0 {
                     first_person.position[0] = first_person.position[0] /
-                        (center_distance / 30000.0);
+                        (center_distance / 3000.0);
                     first_person.position[2] = first_person.position[2] /
-                        (center_distance / 30000.0);
+                        (center_distance / 3000.0);
                 }
                 camera_position = Point3::new(
                     first_person.position[0],
