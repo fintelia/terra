@@ -202,7 +202,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
                     gfx::texture::AaMode::Single,
                 ),
                 mipmaps,
-                gfx::SHADER_RESOURCE,
+                gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Srgb),
             )

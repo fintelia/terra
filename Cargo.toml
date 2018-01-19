@@ -18,7 +18,7 @@ required-features = ["preview"]
 
 [dependencies]
 approx = "0.1.1"
-bincode = "0.8.0"
+bincode = "0.9.2"
 bit-vec = "0.4.4"
 byteorder = "1.1.0"
 cgmath = { version = "0.16", features = ["serde"] }
@@ -26,11 +26,11 @@ collision = "0.14.0"
 coord_transforms = { git = "https://github.com/DaveKram/coord_transforms" }
 curl = "0.4"
 flate2 = { version = "1.0.1", features = ["zlib"], default-features = false }
-gfx = "0.16"
-gfx_core = "0.7"
-gfx_text = "0.20"
+gfx = "0.17.1"
+gfx_core = "0.8.0"
+gfx_text = { git = "https://github.com/PistonDevelopers/gfx_text" }
 image = { git = "https://github.com/PistonDevelopers/image" }
-lazy_static = "0.2"
+lazy_static = "1.0.0"
 lru-cache = "0.1.1"
 memmap = "0.5.2"
 nalgebra = "0.13"
@@ -43,14 +43,14 @@ rustfft = "2.0.0"
 safe-transmute = "0.3"
 serde = "1.0"
 serde_derive = "1.0"
-shader_version = "0.2.1"
+shader_version = "0.3.0"
 vec_map = "0.8"
 vecmath = "0.3.0"
 zip = "0.2.7"
 
 # For preview
-camera_controllers = {version = "0.21", optional = true}
-piston_window = {version = "0.67", optional = true}
+camera_controllers = {version = "0.23", optional = true}
+piston_window = {version = "0.75.0", optional = true}
 fps_counter = {version = "1.0", optional = true}
 
 [features]

@@ -49,7 +49,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                             gfx::texture::AaMode::Single,
                         ),
                         1,
-                        gfx::SHADER_RESOURCE,
+                        gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Float),
                     )
@@ -75,7 +75,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                             gfx::texture::AaMode::Single,
                         ),
                         1,
-                        gfx::SHADER_RESOURCE,
+                        gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Unorm),
                     )
@@ -101,7 +101,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                             gfx::texture::AaMode::Single,
                         ),
                         1,
-                        gfx::SHADER_RESOURCE,
+                        gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Srgb),
                     )

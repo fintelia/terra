@@ -9,7 +9,7 @@ homepage = "https://github.com/fintelia/terra"
 categories = ["game-engines", "rendering"]
 
 [dependencies]
-gfx = "0.16"
+gfx = "0.17.1"
 notify = "4.0"
 
 [features]

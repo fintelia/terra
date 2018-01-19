@@ -42,7 +42,7 @@ impl<R: gfx::Resources> Ocean<R> {
                     gfx::texture::AaMode::Single,
                 ),
                 MIPMAPS,
-                gfx::SHADER_RESOURCE,
+                gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Unorm),
             )

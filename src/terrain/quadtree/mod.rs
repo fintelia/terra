@@ -149,6 +149,7 @@ where
                     header.noise.resolution as u16,
                     gfx::texture::AaMode::Single,
                 ),
+                gfx::texture::Mipmap::Provided,
                 &[gfx::memory::cast_slice(noise_data)],
             )
             .unwrap();
@@ -169,6 +170,7 @@ where
                     header.planet_mesh_texture.resolution as u16,
                     gfx::texture::AaMode::Single,
                 ),
+                gfx::texture::Mipmap::Provided,
                 &[gfx::memory::cast_slice(pm_texture_data)],
             )
             .unwrap();

@@ -100,7 +100,7 @@ impl<R: gfx::Resources> Skybox<R> {
             .create_texture::<R8_G8_B8_A8>(
                 Kind::Cube(raw.resolution),
                 mipmaps,
-                gfx::SHADER_RESOURCE,
+                gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Srgb),
             )
