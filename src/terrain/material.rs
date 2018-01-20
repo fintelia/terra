@@ -249,7 +249,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
         })
     }
 
-    pub fn get_average_albedo(&self, material: usize) -> [u8; 4] {
+    pub(crate) fn get_average_albedo(&self, material: usize) -> [u8; 4] {
         self.average_albedos[material].clone()
     }
 }

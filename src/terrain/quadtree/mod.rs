@@ -29,6 +29,8 @@ pub(crate) use terrain::quadtree::id::*;
 pub(crate) use terrain::quadtree::node::*;
 pub(crate) use terrain::quadtree::render::*;
 
+/// The central object in terra. It holds all relevant state and provides functions to update and
+/// render the terrain.
 pub struct QuadTree<R, F>
 where
     R: gfx::Resources,

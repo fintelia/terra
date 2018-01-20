@@ -31,10 +31,17 @@ const EARTHDATA_WARNING: &'static str =
      required to download elevation data. Once you have them, please remember to \
      `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
 
+/// Which data source to use for digital elevation models.
 #[derive(Copy, Clone)]
 pub enum DemSource {
+    /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
+    /// only available for the United States.
     Usgs30m,
+    /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
+    /// only available for the United States.
     Usgs10m,
+    /// Use DEMs Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global data source. Data is
+    /// available globally between 60° north and 56° south latitude.
     Srtm30m,
 }
 impl DemSource {

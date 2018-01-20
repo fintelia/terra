@@ -1,3 +1,5 @@
+//! Terra is a large scale terrain rendering library built on top of gfx.
+
 #![feature(iterator_step_by)]
 #![feature(ord_max_min)]
 #![feature(test)]
@@ -46,15 +48,13 @@ mod runtime_texture;
 mod coordinates;
 mod generate;
 
-pub mod cache;
-pub mod ocean;
-pub mod sky;
-pub mod terrain;
+mod cache;
+mod ocean;
+mod sky;
+mod terrain;
 
-pub use sky::Skybox;
-pub use terrain::dem::{DemSource, DigitalElevationModelParams};
-pub use generate::{TerrainFileParams, TextureQuality, VertexQuality};
-pub use terrain::material::MaterialSet;
+pub use terrain::dem::DemSource;
+pub use generate::{QuadTreeBuilder, TextureQuality, VertexQuality};
 pub use terrain::quadtree::QuadTree;
 
 #[cfg(test)]

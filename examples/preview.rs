@@ -17,7 +17,7 @@ use collision::Frustum;
 use cgmath::*;
 use vecmath::vec3_dot;
 
-use terra::{DemSource, MaterialSet, Skybox, TerrainFileParams, TextureQuality, VertexQuality};
+use terra::{QuadTreeBuilder, TextureQuality, VertexQuality};
 
 fn compute_projection_matrix(w: &PistonWindow) -> Matrix4<f32> {
     let draw_size = w.window.draw_size();
@@ -61,24 +61,12 @@ fn main() {
     window.set_max_fps(240);
     window.set_ups(240);
 
-    let materials = MaterialSet::load(&mut window.factory, &mut window.encoder).unwrap();
-    window.encoder.flush(&mut window.device);
-
-    let sky = Skybox::new(&mut window.factory, &mut window.encoder);
-
-    let mut terrain = TerrainFileParams {
-        latitude: 42,
-        longitude: -73,
-        source: DemSource::Srtm30m,
-        vertex_quality: VertexQuality::High,
-        texture_quality: TextureQuality::High,
-        materials,
-        sky,
-    }.build_quadtree(
-        window.factory.clone(),
-        &window.output_color,
-        &window.output_stencil,
-    )
+    let mut terrain = QuadTreeBuilder::new(window.factory.clone(), &mut window.encoder)
+        .latitude(42)
+        .longitude(-73)
+        .vertex_quality(VertexQuality::High)
+        .texture_quality(TextureQuality::High)
+        .build(&window.output_color, &window.output_stencil)
         .unwrap();
 
     let mut first_person =

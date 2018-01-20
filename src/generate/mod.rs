@@ -5,6 +5,7 @@ use std::io::Write;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use gfx;
+use gfx_core;
 use rand;
 use rand::distributions::{IndependentSample, Normal};
 
@@ -26,7 +27,7 @@ use utils::math::BoundingBox;
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-/// How much detail should be used when rendering. Higher values require more resources to render,
+/// How much detail the terrain mesh should have. Higher values require more resources to render,
 /// but produce nicer results.
 pub enum VertexQuality {
     /// Probably overkill. Uses 4x as many triangles as high does.
@@ -62,8 +63,8 @@ impl VertexQuality {
     }
 }
 
-// `TextureQuality` controls the resolutions of textures. Higher values consume much more GPU memory
-// and increase the size of
+/// What resolution to use for terrain texture mapping. Higher values consume much more GPU memory
+/// and increase the file size.
 pub enum TextureQuality {
     /// Quality suitable for a 4K display.
     Ultra,
@@ -94,37 +95,98 @@ impl TextureQuality {
     }
 }
 
-pub struct TerrainFileParams<R: gfx::Resources> {
-    pub latitude: i16,
-    pub longitude: i16,
-    pub source: DemSource,
-    pub vertex_quality: VertexQuality,
-    pub texture_quality: TextureQuality,
-    pub materials: MaterialSet<R>,
-    pub sky: Skybox<R>,
+/// Used to construct a `QuadTree`.
+pub struct QuadTreeBuilder<R: gfx::Resources, F: gfx::Factory<R>> {
+    latitude: i16,
+    longitude: i16,
+    source: DemSource,
+    vertex_quality: VertexQuality,
+    texture_quality: TextureQuality,
+    materials: MaterialSet<R>,
+    sky: Skybox<R>,
+    factory: F,
+    context: Option<AssetLoadContext>,
 }
-impl<R: gfx::Resources> TerrainFileParams<R> {
-    pub fn build_quadtree<F: gfx::Factory<R>>(
-        self,
-        factory: F,
+impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
+    /// Create a new `QuadTreeBuilder` with default arguments.
+    ///
+    /// At very least, the latitude and longitude should probably be set to their desired values
+    /// before calling `build()`.
+    pub fn new<C: gfx_core::command::Buffer<R>>(
+        mut factory: F,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) -> Self {
+        Self {
+            latitude: 38,
+            longitude: -122,
+            source: DemSource::Srtm30m,
+            vertex_quality: VertexQuality::High,
+            texture_quality: TextureQuality::High,
+            materials: MaterialSet::load(&mut factory, encoder).unwrap(),
+            sky: Skybox::new(&mut factory, encoder),
+            context: Some(AssetLoadContext::new()),
+            factory,
+        }
+    }
+
+    /// The latitude the generated map should be centered at, in degrees.
+    pub fn latitude(mut self, latitude: i16) -> Self {
+        assert!(latitude >= -90 && latitude <= 90);
+        self.latitude = latitude;
+        self
+    }
+
+    /// The longitude the generated map should be centered at, in degrees.
+    pub fn longitude(mut self, longitude: i16) -> Self {
+        assert!(longitude >= -180 && longitude <= 180);
+        self.longitude = longitude;
+        self
+    }
+
+    /// How detailed the resulting terrain mesh should be.
+    pub fn vertex_quality(mut self, quality: VertexQuality) -> Self {
+        self.vertex_quality = quality;
+        self
+    }
+
+    /// How high resolution the terrain's textures should be.
+    pub fn texture_quality(mut self, quality: TextureQuality) -> Self {
+        self.texture_quality = quality;
+        self
+    }
+
+    /// Actually construct the `QuadTree`.
+    ///
+    /// This function will (the first time it is called) download many gigabytes of raw data,
+    /// primarily datasets relating to real world land cover and elevation. These files will be
+    /// stored in ~/.terra, so that they don't have to be fetched multiple times. This means that
+    /// this function can largely resume from where it left off if interrupted.
+    ///
+    /// Even once all needed files have been downloaded, the generation process takes a large amount
+    /// of CPU resources. You can expect it to run at full load continiously for several full
+    /// minutes, even in release builds (you *really* don't want to wait for generation in debug
+    /// mode...).
+    pub fn build(
+        mut self,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Result<QuadTree<R, F>, Box<Error>> {
-        let (header, data) = self.load(&mut AssetLoadContext::new())?;
+        let mut context = self.context.take().unwrap();
+        let (header, data) = self.load(&mut context)?;
 
         Ok(QuadTree::new(
             header,
             data,
             self.materials,
             self.sky,
-            factory,
+            self.factory,
             color_buffer,
             depth_buffer,
         ))
     }
 }
 
-impl<R: gfx::Resources> MMappedAsset for TerrainFileParams<R> {
+impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, F> {
     type Header = TileHeader;
 
     fn filename(&self) -> String {

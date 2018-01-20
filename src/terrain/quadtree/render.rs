@@ -140,7 +140,7 @@ where
             .unwrap()
     }
 
-    pub fn update_shaders(&mut self) {
+    pub(super) fn update_shaders(&mut self) {
         if self.shader.refresh(
             &mut self.factory,
             &mut self.shaders_watcher,
