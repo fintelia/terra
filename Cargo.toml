@@ -48,6 +48,7 @@ camera_controllers = "0.23"
 fps_counter = "1.0"
 gfx_text = { git = "https://github.com/PistonDevelopers/gfx_text" }
 piston_window = "0.75.0"
+gfx_smaa = "0.1.0"
 
 [features]
 default = []

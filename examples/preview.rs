@@ -3,6 +3,7 @@ extern crate cgmath;
 extern crate collision;
 extern crate fps_counter;
 extern crate gfx;
+extern crate gfx_smaa;
 extern crate gfx_text;
 extern crate piston_window;
 extern crate terra;
@@ -61,12 +62,16 @@ fn main() {
     window.set_max_fps(240);
     window.set_ups(240);
 
+    let mut smaa_target =
+        gfx_smaa::SmaaTarget::new(&mut window.factory, window.output_color.clone(), 1920, 1080)
+            .unwrap();
+
     let mut terrain = QuadTreeBuilder::new(window.factory.clone(), &mut window.encoder)
         .latitude(42)
         .longitude(-73)
         .vertex_quality(VertexQuality::High)
         .texture_quality(TextureQuality::High)
-        .build(&window.output_color, &window.output_stencil)
+        .build(&smaa_target.output_color(), &smaa_target.output_stencil())
         .unwrap();
 
     let mut first_person =
@@ -129,12 +134,14 @@ fn main() {
                 (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
             last_frame = now;
 
-            window.encoder.clear_depth(&window.output_stencil, 1.0);
+            window.encoder.clear_depth(
+                &smaa_target.output_stencil(),
+                1.0,
+            );
             window.encoder.clear(
-                &window.output_color,
+                &smaa_target.output_color(),
                 [0.3, 0.3, 0.3, 1.0],
             );
-            window.encoder.clear_depth(&window.output_stencil, 1.0);
 
             let view_matrix = compute_view_matrix(first_person.camera(0.0));
             terrain.update(
@@ -155,8 +162,10 @@ fn main() {
                 [5, 17],
                 text_color,
             );
-            text.draw(&mut window.encoder, &window.output_color)
+            text.draw(&mut window.encoder, &smaa_target.output_color())
                 .unwrap();
+
+            smaa_target.resolve(&mut window.encoder);
         });
     }
 }
