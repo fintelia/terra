@@ -3,8 +3,6 @@ language: rust
 rust:
   - nightly
 cache: cargo
-env:
-  - SETTLE_TIME=2000
 script:
   - cargo check --all
   - cargo test --verbose
