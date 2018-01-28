@@ -1,3 +1,4 @@
+use failure::Error;
 use gfx;
 use gfx_core;
 use gfx::traits::*;
@@ -83,70 +84,64 @@ where
     pub(crate) fn make_pso(
         factory: &mut F,
         shader: &gfx::ShaderSet<R>,
-    ) -> gfx::PipelineState<R, pipe::Meta> {
-        factory
-            .create_pipeline_state(
-                shader,
-                gfx::Primitive::TriangleList,
-                gfx::state::Rasterizer {
-                    front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Back,
-                    method: gfx::state::RasterMethod::Fill,
-                    offset: None,
-                    samples: None,
-                },
-                pipe::new(),
-            )
-            .unwrap()
+    ) -> Result<gfx::PipelineState<R, pipe::Meta>, Error> {
+        Ok(factory.create_pipeline_state(
+            shader,
+            gfx::Primitive::TriangleList,
+            gfx::state::Rasterizer {
+                front_face: gfx::state::FrontFace::Clockwise,
+                cull_face: gfx::state::CullFace::Back,
+                method: gfx::state::RasterMethod::Fill,
+                offset: None,
+                samples: None,
+            },
+            pipe::new(),
+        )?)
     }
 
     pub(crate) fn make_sky_pso(
         factory: &mut F,
         shader: &gfx::ShaderSet<R>,
-    ) -> gfx::PipelineState<R, sky_pipe::Meta> {
-        factory
-            .create_pipeline_state(
-                shader,
-                gfx::Primitive::TriangleList,
-                gfx::state::Rasterizer {
-                    front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Nothing,
-                    method: gfx::state::RasterMethod::Fill,
-                    offset: None,
-                    samples: None,
-                },
-                sky_pipe::new(),
-            )
-            .unwrap()
+    ) -> Result<gfx::PipelineState<R, sky_pipe::Meta>, Error> {
+        Ok(factory.create_pipeline_state(
+            shader,
+            gfx::Primitive::TriangleList,
+            gfx::state::Rasterizer {
+                front_face: gfx::state::FrontFace::Clockwise,
+                cull_face: gfx::state::CullFace::Nothing,
+                method: gfx::state::RasterMethod::Fill,
+                offset: None,
+                samples: None,
+            },
+            sky_pipe::new(),
+        )?)
     }
 
     pub(crate) fn make_planet_mesh_pso(
         factory: &mut F,
         shader: &gfx::ShaderSet<R>,
-    ) -> gfx::PipelineState<R, planet_mesh_pipe::Meta> {
-        factory
-            .create_pipeline_state(
-                shader,
-                gfx::Primitive::TriangleList,
-                gfx::state::Rasterizer {
-                    front_face: gfx::state::FrontFace::Clockwise,
-                    cull_face: gfx::state::CullFace::Back,
-                    method: gfx::state::RasterMethod::Fill,
-                    offset: None,
-                    samples: None,
-                },
-                planet_mesh_pipe::new(),
-            )
-            .unwrap()
+    ) -> Result<gfx::PipelineState<R, planet_mesh_pipe::Meta>, Error> {
+        Ok(factory.create_pipeline_state(
+            shader,
+            gfx::Primitive::TriangleList,
+            gfx::state::Rasterizer {
+                front_face: gfx::state::FrontFace::Clockwise,
+                cull_face: gfx::state::CullFace::Back,
+                method: gfx::state::RasterMethod::Fill,
+                offset: None,
+                samples: None,
+            },
+            planet_mesh_pipe::new(),
+        )?)
     }
 
-    pub(super) fn update_shaders(&mut self) {
+    pub(super) fn update_shaders(&mut self) -> Result<(), Error> {
         if self.shader.refresh(
             &mut self.factory,
             &mut self.shaders_watcher,
         )
         {
-            self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set());
+            self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set())?;
         }
 
         if self.sky_shader.refresh(
@@ -154,7 +149,7 @@ where
             &mut self.shaders_watcher,
         )
         {
-            self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set());
+            self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set())?;
         }
 
         if self.planet_mesh_shader.refresh(
@@ -165,11 +160,16 @@ where
             self.planet_mesh_pso = Self::make_planet_mesh_pso(
                 &mut self.factory,
                 self.planet_mesh_shader.as_shader_set(),
-            );
+            )?;
         }
+
+        Ok(())
     }
 
-    pub fn render<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
+    pub fn render<C: gfx_core::command::Buffer<R>>(
+        &mut self,
+        encoder: &mut gfx::Encoder<R, C>,
+    ) -> Result<(), Error> {
         encoder.draw(
             &gfx::Slice {
                 start: 0,
@@ -253,7 +253,8 @@ where
                 .unwrap() as f32;
             let (colors_layer, normals_layer, water_layer, texture_offset, texture_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset, ptexture_step_scale) =
+            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset,
+                 ptexture_step_scale) =
                 find_parent_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
@@ -336,9 +337,11 @@ where
             }
         }
 
-        encoder
-            .update_buffer(&self.pipeline_data.instances, &self.node_states[..], 0)
-            .unwrap();
+        encoder.update_buffer(
+            &self.pipeline_data.instances,
+            &self.node_states[..],
+            0,
+        )?;
 
         self.pipeline_data.resolution = resolution as i32;
         encoder.draw(
@@ -368,6 +371,8 @@ where
             &self.pso,
             &self.pipeline_data,
         );
+
+        Ok(())
     }
 
     pub fn render_sky<C: gfx_core::command::Buffer<R>>(

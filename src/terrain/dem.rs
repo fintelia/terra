@@ -1,35 +1,23 @@
-use safe_transmute;
-use zip::ZipArchive;
-
-use std::error::Error;
-use std::fmt::{self, Display};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
 use std::{env, mem};
 
+use failure::Error;
+use safe_transmute;
+use zip::ZipArchive;
+
 use cache::{AssetLoadContext, WebAsset};
 use terrain::raster::{Raster, RasterSource};
-
-#[derive(Debug)]
-pub enum DemError {
-    ParseError,
-}
-impl Error for DemError {
-    fn description(&self) -> &str {
-        "failed to parse DEM"
-    }
-}
-impl Display for DemError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.description())
-    }
-}
 
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const EARTHDATA_WARNING: &'static str =
     "WARNING: Earthdata credentials from https://urs.earthdata.nasa.gov//users/new are \
      required to download elevation data. Once you have them, please remember to \
      `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
+
+#[derive(Debug, Fail)]
+#[fail(display = "failed to parse DEM file")]
+pub struct DemParseError;
 
 /// Which data source to use for digital elevation models.
 #[derive(Copy, Clone)]
@@ -164,11 +152,7 @@ impl WebAsset for DigitalElevationModelParams {
         }
     }
 
-    fn parse(
-        &self,
-        _context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         match self.source {
             DemSource::Usgs30m |
             DemSource::Usgs10m => parse_ned_zip(data),
@@ -178,7 +162,7 @@ impl WebAsset for DigitalElevationModelParams {
 }
 
 /// Load a zip file in the format for the USGS's National Elevation Dataset.
-fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Box<Error>> {
+fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
     let mut hdr = String::new();
     let mut flt = Vec::new();
 
@@ -230,17 +214,17 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Box<Error>> {
         }
     }
 
-    let width = width.ok_or(DemError::ParseError)?;
-    let height = height.ok_or(DemError::ParseError)?;
-    let xllcorner = xllcorner.ok_or(DemError::ParseError)?;
-    let yllcorner = yllcorner.ok_or(DemError::ParseError)?;
-    let cell_size = cell_size.ok_or(DemError::ParseError)?;
-    let byte_order = byte_order.ok_or(DemError::ParseError)?;
-    let nodata_value = nodata_value.ok_or(DemError::ParseError)?;
+    let width = width.ok_or(DemParseError)?;
+    let height = height.ok_or(DemParseError)?;
+    let xllcorner = xllcorner.ok_or(DemParseError)?;
+    let yllcorner = yllcorner.ok_or(DemParseError)?;
+    let cell_size = cell_size.ok_or(DemParseError)?;
+    let byte_order = byte_order.ok_or(DemParseError)?;
+    let nodata_value = nodata_value.ok_or(DemParseError)?;
 
     let size = width * height;
     if flt.len() != size * 4 {
-        return Err(Box::new(DemError::ParseError));
+        Err(DemParseError)?;
     }
 
     let flt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
@@ -265,11 +249,7 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Box<Error>> {
 }
 
 /// Load a zip file in the format for the NASA's STRM 30m dataset.
-fn parse_srtm1_zip(
-    latitude: i16,
-    longitude: i16,
-    data: Vec<u8>,
-) -> Result<Raster<f32>, Box<Error>> {
+fn parse_srtm1_zip(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster<f32>, Error> {
     let resolution = 3601;
     let cell_size = 1.0 / 3600.0;
 

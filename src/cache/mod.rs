@@ -1,5 +1,4 @@
 use std::env;
-use std::error::Error;
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Stdout, Write};
 use std::path::PathBuf;
@@ -7,6 +6,7 @@ use std::time::{Duration, Instant};
 use std::thread;
 
 use bincode::{self, Infinite};
+use failure::Error;
 use memmap::Mmap;
 use num::ToPrimitive;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
@@ -83,7 +83,7 @@ impl AssetLoadContext {
     }
 }
 
-fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, Box<Error>> {
+fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, Error> {
     context.bytes_display_enabled(true);
     let ret = (|| {
         let file_len = file.metadata()?.len() as usize;
@@ -114,17 +114,13 @@ pub(crate) trait WebAsset {
 
     fn url(&self) -> String;
     fn filename(&self) -> String;
-    fn parse(
-        &self,
-        context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<Error>>;
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error>;
 
     fn credentials(&self) -> Option<(String, String)> {
         None
     }
 
-    fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+    fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
         let ret = (|| {
             let filename = TERRA_DIRECTORY.join(self.filename());
@@ -189,9 +185,9 @@ pub(crate) trait GeneratedAsset {
     type Type: Serialize + DeserializeOwned;
 
     fn filename(&self) -> String;
-    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>>;
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error>;
 
-    fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+    fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
         let ret = (|| {
             let filename = TERRA_DIRECTORY.join(self.filename());
@@ -226,9 +222,9 @@ pub(crate) trait MMappedAsset {
         &self,
         context: &mut AssetLoadContext,
         w: W,
-    ) -> Result<Self::Header, Box<Error>>;
+    ) -> Result<Self::Header, Error>;
 
-    fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, Mmap), Box<Error>> {
+    fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, Mmap), Error> {
         context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
         let ret = (|| {
             let header_filename = TERRA_DIRECTORY.join(self.filename() + ".hdr");

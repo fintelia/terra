@@ -1,6 +1,7 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
+use failure::Error;
 use gfx;
 use gfx::traits::FactoryExt;
 use gfx_core;
@@ -80,11 +81,11 @@ where
         mut factory: F,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut shaders_watcher =
             rshader::ShaderDirectoryWatcher::new(env::var("TERRA_SHADER_DIRECTORY").unwrap_or(
                 "src/shaders/glsl".to_string(),
-            )).unwrap();
+            ))?;
 
         let shader = rshader::Shader::simple(
             &mut factory,
@@ -102,7 +103,7 @@ where
                 "hash",
                 "terrain.glslf"
             ),
-        ).unwrap();
+        )?;
 
         let sky_shader = rshader::Shader::simple(
             &mut factory,
@@ -115,7 +116,7 @@ where
                 "hash",
                 "sky.glslf"
             ),
-        ).unwrap();
+        )?;
 
         let planet_mesh_shader =
             rshader::Shader::simple(
@@ -129,7 +130,7 @@ where
                     "hash",
                     "planet_mesh.glslf"
                 ),
-            ).unwrap();
+            )?;
 
         let mut data_view = data_file.into_view_sync();
         let mut tile_cache_layers = VecMap::new();
@@ -153,8 +154,7 @@ where
                 ),
                 gfx::texture::Mipmap::Provided,
                 &[gfx::memory::cast_slice(noise_data)],
-            )
-            .unwrap();
+            )?;
 
         let planet_mesh_start = header.planet_mesh.offset;
         let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
@@ -174,8 +174,7 @@ where
                 ),
                 gfx::texture::Mipmap::Provided,
                 &[gfx::memory::cast_slice(pm_texture_data)],
-            )
-            .unwrap();
+            )?;
 
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
             .get_texture_view_f32()
@@ -208,11 +207,11 @@ where
 
         // Extra scope to work around lack of non-lexical lifetimes.
         let (index_buffer, index_buffer_partial) = {
-            let mut make_index_buffer = |resolution: u32| -> gfx::IndexBuffer<R> {
+            let mut make_index_buffer = |resolution: u32| -> Result<gfx::IndexBuffer<R>, Error> {
                 fn make_indices_inner<R: gfx::Resources, F: gfx::Factory<R>, T>(
                     factory: &mut F,
                     resolution: u32,
-                ) -> gfx::handle::Buffer<R, T>
+                ) -> Result<gfx::handle::Buffer<R, T>, Error>
                 where
                     T: TryFrom<u32> + gfx_core::memory::Pod,
                     <T as TryFrom<u32>>::Error: Debug,
@@ -226,34 +225,34 @@ where
                             }
                         }
                     }
-                    factory
-                        .create_buffer_immutable(
-                            &indices[..],
-                            gfx::buffer::Role::Index,
-                            gfx::memory::Bind::empty(),
-                        )
-                        .unwrap()
+                    Ok(factory.create_buffer_immutable(
+                        &indices[..],
+                        gfx::buffer::Role::Index,
+                        gfx::memory::Bind::empty(),
+                    )?)
                 }
-                if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
-                    gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution))
+                Ok(if (resolution + 1) * (resolution + 1) - 1 <=
+                    u16::max_value() as u32
+                {
+                    gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution)?)
                 } else {
-                    gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution))
-                }
+                    gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution)?)
+                })
             };
             let resolution = (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as
                 u32;
             (
-                make_index_buffer(resolution),
-                make_index_buffer(resolution / 2),
+                make_index_buffer(resolution)?,
+                make_index_buffer(resolution / 2)?,
             )
         };
 
-        Self {
+        Ok(Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
             index_buffer,
             index_buffer_partial,
-            pso: Self::make_pso(&mut factory, shader.as_shader_set()),
+            pso: Self::make_pso(&mut factory, shader.as_shader_set())?,
             pipeline_data: pipe::Data {
                 instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
                 model_view_projection: [[0.0; 4]; 4],
@@ -274,7 +273,7 @@ where
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
-            sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set()),
+            sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set())?,
             sky_pipeline_data: sky_pipe::Data {
                 inv_model_view_projection: [[0.0; 4]; 4],
                 camera_position: [0.0, 0.0, 0.0],
@@ -288,7 +287,7 @@ where
             planet_mesh_pso: Self::make_planet_mesh_pso(
                 &mut factory,
                 planet_mesh_shader.as_shader_set(),
-            ),
+            )?,
             planet_mesh_pipeline_data: planet_mesh_pipe::Data {
                 vertices: factory.create_vertex_buffer(planet_mesh_vertices),
                 model_view_projection: [[0.0; 4]; 4],
@@ -311,7 +310,7 @@ where
             node_states: Vec::new(),
             tile_cache_layers,
             _materials: materials,
-        }
+        })
     }
 
     fn update_priorities(&mut self, camera: Point3<f32>) {

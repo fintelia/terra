@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fs::File;
 use std::io::{self, Read};
 use std::iter::Iterator;
@@ -7,6 +6,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use gfx;
+use failure::Error;
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::*;
@@ -65,7 +65,7 @@ impl<R: gfx::Resources> Shader<R> {
         watcher: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         pixel_source: ShaderSource,
-    ) -> Result<Self, Box<Error>> {
+    ) -> Result<Self, Error> {
         let vertex_filenames = vertex_source
             .filenames
             .unwrap()
@@ -113,7 +113,7 @@ impl<R: gfx::Resources> Shader<R> {
         factory: &mut F,
         vertex_filenames: &Vec<PathBuf>,
         pixel_filenames: &Vec<PathBuf>,
-    ) -> Result<gfx::ShaderSet<R>, Box<Error>> {
+    ) -> Result<gfx::ShaderSet<R>, Error> {
         let v = create_vertex_shader(
             factory,
             concat_file_contents(vertex_filenames.iter())?.as_bytes(),

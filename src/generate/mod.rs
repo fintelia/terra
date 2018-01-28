@@ -1,9 +1,9 @@
-use std::error::Error;
 use std::f64::consts::PI;
 use std::io::Write;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
+use failure::Error;
 use gfx;
 use gfx_core;
 use rand;
@@ -170,11 +170,11 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
         mut self,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
-    ) -> Result<QuadTree<R, F>, Box<Error>> {
+    ) -> Result<QuadTree<R, F>, Error> {
         let mut context = self.context.take().unwrap();
         let (header, data) = self.load(&mut context)?;
 
-        Ok(QuadTree::new(
+        QuadTree::new(
             header,
             data,
             self.materials,
@@ -182,7 +182,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
             self.factory,
             color_buffer,
             depth_buffer,
-        ))
+        )
     }
 }
 
@@ -208,7 +208,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
         &self,
         context: &mut AssetLoadContext,
         writer: W,
-    ) -> Result<Self::Header, Box<Error>> {
+    ) -> Result<Self::Header, Error> {
         let world_center =
             Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
         let sun_direction = Vector3::new(0.0, 1.0, 1.0).normalize();
@@ -340,7 +340,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         )
     }
 
-    pub fn write_detail_heightmap(&mut self, i: usize) -> Result<(), Box<Error>> {
+    pub fn write_detail_heightmap(&mut self, i: usize) -> Result<(), Error> {
         let (ancestor, generations, mut offset) =
             Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
                 self.nodes[id].level as i32 <= self.max_texture_level
@@ -383,10 +383,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         Ok(())
     }
 
-    pub fn generate_interpolated_heightmap(
-        &mut self,
-        i: usize,
-    ) -> Result<Heightmap<f32>, Box<Error>> {
+    pub fn generate_interpolated_heightmap(&mut self, i: usize) -> Result<Heightmap<f32>, Error> {
         let mut heights = Vec::with_capacity(
             self.heightmap_resolution as usize * self.heightmap_resolution as usize,
         );
@@ -527,7 +524,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         Ok(heightmap)
     }
 
-    fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+    fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
             offset: 0,
@@ -620,7 +617,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+    fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         /// Takes a f64 in the range [0, 1] an converts it to a u8 in the sRGB color space.
         fn linear_to_srgb(linear: f64) -> u8 {
             let srgb = if linear <= 0.00313066844250063 {
@@ -747,7 +744,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+    fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
         let normalmap_nodes: Vec<_> = (0..self.heightmaps.len())
@@ -794,7 +791,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_watermasks(&mut self, context: &mut AssetLoadContext) -> Result<(), Box<Error>> {
+    fn generate_watermasks(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let watermap_resolution = self.heightmap_resolution - 5;
         self.layers.push(LayerParams {
@@ -862,10 +859,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_noise(
-        &mut self,
-        _context: &mut AssetLoadContext,
-    ) -> Result<NoiseParams, Box<Error>> {
+    fn generate_noise(&mut self, _context: &mut AssetLoadContext) -> Result<NoiseParams, Error> {
         let noise = NoiseParams {
             offset: self.bytes_written,
             resolution: 512,
@@ -893,8 +887,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_planet_mesh(
         &mut self,
         _context: &mut AssetLoadContext,
-    ) -> Result<MeshDescriptor, Box<Error>> {
-        fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Box<Error>> {
+    ) -> Result<MeshDescriptor, Error> {
+        fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Error> {
             writer.write_f32::<LittleEndian>(v.x)?;
             writer.write_f32::<LittleEndian>(v.y)?;
             writer.write_f32::<LittleEndian>(v.z)?;
@@ -1077,7 +1071,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_planet_mesh_texture(
         &mut self,
         _context: &mut AssetLoadContext,
-    ) -> Result<TextureDescriptor, Box<Error>> {
+    ) -> Result<TextureDescriptor, Error> {
         let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
         let descriptor = TextureDescriptor {
             offset: self.bytes_written,

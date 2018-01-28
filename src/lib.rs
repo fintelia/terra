@@ -18,6 +18,8 @@ extern crate collision;
 extern crate coord_transforms;
 extern crate curl;
 #[macro_use]
+extern crate failure;
+#[macro_use]
 extern crate gfx;
 extern crate gfx_core;
 extern crate image;

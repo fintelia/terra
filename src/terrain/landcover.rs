@@ -1,10 +1,10 @@
-use std::error::Error;
 use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
-use zip::ZipArchive;
+use failure::Error;
 use image::{self, ColorType, DynamicImage, GenericImage, ImageDecoder, ImageFormat, ImageLuma8};
 use image::png::PNGDecoder;
+use zip::ZipArchive;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use terrain::raster::{BitContainer, GlobalRaster, Raster, RasterSource};
@@ -103,11 +103,7 @@ impl WebAsset for RawLandCoverParams {
             }
         }
     }
-    fn parse(
-        &self,
-        context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         assert_eq!(zip.len(), 1);
 
@@ -149,7 +145,7 @@ impl LandCoverParams {
         }
     }
 
-    fn generate_from_raw(&self) -> Result<Raster<u8>, Box<Error>> {
+    fn generate_from_raw(&self) -> Result<Raster<u8>, Error> {
         let (w, h, image) = {
             let mut image = self.raw.as_ref().unwrap().lock().unwrap();
             let (w, h) = (image.width(), image.height());
@@ -218,7 +214,7 @@ impl GeneratedAsset for LandCoverParams {
         )
     }
 
-    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         if self.raw.is_some() {
             return self.generate_from_raw();
         }
@@ -244,11 +240,7 @@ impl WebAsset for BlueMarble {
     fn filename(&self) -> String {
         "bluemarble/world.200406.3x21600x10800.png".to_owned()
     }
-    fn parse(
-        &self,
-        context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         let mut decoder = PNGDecoder::new(Cursor::new(data));
         let (width, height) = decoder.dimensions()?;
         let (width, height) = (width as usize, height as usize);
@@ -285,11 +277,7 @@ impl WebAsset for GlobalWaterMask {
     fn filename(&self) -> String {
         "watermask/GlobalLandCover_tif.zip".to_owned()
     }
-    fn parse(
-        &self,
-        context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<::std::error::Error>> {
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         context.set_progress_and_total(0, 100);
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         assert_eq!(zip.len(), 1);

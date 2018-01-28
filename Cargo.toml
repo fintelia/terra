@@ -20,6 +20,7 @@ cgmath = { version = "0.16", features = ["serde"] }
 collision = "0.14.0"
 coord_transforms = { git = "https://github.com/DaveKram/coord_transforms" }
 curl = "0.4"
+failure = "0.1.1"
 flate2 = { version = "1.0.1", features = ["zlib"], default-features = false }
 gfx = "0.17.1"
 gfx_core = "0.8.0"

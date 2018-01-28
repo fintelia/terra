@@ -1,4 +1,5 @@
 extern crate gfx;
+extern crate failure;
 extern crate notify;
 
 pub mod static_shaders;

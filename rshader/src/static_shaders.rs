@@ -1,7 +1,7 @@
-use std::error::Error;
 use std::path::PathBuf;
 
 use gfx;
+use failure::Error;
 use notify;
 
 use super::*;
@@ -25,7 +25,7 @@ impl<R: gfx::Resources> Shader<R> {
         _: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         pixel_source: ShaderSource,
-    ) -> Result<Self, Box<Error>> {
+    ) -> Result<Self, Error> {
         let v = create_vertex_shader(factory, &vertex_source.source.unwrap()).unwrap();
         let f = create_pixel_shader(factory, &pixel_source.source.unwrap()).unwrap();
         Ok(Self {

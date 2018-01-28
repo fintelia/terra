@@ -1,12 +1,11 @@
 use std::collections::HashMap;
-use std::error::Error;
 use std::io::{Cursor, Read};
 
+use failure::Error;
 use gfx;
 use gfx::format::*;
 use gfx::texture::Kind;
 use gfx_core;
-
 use image::{self, RgbaImage};
 use zip::ZipArchive;
 
@@ -29,11 +28,7 @@ impl WebAsset for SkyboxAsset {
     fn filename(&self) -> String {
         format!("sky/{}", self.0)
     }
-    fn parse(
-        &self,
-        context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<Error>> {
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         let mut faces = HashMap::new();
 

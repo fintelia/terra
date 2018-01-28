@@ -151,7 +151,7 @@ fn main() {
                 &mut window.encoder,
                 dt,
             );
-            terrain.render(&mut window.encoder);
+            terrain.render(&mut window.encoder).unwrap();
             terrain.render_sky(&mut window.encoder);
 
             let text_color = [0.0, 1.0, 1.0, 1.0];

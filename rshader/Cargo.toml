@@ -10,6 +10,7 @@ categories = ["game-engines", "rendering"]
 
 [dependencies]
 gfx = "0.17.1"
+failure = "0.1.1"
 notify = "4.0"
 
 [features]

@@ -1,6 +1,6 @@
-use std::error::Error;
 use std::io::{Cursor, Read};
 
+use failure::Error;
 use gfx;
 use gfx::format::*;
 use gfx_core;
@@ -34,11 +34,7 @@ impl WebAsset for MaterialTypeRaw {
         format!("materials/raw/{}", name)
     }
 
-    fn parse(
-        &self,
-        _context: &mut AssetLoadContext,
-        data: Vec<u8>,
-    ) -> Result<Self::Type, Box<Error>> {
+    fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         let name = match self.0 {
             MaterialType::Rock => "ground_mud2_d.jpg",
             MaterialType::Grass => "grass_ground_d.jpg",
@@ -68,7 +64,7 @@ impl GeneratedAsset for MaterialType {
         format!("materials/filtered/{}", name)
     }
 
-    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Box<Error>> {
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         context.set_progress_and_total(0, 7);
 
         let resolution = 1024;
@@ -182,7 +178,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
     pub fn load<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
         factory: &mut F,
         encoder: &mut gfx::Encoder<R, C>,
-    ) -> Result<Self, Box<Error>> {
+    ) -> Result<Self, Error> {
         let resolution = 1024;
         let mipmaps = 11;
 
