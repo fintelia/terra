@@ -74,12 +74,16 @@ vec3 compute_splatting(vec3 pos, vec2 t) {
 }
 
 vec3 water_color() {
+	vec3 n = normalize(fPosition + vec3(0,planetRadius,0)); // y
+	vec3 t = normalize(cross(vec3(0,0,1), n)); // x
+	vec3 b = normalize(cross(t, n)); // z
+
 	vec3 ray = normalize(fPosition - cameraPosition);
-	vec3 normal = texture(oceanSurface, vec3(fPosition.xz * 0.001, 0)).xzy * 2 - 1;
+	vec3 normal = mat3(t, n, b) * normalize(texture(oceanSurface, vec3(fPosition.xz * 0.000001,0)).xzy * 2 - 1);
 	vec3 reflected = reflect(ray, normalize(normal));
 
-	vec3 reflectedColor = vec3(0,0.05,0.1);//textureLod(sky, normalize(reflected), 5).rgb;
-	vec3 refractedColor = vec3(0,0.1,0.2)*0.5;
+	vec3 reflectedColor = vec3(0,0.1,0.2) * 0.27;//textureLod(sky, normalize(reflected), 4).rgb;
+	vec3 refractedColor = vec3(0,0.1,0.2) * 0.25;
 
 	float R0 = pow(0.333 / 2.333, 2);
 	float R = R0 + (1 - R0) * pow(1 - reflected.y, 5);
@@ -97,9 +101,8 @@ vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float wate
 		return color;
 	} else {
 		vec4 color = texture(colors, vec3(texcoord, colorsLayer));
-		color.rgb = mix(color.rgb, vec3(0,0.05,0.1), waterAmount);
-		color.rgb *= color.a;
-		return color.rgb;
+		color.rgb = mix(color.rgb, water_color(), waterAmount);
+		return color.rgb * color.a;
 	}
 }
 
