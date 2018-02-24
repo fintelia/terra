@@ -278,7 +278,7 @@ mod tests {
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
         let roundtrip = |warped: Vector3<f64>| -> Vector3<f64> {
             let p = system.ned_to_ecef(system.world_to_ned(system.warped_to_world(warped)));
-            system.world_to_warped(system.ned_to_world(system.ecef_to_ned((p))))
+            system.world_to_warped(system.ned_to_world(system.ecef_to_ned(p)))
         };
 
         let a = Vector3::new(0.0, 0.0, 0.0);

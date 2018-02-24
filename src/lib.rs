@@ -4,8 +4,9 @@
 #![feature(ord_max_min)]
 #![feature(test)]
 #![feature(unboxed_closures)]
-#![feature(use_nested_groups)]
 #![feature(try_from)]
+#![feature(slice_patterns)]
+#![feature(non_ascii_idents)]
 
 #[cfg(test)]
 #[macro_use]

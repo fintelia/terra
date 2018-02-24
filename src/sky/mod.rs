@@ -11,6 +11,9 @@ use zip::ZipArchive;
 
 use cache::{AssetLoadContext, WebAsset};
 
+pub mod lut;
+pub mod precompute;
+
 const FACE_NAMES: [&'static str; 6] = ["east", "west", "up", "down", "north", "south"];
 
 pub struct SkyboxAsset(String);
