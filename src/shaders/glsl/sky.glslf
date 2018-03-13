@@ -16,8 +16,9 @@ void main() {
 		return;
 	}
 
-	vec3 color = atmosphere(cameraPosition, cameraPosition + r * p.y, sunDirection);
+	vec3 color = precomputed_atmosphere(cameraPosition, cameraPosition + r * p.y, sunDirection);
 
     // Apply exposure.
     OutColor = vec4(1.0 - exp(-0.75 * color), 1);
+    OutColor.rgb += dither();
 }

@@ -117,7 +117,7 @@ void main() {
 			* fMorph;
 	}
 
-	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
+	OutColor.rgb = precomputed_aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	// if(length(fPosition.xz) > 3000) {
 	// 	OutColor.rgb *= vec3(2,.5,.5);
 	// 	if(length(fPosition.xz) < 3030)

@@ -53,7 +53,7 @@ fn integral<F: Fn(Vector2<f64>) -> Vector3<f64>>(
     steps: u32,
     check_planet_surface: bool,
     f: F,
-) -> [f32; 4] {
+) -> Vector3<f64> {
     let b = 2.0 * r * f64::cos(theta);
     let c_atmosphere = r * r - Rt * Rt;
     let c_ground = r * r - Rg * Rg;
@@ -73,7 +73,7 @@ fn integral<F: Fn(Vector2<f64>) -> Vector3<f64>>(
         sum += f(y) * step_length;
     }
 
-    [sum[0] as f32, sum[1] as f32, sum[2] as f32, 0.0]
+    sum
 }
 
 pub(super) struct TransmittanceTable {
@@ -92,15 +92,25 @@ impl LookupTableDefinition for TransmittanceTable {
         [64, 256, 1, 1]
     }
     fn compute(&self, [x, y, _, _]: [u16; 4]) -> [f32; 4] {
-        let r = Rg + (Rt - Rg) * (f64::from(x) + 0.5) * self.inv_size()[0];
-        let θ = PI * (f64::from(y) + 0.5) * self.inv_size()[1];
+        let xx = f64::from(x) / f64::from(self.size()[0] - 1);
+        let yy = f64::from(y) / f64::from(self.size()[1] - 1);
 
-        integral(r, θ, self.steps, false, |y| {
+        let r = Rg + (Rt - Rg) * xx;
+        let v = 2.0 * yy - 1.0;
+
+        let t = integral(r, f64::acos(v), self.steps, false, |y| {
             let height = y.magnitude() - Rg;
             let βe_R = rayleigh::βe * f64::exp(-height / rayleigh::H);
             let βe_M = mie::βe * f64::exp(-height / mie::H);
             βe_R + Vector3::new(βe_M, βe_M, βe_M)
-        })
+        });
+
+        [
+            f64::exp(-t.x) as f32,
+            f64::exp(-t.y) as f32,
+            f64::exp(-t.z) as f32,
+            0.0,
+        ]
     }
 }
 
@@ -152,6 +162,7 @@ impl InscatteringTable {
 
         (r, µ, µ_s, v)
     }
+    #[cfg(test)]
     fn reverse_parameters(r: f64, µ: f64, µ_s: f64, v: f64) -> (f64, f64, f64, f64) {
         assert!(r >= Rg && r <= Rt);
         assert!(µ >= -1.0 && µ <= 1.0);
@@ -210,9 +221,9 @@ impl LookupTableDefinition for InscatteringTable {
         );
 
         let L_sun = 1.0;
-        integral(r, f64::acos(µ), self.steps, true, |y| {
+        let s = integral(r, f64::acos(µ), self.steps, true, |y| {
             let xx = ((y.magnitude() - Rg) / (Rt - Rg)) as f32;
-            let yy = (f64::acos(µ_s) / PI) as f32;
+            let yy = (µ_s * 0.5 + 0.5) as f32;
 
             let [Tr, Tg, Tb, _] = self.transmittance.get2(xx, yy);
             let T = Vector3::new(Tr as f64, Tg as f64, Tb as f64);
@@ -220,7 +231,8 @@ impl LookupTableDefinition for InscatteringTable {
             let R = T.mul_element_wise(rayleigh::βs) * rayleigh::P(v) * L_sun;
             let M = T * mie::βs * mie::P(v) * L_sun;
             R + M
-        })
+        });
+        [s.x as f32, s.y as f32, s.z as f32, 0.0]
     }
 }
 

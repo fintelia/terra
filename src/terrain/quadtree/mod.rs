@@ -250,6 +250,15 @@ where
             )
         };
 
+        let transmittance = (
+            atmosphere.transmittance.texture_view.clone(),
+            sampler.clone(),
+        );
+        let inscattering = (
+            atmosphere.inscattering.texture_view.clone(),
+            sampler.clone(),
+        );
+
         Ok(Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
@@ -273,6 +282,8 @@ where
                 noise_wavelength: header.noise.wavelength,
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                transmittance: transmittance.clone(),
+                inscattering: inscattering.clone(),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -284,6 +295,8 @@ where
                 sky: (sky.texture_view.clone(), sampler.clone()),
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                transmittance: transmittance.clone(),
+                inscattering: inscattering.clone(),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -298,6 +311,8 @@ where
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                transmittance: transmittance,
+                inscattering: inscattering,
                 color: (planet_mesh_texture_view, sampler.clone()),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),

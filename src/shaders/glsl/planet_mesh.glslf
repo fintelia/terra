@@ -26,6 +26,6 @@ void main() {
 
 	OutColor.rgb = mix(color.rgb, water_color(normal), color.a);
 	OutColor.rgb *= dot(normal, sunDirection.xyz * vec3(1,1,-1));
-	OutColor.rgb = aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
+	OutColor.rgb = precomputed_aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	OutColor.rgb += dither();
 }

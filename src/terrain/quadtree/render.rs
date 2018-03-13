@@ -46,20 +46,21 @@ gfx_pipeline!( pipe {
     noise_wavelength: gfx::Global<f32> = "noiseWavelength",
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
-
+    transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
+    inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
 
 gfx_pipeline!( sky_pipe {
     inv_model_view_projection: gfx::Global<[[f32; 4]; 4]> = "invModelViewProjection",
-
     camera_position: gfx::Global<[f32;3]> = "cameraPosition",
     sun_direction: gfx::Global<[f32;3]> = "sunDirection",
     sky: gfx::TextureSampler<[f32; 4]> = "sky",
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
-
+    transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
+    inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -71,6 +72,8 @@ gfx_pipeline!( planet_mesh_pipe {
     sun_direction: gfx::Global<[f32;3]> = "sunDirection",
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
+    transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
+    inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color: gfx::TextureSampler<[f32; 4]> = "color",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
