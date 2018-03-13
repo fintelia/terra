@@ -9,10 +9,12 @@ use gfx_core;
 use image::{self, RgbaImage};
 use zip::ZipArchive;
 
-use cache::{AssetLoadContext, WebAsset};
+use sky::precompute::{InscatteringTable, TransmittanceTable};
+use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
+use self::lut::GpuLookupTable;
 
 pub mod lut;
-pub mod precompute;
+mod precompute;
 
 const FACE_NAMES: [&'static str; 6] = ["east", "west", "up", "down", "north", "south"];
 
@@ -138,5 +140,31 @@ impl<R: gfx::Resources> Skybox<R> {
             texture_view,
             _texture: texture,
         }
+    }
+}
+
+pub(crate) struct Atmosphere<R: gfx::Resources> {
+    pub transmittance: GpuLookupTable<R>,
+    pub inscattering: GpuLookupTable<R>,
+}
+impl<R: gfx::Resources> Atmosphere<R> {
+    pub fn new<F: gfx::Factory<R>>(
+        factory: &mut F,
+        context: &mut AssetLoadContext,
+    ) -> Result<Self, Error> {
+        let transmittance = TransmittanceTable { steps: 1000 }.load(context)?;
+        let transmittance_table = GpuLookupTable::new(factory, &transmittance)?;
+        let inscattering_table = GpuLookupTable::new(
+            factory,
+            &InscatteringTable {
+                steps: 30,
+                transmittance,
+            }.load(context)?,
+        )?;
+
+        Ok(Self {
+            transmittance: transmittance_table,
+            inscattering: inscattering_table,
+        })
     }
 }

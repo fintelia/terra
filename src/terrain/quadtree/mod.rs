@@ -16,10 +16,11 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::env;
 
+use cache::AssetLoadContext;
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
-use sky::Skybox;
+use sky::{Skybox, Atmosphere};
 use ocean::Ocean;
 
 pub(crate) mod id;
@@ -40,6 +41,7 @@ where
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
     ocean: Ocean<R>,
+    atmosphere: Atmosphere<R>,
 
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
@@ -194,6 +196,7 @@ where
             .clone();
 
         let ocean = Ocean::new(&mut factory);
+        let atmosphere = Atmosphere::new(&mut factory, &mut AssetLoadContext::new())?;
 
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Trilinear,
@@ -300,6 +303,7 @@ where
                 depth_buffer: depth_buffer.clone(),
             },
             ocean,
+            atmosphere,
             factory,
             shaders_watcher,
             shader,
