@@ -14,7 +14,11 @@ pub struct BitContainer(pub BitVec<u32>);
 impl Index<usize> for BitContainer {
     type Output = f64;
     fn index(&self, i: usize) -> &f64 {
-        if self.0[i] { &255.0 } else { &0.0 }
+        if self.0[i] {
+            &255.0
+        } else {
+            &0.0
+        }
     }
 }
 

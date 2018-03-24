@@ -139,26 +139,20 @@ where
     }
 
     pub(super) fn update_shaders(&mut self) -> Result<(), Error> {
-        if self.shader.refresh(
-            &mut self.factory,
-            &mut self.shaders_watcher,
-        )
+        if self.shader
+            .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set())?;
         }
 
-        if self.sky_shader.refresh(
-            &mut self.factory,
-            &mut self.shaders_watcher,
-        )
+        if self.sky_shader
+            .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set())?;
         }
 
-        if self.planet_mesh_shader.refresh(
-            &mut self.factory,
-            &mut self.shaders_watcher,
-        )
+        if self.planet_mesh_shader
+            .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.planet_mesh_pso = Self::make_planet_mesh_pso(
                 &mut self.factory,
@@ -197,8 +191,8 @@ where
         let resolution = self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1;
         let texture_resolution = self.tile_cache_layers[LayerType::Normals.index()].resolution();
         let texture_border = self.tile_cache_layers[LayerType::Normals.index()].border();
-        let texture_ratio = (texture_resolution - 2 * texture_border) as f32 /
-            texture_resolution as f32;
+        let texture_ratio =
+            (texture_resolution - 2 * texture_border) as f32 / texture_resolution as f32;
         let texture_step = texture_ratio / resolution as f32;
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
@@ -240,9 +234,9 @@ where
                 let (c, n, w, offset, scale) =
                     find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
                 let child_offset = node::OFFSETS[child_index as usize];
-                let offset = offset +
-                    Vector2::new(child_offset.x as f32, child_offset.y as f32) * scale *
-                        texture_ratio * 0.5;
+                let offset = offset
+                    + Vector2::new(child_offset.x as f32, child_offset.y as f32) * scale
+                        * texture_ratio * 0.5;
                 (c, n, w, offset, scale * 0.5)
             } else {
                 (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
@@ -254,10 +248,9 @@ where
             let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                 .get_slot(id)
                 .unwrap() as f32;
-            let (colors_layer, normals_layer, water_layer, texture_offset, texture_step_scale) =
+            let (colors_layer, normals_layer, water_layer, texture_offset, tex_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset,
-                 ptexture_step_scale) =
+            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset, ptex_step_scale) =
                 find_parent_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
@@ -275,8 +268,8 @@ where
                 colors_layer: [colors_layer, pcolors_layer],
                 normals_layer: [normals_layer, pnormals_layer],
                 water_layer: [water_layer, pwater_layer],
-                texture_step: texture_step * texture_step_scale,
-                parent_texture_step: texture_step * ptexture_step_scale,
+                texture_step: texture_step * tex_step_scale,
+                parent_texture_step: texture_step * ptex_step_scale,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -288,17 +281,20 @@ where
                     let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                         .get_slot(id)
                         .unwrap() as f32;
-                    let (colors_layer,
-                         normals_layer,
-                         water_layer,
-                         texture_offset,
-                         texture_step_scale) =
-                        find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-                    let (pcolors_layer,
-                         pnormals_layer,
-                         pwater_layer,
-                         ptexture_offset,
-                         ptexture_step_scale) = find_parent_texture_slots(
+                    let (
+                        colors_layer,
+                        normals_layer,
+                        water_layer,
+                        texture_offset,
+                        texture_step_scale,
+                    ) = find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
+                    let (
+                        pcolors_layer,
+                        pnormals_layer,
+                        pwater_layer,
+                        ptexture_offset,
+                        ptexture_step_scale,
+                    ) = find_parent_texture_slots(
                         &self.nodes,
                         &self.tile_cache_layers,
                         id,
@@ -317,18 +313,16 @@ where
                             heights_slot,
                         ],
                         texture_origin: [
-                            texture_origin + texture_offset.x +
-                                offset.0 * (0.5 - texture_origin) * texture_step_scale,
-                            texture_origin + texture_offset.y +
-                                offset.1 * (0.5 - texture_origin) * texture_step_scale,
+                            texture_origin + texture_offset.x
+                                + offset.0 * (0.5 - texture_origin) * texture_step_scale,
+                            texture_origin + texture_offset.y
+                                + offset.1 * (0.5 - texture_origin) * texture_step_scale,
                         ],
                         parent_texture_origin: [
-                            texture_origin + ptexture_offset.x +
-                                offset.0 * (0.5 - texture_origin) *
-                                    ptexture_step_scale,
-                            texture_origin + ptexture_offset.y +
-                                offset.1 * (0.5 - texture_origin) *
-                                    ptexture_step_scale,
+                            texture_origin + ptexture_offset.x
+                                + offset.0 * (0.5 - texture_origin) * ptexture_step_scale,
+                            texture_origin + ptexture_offset.y
+                                + offset.1 * (0.5 - texture_origin) * ptexture_step_scale,
                         ],
                         colors_layer: [colors_layer, pcolors_layer],
                         normals_layer: [normals_layer, pnormals_layer],
@@ -340,11 +334,7 @@ where
             }
         }
 
-        encoder.update_buffer(
-            &self.pipeline_data.instances,
-            &self.node_states[..],
-            0,
-        )?;
+        encoder.update_buffer(&self.pipeline_data.instances, &self.node_states[..], 0)?;
 
         self.pipeline_data.resolution = resolution as i32;
         encoder.draw(

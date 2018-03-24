@@ -81,13 +81,16 @@ impl GeneratedAsset for MaterialType {
         let albedo_image_blurred = {
             let sigma = 32;
             context.set_progress(1);
-            let tiled =
-                image::RgbaImage::from_fn(resolution + 4 * sigma, resolution + 4 * sigma, |x, y| {
+            let tiled = image::RgbaImage::from_fn(
+                resolution + 4 * sigma,
+                resolution + 4 * sigma,
+                |x, y| {
                     albedo_image.get_pixel(
                         (x + resolution - 2 * sigma) % resolution,
                         (y + resolution - 2 * sigma) % resolution,
                     )
-                });
+                },
+            );
             context.set_progress(2);
             let mut tiled = image::DynamicImage::ImageRgba8(tiled).blur(sigma as f32);
             context.set_progress(3);
@@ -115,8 +118,7 @@ impl GeneratedAsset for MaterialType {
             for i in 0..4 {
                 use image::math::utils::clamp;
                 color[i] = clamp(
-                    (color[i] as i16) - (blurred_color[i] as i16) +
-                        (average_albedo[i] as i16),
+                    (color[i] as i16) - (blurred_color[i] as i16) + (average_albedo[i] as i16),
                     0,
                     255,
                 ) as u8;
@@ -128,8 +130,7 @@ impl GeneratedAsset for MaterialType {
         let mut albedo = Vec::new();
         for level in 0..mipmaps {
             let level_resolution = (resolution >> level) as u32;
-            if albedo_image.width() != level_resolution ||
-                albedo_image.height() != level_resolution
+            if albedo_image.width() != level_resolution || albedo_image.height() != level_resolution
             {
                 albedo_image = albedo_image.resize_exact(
                     level_resolution,

@@ -104,15 +104,15 @@ fn main() {
         first_person.event(&e);
         e.update(|_args| {
             if !detached_camera {
-                let center_distance: f32 = first_person.position[0] * first_person.position[0] +
-                    first_person.position[2] * first_person.position[2];
+                let center_distance: f32 = first_person.position[0] * first_person.position[0]
+                    + first_person.position[2] * first_person.position[2];
                 let center_distance = center_distance.sqrt();
 
                 if center_distance > 3000.0 {
-                    first_person.position[0] = first_person.position[0] /
-                        (center_distance / 3000.0);
-                    first_person.position[2] = first_person.position[2] /
-                        (center_distance / 3000.0);
+                    first_person.position[0] =
+                        first_person.position[0] / (center_distance / 3000.0);
+                    first_person.position[2] =
+                        first_person.position[2] / (center_distance / 3000.0);
                 }
                 camera_position = Point3::new(
                     first_person.position[0],
@@ -130,18 +130,16 @@ fn main() {
 
         window.draw_3d(&e, |window| {
             let now = Instant::now();
-            let dt = (now - last_frame).as_secs() as f32 +
-                (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
+            let dt = (now - last_frame).as_secs() as f32
+                + (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
             last_frame = now;
 
-            window.encoder.clear_depth(
-                &smaa_target.output_stencil(),
-                1.0,
-            );
-            window.encoder.clear(
-                &smaa_target.output_color(),
-                [0.3, 0.3, 0.3, 1.0],
-            );
+            window
+                .encoder
+                .clear_depth(&smaa_target.output_stencil(), 1.0);
+            window
+                .encoder
+                .clear(&smaa_target.output_color(), [0.3, 0.3, 0.3, 1.0]);
 
             let view_matrix = compute_view_matrix(first_person.camera(0.0));
             terrain.update(

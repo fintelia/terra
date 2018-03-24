@@ -5,9 +5,8 @@ use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
 use nalgebra as na;
 
 lazy_static! {
-    static ref ELLIPSOID: GeoEllipsoid = {
-        GeoEllipsoid::new(WGS84_SEMI_MAJOR_AXIS_METERS, WGS84_FLATTENING)
-    };
+    static ref ELLIPSOID: GeoEllipsoid =
+        { GeoEllipsoid::new(WGS84_SEMI_MAJOR_AXIS_METERS, WGS84_FLATTENING) };
 }
 
 pub const PLANET_RADIUS: f64 = 6371000.0;
@@ -115,18 +114,14 @@ impl CoordinateSystem {
 
     #[inline]
     pub fn warped_to_world(&self, warped: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS *
-            (f64::sqrt(
-                1.0 - (warped.x * warped.x - warped.z * warped.z) / PLANET_RADIUS,
-            ) - 1.0);
+        let shift = PLANET_RADIUS
+            * (f64::sqrt(1.0 - (warped.x * warped.x - warped.z * warped.z) / PLANET_RADIUS) - 1.0);
         Vector3::new(warped.x, warped.y - shift, warped.z)
     }
     #[inline]
     pub fn world_to_warped(&self, world: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS *
-            (f64::sqrt(
-                1.0 - (world.x * world.x - world.z * world.z) / PLANET_RADIUS,
-            ) - 1.0);
+        let shift = PLANET_RADIUS
+            * (f64::sqrt(1.0 - (world.x * world.x - world.z * world.z) / PLANET_RADIUS) - 1.0);
         Vector3::new(world.x, world.y + shift, world.z)
     }
 
@@ -381,9 +376,7 @@ mod tests {
         b.iter(|| {
             let p = Vector3::new(10.0, 20.0, 30.0);
             system
-                .ecef_to_lla(system.ned_to_ecef(
-                    system.world_to_ned(system.warped_to_world(p)),
-                ))
+                .ecef_to_lla(system.ned_to_ecef(system.world_to_ned(system.warped_to_world(p))))
                 .x
         });
     }

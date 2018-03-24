@@ -1,9 +1,9 @@
 use failure::Error;
 use gfx;
-use gfx::texture::{Kind, AaMode, Mipmap};
+use gfx::texture::{AaMode, Kind, Mipmap};
 use gfx_core::{format, handle};
 
-use cache::{GeneratedAsset, AssetLoadContext};
+use cache::{AssetLoadContext, GeneratedAsset};
 
 pub trait LookupTableDefinition {
     fn filename(&self) -> String;

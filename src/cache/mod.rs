@@ -14,9 +14,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 
 lazy_static! {
-    static ref TERRA_DIRECTORY: PathBuf = {
-        env::home_dir().unwrap_or(PathBuf::from(".")).join(".terra")
-    };
+    static ref TERRA_DIRECTORY: PathBuf =
+        { env::home_dir().unwrap_or(PathBuf::from(".")).join(".terra") };
 }
 
 pub(crate) struct AssetLoadContext {
@@ -38,7 +37,9 @@ impl AssetLoadContext {
             bars.push(b);
         }
 
-        thread::spawn(move || { mb.listen(); });
+        thread::spawn(move || {
+            mb.listen();
+        });
 
         Self { bars, level: 0 }
     }

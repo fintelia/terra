@@ -20,7 +20,7 @@ use cache::AssetLoadContext;
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
-use sky::{Skybox, Atmosphere};
+use sky::{Atmosphere, Skybox};
 use ocean::Ocean;
 
 pub(crate) mod id;
@@ -84,10 +84,9 @@ where
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Result<Self, Error> {
-        let mut shaders_watcher =
-            rshader::ShaderDirectoryWatcher::new(env::var("TERRA_SHADER_DIRECTORY").unwrap_or(
-                "src/shaders/glsl".to_string(),
-            ))?;
+        let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
+            env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
+        )?;
 
         let shader = rshader::Shader::simple(
             &mut factory,
@@ -120,19 +119,18 @@ where
             ),
         )?;
 
-        let planet_mesh_shader =
-            rshader::Shader::simple(
-                &mut factory,
-                &mut shaders_watcher,
-                shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
-                shader_source!(
-                    "../../shaders/glsl",
-                    "version",
-                    "atmosphere",
-                    "hash",
-                    "planet_mesh.glslf"
-                ),
-            )?;
+        let planet_mesh_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "hash",
+                "planet_mesh.glslf"
+            ),
+        )?;
 
         let mut data_view = data_file.into_view_sync();
         let mut tile_cache_layers = VecMap::new();
@@ -146,17 +144,18 @@ where
         let noise_start = header.noise.offset;
         let noise_end = noise_start + header.noise.bytes;
         let noise_data = unsafe { &data_view.as_slice()[noise_start..noise_end] };
-        let (noise_texture, noise_texture_view) =
-            factory.create_texture_immutable_u8
-            ::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Unorm)>(
-                gfx::texture::Kind::D2(
-                    header.noise.resolution as u16,
-                    header.noise.resolution as u16,
-                    gfx::texture::AaMode::Single,
-                ),
-                gfx::texture::Mipmap::Provided,
-                &[gfx::memory::cast_slice(noise_data)],
-            )?;
+        let (noise_texture, noise_texture_view) = factory.create_texture_immutable_u8::<(
+            gfx_core::format::R8_G8_B8_A8,
+            gfx_core::format::Unorm,
+        )>(
+            gfx::texture::Kind::D2(
+                header.noise.resolution as u16,
+                header.noise.resolution as u16,
+                gfx::texture::AaMode::Single,
+            ),
+            gfx::texture::Mipmap::Provided,
+            &[gfx::memory::cast_slice(noise_data)],
+        )?;
 
         let planet_mesh_start = header.planet_mesh.offset;
         let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
@@ -166,9 +165,8 @@ where
         let pm_texture_start = header.planet_mesh_texture.offset;
         let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
         let pm_texture_data = unsafe { &data_view.as_slice()[pm_texture_start..pm_texture_end] };
-        let (planet_mesh_texture, planet_mesh_texture_view) =
-            factory.create_texture_immutable_u8
-            ::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+        let (planet_mesh_texture, planet_mesh_texture_view) = factory
+            .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
                 gfx::texture::Kind::D2(
                     header.planet_mesh_texture.resolution as u16,
                     header.planet_mesh_texture.resolution as u16,
@@ -234,16 +232,16 @@ where
                         gfx::memory::Bind::empty(),
                     )?)
                 }
-                Ok(if (resolution + 1) * (resolution + 1) - 1 <=
-                    u16::max_value() as u32
-                {
-                    gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution)?)
-                } else {
-                    gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution)?)
-                })
+                Ok(
+                    if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
+                        gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution)?)
+                    } else {
+                        gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution)?)
+                    },
+                )
             };
-            let resolution = (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as
-                u32;
+            let resolution =
+                (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u32;
             (
                 make_index_buffer(resolution)?,
                 make_index_buffer(resolution / 2)?,
@@ -335,8 +333,8 @@ where
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
             node.priority = Priority::from_f32(
-                (node.min_distance * node.min_distance) /
-                    node.bounds.square_distance(camera).max(0.001),
+                (node.min_distance * node.min_distance)
+                    / node.bounds.square_distance(camera).max(0.001),
             );
         }
         for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
@@ -351,8 +349,8 @@ where
             }
 
             for layer in 0..NUM_LAYERS {
-                if qt.nodes[id].tile_indices[layer].is_some() &&
-                    !qt.tile_cache_layers[layer].contains(id)
+                if qt.nodes[id].tile_indices[layer].is_some()
+                    && !qt.tile_cache_layers[layer].contains(id)
                 {
                     qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
                 }
@@ -372,42 +370,44 @@ where
         }
         // Any node with all needed layers in cache is visible...
         self.breadth_first(|qt, id| {
-            qt.nodes[id].visible = id == NodeId::root() ||
-                qt.nodes[id].priority >= Priority::cutoff();
+            qt.nodes[id].visible =
+                id == NodeId::root() || qt.nodes[id].priority >= Priority::cutoff();
             qt.nodes[id].visible
         });
         // ...Except if all its children are visible instead.
-        self.breadth_first(|qt, id| if qt.nodes[id].visible {
-            let mut mask = 0;
-            let mut has_visible_children = false;
-            for (i, c) in qt.nodes[id].children.iter().enumerate() {
-                if c.is_none() || !qt.nodes[c.unwrap()].visible {
-                    mask = mask | (1 << i);
+        self.breadth_first(|qt, id| {
+            if qt.nodes[id].visible {
+                let mut mask = 0;
+                let mut has_visible_children = false;
+                for (i, c) in qt.nodes[id].children.iter().enumerate() {
+                    if c.is_none() || !qt.nodes[c.unwrap()].visible {
+                        mask = mask | (1 << i);
+                    }
+
+                    if c.is_some() && qt.nodes[c.unwrap()].visible {
+                        has_visible_children = true;
+                    }
                 }
 
-                if c.is_some() && qt.nodes[c.unwrap()].visible {
-                    has_visible_children = true;
+                if let Some(frustum) = cull_frustum {
+                    // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
+                    if frustum.contains(&qt.nodes[id].bounds.as_aabb3()) == Relation::Out {
+                        mask = 0;
+                    }
                 }
-            }
 
-            if let Some(frustum) = cull_frustum {
-                // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
-                if frustum.contains(&qt.nodes[id].bounds.as_aabb3()) == Relation::Out {
-                    mask = 0;
+                if mask == 0 {
+                    qt.nodes[id].visible = false;
+                } else if has_visible_children {
+                    qt.partially_visible_nodes.push((id, mask));
+                } else {
+                    qt.visible_nodes.push(id);
                 }
-            }
 
-            if mask == 0 {
-                qt.nodes[id].visible = false;
-            } else if has_visible_children {
-                qt.partially_visible_nodes.push((id, mask));
+                true
             } else {
-                qt.visible_nodes.push(id);
+                false
             }
-
-            true
-        } else {
-            false
         });
     }
 
@@ -465,8 +465,8 @@ where
     }
 
     pub fn get_height(&self, p: Point2<f32>) -> Option<f32> {
-        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x ||
-            self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
+        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x
+            || self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
         {
             return None;
         }
@@ -475,9 +475,9 @@ where
         while self.nodes[id].children.iter().any(|c| c.is_some()) {
             for c in self.nodes[id].children.iter() {
                 if let Some(c) = *c {
-                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x &&
-                        self.nodes[c].bounds.min.z <= p.y &&
-                        self.nodes[c].bounds.max.z >= p.y
+                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x
+                        && self.nodes[c].bounds.min.z <= p.y
+                        && self.nodes[c].bounds.max.z >= p.y
                     {
                         id = c;
                         break;
@@ -511,13 +511,13 @@ where
 
         if fx + fy < 1.0 {
             Some(
-                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy) +
-                    fy * get_texel(ix, iy + 1),
+                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy)
+                    + fy * get_texel(ix, iy + 1),
             )
         } else {
             Some(
-                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1) +
-                    (1.0 - fy) * get_texel(ix + 1, iy),
+                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1)
+                    + (1.0 - fy) * get_texel(ix + 1, iy),
             )
         }
     }
