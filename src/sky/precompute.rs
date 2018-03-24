@@ -9,8 +9,8 @@ use sky::lut::{LookupTable, LookupTableDefinition};
 // Simulation is done at λ = (680, 550, 440) nm = (red, green, blue).
 // See https://hal.inria.fr/inria-00288758/document
 
-const Rg: f64 = 6360000.0;
-const Rt: f64 = 6420000.0;
+const Rg: f64 = 6371000.0;
+const Rt: f64 = 6471000.0;
 
 mod rayleigh {
     use super::*;
@@ -18,15 +18,14 @@ mod rayleigh {
     // For rayleigh scattering there is no absorbsion so βe = βs.
     pub const βe: Vector3<f64> = Vector3 {
         x: 5.8e-6,
-        y: 14.5e-6,
+        y: 13.5e-6,
         z: 33.1e-6,
     };
     pub const βs: Vector3<f64> = βe;
     pub const H: f64 = 8000.0;
 
-    #[allow(unused)]
     pub fn P(µ: f64) -> f64 {
-        3.0 / (16.0 * PI) * (1.0 + µ)
+        3.0 / (16.0 * PI) * (1.0 + µ * µ)
     }
 }
 
@@ -40,10 +39,9 @@ mod mie {
     #[allow(unused)]
     pub const g: f64 = 0.76;
 
-    #[allow(unused)]
     pub fn P(µ: f64) -> f64 {
-        3.0 / (8.0 * PI) * ((1.0 - g * g) * (µ + 1.0))
-            / (f64::powf(1.0 + g * g - 2.0 * µ * g, 1.5) * (2.0 + g * g))
+        3.0 / (8.0 * PI) * ((1.0 - g * g) * (1.0 + µ * µ))
+            / ((2.0 + g * g) * f64::powf(1.0 + g * g - 2.0 * g * µ, 1.5))
     }
 }
 
@@ -222,14 +220,16 @@ impl LookupTableDefinition for InscatteringTable {
 
         let L_sun = 1.0;
         let s = integral(r, f64::acos(µ), self.steps, true, |y| {
-            let xx = ((y.magnitude() - Rg) / (Rt - Rg)) as f32;
-            let yy = (µ_s * 0.5 + 0.5) as f32;
+            let h = y.magnitude() - Rg;
 
+            let xx = (h / (Rt - Rg)) as f32;
+            let yy = (µ_s * 0.5 + 0.5) as f32;
             let [Tr, Tg, Tb, _] = self.transmittance.get2(xx, yy);
             let T = Vector3::new(Tr as f64, Tg as f64, Tb as f64);
 
-            let R = T.mul_element_wise(rayleigh::βs) * rayleigh::P(v) * L_sun;
-            let M = T * mie::βs * mie::P(v) * L_sun;
+            let R = T.mul_element_wise(rayleigh::βs) * f64::exp(-h / rayleigh::H) * rayleigh::P(v)
+                * L_sun;
+            let M = T * mie::βs * f64::exp(-h / mie::H) * mie::P(v) * L_sun;
             R + M
         });
         [s.x as f32, s.y as f32, s.z as f32, 0.0]

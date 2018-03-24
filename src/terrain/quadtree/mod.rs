@@ -41,6 +41,8 @@ where
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
     ocean: Ocean<R>,
+
+    #[allow(unused)]
     atmosphere: Atmosphere<R>,
 
     /// List of nodes that will be rendered.
