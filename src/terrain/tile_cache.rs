@@ -39,7 +39,7 @@ pub(crate) enum LayerType {
 impl LayerType {
     pub fn cache_size(&self) -> u16 {
         match *self {
-            LayerType::Heights => 256,
+            LayerType::Heights => 512,
             LayerType::Colors => 256,
             LayerType::Normals => 32,
             LayerType::Water => 256,
