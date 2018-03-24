@@ -18,8 +18,9 @@ use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::raster::{AmbientOcclusionSource, BitContainer, GlobalRaster, RasterCache};
-use terrain::reprojected_raster::{ReprojectedDemDef, ReprojectedRaster};
+use terrain::raster::{BitContainer, GlobalRaster, RasterCache};
+use terrain::reprojected_raster::{RasterSource, ReprojectedDemDef, ReprojectedRaster,
+                                  ReprojectedRasterDef};
 use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
                           TileHeader};
 use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
@@ -250,7 +251,6 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
         let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
-            dem_cache: Rc::new(RefCell::new(RasterCache::new(Box::new(self.source), 32))),
             bluemarble: BlueMarble.load(context)?,
             global_watermask: GlobalWaterMask.load(context)?,
             random: {
@@ -260,6 +260,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
                     .collect();
                 Heightmap::new(v, 15, 15)
             },
+            dem_source: self.source,
             heightmap_resolution,
             heights_resolution: self.vertex_quality.resolution(),
             max_texture_level,
@@ -307,9 +308,9 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
 }
 
 struct State<'a, W: Write, R: gfx::Resources> {
-    dem_cache: Rc<RefCell<RasterCache<f32>>>,
     bluemarble: GlobalRaster<u8>,
     global_watermask: GlobalRaster<f64, BitContainer>,
+    dem_source: DemSource,
 
     random: Heightmap<f32>,
     heightmaps: Option<ReprojectedRaster>,
@@ -350,7 +351,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         )
     }
 
-
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
@@ -364,7 +364,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
         let reproject = ReprojectedDemDef {
             name: format!("{}dem", self.directory_name),
-            dem_cache: self.dem_cache.clone(),
+            dem_cache: Rc::new(RefCell::new(RasterCache::new(
+                Box::new(self.dem_source),
+                128,
+            ))),
             system: &self.system,
             nodes: &self.nodes,
             random: &self.random,
@@ -466,12 +469,23 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             "Generating colormaps... ",
             self.heightmaps.as_ref().unwrap().len(),
         );
-        let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
 
-        let mut ao_cache = RasterCache::new(
-            Box::new(AmbientOcclusionSource(self.dem_cache.clone())),
-            256,
-        );
+        let reproject = ReprojectedRasterDef {
+            name: format!("{}treecover", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            raster: RasterSource::RasterCacheU8 {
+                cache: Rc::new(RefCell::new(RasterCache::new(
+                    Box::new(LandCoverKind::TreeCover),
+                    256,
+                ))),
+                default: 0.0,
+                radius2: Some(500_000.0 * 500_000.0),
+            },
+        };
+        let treecover = ReprojectedRaster::from_raster(reproject, context)?;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.as_ref().unwrap().len() {
@@ -497,12 +511,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
-                    let occlusion = if world.magnitude2() < 250000.0 * 250000.0 {
-                        ao_cache.interpolate(context, lat, long).unwrap_or(255.0) as f32
-                    } else {
-                        255.0
-                    };
-                    let light = (normal.dot(self.sun_direction).max(0.0) * occlusion) as u8;
+                    let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     let color = if use_blue_marble {
                         let r = self.bluemarble.interpolate(lat, long, 0) as u8;
@@ -511,11 +520,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         [r, g, b, light]
                     } else {
                         if normal.y > 0.9 {
-                            let treecover = treecover_cache.interpolate(context, lat, long);
-                            let t = 1.0 - 0.4 * treecover.unwrap_or(0.0) / 100.0;
-                            let r = (grass[0] as f64 * t) as u8;
-                            let g = (grass[1] as f64 * t) as u8;
-                            let b = (grass[2] as f64 * t) as u8;
+                            let t = 1.0 - 0.4 * treecover.get(i, x, y, 0) / 100.0;
+                            let r = (grass[0] as f32 * t) as u8;
+                            let g = (grass[1] as f32 * t) as u8;
+                            let b = (grass[2] as f32 * t) as u8;
                             [r, g, b, light]
                         } else {
                             [rock[0], rock[1], rock[2], light]

@@ -10,12 +10,13 @@ use std::rc::Rc;
 use terrain::heightmap::Heightmap;
 use terrain::quadtree::Node;
 use terrain::quadtree::node;
-use terrain::raster::RasterCache;
+use terrain::raster::{GlobalRaster, RasterCache};
 use utils::math::BoundingBox;
 
 #[derive(Serialize, Deserialize)]
 enum DataType {
     F32,
+    U8,
 }
 
 fn world_position(
@@ -225,6 +226,100 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
     }
 }
 
+pub(crate) enum RasterSource<'a> {
+    GlobalRasterU8(&'a GlobalRaster<u8>),
+    RasterCacheU8 {
+        cache: Rc<RefCell<RasterCache<u8>>>,
+        default: f64,
+        radius2: Option<f64>,
+    },
+}
+pub(crate) struct ReprojectedRasterDef<'a> {
+    pub name: String,
+    pub heights: &'a ReprojectedRaster,
+
+    pub system: &'a CoordinateSystem,
+    pub nodes: &'a Vec<Node>,
+    pub skirt: u16,
+
+    pub raster: RasterSource<'a>,
+}
+impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
+    type Header = ReprojectedRasterHeader;
+
+    fn filename(&self) -> String {
+        self.name.clone()
+    }
+    fn generate<W: Write>(
+        &self,
+        context: &mut AssetLoadContext,
+        mut writer: W,
+    ) -> Result<Self::Header, Error> {
+        let (datatype, bands) = match self.raster {
+            RasterSource::GlobalRasterU8(gr) => (DataType::U8, gr.bands as u16),
+            RasterSource::RasterCacheU8 { .. } => (DataType::U8, 1),
+        };
+
+        assert_eq!(self.heights.header.bands, 1);
+        context.set_progress_and_total(0, self.heights.header.tiles);
+        for i in 0..self.heights.header.tiles {
+            for y in 0..(self.heights.header.resolution - 1) {
+                for x in 0..(self.heights.header.resolution - 1) {
+                    let world = world_position(
+                        x as i32,
+                        y as i32,
+                        self.nodes[i].bounds,
+                        self.skirt,
+                        self.heights.header.resolution,
+                    );
+                    let h00 = self.heights.get(i, x, y, 0);
+                    let h01 = self.heights.get(i, x, y + 1, 0);
+                    let h10 = self.heights.get(i, x + 1, y, 0);
+                    let h11 = self.heights.get(i, x + 1, y + 1, 0);
+                    let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
+                    let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
+                    let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+
+                    for band in 0..bands {
+                        let v = match self.raster {
+                            RasterSource::GlobalRasterU8(gr) => {
+                                gr.interpolate(lat, long, band as usize)
+                            }
+                            RasterSource::RasterCacheU8 {
+                                ref cache,
+                                ref radius2,
+                                default,
+                            } => {
+                                if radius2.is_none() || world.magnitude2() < radius2.unwrap() {
+                                    cache
+                                        .borrow_mut()
+                                        .interpolate(context, lat, long)
+                                        .unwrap_or(default)
+                                } else {
+                                    default
+                                }
+                            }
+                        };
+
+                        match datatype {
+                            DataType::F32 => writer.write_f32::<LittleEndian>(v as f32),
+                            DataType::U8 => writer.write_u8(v as u8),
+                        }?;
+                    }
+                }
+            }
+            context.set_progress(i + 1);
+        }
+
+        Ok(ReprojectedRasterHeader {
+            resolution: self.heights.header.resolution - 1,
+            tiles: self.heights.header.tiles,
+            datatype,
+            bands,
+        })
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub(crate) struct ReprojectedRasterHeader {
     resolution: u16,
@@ -246,6 +341,14 @@ impl ReprojectedRaster {
         Ok(Self { data, header })
     }
 
+    pub fn from_raster<'a>(
+        def: ReprojectedRasterDef<'a>,
+        context: &mut AssetLoadContext,
+    ) -> Result<Self, Error> {
+        let (header, data) = def.load(context)?;
+        Ok(Self { data, header })
+    }
+
     pub fn get(&self, tile: usize, x: u16, y: u16, band: u16) -> f32 {
         assert!(band < self.header.bands);
         assert!(x < self.header.resolution);
@@ -257,6 +360,7 @@ impl ReprojectedRaster {
                 * self.header.bands as usize;
         match self.header.datatype {
             DataType::F32 => LittleEndian::read_f32(&unsafe { self.data.as_slice() }[index * 4..]),
+            DataType::U8 => unsafe { f32::from(self.data.as_slice()[index]) },
         }
     }
 
