@@ -1,11 +1,12 @@
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use cache::{AssetLoadContext, MMappedAsset};
+use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use cgmath::*;
 use coordinates::{CoordinateSystem, PLANET_RADIUS};
 use failure::Error;
 use memmap::Mmap;
 use std::cell::RefCell;
 use std::io::Write;
+use std::ops::Index;
 use std::rc::Rc;
 use terrain::heightmap::Heightmap;
 use terrain::quadtree::Node;
@@ -13,8 +14,8 @@ use terrain::quadtree::node;
 use terrain::raster::{GlobalRaster, RasterCache};
 use utils::math::BoundingBox;
 
-#[derive(Serialize, Deserialize)]
-enum DataType {
+#[derive(Copy, Clone, Serialize, Deserialize)]
+pub(crate) enum DataType {
     F32,
     U8,
 }
@@ -222,19 +223,34 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
             bands: 1,
             tiles,
             datatype: DataType::F32,
+            spacing: None,
         })
     }
 }
 
-pub(crate) enum RasterSource<'a> {
-    GlobalRasterU8(&'a GlobalRaster<u8>),
-    RasterCacheU8 {
+pub(crate) enum RasterSource<T, C = Vec<T>>
+where
+    T: Into<f64> + Copy,
+    C: Index<usize, Output = T>,
+{
+    GlobalRaster {
+        global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
+    },
+    RasterCache {
         cache: Rc<RefCell<RasterCache<u8>>>,
         default: f64,
         radius2: Option<f64>,
     },
+    Hybrid {
+        global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
+        cache: Rc<RefCell<RasterCache<u8>>>,
+    },
 }
-pub(crate) struct ReprojectedRasterDef<'a> {
+pub(crate) struct ReprojectedRasterDef<'a, T, C = Vec<T>>
+where
+    T: Into<f64> + Copy,
+    C: Index<usize, Output = T>,
+{
     pub name: String,
     pub heights: &'a ReprojectedRaster,
 
@@ -242,9 +258,14 @@ pub(crate) struct ReprojectedRasterDef<'a> {
     pub nodes: &'a Vec<Node>,
     pub skirt: u16,
 
-    pub raster: RasterSource<'a>,
+    pub datatype: DataType,
+    pub raster: RasterSource<T, C>,
 }
-impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
+impl<'a, T, C> MMappedAsset for ReprojectedRasterDef<'a, T, C>
+where
+    T: Into<f64> + Copy,
+    C: Index<usize, Output = T>,
+{
     type Header = ReprojectedRasterHeader;
 
     fn filename(&self) -> String {
@@ -255,14 +276,27 @@ impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
         context: &mut AssetLoadContext,
         mut writer: W,
     ) -> Result<Self::Header, Error> {
-        let (datatype, bands) = match self.raster {
-            RasterSource::GlobalRasterU8(gr) => (DataType::U8, gr.bands as u16),
-            RasterSource::RasterCacheU8 { .. } => (DataType::U8, 1),
+        let (global_raster, global_spacing) = match self.raster {
+            RasterSource::GlobalRaster { ref global } | RasterSource::Hybrid { ref global, .. } => {
+                let global_raster = global.load(context)?;
+                let spacing = global_raster.spacing() as f32;
+                (Some(global_raster), Some(spacing))
+            }
+            RasterSource::RasterCache { .. } => (None, None),
+        };
+
+        let bands = match self.raster {
+            RasterSource::GlobalRaster { .. } => global_raster.as_ref().unwrap().bands as u16,
+            RasterSource::RasterCache { .. } => 1,
+            RasterSource::Hybrid { .. } => 1,
         };
 
         assert_eq!(self.heights.header.bands, 1);
         context.set_progress_and_total(0, self.heights.header.tiles);
         for i in 0..self.heights.header.tiles {
+            let spacing = self.nodes[i].side_length
+                / (self.heights.header.resolution - 2 * self.skirt) as f32;
+
             for y in 0..(self.heights.header.resolution - 1) {
                 for x in 0..(self.heights.header.resolution - 1) {
                     let world = world_position(
@@ -282,10 +316,11 @@ impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
 
                     for band in 0..bands {
                         let v = match self.raster {
-                            RasterSource::GlobalRasterU8(gr) => {
-                                gr.interpolate(lat, long, band as usize)
-                            }
-                            RasterSource::RasterCacheU8 {
+                            RasterSource::GlobalRaster { .. } => global_raster
+                                .as_ref()
+                                .unwrap()
+                                .interpolate(lat, long, band as usize),
+                            RasterSource::RasterCache {
                                 ref cache,
                                 ref radius2,
                                 default,
@@ -299,9 +334,25 @@ impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
                                     default
                                 }
                             }
+                            RasterSource::Hybrid { ref cache, .. } => {
+                                if spacing >= *global_spacing.as_ref().unwrap() {
+                                    global_raster.as_ref().unwrap().interpolate(lat, long, 0)
+                                } else {
+                                    cache
+                                        .borrow_mut()
+                                        .interpolate(context, lat, long)
+                                        .unwrap_or_else(|| {
+                                            global_raster.as_ref().unwrap().interpolate(
+                                                lat,
+                                                long,
+                                                0,
+                                            )
+                                        })
+                                }
+                            }
                         };
 
-                        match datatype {
+                        match self.datatype {
                             DataType::F32 => writer.write_f32::<LittleEndian>(v as f32),
                             DataType::U8 => writer.write_u8(v as u8),
                         }?;
@@ -314,8 +365,9 @@ impl<'a> MMappedAsset for ReprojectedRasterDef<'a> {
         Ok(ReprojectedRasterHeader {
             resolution: self.heights.header.resolution - 1,
             tiles: self.heights.header.tiles,
-            datatype,
+            datatype: self.datatype,
             bands,
+            spacing: global_raster.map(|gr| gr.spacing()),
         })
     }
 }
@@ -326,6 +378,7 @@ pub(crate) struct ReprojectedRasterHeader {
     bands: u16,
     tiles: usize,
     datatype: DataType,
+    spacing: Option<f64>,
 }
 
 pub(crate) struct ReprojectedRaster {
@@ -341,10 +394,14 @@ impl ReprojectedRaster {
         Ok(Self { data, header })
     }
 
-    pub fn from_raster<'a>(
-        def: ReprojectedRasterDef<'a>,
+    pub fn from_raster<'a, T, C>(
+        def: ReprojectedRasterDef<'a, T, C>,
         context: &mut AssetLoadContext,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, Error>
+    where
+        T: Into<f64> + Copy,
+        C: Index<usize, Output = T>,
+    {
         let (header, data) = def.load(context)?;
         Ok(Self { data, header })
     }
@@ -366,5 +423,10 @@ impl ReprojectedRaster {
 
     pub fn len(&self) -> usize {
         self.header.tiles
+    }
+
+    /// Returns the spacing of the source dataset, if known.
+    pub fn spacing(&self) -> Option<f64> {
+        self.header.spacing
     }
 }

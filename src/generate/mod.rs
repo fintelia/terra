@@ -18,8 +18,8 @@ use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::raster::{BitContainer, GlobalRaster, RasterCache};
-use terrain::reprojected_raster::{RasterSource, ReprojectedDemDef, ReprojectedRaster,
+use terrain::raster::RasterCache;
+use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
                                   ReprojectedRasterDef};
 use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
                           TileHeader};
@@ -251,8 +251,6 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
         let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
-            bluemarble: BlueMarble.load(context)?,
-            global_watermask: GlobalWaterMask.load(context)?,
             random: {
                 let normal = Normal::new(0.0, 1.0);
                 let v = (0..(15 * 15))
@@ -287,9 +285,9 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
         context.set_progress(1);
         state.generate_normalmaps(context)?;
         context.set_progress(2);
-        state.generate_colormaps(context)?;
-        context.set_progress(3);
         state.generate_watermasks(context)?;
+        context.set_progress(3);
+        state.generate_colormaps(context)?;
         context.set_progress(4);
 
         let planet_mesh = state.generate_planet_mesh(context)?;
@@ -308,8 +306,6 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
 }
 
 struct State<'a, W: Write, R: gfx::Resources> {
-    bluemarble: GlobalRaster<u8>,
-    global_watermask: GlobalRaster<f64, BitContainer>,
     dem_source: DemSource,
 
     random: Heightmap<f32>,
@@ -470,22 +466,36 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             self.heightmaps.as_ref().unwrap().len(),
         );
 
-        let reproject = ReprojectedRasterDef {
+        let reproject_treecover = ReprojectedRasterDef::<u8> {
             name: format!("{}treecover", self.directory_name),
             heights: self.heightmaps.as_ref().unwrap(),
             system: &self.system,
             nodes: &self.nodes,
             skirt: self.skirt,
-            raster: RasterSource::RasterCacheU8 {
+            datatype: DataType::U8,
+            raster: RasterSource::RasterCache {
                 cache: Rc::new(RefCell::new(RasterCache::new(
                     Box::new(LandCoverKind::TreeCover),
                     256,
                 ))),
                 default: 0.0,
-                radius2: Some(500_000.0 * 500_000.0),
+                radius2: Some(1_000_000.0 * 1_000_000.0),
             },
         };
-        let treecover = ReprojectedRaster::from_raster(reproject, context)?;
+        let treecover = ReprojectedRaster::from_raster(reproject_treecover, context)?;
+
+        let reproject_bluemarble = ReprojectedRasterDef {
+            name: format!("{}bluemarble", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            datatype: DataType::U8,
+            raster: RasterSource::GlobalRaster {
+                global: Box::new(BlueMarble),
+            },
+        };
+        let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.as_ref().unwrap().len() {
@@ -496,17 +506,17 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-            let use_blue_marble = spacing >= self.bluemarble.spacing() as f32;
+            let use_blue_marble = spacing >= bluemarble.spacing().unwrap() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
+                    // let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
                     let h00 = heights.get(i, x, y, 0);
                     let h01 = heights.get(i, x, y + 1, 0);
                     let h10 = heights.get(i, x + 1, y, 0);
                     let h11 = heights.get(i, x + 1, y + 1, 0);
-                    let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
-                    let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+                    // let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
+                    // let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
+                    // let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
@@ -514,9 +524,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     let color = if use_blue_marble {
-                        let r = self.bluemarble.interpolate(lat, long, 0) as u8;
-                        let g = self.bluemarble.interpolate(lat, long, 1) as u8;
-                        let b = self.bluemarble.interpolate(lat, long, 2) as u8;
+                        let r = bluemarble.get(i, x, y, 0) as u8;
+                        let g = bluemarble.get(i, x, y, 1) as u8;
+                        let b = bluemarble.get(i, x, y, 2) as u8;
                         [r, g, b, light]
                     } else {
                         if normal.y > 0.9 {
@@ -641,48 +651,31 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             "Generating water masks... ",
             self.heightmaps.as_ref().unwrap().len(),
         );
-        let mut watermask_cache = RasterCache::new(Box::new(LandCoverKind::WaterMask), 256);
+
+        let reproject = ReprojectedRasterDef {
+            name: format!("{}watermasks", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            datatype: DataType::U8,
+            raster: RasterSource::Hybrid {
+                global: Box::new(GlobalWaterMask),
+                cache: Rc::new(RefCell::new(RasterCache::new(
+                    Box::new(LandCoverKind::WaterMask),
+                    256,
+                ))),
+            },
+        };
+        let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
+
         for i in 0..self.heightmaps.as_ref().unwrap().len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
 
-            let heights = &self.heightmaps.as_ref().unwrap();
             for y in 2..(2 + watermap_resolution) {
                 for x in 2..(2 + watermap_resolution) {
-                    let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
-                    let h00 = heights.get(i, x, y, 0);
-                    let h01 = heights.get(i, x, y + 1, 0);
-                    let h10 = heights.get(i, x + 1, y, 0);
-                    let h11 = heights.get(i, x + 1, y + 1, 0);
-                    let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
-                    let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-
-                    let spacing = self.nodes[i].side_length
-                        / (self.heightmap_resolution - 2 * self.skirt) as f32;
-                    let use_global_watermask = spacing >= self.global_watermask.spacing() as f32;
-                    let w = if use_global_watermask {
-                        self.global_watermask
-                            .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                    } else {
-                        let mut w = 0.0;
-                        if h00 <= 0.0 {
-                            w += 0.25;
-                        }
-                        if h01 <= 0.0 {
-                            w += 0.25;
-                        }
-                        if h10 <= 0.0 {
-                            w += 0.25;
-                        }
-                        if h11 <= 0.0 {
-                            w += 0.25;
-                        }
-                        watermask_cache
-                            .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
-                            .unwrap_or(w * 255.0)
-                    };
-
-                    self.writer.write_u8(w as u8)?;
+                    self.writer.write_u8(watermasks.get(i, x, y, 0) as u8)?;
                     self.writer.write_u8(0)?;
                     self.writer.write_u8(255)?;
                     self.writer.write_u8(0)?;
@@ -903,7 +896,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
     fn generate_planet_mesh_texture(
         &mut self,
-        _context: &mut AssetLoadContext,
+        context: &mut AssetLoadContext,
     ) -> Result<TextureDescriptor, Error> {
         let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
         let descriptor = TextureDescriptor {
@@ -912,6 +905,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             format: TextureFormat::SRGBA,
             bytes: resolution * resolution * 4,
         };
+
+        let bluemarble = BlueMarble.load(context)?;
+        let watermask = GlobalWaterMask.load(context)?;
 
         for y in 0..resolution {
             for x in 0..resolution {
@@ -930,15 +926,15 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 let lla = self.system.world_to_lla(world3);
 
                 let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
-                let r = self.bluemarble.interpolate(lat, long, 0) as u8;
-                let g = self.bluemarble.interpolate(lat, long, 1) as u8;
-                let b = self.bluemarble.interpolate(lat, long, 2) as u8;
-                let aa = self.global_watermask.interpolate(lat, long, 0) as u8;
+                let r = bluemarble.interpolate(lat, long, 0) as u8;
+                let g = bluemarble.interpolate(lat, long, 1) as u8;
+                let b = bluemarble.interpolate(lat, long, 2) as u8;
+                let a = watermask.interpolate(lat, long, 0) as u8;
 
                 self.writer.write_u8(r)?;
                 self.writer.write_u8(g)?;
                 self.writer.write_u8(b)?;
-                self.writer.write_u8(aa)?;
+                self.writer.write_u8(a)?;
                 self.bytes_written += 4;
             }
         }
