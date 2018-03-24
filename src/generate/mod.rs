@@ -906,38 +906,66 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             bytes: resolution * resolution * 4,
         };
 
-        let bluemarble = BlueMarble.load(context)?;
-        let watermask = GlobalWaterMask.load(context)?;
+        struct PlanetMesh<'a> {
+            name: String,
+            system: &'a CoordinateSystem,
+            resolution: usize,
+        };
+        impl<'a> MMappedAsset for PlanetMesh<'a> {
+            type Header = usize;
+            fn filename(&self) -> String {
+                self.name.clone()
+            }
+            fn generate<W: Write>(
+                &self,
+                context: &mut AssetLoadContext,
+                mut writer: W,
+            ) -> Result<Self::Header, Error> {
+                let bluemarble = BlueMarble.load(context)?;
+                let watermask = GlobalWaterMask.load(context)?;
 
-        for y in 0..resolution {
-            for x in 0..resolution {
-                let fx = 2.0 * (x as f64 + 0.5) / resolution as f64 - 1.0;
-                let fy = 2.0 * (y as f64 + 0.5) / resolution as f64 - 1.0;
-                let r = (fx * fx + fy * fy).sqrt().min(1.0);
+                let mut bytes_written = 0;
+                for y in 0..self.resolution {
+                    for x in 0..self.resolution {
+                        let fx = 2.0 * (x as f64 + 0.5) / self.resolution as f64 - 1.0;
+                        let fy = 2.0 * (y as f64 + 0.5) / self.resolution as f64 - 1.0;
+                        let r = (fx * fx + fy * fy).sqrt().min(1.0);
 
-                let phi = r * PI;
-                let theta = f64::atan2(fy, fx);
+                        let phi = r * PI;
+                        let theta = f64::atan2(fy, fx);
 
-                let world3 = Vector3::new(
-                    EARTH_RADIUS * theta.cos() * phi.sin(),
-                    EARTH_RADIUS * (phi.cos() - 1.0),
-                    EARTH_RADIUS * theta.sin() * phi.sin(),
-                );
-                let lla = self.system.world_to_lla(world3);
+                        let world3 = Vector3::new(
+                            EARTH_RADIUS * theta.cos() * phi.sin(),
+                            EARTH_RADIUS * (phi.cos() - 1.0),
+                            EARTH_RADIUS * theta.sin() * phi.sin(),
+                        );
+                        let lla = self.system.world_to_lla(world3);
 
-                let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
-                let r = bluemarble.interpolate(lat, long, 0) as u8;
-                let g = bluemarble.interpolate(lat, long, 1) as u8;
-                let b = bluemarble.interpolate(lat, long, 2) as u8;
-                let a = watermask.interpolate(lat, long, 0) as u8;
+                        let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+                        let r = bluemarble.interpolate(lat, long, 0) as u8;
+                        let g = bluemarble.interpolate(lat, long, 1) as u8;
+                        let b = bluemarble.interpolate(lat, long, 2) as u8;
+                        let a = watermask.interpolate(lat, long, 0) as u8;
 
-                self.writer.write_u8(r)?;
-                self.writer.write_u8(g)?;
-                self.writer.write_u8(b)?;
-                self.writer.write_u8(a)?;
-                self.bytes_written += 4;
+                        writer.write_u8(r)?;
+                        writer.write_u8(g)?;
+                        writer.write_u8(b)?;
+                        writer.write_u8(a)?;
+                        bytes_written += 4;
+                    }
+                }
+                Ok(bytes_written)
             }
         }
+
+        let (bytes, mmap) = PlanetMesh {
+            name: format!("{}planetmesh-texture", self.directory_name),
+            system: &self.system,
+            resolution,
+        }.load(context)?;
+        self.writer.write_all(&unsafe { mmap.as_slice() }[..bytes])?;
+        self.bytes_written += bytes;
+
         Ok(descriptor)
     }
 }
