@@ -19,6 +19,7 @@ use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{AmbientOcclusionSource, BitContainer, GlobalRaster, RasterCache};
+use terrain::reprojected_raster::{ReprojectedDemDef, ReprojectedRaster};
 use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
                           TileHeader};
 use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
@@ -186,16 +187,12 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
             depth_buffer,
         )
     }
-}
 
-impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, F> {
-    type Header = TileHeader;
-
-    fn filename(&self) -> String {
+    fn name(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "maps/{}{:02}_{}{:03}_{}m_{}_{}",
+            "{}{:02}_{}{:03}_{}m_{}_{}",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
@@ -204,6 +201,14 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
             self.vertex_quality.as_str(),
             self.texture_quality.as_str(),
         )
+    }
+}
+
+impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, F> {
+    type Header = TileHeader;
+
+    fn filename(&self) -> String {
+        format!("maps/{}", self.name())
     }
 
     fn generate<W: Write>(
@@ -260,7 +265,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
             max_texture_level,
             resolution_ratio,
             writer,
-            heightmaps: Vec::new(),
+            heightmaps: None,
             max_dem_level,
             materials: &self.materials,
             skirt,
@@ -273,6 +278,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
             nodes: Node::make_nodes(world_size, 3000.0, max_level as u8),
             layers: Vec::new(),
             bytes_written: 0,
+            directory_name: format!("maps/t.{}/", self.name()),
         };
 
         context.set_progress_and_total(0, 4);
@@ -306,7 +312,7 @@ struct State<'a, W: Write, R: gfx::Resources> {
     global_watermask: GlobalRaster<f64, BitContainer>,
 
     random: Heightmap<f32>,
-    heightmaps: Vec<Heightmap<f32>>,
+    heightmaps: Option<ReprojectedRaster>,
 
     /// Resolution of the heightmap for each quadtree node.
     heights_resolution: u16,
@@ -327,6 +333,8 @@ struct State<'a, W: Write, R: gfx::Resources> {
     layers: Vec<LayerParams>,
     nodes: Vec<Node>,
     bytes_written: usize,
+
+    directory_name: String,
 }
 
 impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
@@ -342,187 +350,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         )
     }
 
-    pub fn write_detail_heightmap(&mut self, i: usize) -> Result<(), Error> {
-        let (ancestor, generations, mut offset) =
-            Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
-                self.nodes[id].level as i32 <= self.max_texture_level
-            }).unwrap();
-
-        let ancestor = ancestor.index();
-        let offset_scale = 1 << generations;
-        let step = self.resolution_ratio >> generations;
-        let ancestor_heightmap = &self.heightmaps[ancestor];
-        offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
-        let offset = Vector2::new(offset.x as u16, offset.y as u16);
-
-        let mut miny = None;
-        let mut maxy = None;
-        for y in 0..self.heights_resolution {
-            for x in 0..self.heights_resolution {
-                let height = ancestor_heightmap
-                    .get(
-                        x * step + offset.x + self.skirt,
-                        y * step + offset.y + self.skirt,
-                    )
-                    .unwrap();
-
-                miny = Some(match miny {
-                    Some(y) if y < height => y,
-                    _ => height,
-                });
-                maxy = Some(match maxy {
-                    Some(y) if y > height => y,
-                    _ => height,
-                });
-
-                self.writer.write_f32::<LittleEndian>(height)?;
-                self.bytes_written += 4;
-            }
-        }
-        self.nodes[i].bounds.min.y = miny.unwrap();
-        self.nodes[i].bounds.max.y = maxy.unwrap();
-
-        Ok(())
-    }
-
-    pub fn generate_interpolated_heightmap(&mut self, i: usize) -> Result<Heightmap<f32>, Error> {
-        let mut heights = Vec::with_capacity(
-            self.heightmap_resolution as usize * self.heightmap_resolution as usize,
-        );
-        let offset = node::OFFSETS[self.nodes[i].parent.as_ref().unwrap().1 as usize];
-        let offset = Point2::new(
-            self.skirt / 2 + offset.x as u16 * (self.heightmap_resolution / 2 - self.skirt),
-            self.skirt / 2 + offset.y as u16 * (self.heightmap_resolution / 2 - self.skirt),
-        );
-
-        let layer_scale =
-            self.nodes[i].size / (self.heightmap_resolution - 2 * self.skirt - 1) as i32;
-        let layer_origin = Vector2::new(
-            (self.nodes[i].center.x - self.nodes[i].size / 2) / layer_scale,
-            (self.nodes[i].center.y - self.nodes[i].size / 2) / layer_scale,
-        );
-
-        // Extra scope needed due to lack of support for non-lexical lifetimes.
-        {
-            let ph = &self.heightmaps[self.nodes[i].parent.as_ref().unwrap().0.index()];
-            for y in 0..self.heightmap_resolution {
-                for x in 0..self.heightmap_resolution {
-                    let height = if x % 2 == 0 && y % 2 == 0 {
-                        ph.at(x / 2 + offset.x, y / 2 + offset.y)
-                    } else if x % 2 == 0 {
-                        let h0 = ph.at(x / 2 + offset.x, y / 2 + offset.y - 1);
-                        let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
-                        let h2 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 1);
-                        let h3 = ph.at(x / 2 + offset.x, y / 2 + offset.y + 2);
-                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                    } else if y % 2 == 0 {
-                        let h0 = ph.at(x / 2 + offset.x - 1, y / 2 + offset.y);
-                        let h1 = ph.at(x / 2 + offset.x, y / 2 + offset.y);
-                        let h2 = ph.at(x / 2 + offset.x + 1, y / 2 + offset.y);
-                        let h3 = ph.at(x / 2 + offset.x + 2, y / 2 + offset.y);
-                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                    } else {
-                        let h0 = //rustfmt
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x - 1, y / 2 + offset.y + 2) * -0.0625;
-                        let h1 = //rustfmt
-                                    ph.at(x / 2 + offset.x , y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x, y / 2 + offset.y + 2) * -0.0625;
-                        let h2 = //rustfmt
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y - 1) * -0.0625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 0) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 1) * 0.5625 +
-                                    ph.at(x / 2 + offset.x + 1, y / 2 + offset.y + 2) * -0.0625;
-                        let h3 = //rustfmt
-                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y - 1) * -0.0625 +
-                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 0) * 0.5625 +
-                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 1) * 0.5625 +
-                            ph.at(x / 2 + offset.x + 2, y / 2 + offset.y + 2) * -0.0625;
-                        -0.0625 * h0 + 0.5625 * h1 + 0.5625 * h2 - 0.0625 * h3
-                    };
-                    heights.push(height);
-                }
-            }
-        }
-        let mut heightmap = Heightmap::new(
-            heights,
-            self.heightmap_resolution,
-            self.heightmap_resolution,
-        );
-
-        // Compute noise.
-        let mut noise = Vec::with_capacity(
-            self.heightmap_resolution as usize * self.heightmap_resolution as usize,
-        );
-        let noise_scale =
-            self.nodes[i].side_length / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-        let slope_scale = 0.5 * (self.heightmap_resolution - 1) as f32 / self.nodes[i].side_length;
-        for y in 0..self.heightmap_resolution {
-            for x in 0..self.heightmap_resolution {
-                if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 && x < self.heightmap_resolution - 1
-                    && y < self.heightmap_resolution - 1
-                    && heightmap.at(x, y) > 0.0
-                {
-                    let slope_x = heightmap.at(x + 1, y) - heightmap.at(x - 1, y);
-                    let slope_y = heightmap.at(x, y + 1) - heightmap.at(x, y - 1);
-                    let slope = (slope_x * slope_x + slope_y * slope_y).sqrt() * slope_scale;
-
-                    let bias = -noise_scale * 0.3 * (slope - 0.5).max(0.0);
-
-                    let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
-                    let wx = layer_origin.x + (x as i32 - self.skirt as i32);
-                    let wy = layer_origin.y + (y as i32 - self.skirt as i32);
-                    noise.push(
-                        0.15 * self.random.get_wrapping(wx as i64, wy as i64) * noise_scale
-                            * noise_strength + bias,
-                    );
-                } else {
-                    noise.push(0.0);
-                }
-            }
-        }
-
-        // Apply noise.
-        for y in 0..self.heightmap_resolution {
-            for x in 0..self.heightmap_resolution {
-                heightmap.raise(
-                    x,
-                    y,
-                    noise[x as usize + y as usize * self.heightmap_resolution as usize],
-                );
-            }
-        }
-
-        // Write tile.
-        let mut miny = None;
-        let mut maxy = None;
-        let step = (self.heightmap_resolution - 2 * self.skirt - 1) / (self.heights_resolution - 1);
-        for y in 0..self.heights_resolution {
-            for x in 0..self.heights_resolution {
-                let height = heightmap
-                    .get(x * step + self.skirt, y * step + self.skirt)
-                    .unwrap();
-                miny = Some(match miny {
-                    Some(y) if y < height => y,
-                    _ => height,
-                });
-                maxy = Some(match maxy {
-                    Some(y) if y > height => y,
-                    _ => height,
-                });
-                self.writer.write_f32::<LittleEndian>(height)?;
-                self.bytes_written += 4;
-            }
-        }
-        self.nodes[i].bounds.min.y = miny.unwrap();
-        self.nodes[i].bounds.max.y = maxy.unwrap();
-
-        Ok(heightmap)
-    }
 
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         self.layers.push(LayerParams {
@@ -535,84 +362,71 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             tile_bytes: 4 * self.heights_resolution as usize * self.heights_resolution as usize,
         });
 
-        context.increment_level("Generating heightmaps... ", self.nodes.len());
+        let reproject = ReprojectedDemDef {
+            name: format!("{}dem", self.directory_name),
+            dem_cache: self.dem_cache.clone(),
+            system: &self.system,
+            nodes: &self.nodes,
+            random: &self.random,
+            skirt: self.skirt,
+            max_dem_level: self.max_dem_level as u8,
+            max_texture_level: self.max_texture_level as u8,
+            resolution: self.heightmap_resolution,
+        };
+        self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
+
+        context.increment_level("Writing heightmaps... ", self.nodes.len());
         for i in 0..self.nodes.len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
-            if self.nodes[i].level as i32 > self.max_texture_level {
-                self.write_detail_heightmap(i)?;
-            } else if self.nodes[i].level as i32 > self.max_dem_level {
-                let heightmap = self.generate_interpolated_heightmap(i)?;
-                self.heightmaps.push(heightmap);
+            let (heightmap, offset, step) = if self.nodes[i].level as i32 > self.max_texture_level {
+                let (ancestor, generations, mut offset) =
+                    Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
+                        self.nodes[id].level as i32 <= self.max_texture_level
+                    }).unwrap();
+
+                let ancestor = ancestor.index();
+                let offset_scale = 1 << generations;
+                let step = self.resolution_ratio >> generations;
+                offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
+                let offset = Vector2::new(offset.x as u16, offset.y as u16);
+
+                (ancestor, offset, step)
             } else {
-                assert_eq!(self.heightmaps.len(), i);
-                let bounds = self.nodes[i].bounds;
-                let mut heights = Vec::with_capacity(
-                    self.heightmap_resolution as usize * self.heightmap_resolution as usize,
-                );
-                for y in 0..(self.heightmap_resolution as i32) {
-                    for x in 0..(self.heightmap_resolution as i32) {
-                        let world = self.world_position(x, y, bounds);
-                        let mut world3 = Vector3::new(
-                            world.x,
-                            EARTH_RADIUS
-                                * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt()
-                                    - 1.0),
-                            world.y,
-                        );
-                        for i in 0..5 {
-                            world3.x = world.x;
-                            world3.z = world.y;
-                            let mut lla = self.system.world_to_lla(world3);
-                            lla.z = if i >= 3 && world.magnitude2() < 250000.0 * 250000.0 {
-                                self.dem_cache
-                                    .borrow_mut()
-                                    .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
-                                    .unwrap_or(0.0) as f64
-                            } else {
-                                0.0
-                            };
-                            world3 = self.system.lla_to_world(lla);
-                        }
-                        heights.push(world3.y as f32);
-                    }
-                }
-
-                let heightmap = Heightmap::new(
-                    heights,
-                    self.heightmap_resolution,
-                    self.heightmap_resolution,
-                );
-
-                // Write tile.
-                let mut miny = None;
-                let mut maxy = None;
                 let step = (self.heightmap_resolution - 2 * self.skirt - 1)
                     / (self.heights_resolution - 1);
-                for y in 0..self.heights_resolution {
-                    for x in 0..self.heights_resolution {
-                        let height = heightmap
-                            .get(x * step + self.skirt, y * step + self.skirt)
-                            .unwrap();
-                        miny = Some(match miny {
-                            Some(y) if y < height => y,
-                            _ => height,
-                        });
-                        maxy = Some(match maxy {
-                            Some(y) if y > height => y,
-                            _ => height,
-                        });
-                        self.writer.write_f32::<LittleEndian>(height)?;
-                        self.bytes_written += 4;
-                    }
-                }
-                self.nodes[i].bounds.min.y = miny.unwrap();
-                self.nodes[i].bounds.max.y = maxy.unwrap();
+                (i, Vector2::new(0, 0), step)
+            };
 
-                self.heightmaps.push(heightmap);
+            let mut miny = None;
+            let mut maxy = None;
+            for y in 0..self.heights_resolution {
+                for x in 0..self.heights_resolution {
+                    let height = self.heightmaps.as_ref().unwrap().get(
+                        heightmap,
+                        x * step + offset.x + self.skirt,
+                        y * step + offset.y + self.skirt,
+                        0,
+                    );
+
+                    miny = Some(match miny {
+                        Some(y) if y < height => y,
+                        _ => height,
+                    });
+                    maxy = Some(match maxy {
+                        Some(y) if y > height => y,
+                        _ => height,
+                    });
+
+                    self.writer.write_f32::<LittleEndian>(height)?;
+                    self.bytes_written += 4;
+                }
             }
+            self.nodes[i].bounds.min.y = miny.unwrap();
+            self.nodes[i].bounds.max.y = maxy.unwrap();
         }
+
         context.decrement_level();
         Ok(())
     }
@@ -640,7 +454,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Colors,
             offset: self.bytes_written,
-            tile_count: self.heightmaps.len(),
+            tile_count: self.heightmaps.as_ref().unwrap().len(),
             tile_resolution: colormap_resolution as u32,
             border_size: self.skirt as u32 - 2,
             format: TextureFormat::SRGBA,
@@ -648,7 +462,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         });
         let rock = self.materials.get_average_albedo(0);
         let grass = self.materials.get_average_albedo(1);
-        context.increment_level("Generating colormaps... ", self.heightmaps.len());
+        context.increment_level(
+            "Generating colormaps... ",
+            self.heightmaps.as_ref().unwrap().len(),
+        );
         let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
 
         let mut ao_cache = RasterCache::new(
@@ -657,22 +474,22 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         );
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
-        for i in 0..self.heightmaps.len() {
+        for i in 0..self.heightmaps.as_ref().unwrap().len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
             let mut colormap = Vec::new();
-            let heights = &self.heightmaps[i];
+            let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
             let use_blue_marble = spacing >= self.bluemarble.spacing() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
                     let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
-                    let h00 = heights.get(x, y).unwrap();
-                    let h01 = heights.get(x, y + 1).unwrap();
-                    let h10 = heights.get(x + 1, y).unwrap();
-                    let h11 = heights.get(x + 1, y + 1).unwrap();
+                    let h00 = heights.get(i, x, y, 0);
+                    let h01 = heights.get(i, x, y + 1, 0);
+                    let h10 = heights.get(i, x + 1, y, 0);
+                    let h11 = heights.get(i, x + 1, y + 1, 0);
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
                     let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
@@ -756,7 +573,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
-        let normalmap_nodes: Vec<_> = (0..self.heightmaps.len())
+        let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
             .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
             .collect();
         self.layers.push(LayerParams {
@@ -773,15 +590,15 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             context.set_progress(i as u64);
             self.nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
-            let heights = &self.heightmaps[id];
+            let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {
-                    let h00 = heights.get(x, y).unwrap();
-                    let h01 = heights.get(x, y + 1).unwrap();
-                    let h10 = heights.get(x + 1, y).unwrap();
-                    let h11 = heights.get(x + 1, y + 1).unwrap();
+                    let h00 = heights.get(id, x, y, 0);
+                    let h01 = heights.get(id, x, y + 1, 0);
+                    let h10 = heights.get(id, x + 1, y, 0);
+                    let h11 = heights.get(id, x + 1, y + 1, 0);
 
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
@@ -806,26 +623,29 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Water,
             offset: self.bytes_written,
-            tile_count: self.heightmaps.len(),
+            tile_count: self.heightmaps.as_ref().unwrap().len(),
             tile_resolution: watermap_resolution as u32,
             border_size: self.skirt as u32 - 2,
             format: TextureFormat::RGBA8,
             tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
-        context.increment_level("Generating water masks... ", self.heightmaps.len());
+        context.increment_level(
+            "Generating water masks... ",
+            self.heightmaps.as_ref().unwrap().len(),
+        );
         let mut watermask_cache = RasterCache::new(Box::new(LandCoverKind::WaterMask), 256);
-        for i in 0..self.heightmaps.len() {
+        for i in 0..self.heightmaps.as_ref().unwrap().len() {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
 
-            let heights = &self.heightmaps[i];
+            let heights = &self.heightmaps.as_ref().unwrap();
             for y in 2..(2 + watermap_resolution) {
                 for x in 2..(2 + watermap_resolution) {
                     let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
-                    let h00 = heights.get(x, y).unwrap();
-                    let h01 = heights.get(x, y + 1).unwrap();
-                    let h10 = heights.get(x + 1, y).unwrap();
-                    let h11 = heights.get(x + 1, y + 1).unwrap();
+                    let h00 = heights.get(i, x, y, 0);
+                    let h01 = heights.get(i, x, y + 1, 0);
+                    let h10 = heights.get(i, x + 1, y, 0);
+                    let h11 = heights.get(i, x + 1, y + 1, 0);
                     let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
                     let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
 
