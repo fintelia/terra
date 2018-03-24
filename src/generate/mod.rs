@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::f64::consts::PI;
 use std::io::Write;
+use std::rc::Rc;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
@@ -16,7 +18,7 @@ use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::MaterialSet;
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::raster::{BitContainer, GlobalRaster, RasterCache};
+use terrain::raster::{AmbientOcclusionSource, BitContainer, GlobalRaster, RasterCache};
 use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
                           TileHeader};
 use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
@@ -243,7 +245,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
         let heightmap_resolution = self.texture_quality.resolution() + 1 + 2 * skirt;
 
         let mut state = State {
-            dem_cache: RasterCache::new(Box::new(self.source), 32),
+            dem_cache: Rc::new(RefCell::new(RasterCache::new(Box::new(self.source), 32))),
             bluemarble: BlueMarble.load(context)?,
             global_watermask: GlobalWaterMask.load(context)?,
             random: {
@@ -299,7 +301,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, 
 }
 
 struct State<'a, W: Write, R: gfx::Resources> {
-    dem_cache: RasterCache<f32>,
+    dem_cache: Rc<RefCell<RasterCache<f32>>>,
     bluemarble: GlobalRaster<u8>,
     global_watermask: GlobalRaster<f64, BitContainer>,
 
@@ -565,6 +567,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             let mut lla = self.system.world_to_lla(world3);
                             lla.z = if i >= 3 && world.magnitude2() < 250000.0 * 250000.0 {
                                 self.dem_cache
+                                    .borrow_mut()
                                     .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
                                     .unwrap_or(0.0) as f64
                             } else {
@@ -648,6 +651,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.increment_level("Generating colormaps... ", self.heightmaps.len());
         let mut treecover_cache = RasterCache::new(Box::new(LandCoverKind::TreeCover), 256);
 
+        let mut ao_cache = RasterCache::new(
+            Box::new(AmbientOcclusionSource(self.dem_cache.clone())),
+            256,
+        );
+
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.len() {
             context.set_progress(i as u64);
@@ -672,7 +680,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let normal =
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
-                    let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
+                    let occlusion = if world.magnitude2() < 250000.0 * 250000.0 {
+                        ao_cache.interpolate(context, lat, long).unwrap_or(255.0) as f32
+                    } else {
+                        255.0
+                    };
+                    let light = (normal.dot(self.sun_direction).max(0.0) * occlusion) as u8;
 
                     let color = if use_blue_marble {
                         let r = self.bluemarble.interpolate(lat, long, 0) as u8;
