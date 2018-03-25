@@ -24,7 +24,7 @@ fn compute_projection_matrix(w: &PistonWindow) -> Matrix4<f32> {
     let draw_size = w.window.draw_size();
     PerspectiveFov {
         fovy: Rad((90.0f32 * 9.0 / 16.0).to_radians()),
-        near: 100.0,
+        near: 10.0,
         far: 50000000.0,
         aspect: (draw_size.width as f32) / (draw_size.height as f32),
     }.into()
