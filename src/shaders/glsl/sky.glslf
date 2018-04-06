@@ -1,16 +1,20 @@
-uniform mat4 invModelViewProjection;
+#line 2
+
 uniform vec3 cameraPosition;
 uniform vec3 sunDirection;
 
-in vec2 position;
+uniform vec3 rayBottomLeft;
+uniform vec3 rayBottomRight;
+uniform vec3 rayTopLeft;
+uniform vec3 rayTopRight;
 
+in vec2 position;
 out vec4 OutColor;
 
 void main() {
-	vec4 hr0 = invModelViewProjection * vec4(position, 0, 1);
-	vec4 hr1 = invModelViewProjection * vec4(position, 1, 1);
-	vec3 ray = hr1.xyz / hr1.w - hr0.xyz / hr0.w;
-	vec3 r = normalize(ray);
+	vec3 r = normalize(mix(mix(rayBottomLeft, rayBottomRight, position.x*0.5+0.5),
+						   mix(rayTopLeft, rayTopRight, position.x*0.5+0.5),
+						   position.y*0.5 + 0.5));
 
 	// Check ray atmosphere intersection points.
 	vec2 p = rsi(cameraPosition+vec3(0,planetRadius,0), r, atmosphereRadius);
@@ -25,5 +29,5 @@ void main() {
 
     // Apply exposure.
     OutColor = vec4(1.0 - exp(-0.75 * color), 1);
-    OutColor.rgb += dither();
+	OutColor.rgb += dither();
 }

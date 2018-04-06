@@ -289,7 +289,10 @@ where
             },
             sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set())?,
             sky_pipeline_data: sky_pipe::Data {
-                inv_model_view_projection: [[0.0; 4]; 4],
+                ray_bottom_left: [0.0, 0.0, 0.0],
+                ray_bottom_right: [0.0, 0.0, 0.0],
+                ray_top_left: [0.0, 0.0, 0.0],
+                ray_top_right: [0.0, 0.0, 0.0],
                 camera_position: [0.0, 0.0, 0.0],
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 sky: (sky.texture_view.clone(), sampler.clone()),
@@ -440,7 +443,19 @@ where
         self.pipeline_data.model_view_projection = mvp_mat;
         self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
 
-        self.sky_pipeline_data.inv_model_view_projection = vecmath::mat4_inv(mvp_mat);
+        let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
+        let homogeneous = |[x, y, z, w]: [f64; 4]| [x / w, y / w, z / w];
+        let unproject = |v| homogeneous(vecmath::col_mat4_transform(inv_mvp_mat, v));
+        let ray = |x, y| {
+            vecmath::vec3_cast(vecmath::vec3_normalized(vecmath::vec3_sub(
+                unproject([x, y, 1.0, 1.0]),
+                unproject([x, y, 0.0, 1.0]),
+            )))
+        };
+        self.sky_pipeline_data.ray_bottom_left = ray(-1.0, -1.0);
+        self.sky_pipeline_data.ray_bottom_right = ray(1.0, -1.0);
+        self.sky_pipeline_data.ray_top_left = ray(-1.0, 1.0);
+        self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
         self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
 
         self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;

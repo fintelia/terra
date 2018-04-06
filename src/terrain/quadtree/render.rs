@@ -53,9 +53,12 @@ gfx_pipeline!( pipe {
 });
 
 gfx_pipeline!( sky_pipe {
-    inv_model_view_projection: gfx::Global<[[f32; 4]; 4]> = "invModelViewProjection",
     camera_position: gfx::Global<[f32;3]> = "cameraPosition",
     sun_direction: gfx::Global<[f32;3]> = "sunDirection",
+    ray_bottom_left: gfx::Global<[f32;3]> = "rayBottomLeft",
+    ray_bottom_right: gfx::Global<[f32;3]> = "rayBottomRight",
+    ray_top_left: gfx::Global<[f32;3]> = "rayTopLeft",
+    ray_top_right: gfx::Global<[f32;3]> = "rayTopRight",
     sky: gfx::TextureSampler<[f32; 4]> = "sky",
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
