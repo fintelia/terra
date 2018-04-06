@@ -47,15 +47,15 @@ extern crate vec_map;
 extern crate vecmath;
 extern crate zip;
 
-mod utils;
-mod runtime_texture;
+mod cache;
 mod coordinates;
 mod generate;
-
-mod cache;
 mod ocean;
+mod runtime_texture;
 mod sky;
+mod srgb;
 mod terrain;
+mod utils;
 
 pub use terrain::dem::DemSource;
 pub use generate::{QuadTreeBuilder, TextureQuality, VertexQuality};

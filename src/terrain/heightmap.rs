@@ -3,7 +3,7 @@ use rand::Rng;
 use rand::distributions::{IndependentSample, Normal};
 
 use std::f32::consts::PI;
-use std::ops::AddAssign;
+use std::ops::{Add, AddAssign, Div};
 
 #[allow(unused)]
 fn modulo(a: i64, b: i64) -> usize {
@@ -63,6 +63,30 @@ impl<T> Heightmap<T> {
         let x = modulo(x, self.width as i64);
         let y = modulo(y, self.height as i64);
         self.heights[x + y * self.width as usize].clone()
+    }
+}
+
+impl<T: Copy + Add<T, Output = T> + Div<T, Output = T> + From<u8>> Heightmap<T> {
+    /// Return a heightmap with exactly half the resolution in each dimension.
+    pub fn downsample(&self) -> Heightmap<T> {
+        let width = self.width / 2;
+        let height = self.height / 2;
+        let mut heights = Vec::with_capacity(width as usize * height as usize);
+        for y in 0..(height as usize) {
+            for x in 0..(width as usize) {
+                let a = self.heights[x * 2 + y * 2 * self.width as usize];
+                let b = self.heights[x * 2 + 1 + y * 2 * self.width as usize];
+                let c = self.heights[x * 2 + (y * 2 + 1) * self.width as usize];
+                let d = self.heights[x * 2 + 1 + (y * 2 + 1) * self.width as usize];
+                heights.push((a + b + c + d) / 4.into());
+            }
+        }
+
+        Heightmap {
+            width,
+            height,
+            heights,
+        }
     }
 }
 
@@ -259,10 +283,14 @@ pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f
         }
     }
 
+    // Force mean = 0.
     let mean = heights.iter().sum::<f32>() / heights.len() as f32;
-    let variance =
-        heights.iter().map(|n| (n - mean) * (n - mean)).sum::<f32>() / heights.len() as f32;
+    for h in &mut heights {
+        *h -= mean;
+    }
 
+    // Force variance = 1.
+    let variance = heights.iter().map(|n| n * n).sum::<f32>() / heights.len() as f32;
     let inv_variance = 1.0 / variance;
     for h in &mut heights {
         *h *= inv_variance;

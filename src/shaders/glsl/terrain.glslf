@@ -38,16 +38,14 @@ vec4 fractal(vec2 pos) {
 }
 
 float fractal2(vec2 pos) {
-	float value = 0.0;
-	float scale = 1.0 / 10;
-	float wavelength = 64.0;
-	for(int i = 0; i < 10; i++) {
-		vec3 v = texture(noise, pos * noiseWavelength / wavelength + vec2(0.123 * i)).rgb;
-		value += v.x * scale;
-		// scale *= 0.5;
-		wavelength *= 0.5;
-	}
-	return value;
+	// if(texture(noise, pos / 32).x > 0.5)
+	// 	return 0;
+	// return 1;
+
+	//	if(fract(pos.y/32) < 0.01) return 100;
+	return (/*texture(noise, pos / (32*32*32)).x
+			  + */texture(noise, pos / (32*32)).x
+			+ texture(noise, pos / 32).x) / 2;
 }
 
 vec3 aerial_perspective(vec3 color, vec3 position) {
@@ -56,12 +54,16 @@ vec3 aerial_perspective(vec3 color, vec3 position) {
 }
 
 vec3 material(vec3 pos, uint mat) {
-	return texture(materials, vec3(pos.xz * 0.5, mat)).rgb;// * (1.0 + fractal2(pos.xz) * 0.2);
+	// TODO: remove hacks here
+	vec3 v = texture(materials, vec3(pos.xz/8 , mat), 0).rgb;
+	if(mat == 3) v *= 0.5;
+	if(mat == 4) v *= 0.4;
+	// if(mat == 0) v *= vec3(.5,.8,.8);
+	return v * (0.625 + fractal2(pos.xz) * .75);
 }
 
-vec3 compute_splatting(vec3 pos, vec2 t) {
-//	t += 0.0001 * fractal(pos.xz).xy * 10;
-
+vec3 compute_splatting(vec3 pos, vec2 t, vec3 normal) {
+	t += 0.0001 * fractal(pos.xz).xy * 10;
 	vec2 weights = fract(t.xy * textureSize(normals, 0).xy - 0.5);
 	uvec4 m = uvec4(ceil(textureGather(normals, vec3(t, fNormalsLayer), 3) * 255));
 	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
@@ -92,10 +94,11 @@ vec3 water_color() {
 
 vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float waterLayer) {
 	float waterAmount = texture(water, vec3(texcoord, waterLayer)).x;
-	if(normalsLayer >= 0 && false) {
+	if(normalsLayer >= 0) {
+		// return vec3(fractal2(fPosition.xz));
 		vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);
 
-		vec3 color = compute_splatting(fPosition, texcoord);
+		vec3 color = compute_splatting(fPosition, texcoord, normal);
 		color = mix(color, vec3(0,0.05,0.1), waterAmount);
 		color *= dot(normal, sunDirection);
 		return color;
@@ -122,8 +125,8 @@ void main() {
 	// 	OutColor.rgb *= vec3(2,.5,.5);
 	// 	if(length(fPosition.xz) < 3030)
 	// 		OutColor.rgb += vec3(.0,-.1,-.1);
-	// } else if(fract(fPosition.x * 0.001) < 0.01 || fract(fPosition.z * 0.001) < 0.01) {
+	// } else if(fract(fPosition.x) < 0.05 || fract(fPosition.z) < 0.05) {
 	// 	OutColor.rgb = vec3(.15);
 	// }
-	OutColor.rgb += dither();
+ 	OutColor.rgb += dither();
 }

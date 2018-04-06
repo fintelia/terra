@@ -77,12 +77,13 @@ where
     R: gfx::Resources,
     F: gfx::Factory<R>,
 {
-    pub(crate) fn new(
+    pub(crate) fn new<C: gfx_core::command::Buffer<R>>(
         header: TileHeader,
         data_file: Mmap,
         materials: MaterialSet<R>,
         sky: Skybox<R>,
         mut factory: F,
+        encoder: &mut gfx::Encoder<R, C>,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
     ) -> Result<Self, Error> {
@@ -155,9 +156,10 @@ where
                 header.noise.resolution as u16,
                 gfx::texture::AaMode::Single,
             ),
-            gfx::texture::Mipmap::Provided,
+            gfx::texture::Mipmap::Allocated,
             &[gfx::memory::cast_slice(noise_data)],
         )?;
+        encoder.generate_mipmap(&noise_texture_view);
 
         let planet_mesh_start = header.planet_mesh.offset;
         let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;

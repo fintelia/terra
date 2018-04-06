@@ -14,9 +14,10 @@ use rand::distributions::{IndependentSample, Normal};
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use coordinates::CoordinateSystem;
 use sky::Skybox;
+use srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
-use terrain::material::MaterialSet;
+use terrain::material::{MaterialSet, MaterialType};
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::RasterCache;
 use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
@@ -100,7 +101,12 @@ impl TextureQuality {
 }
 
 /// Used to construct a `QuadTree`.
-pub struct QuadTreeBuilder<R: gfx::Resources, F: gfx::Factory<R>> {
+pub struct QuadTreeBuilder<
+    'a,
+    R: gfx::Resources,
+    F: gfx::Factory<R>,
+    C: gfx_core::command::Buffer<R>,
+> {
     latitude: i16,
     longitude: i16,
     source: DemSource,
@@ -109,17 +115,17 @@ pub struct QuadTreeBuilder<R: gfx::Resources, F: gfx::Factory<R>> {
     materials: MaterialSet<R>,
     sky: Skybox<R>,
     factory: F,
+    encoder: &'a mut gfx::Encoder<R, C>,
     context: Option<AssetLoadContext>,
 }
-impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
+impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
+    QuadTreeBuilder<'a, R, F, C>
+{
     /// Create a new `QuadTreeBuilder` with default arguments.
     ///
     /// At very least, the latitude and longitude should probably be set to their desired values
     /// before calling `build()`.
-    pub fn new<C: gfx_core::command::Buffer<R>>(
-        mut factory: F,
-        encoder: &mut gfx::Encoder<R, C>,
-    ) -> Self {
+    pub fn new(mut factory: F, encoder: &'a mut gfx::Encoder<R, C>) -> Self {
         Self {
             latitude: 38,
             longitude: -122,
@@ -130,6 +136,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
             sky: Skybox::new(&mut factory, encoder),
             context: Some(AssetLoadContext::new()),
             factory,
+            encoder,
         }
     }
 
@@ -184,6 +191,7 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
             self.materials,
             self.sky,
             self.factory,
+            self.encoder,
             color_buffer,
             depth_buffer,
         )
@@ -205,7 +213,9 @@ impl<R: gfx::Resources, F: gfx::Factory<R>> QuadTreeBuilder<R, F> {
     }
 }
 
-impl<R: gfx::Resources, F: gfx::Factory<R>> MMappedAsset for QuadTreeBuilder<R, F> {
+impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>> MMappedAsset
+    for QuadTreeBuilder<'a, R, F, C>
+{
     type Header = TileHeader;
 
     fn filename(&self) -> String {
@@ -347,6 +357,20 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         )
     }
 
+    fn compute_splat(cos_slope: f32) -> MaterialType {
+        if cos_slope > 0.9999 {
+            MaterialType::Dirt
+        } else if cos_slope > 0.965 {
+            MaterialType::Grass
+        // } else if cos_slope > 0.955 {
+        //     MaterialType::GrassRocky
+        } else if cos_slope > 0.95 {
+            MaterialType::Rock
+        } else {
+            MaterialType::RockSteep
+        }
+    }
+
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
@@ -430,24 +454,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         Ok(())
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        /// Takes a f64 in the range [0, 1] an converts it to a u8 in the sRGB color space.
-        fn linear_to_srgb(linear: f64) -> u8 {
-            let srgb = if linear <= 0.00313066844250063 {
-                linear * 12.92
-            } else {
-                1.055 * linear.powf(0.41666666666) - 0.055
-            };
-            (srgb * 255.0) as u8
-        }
-        fn srgb_to_linear(srgb: u8) -> f64 {
-            let srgb = (srgb as f64) * (1.0 / 255.0);
-            if srgb <= 0.0404482362771082 {
-                srgb / 12.92
-            } else {
-                ((srgb + 0.055) / 1.055).powf(2.4)
-            }
-        }
-
         assert!(self.skirt >= 2);
         let colormap_resolution = self.heightmap_resolution - 5;
         self.layers.push(LayerParams {
@@ -459,8 +465,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             format: TextureFormat::SRGBA,
             tile_bytes: 4 * colormap_resolution as usize * colormap_resolution as usize,
         });
-        let rock = self.materials.get_average_albedo(0);
-        let grass = self.materials.get_average_albedo(1);
         context.increment_level(
             "Generating colormaps... ",
             self.heightmaps.as_ref().unwrap().len(),
@@ -502,7 +506,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
-            let mut colormap = Vec::new();
+            let mut colormap =
+                Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
@@ -529,15 +534,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         let b = bluemarble.get(i, x, y, 2) as u8;
                         [r, g, b, light]
                     } else {
-                        if normal.y > 0.9 {
-                            let t = 1.0 - 0.4 * treecover.get(i, x, y, 0) / 100.0;
-                            let r = (grass[0] as f32 * t) as u8;
-                            let g = (grass[1] as f32 * t) as u8;
-                            let b = (grass[2] as f32 * t) as u8;
-                            [r, g, b, light]
-                        } else {
-                            [rock[0], rock[1], rock[2], light]
-                        }
+                        let splat = Self::compute_splat(normal.y);
+                        let albedo = self.materials.get_average_albedo(splat);
+                        [albedo[0], albedo[1], albedo[2], light]
                     };
                     colormap.extend_from_slice(&color);
                 }
@@ -551,29 +550,26 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     skirt / 2 + offset.x as usize * (resolution / 2 - skirt),
                     skirt / 2 + offset.y as usize * (resolution / 2 - skirt),
                 );
+
+                let stl = |srgb| SRGB_TO_LINEAR[srgb] as i16;
+                let lts = |linear: i16| LINEAR_TO_SRGB[linear.max(0).min(255) as u8];
+
                 let pc = &colormaps[parent.0.index()];
                 for y in (0..resolution).step_by(2) {
                     for x in (0..resolution).step_by(2) {
                         for i in 0..3 {
-                            let p =
-                                pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4];
-                            let p = srgb_to_linear(p);
-                            let c00 = srgb_to_linear(colormap[i + (x + y * resolution) * 4]);
-                            let c10 = srgb_to_linear(colormap[i + ((x + 1) + y * resolution) * 4]);
-                            let c01 = srgb_to_linear(colormap[i + (x + (y + 1) * resolution) * 4]);
-                            let c11 =
-                                srgb_to_linear(colormap[i + ((x + 1) + (y + 1) * resolution) * 4]);
+                            let p = stl(pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4]);
+                            let c00 = stl(colormap[i + (x + y * resolution) * 4]);
+                            let c10 = stl(colormap[i + ((x + 1) + y * resolution) * 4]);
+                            let c01 = stl(colormap[i + (x + (y + 1) * resolution) * 4]);
+                            let c11 = stl(colormap[i + ((x + 1) + (y + 1) * resolution) * 4]);
 
-                            let shift = (p - (c00 + c01 + c10 + c11) * 0.25) * 0.5;
+                            let shift = (p - (c00 + c01 + c10 + c11) / 4) / 2;
 
-                            colormap[i + (x + y * resolution) * 4] =
-                                linear_to_srgb((c00 + shift).max(0.0).min(1.0));
-                            colormap[i + ((x + 1) + y * resolution) * 4] =
-                                linear_to_srgb((c10 + shift).max(0.0).min(1.0));
-                            colormap[i + (x + (y + 1) * resolution) * 4] =
-                                linear_to_srgb((c01 + shift).max(0.0).min(1.0));
-                            colormap[i + ((x + 1) + (y + 1) * resolution) * 4] =
-                                linear_to_srgb((c11 + shift).max(0.0).min(1.0));
+                            colormap[i + (x + y * resolution) * 4] = lts(c00 + shift);
+                            colormap[i + ((x + 1) + y * resolution) * 4] = lts(c10 + shift);
+                            colormap[i + (x + (y + 1) * resolution) * 4] = lts(c01 + shift);
+                            colormap[i + ((x + 1) + (y + 1) * resolution) * 4] = lts(c11 + shift);
                         }
                     }
                 }
@@ -622,12 +618,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
                             .normalize();
 
-                    let splat = if normal.y > 0.9 { 1 } else { 0 };
-
                     self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    self.writer.write_u8(splat)?;
+                    self.writer.write_u8(Self::compute_splat(normal.y) as u8)?;
                     self.bytes_written += 4;
                 }
             }
@@ -689,20 +683,36 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_noise(&mut self, _context: &mut AssetLoadContext) -> Result<NoiseParams, Error> {
         let noise = NoiseParams {
             offset: self.bytes_written,
-            resolution: 512,
+            resolution: 2048,
             format: TextureFormat::RGBA8,
-            bytes: 4 * 512 * 512,
-            wavelength: 1.0 / 64.0,
+            bytes: 4 * 2048 * 2048,
+            wavelength: 1.0 / 256.0,
         };
-        let noise_heightmaps = [
-            heightmap::wavelet_noise(64, 8),
-            heightmap::wavelet_noise(64, 8),
-            heightmap::wavelet_noise(64, 8),
-            heightmap::wavelet_noise(64, 8),
-        ];
+
+        let noise_heightmaps: Vec<_> = (0..4)
+            .map(|_| {
+                let mut octaves = vec![
+                    heightmap::wavelet_noise(512, 4),
+                    heightmap::wavelet_noise(256, 8),
+                    heightmap::wavelet_noise(128, 16),
+                    heightmap::wavelet_noise(64, 32),
+                    heightmap::wavelet_noise(32, 64),
+                ];
+                let mut heightmap = octaves.remove(0);
+                assert_eq!(octaves.len(), 4);
+                for octave in octaves {
+                    assert_eq!(heightmap.heights.len(), octave.heights.len());
+                    for i in 0..heightmap.heights.len() {
+                        heightmap.heights[i] += octave.heights[i];
+                    }
+                }
+                heightmap
+            })
+            .collect();
+
         for i in 0..noise_heightmaps[0].heights.len() {
             for j in 0..4 {
-                let v = noise_heightmaps[j].heights[i].max(-3.0).min(3.0);
+                let v = (noise_heightmaps[j].heights[i] * 0.2).max(-3.0).min(3.0);
                 self.writer.write_u8((v * 127.5 / 3.0 + 127.5) as u8)?;
                 self.bytes_written += 1;
             }
