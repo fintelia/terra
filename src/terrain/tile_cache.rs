@@ -57,17 +57,28 @@ pub(crate) struct ByteRange {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) enum PayloadType {
+    Texture {
+        /// Number of samples in each dimension, per tile.
+        resolution: u32,
+        /// Number of samples outside the tile on each side.
+        border_size: u32,
+        /// Format used by this layer.
+        format: TextureFormat,
+    },
+    InstancedMesh {
+        // TODO
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
     /// Where each tile is located in the file.
     pub tile_locations: Vec<ByteRange>,
-    /// Number of samples in each dimension, per tile.
-    pub tile_resolution: u32,
-    /// Number of samples outside the tile on each side.
-    pub border_size: u32,
-    /// Format used by this layer.
-    pub format: TextureFormat,
+    /// What kind of data is stored in this layer.
+    pub payload_type: PayloadType,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -103,6 +114,10 @@ pub(crate) struct TileHeader {
     pub planet_mesh_texture: TextureDescriptor,
 }
 
+enum PayloadSet<R: gfx::Resources> {
+    Texture(TextureArray<R>),
+}
+
 pub(crate) struct TileCache<R: gfx::Resources> {
     /// Maximum number of slots in this `TileCache`.
     size: usize,
@@ -118,7 +133,7 @@ pub(crate) struct TileCache<R: gfx::Resources> {
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
 
-    texture: TextureArray<R>,
+    payloads: PayloadSet<R>,
 
     /// Section of memory map that holds the data for this layer.
     data_file: MmapViewSync,
@@ -130,12 +145,17 @@ impl<R: gfx::Resources> TileCache<R> {
         factory: &mut F,
     ) -> Self {
         let cache_size = params.layer_type.cache_size();
-        let texture = TextureArray::new(
-            params.format,
-            params.tile_resolution as u16,
-            cache_size,
-            factory,
-        );
+        let payloads = match params.payload_type {
+            PayloadType::Texture {
+                resolution, format, ..
+            } => PayloadSet::Texture(TextureArray::new(
+                format,
+                resolution as u16,
+                cache_size,
+                factory,
+            )),
+            _ => unimplemented!(),
+        };
 
         Self {
             size: cache_size as usize,
@@ -145,7 +165,7 @@ impl<R: gfx::Resources> TileCache<R> {
             min_priority: Priority::none(),
             layer_params: params,
             data_file,
-            texture,
+            payloads,
         }
     }
 
@@ -221,13 +241,21 @@ impl<R: gfx::Resources> TileCache<R> {
         let offset = self.layer_params.tile_locations[tile].offset;
         let length = self.layer_params.tile_locations[tile].length;
         let data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
+        let resolution =
+            if let PayloadType::Texture { resolution, .. } = self.layer_params.payload_type {
+                resolution as u16
+            } else {
+                unreachable!()
+            };
 
-        self.texture.update_layer(
-            slot as u16,
-            self.layer_params.tile_resolution as u16,
-            gfx::memory::cast_slice(data),
-            encoder,
-        )
+        match self.payloads {
+            PayloadSet::Texture(ref mut texture) => texture.update_layer(
+                slot as u16,
+                resolution,
+                gfx::memory::cast_slice(data),
+                encoder,
+            ),
+        }
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
@@ -239,8 +267,8 @@ impl<R: gfx::Resources> TileCache<R> {
     }
 
     pub fn get_texture_view_f32(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
-        match self.texture {
-            TextureArray::F32 { ref view, .. } => Some(view),
+        match self.payloads {
+            PayloadSet::Texture(TextureArray::F32 { ref view, .. }) => Some(view),
             _ => None,
         }
     }
@@ -248,8 +276,8 @@ impl<R: gfx::Resources> TileCache<R> {
     pub fn get_texture_view_rgba8(
         &self,
     ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
-        match self.texture {
-            TextureArray::RGBA8 { ref view, .. } => Some(view),
+        match self.payloads {
+            PayloadSet::Texture(TextureArray::RGBA8 { ref view, .. }) => Some(view),
             _ => None,
         }
     }
@@ -257,29 +285,43 @@ impl<R: gfx::Resources> TileCache<R> {
     pub fn get_texture_view_srgba(
         &self,
     ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
-        match self.texture {
-            TextureArray::SRGBA { ref view, .. } => Some(view),
+        match self.payloads {
+            PayloadSet::Texture(TextureArray::SRGBA { ref view, .. }) => Some(view),
             _ => None,
         }
     }
 
     pub fn resolution(&self) -> u32 {
-        self.layer_params.tile_resolution
+        match self.layer_params.payload_type {
+            PayloadType::Texture { resolution, .. } => resolution,
+            _ => unreachable!(),
+        }
     }
 
     pub fn border(&self) -> u32 {
-        self.layer_params.border_size
+        match self.layer_params.payload_type {
+            PayloadType::Texture { border_size, .. } => border_size,
+            _ => unreachable!(),
+        }
     }
 
     pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
-        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-        let offset = self.layer_params.tile_locations[tile].offset;
-        let length = self.layer_params.tile_locations[tile].length;
-        let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
-        let resolution = self.layer_params.tile_resolution as usize;
-        let border = self.layer_params.border_size as usize;
-        let bytes_per_texel = self.layer_params.format.bytes_per_texel();
-        let index = ((x + border) + (y + border) * resolution) * bytes_per_texel;
-        &tile_data[index..(index + bytes_per_texel)]
+        if let PayloadType::Texture {
+            border_size,
+            resolution,
+            format,
+        } = self.layer_params.payload_type
+        {
+            let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
+            let offset = self.layer_params.tile_locations[tile].offset;
+            let length = self.layer_params.tile_locations[tile].length;
+            let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
+            let bytes_per_texel = format.bytes_per_texel();
+            let border = border_size as usize;
+            let index = ((x + border) + (y + border) * resolution as usize) * bytes_per_texel;
+            &tile_data[index..(index + bytes_per_texel)]
+        } else {
+            unreachable!()
+        }
     }
 }

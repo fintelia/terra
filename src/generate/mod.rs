@@ -23,7 +23,7 @@ use terrain::raster::RasterCache;
 use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
                                   ReprojectedRasterDef};
 use terrain::tile_cache::{ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams,
-                          TextureDescriptor, TileHeader};
+                          PayloadType, TextureDescriptor, TileHeader};
 use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -382,9 +382,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
             tile_locations,
-            tile_resolution: self.heights_resolution as u32,
-            border_size: 0,
-            format: TextureFormat::F32,
+            payload_type: PayloadType::Texture {
+                resolution: self.heights_resolution as u32,
+                border_size: 0,
+                format: TextureFormat::F32,
+            },
         });
 
         let reproject = ReprojectedDemDef {
@@ -473,9 +475,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Colors,
             tile_locations,
-            tile_resolution: colormap_resolution as u32,
-            border_size: self.skirt as u32 - 2,
-            format: TextureFormat::SRGBA,
+            payload_type: PayloadType::Texture {
+                resolution: colormap_resolution as u32,
+                border_size: self.skirt as u32 - 2,
+                format: TextureFormat::SRGBA,
+            },
         });
         context.increment_level(
             "Generating colormaps... ",
@@ -613,9 +617,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Normals,
             tile_locations,
-            tile_resolution: normalmap_resolution as u32,
-            border_size: self.skirt as u32 - 2,
-            format: TextureFormat::RGBA8,
+            payload_type: PayloadType::Texture {
+                resolution: normalmap_resolution as u32,
+                border_size: self.skirt as u32 - 2,
+                format: TextureFormat::RGBA8,
+            },
         });
         context.increment_level("Generating normalmaps... ", normalmap_nodes.len());
         for (i, id) in normalmap_nodes.into_iter().enumerate() {
@@ -661,9 +667,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         self.layers.push(LayerParams {
             layer_type: LayerType::Water,
             tile_locations,
-            tile_resolution: watermap_resolution as u32,
-            border_size: self.skirt as u32 - 2,
-            format: TextureFormat::RGBA8,
+            payload_type: PayloadType::Texture {
+                resolution: watermap_resolution as u32,
+                border_size: self.skirt as u32 - 2,
+                format: TextureFormat::RGBA8,
+            },
         });
         context.increment_level(
             "Generating water masks... ",
