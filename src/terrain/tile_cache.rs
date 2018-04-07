@@ -51,21 +51,23 @@ impl LayerType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ByteRange {
+    pub offset: usize,
+    pub length: usize,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
-    /// Byte offset from start of file.
-    pub offset: usize,
-    /// Number of tiles in layer.
-    pub tile_count: usize,
+    /// Where each tile is located in the file.
+    pub tile_locations: Vec<ByteRange>,
     /// Number of samples in each dimension, per tile.
     pub tile_resolution: u32,
     /// Number of samples outside the tile on each side.
     pub border_size: u32,
     /// Format used by this layer.
     pub format: TextureFormat,
-    /// Number of bytes per tile.
-    pub tile_bytes: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -216,9 +218,9 @@ impl<R: gfx::Resources> TileCache<R> {
         encoder: &mut gfx::Encoder<R, C>,
     ) {
         let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-        let len = self.layer_params.tile_bytes;
-        let offset = self.layer_params.offset + tile * len;
-        let data = unsafe { &self.data_file.as_slice()[offset..(offset + len)] };
+        let offset = self.layer_params.tile_locations[tile].offset;
+        let length = self.layer_params.tile_locations[tile].length;
+        let data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
 
         self.texture.update_layer(
             slot as u16,
@@ -271,9 +273,9 @@ impl<R: gfx::Resources> TileCache<R> {
 
     pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
         let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-        let len = self.layer_params.tile_bytes;
-        let offset = self.layer_params.offset + tile * len;
-        let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + len)] };
+        let offset = self.layer_params.tile_locations[tile].offset;
+        let length = self.layer_params.tile_locations[tile].length;
+        let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
         let resolution = self.layer_params.tile_resolution as usize;
         let border = self.layer_params.border_size as usize;
         let bytes_per_texel = self.layer_params.format.bytes_per_texel();

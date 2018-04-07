@@ -22,8 +22,8 @@ use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::RasterCache;
 use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
                                   ReprojectedRasterDef};
-use terrain::tile_cache::{LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
-                          TileHeader};
+use terrain::tile_cache::{ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams,
+                          TextureDescriptor, TileHeader};
 use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
 use runtime_texture::TextureFormat;
 use utils::math::BoundingBox;
@@ -372,14 +372,19 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     }
 
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let tile_bytes = 4 * self.heights_resolution as usize * self.heights_resolution as usize;
+        let tile_locations = (0..self.nodes.len())
+            .map(|i| ByteRange {
+                offset: i * tile_bytes,
+                length: tile_bytes,
+            })
+            .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
-            offset: 0,
-            tile_count: self.nodes.len(),
+            tile_locations,
             tile_resolution: self.heights_resolution as u32,
             border_size: 0,
             format: TextureFormat::F32,
-            tile_bytes: 4 * self.heights_resolution as usize * self.heights_resolution as usize,
         });
 
         let reproject = ReprojectedDemDef {
@@ -456,14 +461,21 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let colormap_resolution = self.heightmap_resolution - 5;
+        let tile_count = self.heightmaps.as_ref().unwrap().len();
+        let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
+        let tile_locations = (0..tile_count)
+            .map(|i| ByteRange {
+                offset: self.bytes_written + i * tile_bytes,
+                length: tile_bytes,
+            })
+            .collect();
+
         self.layers.push(LayerParams {
             layer_type: LayerType::Colors,
-            offset: self.bytes_written,
-            tile_count: self.heightmaps.as_ref().unwrap().len(),
+            tile_locations,
             tile_resolution: colormap_resolution as u32,
             border_size: self.skirt as u32 - 2,
             format: TextureFormat::SRGBA,
-            tile_bytes: 4 * colormap_resolution as usize * colormap_resolution as usize,
         });
         context.increment_level(
             "Generating colormaps... ",
@@ -590,14 +602,20 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
             .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
             .collect();
+        let tile_count = normalmap_nodes.len();
+        let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
+        let tile_locations = (0..tile_count)
+            .map(|i| ByteRange {
+                offset: self.bytes_written + i * tile_bytes,
+                length: tile_bytes,
+            })
+            .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Normals,
-            offset: self.bytes_written,
-            tile_count: normalmap_nodes.len(),
+            tile_locations,
             tile_resolution: normalmap_resolution as u32,
             border_size: self.skirt as u32 - 2,
             format: TextureFormat::RGBA8,
-            tile_bytes: 4 * normalmap_resolution as usize * normalmap_resolution as usize,
         });
         context.increment_level("Generating normalmaps... ", normalmap_nodes.len());
         for (i, id) in normalmap_nodes.into_iter().enumerate() {
@@ -632,14 +650,20 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_watermasks(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let watermap_resolution = self.heightmap_resolution - 5;
+        let tile_count = self.heightmaps.as_ref().unwrap().len();
+        let tile_bytes = 4 * watermap_resolution as usize * watermap_resolution as usize;
+        let tile_locations = (0..tile_count)
+            .map(|i| ByteRange {
+                offset: self.bytes_written + i * tile_bytes,
+                length: tile_bytes,
+            })
+            .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Water,
-            offset: self.bytes_written,
-            tile_count: self.heightmaps.as_ref().unwrap().len(),
+            tile_locations,
             tile_resolution: watermap_resolution as u32,
             border_size: self.skirt as u32 - 2,
             format: TextureFormat::RGBA8,
-            tile_bytes: 4 * watermap_resolution as usize * watermap_resolution as usize,
         });
         context.increment_level(
             "Generating water masks... ",
