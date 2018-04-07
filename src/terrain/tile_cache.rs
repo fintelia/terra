@@ -367,3 +367,14 @@ impl<R: gfx::Resources> TileCache<R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::mem;
+
+    #[test]
+    fn mesh_instance_size() {
+        assert_eq!(mem::size_of::<MeshInstance>(), 32);
+    }
+}
