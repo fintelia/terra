@@ -1,6 +1,8 @@
 use gfx;
 use gfx_core;
+use gfx::traits::FactoryExt;
 use memmap::MmapViewSync;
+use std::convert::TryInto;
 use vec_map::VecMap;
 
 use terrain::quadtree::{Node, NodeId};
@@ -67,7 +69,8 @@ pub(crate) enum PayloadType {
         format: TextureFormat,
     },
     InstancedMesh {
-        // TODO
+        /// Maximum number of instances in any tile.
+        max_instances: usize,
     },
 }
 
@@ -114,8 +117,22 @@ pub(crate) struct TileHeader {
     pub planet_mesh_texture: TextureDescriptor,
 }
 
+gfx_vertex_struct!(MeshInstance {
+    position: [f32; 3] = "position",
+    color: [f32; 3] = "color",
+    rotation: f32 = "rotation",
+    texture_layer: f32 = "textureLayer",
+});
+
 enum PayloadSet<R: gfx::Resources> {
-    Texture(TextureArray<R>),
+    Texture {
+        texture: TextureArray<R>,
+        resolution: u16,
+    },
+    InstancedMesh {
+        buffer: gfx::handle::Buffer<R, MeshInstance>,
+        max_elements_per_slot: usize,
+    },
 }
 
 pub(crate) struct TileCache<R: gfx::Resources> {
@@ -148,13 +165,22 @@ impl<R: gfx::Resources> TileCache<R> {
         let payloads = match params.payload_type {
             PayloadType::Texture {
                 resolution, format, ..
-            } => PayloadSet::Texture(TextureArray::new(
-                format,
-                resolution as u16,
-                cache_size,
-                factory,
-            )),
-            _ => unimplemented!(),
+            } => PayloadSet::Texture {
+                texture: TextureArray::new(format, resolution as u16, cache_size, factory),
+                resolution: resolution.try_into().unwrap(),
+            },
+            PayloadType::InstancedMesh { max_instances } => PayloadSet::InstancedMesh {
+                buffer: factory.create_vertex_buffer(&vec![
+                    MeshInstance {
+                        position: [0.0; 3],
+                        color: [0.0; 3],
+                        rotation: 0.0,
+                        texture_layer: 0.0,
+                    };
+                    max_instances * cache_size as usize
+                ]),
+                max_elements_per_slot: max_instances,
+            },
         };
 
         Self {
@@ -241,20 +267,27 @@ impl<R: gfx::Resources> TileCache<R> {
         let offset = self.layer_params.tile_locations[tile].offset;
         let length = self.layer_params.tile_locations[tile].length;
         let data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
-        let resolution =
-            if let PayloadType::Texture { resolution, .. } = self.layer_params.payload_type {
-                resolution as u16
-            } else {
-                unreachable!()
-            };
 
         match self.payloads {
-            PayloadSet::Texture(ref mut texture) => texture.update_layer(
+            PayloadSet::Texture {
+                ref mut texture,
+                resolution,
+            } => texture.update_layer(
                 slot as u16,
                 resolution,
                 gfx::memory::cast_slice(data),
                 encoder,
             ),
+            PayloadSet::InstancedMesh {
+                ref buffer,
+                max_elements_per_slot,
+            } => encoder
+                .update_buffer(
+                    buffer,
+                    gfx::memory::cast_slice(data),
+                    max_elements_per_slot * slot,
+                )
+                .unwrap(),
         }
     }
 
@@ -268,7 +301,10 @@ impl<R: gfx::Resources> TileCache<R> {
 
     pub fn get_texture_view_f32(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
         match self.payloads {
-            PayloadSet::Texture(TextureArray::F32 { ref view, .. }) => Some(view),
+            PayloadSet::Texture {
+                texture: TextureArray::F32 { ref view, .. },
+                ..
+            } => Some(view),
             _ => None,
         }
     }
@@ -277,7 +313,10 @@ impl<R: gfx::Resources> TileCache<R> {
         &self,
     ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
         match self.payloads {
-            PayloadSet::Texture(TextureArray::RGBA8 { ref view, .. }) => Some(view),
+            PayloadSet::Texture {
+                texture: TextureArray::RGBA8 { ref view, .. },
+                ..
+            } => Some(view),
             _ => None,
         }
     }
@@ -286,7 +325,10 @@ impl<R: gfx::Resources> TileCache<R> {
         &self,
     ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
         match self.payloads {
-            PayloadSet::Texture(TextureArray::SRGBA { ref view, .. }) => Some(view),
+            PayloadSet::Texture {
+                texture: TextureArray::SRGBA { ref view, .. },
+                ..
+            } => Some(view),
             _ => None,
         }
     }
