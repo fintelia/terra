@@ -1,0 +1,19 @@
+[package]
+name = "asset_cache"
+version = "0.1.0"
+authors = ["Jonathan Behrens <fintelia@gmail.com>"]
+license = "Apache-2.0"
+description = "Automated asset generation pipeline with dependency caching"
+repository = "https://github.com/fintelia/terra"
+homepage = "https://github.com/fintelia/terra"
+
+[dependencies]
+lru-cache = "0.1.1"
+failure = "0.1.1"
+num = "0.1"
+pbr = { git = "https://github.com/fintelia/pb", rev = "039f8afb32f4f3869550dc58267666fa0675ed49" }
+bincode = "0.9.2"
+memmap = "0.5.2"
+serde = "1.0"
+serde_derive = "1.0"
+curl = "0.4"
