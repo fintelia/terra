@@ -10,6 +10,11 @@ use std::f64::consts::PI;
 use std::ops::Index;
 use std::rc::Rc;
 
+pub trait Scalar: Copy + 'static {
+    fn from_f64(f64) -> Self;
+    fn to_f64(self) -> f64;
+}
+
 /// Wrapper around BitVec that converts values to f64's so that it can be uses as a backing for a
 /// GlobalRaster.
 pub struct BitContainer(pub BitVec<u32>);
@@ -25,7 +30,7 @@ impl Index<usize> for BitContainer {
 }
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Raster<T: Into<f64> + Copy> {
     pub width: usize,
     pub height: usize,
@@ -44,7 +49,7 @@ impl<T: Into<f64> + Copy> Raster<T> {
     }
 
     /// Returns the horizontal spacing between cells, in meters.
-    pub fn horizonal_spacing(&self, x: usize) -> f64 {
+    pub fn horizontal_spacing(&self, x: usize) -> f64 {
         self.vertical_spacing()
             * (self.yllcorner + self.cell_size * x as f64)
                 .to_radians()
@@ -115,7 +120,7 @@ impl<T: Into<f64> + Copy> Raster<T> {
             };
 
         for x in 0..self.width {
-            let spacing = self.horizonal_spacing(x);
+            let spacing = self.horizontal_spacing(x);
             walk(x, 0, 0, 1, self.height, spacing);
             walk(x, self.height - 1, 0, -1, self.height, spacing);
         }
@@ -153,6 +158,126 @@ impl<T: Into<f64> + Copy + 'static> RasterSource for AmbientOcclusionSource<T> {
             .borrow_mut()
             .get(context, latitude, longitude)
             .map(|raster| raster.ambient_occlusion())
+    }
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum Axis {
+    X,
+    Y,
+}
+pub(crate) struct BlurredSource {
+    cache: Rc<RefCell<RasterCache<u8>>>,
+    sigma: f64,
+    axis: Axis,
+}
+impl BlurredSource {
+    pub fn new(cache: Rc<RefCell<RasterCache<u8>>>, sigma: f64) -> Self {
+        Self {
+            cache: Rc::new(RefCell::new(RasterCache::new(
+                Box::new(Self {
+                    cache,
+                    axis: Axis::X,
+                    sigma,
+                }),
+                512,
+            ))),
+            axis: Axis::Y,
+            sigma,
+        }
+    }
+}
+impl RasterSource for BlurredSource {
+    type Type = u8;
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster<u8>> {
+        let mut values = Vec::new();
+
+        let guassian = |x: f64| f64::exp(-0.5 * x * x);
+
+        let mut cache = self.cache.borrow_mut();
+
+        let (inner0, inner, inner2) = match self.axis {
+            Axis::X => {
+                let inner0 = cache.get(context, latitude - 1, longitude).cloned();
+                let inner = cache.get(context, latitude, longitude)?.clone();
+                let inner2 = cache.get(context, latitude + 1, longitude).cloned();
+                (inner0, inner, inner2)
+            }
+            Axis::Y => {
+                let inner0 = cache.get(context, latitude, (longitude - 1) % 180).cloned();
+                let inner = cache.get(context, latitude, longitude)?.clone();
+                let inner2 = cache.get(context, latitude, (longitude + 1) % 180).cloned();
+                (inner0, inner, inner2)
+            }
+        };
+
+        let max_three_sigma = self.sigma * 3.0 / inner.vertical_spacing();
+        if max_three_sigma < 1.0 {
+            return Some(inner);
+        }
+
+        for adjacent in [&inner0, &inner2].iter() {
+            if let Some(ref adjacent) = *adjacent {
+                assert_eq!(adjacent.width, inner.width);
+                assert_eq!(adjacent.height, inner.height);
+                assert_eq!(adjacent.cell_size, inner.cell_size);
+            }
+        }
+
+        let iwidth = inner.width as isize;
+        let iheight = inner.height as isize;
+        let step = match self.axis {
+            Axis::X => 1,
+            Axis::Y => iwidth,
+        };
+        for y in 0..iheight {
+            for x in 0..iwidth {
+                let mut v = 0.0;
+                let mut d = 0.0;
+                let spacing = match self.axis {
+                    Axis::X => inner.vertical_spacing(),
+                    Axis::Y => inner.horizontal_spacing(x as usize),
+                };
+                let three_sigma = (self.sigma * 3.0 / spacing).floor() as isize;
+
+                let min_offset = match (inner0.as_ref(), self.axis) {
+                    (Some(_), _) => -three_sigma,
+                    (None, Axis::X) => -three_sigma.min(x),
+                    (None, Axis::Y) => -three_sigma.min(y),
+                };
+                let max_offset = match (inner2.as_ref(), self.axis) {
+                    (Some(_), _) => three_sigma,
+                    (None, Axis::X) => three_sigma.min(iwidth - x - 1),
+                    (None, Axis::Y) => three_sigma.min(iheight - y - 1),
+                };
+
+                for offset in min_offset..=max_offset {
+                    let mut i = x + y * iwidth + offset * step;
+
+                    let (raster, i) = if i < 0 {
+                        (inner0.as_ref().unwrap(), (i + iwidth * iheight) as usize)
+                    } else if i >= iwidth * iheight {
+                        (inner2.as_ref().unwrap(), (i - iwidth * iheight) as usize)
+                    } else {
+                        (&inner, i as usize)
+                    };
+
+                    let g = guassian(offset as f64 * spacing / self.sigma);
+                    v += g * raster.values[i] as f64;
+                    d += g;
+                }
+                v /= d;
+                assert!(v < 255.5);
+                values.push(v as u8);
+            }
+        }
+
+        Some(Raster { values, ..inner })
     }
 }
 

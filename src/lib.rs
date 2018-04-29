@@ -1,6 +1,7 @@
 //! Terra is a large scale terrain rendering library built on top of gfx.
 
 #![feature(iterator_step_by)]
+#![feature(match_default_bindings)]
 #![feature(nll)]
 #![feature(non_ascii_idents)]
 #![feature(ord_max_min)]

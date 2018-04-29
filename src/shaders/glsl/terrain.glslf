@@ -93,7 +93,7 @@ vec3 water_color() {
 }
 
 vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float waterLayer) {
-	float waterAmount = texture(water, vec3(texcoord, waterLayer)).x;
+	float waterAmount = smoothstep(0.2,0.5, texture(water, vec3(texcoord, waterLayer)).x);
 	if(normalsLayer >= 0) {
 		// return vec3(fractal2(fPosition.xz));
 		vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);

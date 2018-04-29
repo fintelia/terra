@@ -19,7 +19,7 @@ use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
 use terrain::material::{MaterialSet, MaterialType};
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
-use terrain::raster::RasterCache;
+use terrain::raster::{BlurredSource, RasterCache};
 use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
                                   ReprojectedRasterDef};
 use terrain::tile_cache::{ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams,
@@ -688,8 +688,14 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             raster: RasterSource::Hybrid {
                 global: Box::new(GlobalWaterMask),
                 cache: Rc::new(RefCell::new(RasterCache::new(
-                    Box::new(LandCoverKind::WaterMask),
-                    256,
+                    Box::new(BlurredSource::new(
+                        Rc::new(RefCell::new(RasterCache::new(
+                            Box::new(LandCoverKind::WaterMask),
+                            256,
+                        ))),
+                        30.0,
+                    )),
+                    128,
                 ))),
             },
         };
