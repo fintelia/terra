@@ -8,7 +8,7 @@ use cgmath::*;
 use failure::Error;
 use gfx;
 use gfx_core;
-use rand;
+use rand::{self, Rng};
 use rand::distributions::{IndependentSample, Normal};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
@@ -300,6 +300,8 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
         state.generate_colormaps(context)?;
         context.set_progress(4);
 
+        state.generate_trees(context)?;
+
         let planet_mesh = state.generate_planet_mesh(context)?;
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
         let noise = state.generate_noise(context)?;
@@ -350,6 +352,15 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
         let fy = (y - self.skirt as i32) as f32
             / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+
+        Vector2::new(
+            (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
+            (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) as f64,
+        )
+    }
+    fn world_positionf(&self, x: f32, y: f32, bounds: BoundingBox) -> Vector2<f64> {
+        let fx = (x - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
+        let fy = (y - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
 
         Vector2::new(
             (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
@@ -502,7 +513,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 radius2: Some(1_000_000.0 * 1_000_000.0),
             },
         };
-        let treecover = ReprojectedRaster::from_raster(reproject_treecover, context)?;
+        // let treecover = ReprojectedRaster::from_raster(reproject_treecover, context)?;
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
@@ -757,6 +768,79 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
         assert_eq!(self.bytes_written, noise.offset + noise.bytes);
         Ok(noise)
+    }
+    fn generate_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let step = 4;
+        let resolution = (self.heightmap_resolution - 2 * self.skirt - 1) / step;
+        let nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
+            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
+            .collect();
+        let mut tile_locations = Vec::new();
+
+        let mut rng = rand::thread_rng();
+
+        context.increment_level("Generating trees... ", nodes.len());
+        for (i, id) in nodes.into_iter().enumerate() {
+            context.set_progress(i as u64);
+            let offset = self.bytes_written;
+            let heights = self.heightmaps.as_ref().unwrap();
+            let spacing =
+                self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            for y in 0..resolution {
+                for x in 0..resolution {
+                    let h00 = heights.get(id, self.skirt + step * x, self.skirt + step * y, 0);
+                    let h01 = heights.get(id, self.skirt + step * x, self.skirt + step * y + 1, 0);
+                    let h10 = heights.get(id, self.skirt + step * x + 1, self.skirt + step * y, 0);
+                    let h11 =
+                        heights.get(id, self.skirt + step * x + 1, self.skirt + step * y + 1, 0);
+
+                    let normal =
+                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
+                            .normalize();
+
+                    if normal.y > 0.965 {
+                        let position = self.world_positionf(
+                            (step as f32) * (x as f32 + rng.gen::<f32>()),
+                            (step as f32) * (y as f32 + rng.gen::<f32>()),
+                            self.nodes[id].bounds,
+                        );
+                        let position = Vector3::new(
+                            position.x as f32,
+                            (h00 + h01 + h10 + h11) * 0.25,
+                            position.y as f32,
+                        );
+                        let color = Vector3::new(0.0, 0.0, 0.0);
+                        let rotation = 0.0;
+                        let texture_layer = 0.0;
+
+                        self.writer.write_f32::<LittleEndian>(position.x)?;
+                        self.writer.write_f32::<LittleEndian>(position.y)?;
+                        self.writer.write_f32::<LittleEndian>(position.z)?;
+                        self.writer.write_f32::<LittleEndian>(color.x)?;
+                        self.writer.write_f32::<LittleEndian>(color.y)?;
+                        self.writer.write_f32::<LittleEndian>(color.z)?;
+                        self.writer.write_f32::<LittleEndian>(rotation)?;
+                        self.writer.write_f32::<LittleEndian>(texture_layer)?;
+                        self.bytes_written += 32;
+                    }
+                }
+            }
+
+            self.nodes[id].tile_indices[LayerType::Foliage.index()] = Some(i as u32);
+            tile_locations.push(ByteRange {
+                offset,
+                length: self.bytes_written - offset,
+            });
+        }
+        self.layers.push(LayerParams {
+            layer_type: LayerType::Foliage,
+            tile_locations,
+            payload_type: PayloadType::InstancedMesh {
+                max_instances: resolution as usize * resolution as usize,
+            },
+        });
+        context.decrement_level();
+        Ok(())
     }
 
     fn generate_planet_mesh(

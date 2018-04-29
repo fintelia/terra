@@ -4,7 +4,7 @@ use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
 
-use terrain::tile_cache::LayerType;
+use terrain::tile_cache::{LayerType, MeshInstance};
 use super::*;
 
 gfx_defines!{
@@ -24,6 +24,10 @@ gfx_defines!{
 
     vertex PlanetMeshVertex {
         position: [f32; 3] = "vPosition",
+    }
+
+    vertex MeshVertex {
+        mposition: [f32; 3] = "mposition",
     }
 }
 
@@ -78,6 +82,14 @@ gfx_pipeline!( planet_mesh_pipe {
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color: gfx::TextureSampler<[f32; 4]> = "color",
+    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
+    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+});
+
+gfx_pipeline!( instanced_mesh_pipe {
+    vertices: gfx::VertexBuffer<MeshVertex> = (),
+    instances: gfx::InstanceBuffer<MeshInstance> = (),
+    model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });
@@ -141,6 +153,24 @@ where
         )?)
     }
 
+    pub(crate) fn make_instanced_mesh_pso(
+        factory: &mut F,
+        shader: &gfx::ShaderSet<R>,
+    ) -> Result<gfx::PipelineState<R, instanced_mesh_pipe::Meta>, Error> {
+        Ok(factory.create_pipeline_state(
+            shader,
+            gfx::Primitive::TriangleList,
+            gfx::state::Rasterizer {
+                front_face: gfx::state::FrontFace::Clockwise,
+                cull_face: gfx::state::CullFace::Nothing,
+                method: gfx::state::RasterMethod::Fill,
+                offset: None,
+                samples: None,
+            },
+            instanced_mesh_pipe::new(),
+        )?)
+    }
+
     pub(super) fn update_shaders(&mut self) -> Result<(), Error> {
         if self.shader
             .refresh(&mut self.factory, &mut self.shaders_watcher)
@@ -160,6 +190,15 @@ where
             self.planet_mesh_pso = Self::make_planet_mesh_pso(
                 &mut self.factory,
                 self.planet_mesh_shader.as_shader_set(),
+            )?;
+        }
+
+        if self.instanced_mesh_shader
+            .refresh(&mut self.factory, &mut self.shaders_watcher)
+        {
+            self.instanced_mesh_pso = Self::make_instanced_mesh_pso(
+                &mut self.factory,
+                self.instanced_mesh_shader.as_shader_set(),
             )?;
         }
 
@@ -367,6 +406,29 @@ where
             &self.pso,
             &self.pipeline_data,
         );
+
+        for (id, node) in self.nodes.iter().enumerate() {
+            if node.priority < Priority::cutoff() {
+                continue;
+            }
+
+            let tile_cache = &self.tile_cache_layers[LayerType::Foliage.index()];
+            if let Some(slot) = tile_cache.get_slot(NodeId::new(id as u32)) {
+                let count = tile_cache.get_instance_count(node) as u32;
+                let offset = tile_cache.get_instance_offset(slot) as u32;
+                encoder.draw(
+                    &gfx::Slice {
+                        start: 0,
+                        end: 18,
+                        base_vertex: 0,
+                        instances: Some((count, offset)),
+                        buffer: gfx::IndexBuffer::Auto,
+                    },
+                    &self.instanced_mesh_pso,
+                    &self.instanced_mesh_pipeline_data,
+                );
+            }
+        }
 
         Ok(())
     }

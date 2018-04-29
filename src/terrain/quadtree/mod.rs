@@ -62,10 +62,13 @@ where
     sky_pipeline_data: sky_pipe::Data<R>,
     planet_mesh_pso: gfx::PipelineState<R, planet_mesh_pipe::Meta>,
     planet_mesh_pipeline_data: planet_mesh_pipe::Data<R>,
+    instanced_mesh_pso: gfx::PipelineState<R, instanced_mesh_pipe::Meta>,
+    instanced_mesh_pipeline_data: instanced_mesh_pipe::Data<R>,
     shaders_watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::Shader<R>,
     sky_shader: rshader::Shader<R>,
     planet_mesh_shader: rshader::Shader<R>,
+    instanced_mesh_shader: rshader::Shader<R>,
     num_planet_mesh_vertices: usize,
     node_states: Vec<NodeState>,
     _materials: MaterialSet<R>,
@@ -135,6 +138,13 @@ where
             ),
         )?;
 
+        let instanced_mesh_shader = rshader::Shader::simple(
+            &mut factory,
+            &mut shaders_watcher,
+            shader_source!("../../shaders/glsl", "version", "mesh.glslv"),
+            shader_source!("../../shaders/glsl", "version", "mesh.glslf"),
+        )?;
+
         let mut data_view = data_file.into_view_sync();
         let mut tile_cache_layers = VecMap::new();
         for layer in header.layers.iter().cloned() {
@@ -179,6 +189,31 @@ where
                 gfx::texture::Mipmap::Provided,
                 &[gfx::memory::cast_slice(pm_texture_data)],
             )?;
+
+        #[rustfmt_skip]
+        let instanced_mesh_vertices: Vec<f32> = vec![
+            -5.0,  0.0,  0.0,
+             5.0,  0.0,  0.0,
+            -5.0, 10.0,  0.0,
+            -5.0, 10.0,  0.0,
+             5.0, 10.0,  0.0,
+             5.0,  0.0,  0.0,
+
+             0.0,  0.0, -5.0,
+             0.0,  0.0,  5.0,
+             0.0, 10.0, -5.0,
+             0.0, 10.0, -5.0,
+             0.0, 10.0,  5.0,
+             0.0,  0.0,  5.0,
+
+            -5.0,  5.0, -5.0,
+             5.0,  5.0, -5.0,
+             5.0,  5.0,  5.0,
+            -5.0,  5.0, -5.0,
+            -5.0,  5.0,  5.0,
+             5.0,  5.0,  5.0,
+        ];
+        let instanced_mesh_vertices = gfx::memory::cast_slice(&instanced_mesh_vertices[..]);
 
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
             .get_texture_view_f32()
@@ -322,6 +357,20 @@ where
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
+            instanced_mesh_pso: Self::make_instanced_mesh_pso(
+                &mut factory,
+                instanced_mesh_shader.as_shader_set(),
+            )?,
+            instanced_mesh_pipeline_data: instanced_mesh_pipe::Data {
+                vertices: factory.create_vertex_buffer(instanced_mesh_vertices),
+                instances: tile_cache_layers[LayerType::Foliage.index()]
+                    .get_buffer()
+                    .unwrap()
+                    .clone(),
+                model_view_projection: [[0.0; 4]; 4],
+                color_buffer: color_buffer.clone(),
+                depth_buffer: depth_buffer.clone(),
+            },
             ocean,
             atmosphere,
             factory,
@@ -329,6 +378,7 @@ where
             shader,
             sky_shader,
             planet_mesh_shader,
+            instanced_mesh_shader,
             num_planet_mesh_vertices: header.planet_mesh.num_vertices,
             nodes: header.nodes,
             node_states: Vec::new(),
@@ -462,6 +512,8 @@ where
 
         self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
         self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+
+        self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

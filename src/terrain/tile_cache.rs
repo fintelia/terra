@@ -29,7 +29,7 @@ impl Ord for Priority {
     }
 }
 
-pub const NUM_LAYERS: usize = 4;
+pub const NUM_LAYERS: usize = 5;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -37,6 +37,7 @@ pub(crate) enum LayerType {
     Colors = 1,
     Normals = 2,
     Water = 3,
+    Foliage = 4,
 }
 impl LayerType {
     pub fn cache_size(&self) -> u16 {
@@ -45,6 +46,7 @@ impl LayerType {
             LayerType::Colors => 256,
             LayerType::Normals => 32,
             LayerType::Water => 256,
+            LayerType::Foliage => 64,
         }
     }
     pub fn index(&self) -> usize {
@@ -170,15 +172,7 @@ impl<R: gfx::Resources> TileCache<R> {
                 resolution: resolution.try_into().unwrap(),
             },
             PayloadType::InstancedMesh { max_instances } => PayloadSet::InstancedMesh {
-                buffer: factory.create_vertex_buffer(&vec![
-                    MeshInstance {
-                        position: [0.0; 3],
-                        color: [0.0; 3],
-                        rotation: 0.0,
-                        texture_layer: 0.0,
-                    };
-                    max_instances * cache_size as usize
-                ]),
+                buffer: factory.create_constant_buffer(max_instances * cache_size as usize),
                 max_elements_per_slot: max_instances,
             },
         };
@@ -331,6 +325,31 @@ impl<R: gfx::Resources> TileCache<R> {
             } => Some(view),
             _ => None,
         }
+    }
+
+    pub fn get_buffer(&self) -> Option<&gfx::handle::Buffer<R, MeshInstance>> {
+        match self.payloads {
+            PayloadSet::InstancedMesh { ref buffer, .. } => Some(buffer),
+            _ => None,
+        }
+    }
+
+    pub fn get_instance_offset(&self, slot: usize) -> usize {
+        if let PayloadSet::InstancedMesh {
+            max_elements_per_slot,
+            ..
+        } = self.payloads
+        {
+            slot * max_elements_per_slot
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn get_instance_count(&self, node: &Node) -> usize {
+        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
+        let length = self.layer_params.tile_locations[tile].length;
+        (length as usize / ::std::mem::size_of::<MeshInstance>())
     }
 
     pub fn resolution(&self) -> u32 {

@@ -68,6 +68,7 @@ impl<T> Heightmap<T> {
 
 impl<T: Copy + Add<T, Output = T> + Div<T, Output = T> + From<u8>> Heightmap<T> {
     /// Return a heightmap with exactly half the resolution in each dimension.
+    #[allow(unused)]
     pub fn downsample(&self) -> Heightmap<T> {
         let width = self.width / 2;
         let height = self.height / 2;
