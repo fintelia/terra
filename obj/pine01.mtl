@@ -1,0 +1,12 @@
+newmtl bark02
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+map_Kd bark02.dds
+
+newmtl pine leaf
+Ka 1 1 1
+Kd 1 1 1
+Ks 0 0 0
+map_Kd pine leaf.dds
+
