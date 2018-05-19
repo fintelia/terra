@@ -9,7 +9,7 @@ Terra is a large scale terrain rendering library built on top of
 
 ### Open World
 
-Terra supports rendering an entire planet with a "playable area" of 10s or even 100s of square
+Terra supports rendering an entire planet with a "playable area" of tens or even hundreds of square
 kilometers.
 
 ### Level of detail (LOD)
@@ -25,7 +25,6 @@ continuous level of detail.
 The coordinate system is very simple: the x-axis points east, y-axis points up and z-axis points
 south. The origin is chosen during map file creation and can be any point on the planet surface
 (except for some points too close to the poles)
-
 
 ### Automatic Generation
 
@@ -43,12 +42,12 @@ Terrain:
 
 Foliage:
 - [ ] Grass
-- [ ] Trees
+- [ ] Trees *(in* *progress)*
 
 Atmosphere:
 - [x] Fog rendering
 - [x] Aerial perspective
-- [ ] Precomputed scattering
+- [ ] Precomputed scattering *(in* *progress)*
 - [ ] Clouds
 
 # Data Sources / Credits
