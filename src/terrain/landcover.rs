@@ -2,8 +2,10 @@ use std::io::{Cursor, Read};
 use std::sync::{Arc, Mutex};
 
 use failure::Error;
-use image::{self, ColorType, DynamicImage, GenericImage, ImageDecoder, ImageFormat, ImageLuma8};
 use image::png::PNGDecoder;
+use image::{
+    self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat, ImageLuma8,
+};
 use zip::ZipArchive;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};

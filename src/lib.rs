@@ -52,6 +52,7 @@ extern crate zip;
 mod cache;
 mod coordinates;
 mod generate;
+mod model;
 mod ocean;
 mod runtime_texture;
 mod sky;
@@ -59,8 +60,8 @@ mod srgb;
 mod terrain;
 mod utils;
 
+pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 pub use terrain::dem::DemSource;
-pub use generate::{QuadTreeBuilder, TextureQuality, VertexQuality};
 pub use terrain::quadtree::QuadTree;
 
 #[cfg(test)]

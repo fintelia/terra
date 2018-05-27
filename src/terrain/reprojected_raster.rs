@@ -421,6 +421,24 @@ impl ReprojectedRaster {
         }
     }
 
+    // pub fn interpolate(&self, tile: usize, x: f32, y: f32, band: u16) -> f32 {
+    //     assert!(band < self.header.bands);
+    //     assert!(x >= 0.0);
+    //     assert!(y >= 0.0);
+    //     assert!(x <= (self.header.resolution - 1) as f32);
+    //     assert!(y <= (self.header.resolution - 1) as f32);
+
+    //     let ix = x.floor() as u16;
+    //     let iy = y.floor() as u16;
+
+    //     let v00 = self.get(tile, ix, iy, band);
+    //     let v01 = self.get(tile, ix, iy + 1, band);
+    //     let v10 = self.get(tile, ix + 1, iy, band);
+    //     let v11 = self.get(tile, ix + 1, iy + 1, band);
+
+    //     unimplemented!()
+    // }
+
     pub fn len(&self) -> usize {
         self.header.tiles
     }

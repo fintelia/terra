@@ -4,7 +4,7 @@ use failure::Error;
 use gfx;
 use gfx::format::*;
 use gfx_core;
-use image::{self, GenericImage};
+use image::{self, GenericImage, GenericImageView};
 use zip::ZipArchive;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};

@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
@@ -8,29 +9,56 @@ use cgmath::*;
 use failure::Error;
 use gfx;
 use gfx_core;
-use rand::{self, Rng};
 use rand::distributions::{IndependentSample, Normal};
+use rand::{self, Rng};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use coordinates::CoordinateSystem;
+use runtime_texture::TextureFormat;
 use sky::Skybox;
 use srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
+use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
 use terrain::material::{MaterialSet, MaterialType};
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{BlurredSource, RasterCache};
-use terrain::reprojected_raster::{DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster,
-                                  ReprojectedRasterDef};
-use terrain::tile_cache::{ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams,
-                          PayloadType, TextureDescriptor, TileHeader};
-use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
-use runtime_texture::TextureFormat;
+use terrain::reprojected_raster::{
+    DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
+};
+use terrain::tile_cache::{
+    ByteRange, LayerParams, LayerType, MeshDescriptor, MeshInstance, NoiseParams, PayloadType,
+    TextureDescriptor, TileHeader,
+};
 use utils::math::BoundingBox;
 
 /// The radius of the earth in meters.
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
+
+// Mapping from side length to level number.
+const LEVEL_4194_KM: i32 = 0;
+const LEVEL_2097_KM: i32 = 1;
+const LEVEL_1049_KM: i32 = 2;
+const LEVEL_524_KM: i32 = 3;
+const LEVEL_262_KM: i32 = 4;
+const LEVEL_131_KM: i32 = 5;
+const LEVEL_66_KM: i32 = 6;
+const LEVEL_33_KM: i32 = 7;
+const LEVEL_16_KM: i32 = 8;
+const LEVEL_8_KM: i32 = 9;
+const LEVEL_4_KM: i32 = 10;
+const LEVEL_2_KM: i32 = 11;
+const LEVEL_1_KM: i32 = 12;
+const LEVEL_256_M: i32 = 13;
+const LEVEL_128_M: i32 = 14;
+const LEVEL_64_M: i32 = 15;
+const LEVEL_32_M: i32 = 16;
+const LEVEL_16_M: i32 = 17;
+const LEVEL_8_M: i32 = 18;
+const LEVEL_4_M: i32 = 19;
+const LEVEL_2_M: i32 = 20;
+const LEVEL_1_M: i32 = 21;
 
 /// How much detail the terrain mesh should have. Higher values require more resources to render,
 /// but produce nicer results.
@@ -100,6 +128,40 @@ impl TextureQuality {
     }
 }
 
+/// Spacing between adjacent mesh grid points for the most detailed quadtree level.
+pub enum GridSpacing {
+    // 4000 cm between mesh grid points.
+    FourMeters,
+    // 2000 cm between mesh grid points.
+    TwoMeters,
+    // 1000 cm between mesh grid points.
+    OneMeter,
+    // 500 cm between mesh grid points.
+    HalfMeter,
+    // 250 cm between mesh grid points.
+    QuarterMeter,
+}
+impl GridSpacing {
+    fn log2_spacing(&self) -> i32 {
+        match *self {
+            GridSpacing::FourMeters => 2,
+            GridSpacing::TwoMeters => 1,
+            GridSpacing::OneMeter => 0,
+            GridSpacing::HalfMeter => -1,
+            GridSpacing::QuarterMeter => -2,
+        }
+    }
+    fn as_str(&self) -> &str {
+        match *self {
+            GridSpacing::FourMeters => "4m",
+            GridSpacing::TwoMeters => "2m",
+            GridSpacing::OneMeter => "1m",
+            GridSpacing::HalfMeter => "500cm",
+            GridSpacing::QuarterMeter => "250cm",
+        }
+    }
+}
+
 /// Used to construct a `QuadTree`.
 pub struct QuadTreeBuilder<
     'a,
@@ -112,6 +174,7 @@ pub struct QuadTreeBuilder<
     source: DemSource,
     vertex_quality: VertexQuality,
     texture_quality: TextureQuality,
+    grid_spacing: GridSpacing,
     materials: MaterialSet<R>,
     sky: Skybox<R>,
     factory: F,
@@ -132,6 +195,7 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             source: DemSource::Srtm30m,
             vertex_quality: VertexQuality::High,
             texture_quality: TextureQuality::High,
+            grid_spacing: GridSpacing::TwoMeters,
             materials: MaterialSet::load(&mut factory, encoder).unwrap(),
             sky: Skybox::new(&mut factory, encoder),
             context: Some(AssetLoadContext::new()),
@@ -163,6 +227,11 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
     /// How high resolution the terrain's textures should be.
     pub fn texture_quality(mut self, quality: TextureQuality) -> Self {
         self.texture_quality = quality;
+        self
+    }
+
+    pub fn grid_spacing(mut self, spacing: GridSpacing) -> Self {
+        self.grid_spacing = spacing;
         self
     }
 
@@ -201,12 +270,13 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "{}{:02}_{}{:03}_{}m_{}_{}",
+            "{}{:02}_{}{:03}_{}m_{}_{}_{}",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
             self.longitude.abs(),
             self.source.resolution(),
+            self.grid_spacing.as_str(),
             self.vertex_quality.as_str(),
             self.texture_quality.as_str(),
         )
@@ -241,12 +311,13 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_level = 22i32 - self.vertex_quality.resolution_log2() as i32 - 1;
+        let max_level =
+            22i32 - self.vertex_quality.resolution_log2() as i32 - self.grid_spacing.log2_spacing();
         let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
+        let max_tree_density_level = LEVEL_8_KM;
 
         let cell_size =
             world_size / ((self.vertex_quality.resolution() - 1) as f32) * (0.5f32).powi(max_level);
-        assert_eq!(cell_size, 2.0);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
@@ -272,9 +343,12 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             heightmap_resolution,
             heights_resolution: self.vertex_quality.resolution(),
             max_texture_level,
+            max_tree_density_level,
             resolution_ratio,
             writer,
             heightmaps: None,
+            treecover: None,
+            tree_placements: HashMap::new(),
             max_dem_level,
             materials: &self.materials,
             skirt,
@@ -297,10 +371,11 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
         context.set_progress(2);
         state.generate_watermasks(context)?;
         context.set_progress(3);
+        state.place_trees(context)?;
         state.generate_colormaps(context)?;
         context.set_progress(4);
 
-        state.generate_trees(context)?;
+        state.write_trees(context)?;
 
         let planet_mesh = state.generate_planet_mesh(context)?;
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
@@ -323,6 +398,9 @@ struct State<'a, W: Write, R: gfx::Resources> {
     random: Heightmap<f32>,
     heightmaps: Option<ReprojectedRaster>,
 
+    treecover: Option<ReprojectedRaster>,
+    tree_placements: HashMap<usize, Vec<MeshInstance>>,
+
     /// Resolution of the heightmap for each quadtree node.
     heights_resolution: u16,
     /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
@@ -330,8 +408,11 @@ struct State<'a, W: Write, R: gfx::Resources> {
     heightmap_resolution: u16,
 
     skirt: u16,
+
     max_texture_level: i32,
     max_dem_level: i32,
+    max_tree_density_level: i32,
+
     resolution_ratio: u16,
     writer: W,
     materials: &'a MaterialSet<R>,
@@ -347,6 +428,7 @@ struct State<'a, W: Write, R: gfx::Resources> {
 }
 
 impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
+    #[allow(unused)]
     fn world_position(&self, x: i32, y: i32, bounds: BoundingBox) -> Vector2<f64> {
         let fx = (x - self.skirt as i32) as f32
             / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
@@ -473,6 +555,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
+        let colormap_skirt = self.skirt - 2;
         let colormap_resolution = self.heightmap_resolution - 5;
         let tile_count = self.heightmaps.as_ref().unwrap().len();
         let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
@@ -488,7 +571,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             tile_locations,
             payload_type: PayloadType::Texture {
                 resolution: colormap_resolution as u32,
-                border_size: self.skirt as u32 - 2,
+                border_size: colormap_skirt as u32,
                 format: TextureFormat::SRGBA,
             },
         });
@@ -496,24 +579,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             "Generating colormaps... ",
             self.heightmaps.as_ref().unwrap().len(),
         );
-
-        let reproject_treecover = ReprojectedRasterDef::<u8> {
-            name: format!("{}treecover", self.directory_name),
-            heights: self.heightmaps.as_ref().unwrap(),
-            system: &self.system,
-            nodes: &self.nodes,
-            skirt: self.skirt,
-            datatype: DataType::U8,
-            raster: RasterSource::RasterCache {
-                cache: Rc::new(RefCell::new(RasterCache::new(
-                    Box::new(LandCoverKind::TreeCover),
-                    256,
-                ))),
-                default: 0.0,
-                radius2: Some(1_000_000.0 * 1_000_000.0),
-            },
-        };
-        // let treecover = ReprojectedRaster::from_raster(reproject_treecover, context)?;
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
@@ -527,6 +592,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             },
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
+
+        let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..self.heightmaps.as_ref().unwrap().len() {
@@ -563,7 +630,18 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     } else {
                         let splat = Self::compute_splat(normal.y);
                         let albedo = self.materials.get_average_albedo(splat);
-                        [albedo[0], albedo[1], albedo[2], light]
+                        if self.nodes[i].level <= self.max_tree_density_level as u8 {
+                            let tree_density =
+                                (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
+                            [
+                                mix(albedo[0], LINEAR_TO_SRGB[13], tree_density),
+                                mix(albedo[1], LINEAR_TO_SRGB[31], tree_density),
+                                mix(albedo[2], 0, tree_density),
+                                light,
+                            ]
+                        } else {
+                            [albedo[0], albedo[1], albedo[2], light]
+                        }
                     };
                     colormap.extend_from_slice(&color);
                 }
@@ -601,6 +679,60 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     }
                 }
             }
+
+            let mut tree_placements = None;
+            if self.tree_placements.contains_key(&i) {
+                tree_placements = Some(i);
+            } else if let Some((parent, _)) = self.nodes[i].parent {
+                if self.tree_placements.contains_key(&parent.index()) {
+                    tree_placements = Some(parent.index());
+                }
+            }
+            if let Some(ancestor) = tree_placements {
+                let bounds = &self.nodes[i].bounds;
+                let side_length = self.nodes[i].side_length;
+                let resolution = self.heightmap_resolution - self.skirt * 2 - 1;
+
+                let cell_size = side_length / resolution as f32;
+                let radius = (7.5 / cell_size).round() as isize;
+                let border = cell_size * colormap_skirt as f32 + radius as f32;
+
+                for placement in self.tree_placements[&ancestor].iter() {
+                    if placement.position[0] > bounds.min.x && placement.position[2] > bounds.min.z
+                        && placement.position[0] < bounds.max.x
+                        && placement.position[2] < bounds.max.z
+                    {
+                        let x = (resolution as f32 * (placement.position[0] - bounds.min.x)
+                            / side_length)
+                            .round()
+                            .max(0.0) as isize
+                            + colormap_skirt as isize;
+                        let z = (resolution as f32 * (placement.position[2] - bounds.min.z)
+                            / side_length)
+                            .round()
+                            .max(0.0) as isize
+                            + colormap_skirt as isize;
+
+                        for h in -radius..=radius {
+                            for k in -radius..=radius {
+                                let x =
+                                    (x + h).max(0).min(colormap_resolution as isize - 1) as usize;
+                                let z =
+                                    (z + k).max(0).min(colormap_resolution as isize - 1) as usize;
+                                let color = &mut colormap
+                                    [4 * (x + z * colormap_resolution as usize)..][..4];
+                                let r = 13.0 + 25.5 * (placement.color[0] - 1.0);
+                                let g = 31.0 + 25.5 * (placement.color[1] - 1.0);
+                                let b = 0.0 + 25.5 * (placement.color[2] - 1.0);
+                                color[0] = LINEAR_TO_SRGB[r.min(255.0).max(0.0).round() as u8];
+                                color[1] = LINEAR_TO_SRGB[g.min(255.0).max(0.0).round() as u8];
+                                color[2] = LINEAR_TO_SRGB[b.min(255.0).max(0.0).round() as u8];
+                            }
+                        }
+                    }
+                }
+            }
+
             colormaps.push(colormap);
         }
 
@@ -704,7 +836,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             Box::new(LandCoverKind::WaterMask),
                             256,
                         ))),
-                        30.0,
+                        0.0,
                     )),
                     128,
                 ))),
@@ -769,25 +901,63 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         assert_eq!(self.bytes_written, noise.offset + noise.bytes);
         Ok(noise)
     }
-    fn generate_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        let step = 4;
+    fn place_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let step = 1;
         let resolution = (self.heightmap_resolution - 2 * self.skirt - 1) / step;
         let nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
+            .filter(|&i| self.nodes[i].level as i32 == self.max_tree_density_level + 1)
             .collect();
-        let mut tile_locations = Vec::new();
+
+        let reproject_treecover = ReprojectedRasterDef::<u8> {
+            name: format!("{}treecover", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            datatype: DataType::U8,
+            raster: RasterSource::RasterCache {
+                cache: Rc::new(RefCell::new(RasterCache::new(
+                    Box::new(LandCoverKind::TreeCover),
+                    256,
+                ))),
+                default: 0.0,
+                radius2: Some(1_000_000.0 * 1_000_000.0),
+            },
+        };
+        self.treecover = Some(ReprojectedRaster::from_raster(
+            reproject_treecover,
+            context,
+        )?);
 
         let mut rng = rand::thread_rng();
+        let color_dist = rand::distributions::Normal::new(1.0, 0.08);
 
-        context.increment_level("Generating trees... ", nodes.len());
+        context.increment_level("Placing trees... ", nodes.len());
         for (i, id) in nodes.into_iter().enumerate() {
             context.set_progress(i as u64);
-            let offset = self.bytes_written;
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+
+            let side_length = self.nodes[id].side_length;
+
+            let _cell_size = side_length / resolution as f32; // = 8m
+            let rmin = 0.0;
+            let rmax = 1.0;
+
+            self.tree_placements.insert(id, Vec::new());
             for y in 0..resolution {
                 for x in 0..resolution {
+                    let t = self.treecover.as_ref().unwrap().get(
+                        id,
+                        self.skirt + step * x,
+                        self.skirt + step * y,
+                        0,
+                    );
+                    if rng.gen_range(0.0, 255.0) > t {
+                        continue;
+                    }
+
                     let h00 = heights.get(id, self.skirt + step * x, self.skirt + step * y, 0);
                     let h01 = heights.get(id, self.skirt + step * x, self.skirt + step * y + 1, 0);
                     let h10 = heights.get(id, self.skirt + step * x + 1, self.skirt + step * y, 0);
@@ -799,45 +969,95 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             .normalize();
 
                     if normal.y > 0.965 {
-                        let position = self.world_positionf(
-                            (step as f32) * (x as f32 + rng.gen::<f32>()),
-                            (step as f32) * (y as f32 + rng.gen::<f32>()),
-                            self.nodes[id].bounds,
-                        );
                         let position = Vector3::new(
-                            position.x as f32,
+                            self.nodes[id].bounds.min.x
+                                + (x as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
+                                    * side_length,
                             (h00 + h01 + h10 + h11) * 0.25,
-                            position.y as f32,
+                            self.nodes[id].bounds.min.z
+                                + (y as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
+                                    * side_length,
                         );
-                        let color = Vector3::new(0.0, 0.0, 0.0);
-                        let rotation = 0.0;
+                        let color = Vector3::new(
+                            color_dist.ind_sample(&mut rng) as f32,
+                            color_dist.ind_sample(&mut rng) as f32,
+                            color_dist.ind_sample(&mut rng) as f32,
+                        );
+                        let light = normal.dot(self.sun_direction).max(0.0);
                         let texture_layer = 0.0;
 
-                        self.writer.write_f32::<LittleEndian>(position.x)?;
-                        self.writer.write_f32::<LittleEndian>(position.y)?;
-                        self.writer.write_f32::<LittleEndian>(position.z)?;
-                        self.writer.write_f32::<LittleEndian>(color.x)?;
-                        self.writer.write_f32::<LittleEndian>(color.y)?;
-                        self.writer.write_f32::<LittleEndian>(color.z)?;
-                        self.writer.write_f32::<LittleEndian>(rotation)?;
-                        self.writer.write_f32::<LittleEndian>(texture_layer)?;
-                        self.bytes_written += 32;
+                        self.tree_placements
+                            .get_mut(&id)
+                            .unwrap()
+                            .push(MeshInstance {
+                                position: [position.x, position.y, position.z],
+                                color: [color.x, color.y, color.z],
+                                rotation: light,
+                                texture_layer,
+                            });
                     }
                 }
             }
+        }
+        context.decrement_level();
+        Ok(())
+    }
+    fn write_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
+            .filter(|&i| self.nodes[i].level as i32 == self.max_tree_density_level + 2)
+            .collect();
+        let mut tile_locations = Vec::new();
 
+        let mut max_instances = 0;
+        context.increment_level("Placing trees... ", nodes.len());
+        for (i, id) in nodes.into_iter().enumerate() {
+            context.set_progress(i as u64);
+
+            let offset = self.bytes_written;
+            let bounds = &self.nodes[id].bounds;
+
+            let mut node = id;
+            while !self.tree_placements.contains_key(&node) {
+                node = self.nodes[node]
+                    .parent
+                    .expect("No tree placement found for node")
+                    .0
+                    .index();
+            }
+
+            let mut instances = 0;
+            for placement in &self.tree_placements[&node] {
+                if placement.position[0] > bounds.min.x && placement.position[2] > bounds.min.z
+                    && placement.position[0] < bounds.max.x
+                    && placement.position[2] < bounds.max.z
+                {
+                    for i in 0..3 {
+                        self.writer
+                            .write_f32::<LittleEndian>(placement.position[i])?;
+                    }
+                    for i in 0..3 {
+                        self.writer.write_f32::<LittleEndian>(placement.color[i])?;
+                    }
+                    self.writer.write_f32::<LittleEndian>(placement.rotation)?;
+                    self.writer
+                        .write_f32::<LittleEndian>(placement.texture_layer)?;
+                    self.bytes_written += 32;
+                    instances += 1;
+                }
+            }
+
+            max_instances = instances.max(max_instances);
             self.nodes[id].tile_indices[LayerType::Foliage.index()] = Some(i as u32);
             tile_locations.push(ByteRange {
                 offset,
                 length: self.bytes_written - offset,
             });
         }
+
         self.layers.push(LayerParams {
             layer_type: LayerType::Foliage,
             tile_locations,
-            payload_type: PayloadType::InstancedMesh {
-                max_instances: resolution as usize * resolution as usize,
-            },
+            payload_type: PayloadType::InstancedMesh { max_instances },
         });
         context.decrement_level();
         Ok(())

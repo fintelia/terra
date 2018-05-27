@@ -143,6 +143,8 @@ pub(crate) trait RasterSource {
         longitude: i16,
     ) -> Option<Raster<Self::Type>>;
 }
+
+#[allow(unused)]
 pub(crate) struct AmbientOcclusionSource<T: Into<f64> + Copy + 'static>(
     pub(crate) Rc<RefCell<RasterCache<T>>>,
 );
@@ -257,7 +259,7 @@ impl RasterSource for BlurredSource {
                 };
 
                 for offset in min_offset..=max_offset {
-                    let mut i = x + y * iwidth + offset * step;
+                    let i = x + y * iwidth + offset * step;
 
                     let (raster, i) = if i < 0 {
                         (inner0.as_ref().unwrap(), (i + iwidth * iheight) as usize)

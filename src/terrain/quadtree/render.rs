@@ -90,6 +90,12 @@ gfx_pipeline!( instanced_mesh_pipe {
     vertices: gfx::VertexBuffer<MeshVertex> = (),
     instances: gfx::InstanceBuffer<MeshInstance> = (),
     model_view_projection: gfx::Global<[[f32; 4]; 4]> = "modelViewProjection",
+    camera_position: gfx::Global<[f32;3]> = "cameraPosition",
+    sun_direction: gfx::Global<[f32;3]> = "sunDirection",
+    planet_radius: gfx::Global<f32> = "planetRadius",
+    atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
+    transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
+    inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
     depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
 });

@@ -9,16 +9,18 @@ extern crate piston_window;
 extern crate terra;
 extern crate vecmath;
 
+extern crate lightbox;
+
 use std::time::Instant;
 
+use camera_controllers::{Camera, FirstPerson, FirstPersonSettings};
+use cgmath::*;
+use collision::Frustum;
 use fps_counter::FPSCounter;
 use piston_window::*;
-use camera_controllers::{Camera, FirstPerson, FirstPersonSettings};
-use collision::Frustum;
-use cgmath::*;
 use vecmath::vec3_dot;
 
-use terra::{QuadTreeBuilder, TextureQuality, VertexQuality};
+use terra::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 
 fn compute_projection_matrix(w: &PistonWindow) -> Matrix4<f32> {
     let draw_size = w.window.draw_size();
@@ -62,6 +64,8 @@ fn main() {
     window.set_max_fps(240);
     window.set_ups(240);
 
+    // let mut lightbox = lightbox::Lightbox::new(1024, 1024, window.factory.clone()).unwrap();
+
     let mut smaa_target =
         gfx_smaa::SmaaTarget::new(&mut window.factory, window.output_color.clone(), 1920, 1080)
             .unwrap();
@@ -71,6 +75,7 @@ fn main() {
         .longitude(-73)
         .vertex_quality(VertexQuality::High)
         .texture_quality(TextureQuality::High)
+        .grid_spacing(GridSpacing::TwoMeters)
         .build(&smaa_target.output_color(), &smaa_target.output_stencil())
         .unwrap();
 

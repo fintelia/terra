@@ -72,6 +72,8 @@ impl LookupTable {
 }
 pub struct GpuLookupTable<R: gfx::Resources> {
     pub(crate) texture_view: handle::ShaderResourceView<R, [f32; 4]>,
+
+    #[allow(unused)]
     pub(crate) texture: handle::Texture<R, format::R32_G32_B32_A32>,
 }
 impl<R: gfx::Resources> GpuLookupTable<R> {

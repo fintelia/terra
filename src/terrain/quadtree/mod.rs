@@ -142,7 +142,13 @@ where
             &mut factory,
             &mut shaders_watcher,
             shader_source!("../../shaders/glsl", "version", "mesh.glslv"),
-            shader_source!("../../shaders/glsl", "version", "mesh.glslf"),
+            shader_source!(
+                "../../shaders/glsl",
+                "version",
+                "atmosphere",
+                "hash",
+                "mesh.glslf"
+            ),
         )?;
 
         let mut data_view = data_file.into_view_sync();
@@ -351,8 +357,8 @@ where
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
-                transmittance: transmittance,
-                inscattering: inscattering,
+                transmittance: transmittance.clone(),
+                inscattering: inscattering.clone(),
                 color: (planet_mesh_texture_view, sampler.clone()),
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
@@ -368,6 +374,12 @@ where
                     .unwrap()
                     .clone(),
                 model_view_projection: [[0.0; 4]; 4],
+                camera_position: [0.0, 0.0, 0.0],
+                sun_direction: [0.0, 0.70710678118, 0.70710678118],
+                planet_radius: 6371000.0,
+                atmosphere_radius: 6471000.0,
+                transmittance: transmittance,
+                inscattering: inscattering,
                 color_buffer: color_buffer.clone(),
                 depth_buffer: depth_buffer.clone(),
             },
@@ -514,6 +526,7 @@ where
         self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
 
         self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
+        self.instanced_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)
