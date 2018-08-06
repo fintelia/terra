@@ -3,6 +3,7 @@ use gfx;
 use gfx_core;
 use gfx::traits::*;
 use gfx::format::*;
+use gfx::state;
 
 use terrain::tile_cache::{LayerType, MeshInstance};
 use super::*;
@@ -52,8 +53,8 @@ gfx_pipeline!( pipe {
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
-    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
-    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+    color_buffer: gfx::RenderTarget<Rgba16F> = "OutColor",
+    depth_buffer: gfx::DepthTarget<Depth32F> = state::Depth{fun: state::Comparison::GreaterEqual, write: true},
 });
 
 gfx_pipeline!( sky_pipe {
@@ -68,8 +69,8 @@ gfx_pipeline!( sky_pipe {
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
-    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
-    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+    color_buffer: gfx::RenderTarget<Rgba16F> = "OutColor",
+    depth_buffer: gfx::DepthTarget<Depth32F> = state::Depth{fun: state::Comparison::GreaterEqual, write: true},
 });
 
 gfx_pipeline!( planet_mesh_pipe {
@@ -82,8 +83,8 @@ gfx_pipeline!( planet_mesh_pipe {
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color: gfx::TextureSampler<[f32; 4]> = "color",
-    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
-    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+    color_buffer: gfx::RenderTarget<Rgba16F> = "OutColor",
+    depth_buffer: gfx::DepthTarget<Depth32F> = state::Depth{fun: state::Comparison::GreaterEqual, write: true},
 });
 
 gfx_pipeline!( instanced_mesh_pipe {
@@ -96,8 +97,8 @@ gfx_pipeline!( instanced_mesh_pipe {
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
-    color_buffer: gfx::RenderTarget<Srgba8> = "OutColor",
-    depth_buffer: gfx::DepthTarget<DepthStencil> = gfx::preset::depth::LESS_EQUAL_WRITE,
+    color_buffer: gfx::RenderTarget<Rgba16F> = "OutColor",
+    depth_buffer: gfx::DepthTarget<Depth32F> = state::Depth{fun: state::Comparison::GreaterEqual, write: true},
 });
 
 impl<R, F> QuadTree<R, F>

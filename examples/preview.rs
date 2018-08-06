@@ -5,6 +5,7 @@ extern crate fps_counter;
 extern crate gfx;
 extern crate gfx_smaa;
 extern crate gfx_text;
+extern crate gl;
 extern crate piston_window;
 extern crate terra;
 extern crate vecmath;
@@ -17,19 +18,25 @@ use camera_controllers::{Camera, FirstPerson, FirstPersonSettings};
 use cgmath::*;
 use collision::Frustum;
 use fps_counter::FPSCounter;
+use gfx_smaa::*;
 use piston_window::*;
 use vecmath::vec3_dot;
 
 use terra::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 
 fn compute_projection_matrix(w: &PistonWindow) -> Matrix4<f32> {
-    let draw_size = w.window.draw_size();
-    PerspectiveFov {
-        fovy: Rad((90.0f32 * 9.0 / 16.0).to_radians()),
-        near: 10.0,
-        far: 50000000.0,
-        aspect: (draw_size.width as f32) / (draw_size.height as f32),
-    }.into()
+    let ds = w.window.draw_size();
+
+    let aspect = ds.width as f32 / ds.height as f32;
+    let f = 1.0 / (45.0f32.to_radians() / aspect).tan();
+    let near = 0.1;
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    Matrix4::new(
+        f / aspect, 0.0,  0.0,  0.0,
+        0.0,          f,  0.0,  0.0,
+        0.0,        0.0,  0.0, -1.0,
+        0.0,        0.0, near,  0.0)
 }
 
 fn compute_view_matrix(c: Camera) -> Matrix4<f32> {
@@ -64,11 +71,21 @@ fn main() {
     window.set_max_fps(240);
     window.set_ups(240);
 
+    unsafe {
+        window.device.with_gl(|gl| {
+            gl.ClipControl(gl::LOWER_LEFT, gl::ZERO_TO_ONE);
+        });
+    }
+
     // let mut lightbox = lightbox::Lightbox::new(1024, 1024, window.factory.clone()).unwrap();
 
-    let mut smaa_target =
-        gfx_smaa::SmaaTarget::new(&mut window.factory, window.output_color.clone(), 1920, 1080)
-            .unwrap();
+    let mut smaa_target = SmaaTarget::with_tone_mapping(
+        &mut window.factory,
+        window.output_color.clone(),
+        1920,
+        1080,
+        ToneMappingFunction::AcesNormalized,
+    ).unwrap();
 
     let mut terrain = QuadTreeBuilder::new(window.factory.clone(), &mut window.encoder)
         .latitude(42)
@@ -76,7 +93,7 @@ fn main() {
         .vertex_quality(VertexQuality::High)
         .texture_quality(TextureQuality::High)
         .grid_spacing(GridSpacing::TwoMeters)
-        .build(&smaa_target.output_color(), &smaa_target.output_stencil())
+        .build(&smaa_target.output_color(), &smaa_target.output_depth())
         .unwrap();
 
     let mut first_person =
@@ -139,9 +156,7 @@ fn main() {
                 + (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
             last_frame = now;
 
-            window
-                .encoder
-                .clear_depth(&smaa_target.output_stencil(), 1.0);
+            window.encoder.clear_depth(&smaa_target.output_depth(), 0.0);
             window
                 .encoder
                 .clear(&smaa_target.output_color(), [0.3, 0.3, 0.3, 1.0]);

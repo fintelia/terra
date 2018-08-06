@@ -87,8 +87,8 @@ where
         sky: Skybox<R>,
         mut factory: F,
         encoder: &mut gfx::Encoder<R, C>,
-        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
-        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
+        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Rgba16F>,
+        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
         mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
         let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
@@ -513,8 +513,8 @@ where
         let unproject = |v| homogeneous(vecmath::col_mat4_transform(inv_mvp_mat, v));
         let ray = |x, y| {
             vecmath::vec3_cast(vecmath::vec3_normalized(vecmath::vec3_sub(
+                unproject([x, y, 0.5, 1.0]),
                 unproject([x, y, 1.0, 1.0]),
-                unproject([x, y, 0.0, 1.0]),
             )))
         };
         self.sky_pipeline_data.ray_bottom_left = ray(-1.0, -1.0);

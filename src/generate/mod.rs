@@ -249,8 +249,8 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
     /// mode...).
     pub fn build(
         mut self,
-        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
-        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
+        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Rgba16F>,
+        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
     ) -> Result<QuadTree<R, F>, Error> {
         let mut context = self.context.take().unwrap();
         let (header, data) = self.load(&mut context)?;
