@@ -2,7 +2,6 @@
 
 #![feature(custom_attribute)]
 #![feature(iterator_step_by)]
-#![feature(match_default_bindings)]
 #![feature(nll)]
 #![feature(non_ascii_idents)]
 #![feature(ord_max_min)]

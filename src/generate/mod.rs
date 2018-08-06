@@ -36,29 +36,29 @@ use utils::math::BoundingBox;
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-// Mapping from side length to level number.
-const LEVEL_4194_KM: i32 = 0;
-const LEVEL_2097_KM: i32 = 1;
-const LEVEL_1049_KM: i32 = 2;
-const LEVEL_524_KM: i32 = 3;
-const LEVEL_262_KM: i32 = 4;
-const LEVEL_131_KM: i32 = 5;
-const LEVEL_66_KM: i32 = 6;
-const LEVEL_33_KM: i32 = 7;
-const LEVEL_16_KM: i32 = 8;
+// // Mapping from side length to level number.
+// const LEVEL_4194_KM: i32 = 0;
+// const LEVEL_2097_KM: i32 = 1;
+// const LEVEL_1049_KM: i32 = 2;
+// const LEVEL_524_KM: i32 = 3;
+// const LEVEL_262_KM: i32 = 4;
+// const LEVEL_131_KM: i32 = 5;
+// const LEVEL_66_KM: i32 = 6;
+// const LEVEL_33_KM: i32 = 7;
+// const LEVEL_16_KM: i32 = 8;
 const LEVEL_8_KM: i32 = 9;
-const LEVEL_4_KM: i32 = 10;
-const LEVEL_2_KM: i32 = 11;
-const LEVEL_1_KM: i32 = 12;
-const LEVEL_256_M: i32 = 13;
-const LEVEL_128_M: i32 = 14;
-const LEVEL_64_M: i32 = 15;
-const LEVEL_32_M: i32 = 16;
-const LEVEL_16_M: i32 = 17;
-const LEVEL_8_M: i32 = 18;
-const LEVEL_4_M: i32 = 19;
-const LEVEL_2_M: i32 = 20;
-const LEVEL_1_M: i32 = 21;
+// const LEVEL_4_KM: i32 = 10;
+// const LEVEL_2_KM: i32 = 11;
+// const LEVEL_1_KM: i32 = 12;
+// const LEVEL_256_M: i32 = 13;
+// const LEVEL_128_M: i32 = 14;
+// const LEVEL_64_M: i32 = 15;
+// const LEVEL_32_M: i32 = 16;
+// const LEVEL_16_M: i32 = 17;
+// const LEVEL_8_M: i32 = 18;
+// const LEVEL_4_M: i32 = 19;
+// const LEVEL_2_M: i32 = 20;
+// const LEVEL_1_M: i32 = 21;
 
 /// How much detail the terrain mesh should have. Higher values require more resources to render,
 /// but produce nicer results.
@@ -442,6 +442,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) as f64,
         )
     }
+    #[allow(unused)]
     fn world_positionf(&self, x: f32, y: f32, bounds: BoundingBox) -> Vector2<f64> {
         let fx = (x - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
         let fy = (y - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
@@ -697,7 +698,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
                 let cell_size = side_length / resolution as f32;
                 let radius = (7.5 / cell_size).round() as isize;
-                let border = cell_size * colormap_skirt as f32 + radius as f32;
+                // let border = cell_size * colormap_skirt as f32 + radius as f32;
 
                 for placement in self.tree_placements[&ancestor].iter() {
                     if placement.position[0] > bounds.min.x && placement.position[2] > bounds.min.z
