@@ -100,7 +100,7 @@ vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float wate
 
 		vec3 color = compute_splatting(fPosition, texcoord, normal);
 		color = mix(color, vec3(0,0.05,0.1), waterAmount);
-		color *= dot(normal, sunDirection);
+		color *= max(dot(normal, sunDirection), 0);
 		return color;
 	} else {
 		vec4 color = texture(colors, vec3(texcoord, colorsLayer));
