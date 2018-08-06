@@ -1,6 +1,6 @@
 use std::io::{Cursor, Read};
+use std::mem;
 use std::str::FromStr;
-use std::{env, mem};
 
 use failure::Error;
 use safe_transmute;
@@ -8,12 +8,6 @@ use zip::ZipArchive;
 
 use cache::{AssetLoadContext, WebAsset};
 use terrain::raster::{Raster, RasterSource};
-
-#[cfg_attr(rustfmt, rustfmt_skip)]
-const EARTHDATA_WARNING: &'static str =
-    "WARNING: Earthdata credentials from https://urs.earthdata.nasa.gov//users/new are \
-     required to download elevation data. Once you have them, please remember to \
-     `export EARTHDATA_CREDENTIALS=\"user:pass\"`";
 
 #[derive(Debug, Fail)]
 #[fail(display = "failed to parse DEM file")]
@@ -41,7 +35,9 @@ impl DemSource {
             DemSource::Usgs10m => {
                 "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/GridFloat/"
             }
-            DemSource::Srtm30m => "https://e4ftl01.cr.usgs.gov/SRTM/SRTMGL1.003/2000.02.11/",
+            DemSource::Srtm30m => {
+                "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/SRTM_GL1/SRTM_GL1_srtm/"
+            }
         }
     }
     pub(crate) fn directory_str(&self) -> &str {
@@ -81,7 +77,7 @@ impl RasterSource for DemSource {
             longitude,
             source: *self,
         }.load(context)
-            .ok()
+        .ok()
     }
 }
 
@@ -112,8 +108,15 @@ impl WebAsset for DigitalElevationModelParams {
                 longitude.abs()
             ),
             DemSource::Srtm30m => format!(
-                "{}{}{:02}{}{:03}.SRTMGL1.hgt.zip",
+                "{}{}/{}{:02}{}{:03}.hgt",
                 self.source.url_str(),
+                if latitude >= 30 {
+                    "North/North_30_60"
+                } else if latitude >= 0 {
+                    "North/North_0_29"
+                } else {
+                    "South"
+                },
                 n_or_s.to_uppercase().next().unwrap(),
                 latitude.abs(),
                 e_or_w.to_uppercase().next().unwrap(),
@@ -133,23 +136,10 @@ impl WebAsset for DigitalElevationModelParams {
             self.longitude.abs()
         )
     }
-    fn credentials(&self) -> Option<(String, String)> {
-        match self.source {
-            DemSource::Srtm30m => {
-                let credentials = env::var("EARTHDATA_CREDENTIALS").expect(EARTHDATA_WARNING);
-                let mut split = credentials.split(':');
-                let username = split.next().unwrap_or("").to_owned();
-                let password = split.next().unwrap_or("").to_owned();
-                Some((username, password))
-            }
-            _ => None,
-        }
-    }
-
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => parse_ned_zip(data),
-            DemSource::Srtm30m => parse_srtm1_zip(self.latitude, self.longitude, data),
+            DemSource::Srtm30m => parse_srtm1_hgt(self.latitude, self.longitude, data),
         }
     }
 }
@@ -241,22 +231,15 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
     })
 }
 
-/// Load a zip file in the format for the NASA's STRM 30m dataset.
-fn parse_srtm1_zip(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster<f32>, Error> {
+/// Load a HGT file in the format for the NASA's STRM 30m dataset.
+fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster<f32>, Error> {
     let resolution = 3601;
     let cell_size = 1.0 / 3600.0;
 
-    let mut hgt = Vec::new();
-    let mut zip = ZipArchive::new(Cursor::new(data))?;
-    for i in 0..zip.len() {
-        let mut file = zip.by_index(i)?;
-        if file.name().ends_with(".hgt") {
-            assert_eq!(hgt.len(), 0);
-            file.read_to_end(&mut hgt)?;
-        }
+    if hgt.len() != resolution * resolution * 2 {
+        bail!(DemParseError);
     }
 
-    assert_eq!(hgt.len(), resolution * resolution * 2);
     let hgt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
     let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
