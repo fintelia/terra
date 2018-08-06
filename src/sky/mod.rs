@@ -79,12 +79,13 @@ pub struct Skybox<R: gfx::Resources> {
     pub(crate) _texture: gfx_core::handle::Texture<R, gfx_core::format::R8_G8_B8_A8>,
 }
 impl<R: gfx::Resources> Skybox<R> {
-    pub fn new<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
+    pub(crate) fn new<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
         factory: &mut F,
         encoder: &mut gfx::Encoder<R, C>,
+        context: &mut AssetLoadContext,
     ) -> Self {
         let mut raw = SkyboxAsset::default()
-            .load(&mut AssetLoadContext::new())
+            .load(context)
             .unwrap();
         let mut data = Vec::new();
         let mut data_slices = Vec::new();

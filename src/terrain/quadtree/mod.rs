@@ -89,6 +89,7 @@ where
         encoder: &mut gfx::Encoder<R, C>,
         color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Srgba8>,
         depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::DepthStencil>,
+        mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
         let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
             env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
@@ -239,7 +240,7 @@ where
             .clone();
 
         let ocean = Ocean::new(&mut factory);
-        let atmosphere = Atmosphere::new(&mut factory, &mut AssetLoadContext::new())?;
+        let atmosphere = Atmosphere::new(&mut factory, &mut context)?;
 
         let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
             gfx::texture::FilterMethod::Trilinear,

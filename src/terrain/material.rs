@@ -186,19 +186,20 @@ pub struct MaterialSet<R: gfx::Resources> {
 }
 
 impl<R: gfx::Resources> MaterialSet<R> {
-    pub fn load<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
+    pub(crate) fn load<F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>(
         factory: &mut F,
         encoder: &mut gfx::Encoder<R, C>,
+        context: &mut AssetLoadContext,
     ) -> Result<Self, Error> {
         let resolution = 1024;
         let mipmaps = 11;
 
         let materials = vec![
-            MaterialTypeFiltered(MaterialType::Dirt).load(&mut AssetLoadContext::new())?,
-            MaterialTypeFiltered(MaterialType::Grass).load(&mut AssetLoadContext::new())?,
-            MaterialTypeFiltered(MaterialType::GrassRocky).load(&mut AssetLoadContext::new())?,
-            MaterialTypeFiltered(MaterialType::Rock).load(&mut AssetLoadContext::new())?,
-            MaterialTypeFiltered(MaterialType::RockSteep).load(&mut AssetLoadContext::new())?,
+            MaterialTypeFiltered(MaterialType::Dirt).load(context)?,
+            MaterialTypeFiltered(MaterialType::Grass).load(context)?,
+            MaterialTypeFiltered(MaterialType::GrassRocky).load(context)?,
+            MaterialTypeFiltered(MaterialType::Rock).load(context)?,
+            MaterialTypeFiltered(MaterialType::RockSteep).load(context)?,
         ];
 
         let mut average_albedos = Vec::new();

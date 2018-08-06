@@ -189,6 +189,7 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
     /// At very least, the latitude and longitude should probably be set to their desired values
     /// before calling `build()`.
     pub fn new(mut factory: F, encoder: &'a mut gfx::Encoder<R, C>) -> Self {
+        let mut context = AssetLoadContext::new();
         Self {
             latitude: 38,
             longitude: -122,
@@ -196,9 +197,9 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             vertex_quality: VertexQuality::High,
             texture_quality: TextureQuality::High,
             grid_spacing: GridSpacing::TwoMeters,
-            materials: MaterialSet::load(&mut factory, encoder).unwrap(),
-            sky: Skybox::new(&mut factory, encoder),
-            context: Some(AssetLoadContext::new()),
+            materials: MaterialSet::load(&mut factory, encoder, &mut context).unwrap(),
+            sky: Skybox::new(&mut factory, encoder, &mut context),
+            context: Some(context),
             factory,
             encoder,
         }
@@ -263,6 +264,7 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             self.encoder,
             color_buffer,
             depth_buffer,
+            context,
         )
     }
 
