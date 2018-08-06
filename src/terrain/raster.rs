@@ -306,8 +306,8 @@ impl<T: Into<f64> + Copy> RasterCache<T> {
         if self.holes.contains(&key) {
             return None;
         }
-        if let Some(dem) = self.rasters.get_mut(&key) {
-            return Some(dem);
+        if self.rasters.contains_key(&key) {
+            return self.rasters.get_mut(&key);
         }
         match self.source.load(context, key.0, key.1) {
             Some(raster) => {
