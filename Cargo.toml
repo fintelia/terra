@@ -21,6 +21,7 @@ cgmath = { version = "0.16", features = ["serde"] }
 collision = "0.14.0"
 coord_transforms = { git = "https://github.com/DaveKram/coord_transforms" }
 curl = "0.4"
+dirs = "1.0.2"
 failure = "0.1.1"
 flate2 = { version = "1.0.1", features = ["zlib"], default-features = false }
 gfx = "0.17.1"

@@ -21,6 +21,7 @@ extern crate cgmath;
 extern crate collision;
 extern crate coord_transforms;
 extern crate curl;
+extern crate dirs;
 #[macro_use]
 extern crate failure;
 #[macro_use]

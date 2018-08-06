@@ -1,4 +1,3 @@
-use std::env;
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Stdout, Write};
 use std::path::PathBuf;
@@ -6,6 +5,7 @@ use std::time::{Duration, Instant};
 use std::thread;
 
 use bincode::{self, Infinite};
+use dirs;
 use failure::Error;
 use memmap::Mmap;
 use num::ToPrimitive;
@@ -15,7 +15,7 @@ use serde::de::DeserializeOwned;
 
 lazy_static! {
     static ref TERRA_DIRECTORY: PathBuf =
-        { env::home_dir().unwrap_or(PathBuf::from(".")).join(".terra") };
+        { dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra") };
 }
 
 pub(crate) struct AssetLoadContext {
