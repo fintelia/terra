@@ -473,8 +473,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             .map(|i| ByteRange {
                 offset: i * tile_bytes,
                 length: tile_bytes,
-            })
-            .collect();
+            }).collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
             tile_locations,
@@ -566,8 +565,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             .map(|i| ByteRange {
                 offset: self.bytes_written + i * tile_bytes,
                 length: tile_bytes,
-            })
-            .collect();
+            }).collect();
 
         self.layers.push(LayerParams {
             layer_type: LayerType::Colors,
@@ -626,9 +624,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     let color = if use_blue_marble {
-                        let r = bluemarble.get(i, x, y, 0) as u8;
-                        let g = bluemarble.get(i, x, y, 1) as u8;
-                        let b = bluemarble.get(i, x, y, 2) as u8;
+                        let brighten = |x: f32| (255.0 * (x / 255.0).powf(0.6)) as u8;
+                        let r = brighten(bluemarble.get(i, x, y, 0));
+                        let g = brighten(bluemarble.get(i, x, y, 1));
+                        let b = brighten(bluemarble.get(i, x, y, 2));
                         [r, g, b, light]
                     } else {
                         let splat = Self::compute_splat(normal.y);
@@ -666,7 +665,9 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 for y in (0..resolution).step_by(2) {
                     for x in (0..resolution).step_by(2) {
                         for i in 0..3 {
-                            let p = stl(pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4]);
+                            let p = stl(
+                                pc[i + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4]
+                            );
                             let c00 = stl(colormap[i + (x + y * resolution) * 4]);
                             let c10 = stl(colormap[i + ((x + 1) + y * resolution) * 4]);
                             let c01 = stl(colormap[i + (x + (y + 1) * resolution) * 4]);
@@ -701,7 +702,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 // let border = cell_size * colormap_skirt as f32 + radius as f32;
 
                 for placement in self.tree_placements[&ancestor].iter() {
-                    if placement.position[0] > bounds.min.x && placement.position[2] > bounds.min.z
+                    if placement.position[0] > bounds.min.x
+                        && placement.position[2] > bounds.min.z
                         && placement.position[0] < bounds.max.x
                         && placement.position[2] < bounds.max.z
                     {
@@ -758,8 +760,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             .map(|i| ByteRange {
                 offset: self.bytes_written + i * tile_bytes,
                 length: tile_bytes,
-            })
-            .collect();
+            }).collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Normals,
             tile_locations,
@@ -808,8 +809,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             .map(|i| ByteRange {
                 offset: self.bytes_written + i * tile_bytes,
                 length: tile_bytes,
-            })
-            .collect();
+            }).collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Water,
             tile_locations,
@@ -891,8 +891,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     }
                 }
                 heightmap
-            })
-            .collect();
+            }).collect();
 
         for i in 0..noise_heightmaps[0].heights.len() {
             for j in 0..4 {
@@ -1030,7 +1029,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
             let mut instances = 0;
             for placement in &self.tree_placements[&node] {
-                if placement.position[0] > bounds.min.x && placement.position[2] > bounds.min.z
+                if placement.position[0] > bounds.min.x
+                    && placement.position[2] > bounds.min.z
                     && placement.position[0] < bounds.max.x
                     && placement.position[2] < bounds.max.z
                 {
@@ -1296,10 +1296,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         );
                         let lla = self.system.world_to_lla(world3);
 
+                        let brighten = |x: f64| (255.0 * (x / 255.0).powf(0.6)) as u8;
+
                         let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
-                        let r = bluemarble.interpolate(lat, long, 0) as u8;
-                        let g = bluemarble.interpolate(lat, long, 1) as u8;
-                        let b = bluemarble.interpolate(lat, long, 2) as u8;
+                        let r = brighten(bluemarble.interpolate(lat, long, 0));
+                        let g = brighten(bluemarble.interpolate(lat, long, 1));
+                        let b = brighten(bluemarble.interpolate(lat, long, 2));
                         let a = watermask.interpolate(lat, long, 0) as u8;
 
                         writer.write_u8(r)?;
@@ -1318,7 +1320,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             system: &self.system,
             resolution,
         }.load(context)?;
-        self.writer.write_all(&unsafe { mmap.as_slice() }[..bytes])?;
+        self.writer
+            .write_all(&unsafe { mmap.as_slice() }[..bytes])?;
         self.bytes_written += bytes;
 
         Ok(descriptor)
