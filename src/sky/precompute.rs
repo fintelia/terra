@@ -208,7 +208,7 @@ impl LookupTableDefinition for InscatteringTable {
         )
     }
     fn size(&self) -> [u16; 4] {
-        [32, 128, 32, 8]
+        [32, 256, 32, 8]
     }
     fn compute(&self, [x, y, z, w]: [u16; 4]) -> [f32; 4] {
         let (r, µ, µ_s, v) = Self::compute_parameters(
@@ -218,9 +218,11 @@ impl LookupTableDefinition for InscatteringTable {
             f64::from(w) / f64::from(self.size()[3] - 1),
         );
 
+        let intersects_ground = y < self.size()[1] / 2;
+
         let L_sun = 1.0;
-        let s = integral(r, f64::acos(µ), self.steps, true, |y| {
-            let h = y.magnitude() - Rg;
+        let s = integral(r, f64::acos(µ), self.steps, intersects_ground, |y| {
+            let h = (y.magnitude() - Rg).max(0.0);
 
             let xx = (h / (Rt - Rg)) as f32;
             let yy = (µ_s * 0.5 + 0.5) as f32;
@@ -240,13 +242,12 @@ impl LookupTableDefinition for InscatteringTable {
 mod tests {
     use super::*;
     use rand::{self, Rng};
-    use sky::lut::LookupTableDefinition;
     use cache::{AssetLoadContext, GeneratedAsset};
 
     #[test]
     fn invert_inscatter_parameters() {
         let mut rng = rand::thread_rng();
-        for i in 0..100 {
+        for _ in 0..100 {
             let (x, y, z, w) = (
                 rng.gen_range(0.0, 1.0),
                 rng.gen_range(0.0, 1.0),
