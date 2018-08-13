@@ -16,6 +16,11 @@ void main() {
 						   mix(rayTopLeft, rayTopRight, position.x*0.5+0.5),
 						   position.y*0.5 + 0.5));
 
+	if(acos(dot(r, sunDirection)) < 0.00872665) {
+		OutColor = vec4(10,10,10,1);
+		return;
+	}
+
 	// Check ray atmosphere intersection points.
 	vec2 p = rsi(cameraPosition+vec3(0,planetRadius,0), r, atmosphereRadius);
 	if (p.x > p.y || p.y < 0.0) {
