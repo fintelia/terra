@@ -221,7 +221,7 @@ vec3 precomputed_aerial_perspective(vec3 color, vec3 position, vec3 cameraPositi
 
 	float u_mu;
 	vec3 i0 = precomputed_atmosphere2(cameraPosition, position, sunDirection, u_mu, false);
-	vec3 i1 = precomputed_atmosphere2(position, position + (position - cameraPosition), sunDirection, u_mu, u_mu > 0.5);
+	vec3 i1 = precomputed_atmosphere2(position, position + (position - cameraPosition), sunDirection, u_mu, u_mu > 0.5001);
 	vec3 inscattering = i0 - i1;
 
 	return color * t + inscattering;
