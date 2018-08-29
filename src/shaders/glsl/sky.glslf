@@ -21,18 +21,24 @@ void main() {
 		return;
 	}
 
+	vec4 hwr = worldToWarped * vec4(r, 0);
+	vec4 hws = worldToWarped * vec4(sunDirection, 0);
+	vec4 hwc = worldToWarped * vec4(cameraPosition, 1);
+	vec3 wr = normalize(hwr.xyz);
+	vec3 ws = normalize(hws.xyz);
+	vec3 wc = hwc.xyz / hwc.w;
+
 	// Check ray atmosphere intersection points.
-	vec2 p = rsi(cameraPosition+vec3(0,planetRadius,0), r, atmosphereRadius);
+	vec2 p = rsi(wc, wr, atmosphereRadius);
 	if (p.x > p.y || p.y < 0.0) {
 		OutColor = vec4(0,0,0,1);
 		return;
 	}
 
-	vec3 color = precomputed_atmosphere(cameraPosition + r * max(p.x, 0.0),
-										cameraPosition + r * p.y,
-										sunDirection);
 
-    // Apply exposure.
-    OutColor = vec4(1.0 - exp(-0.75 * color), 1);
-	OutColor.rgb += dither();
+	vec3 color = precomputed_atmosphere(wc + wr * max(p.x, 0.0),
+										wc + wr * p.y,
+										ws);
+
+    OutColor = vec4(color + dither(), 1);
 }

@@ -7,21 +7,21 @@ use gfx::traits::FactoryExt;
 use gfx_core;
 use memmap::Mmap;
 use std::convert::TryFrom;
-use vecmath;
 use vec_map::VecMap;
+use vecmath;
 
 use rshader;
 
 use std::collections::VecDeque;
-use std::fmt::Debug;
 use std::env;
+use std::fmt::Debug;
 
 use cache::AssetLoadContext;
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
-use sky::{Atmosphere, Skybox};
 use ocean::Ocean;
+use sky::{Atmosphere, Skybox};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -303,6 +303,14 @@ where
             sampler.clone(),
         );
 
+        let ww: Matrix4<f32> = header.system.world_to_warped_matrix().cast().unwrap();
+        let world_to_warped = [
+            [ww.x.x, ww.x.y, ww.x.z, ww.x.w],
+            [ww.y.x, ww.y.y, ww.y.z, ww.y.w],
+            [ww.z.x, ww.z.y, ww.z.z, ww.z.w],
+            [ww.w.x, ww.w.y, ww.w.z, ww.w.w],
+        ];
+
         Ok(Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
@@ -315,6 +323,7 @@ where
                 camera_position: [0.0, 0.0, 0.0],
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 resolution: 0,
+                world_to_warped: world_to_warped.clone(),
                 heights: (heights_texture_view, sampler.clone()),
                 colors: (colors_texture_view, sampler.clone()),
                 normals: (normals_texture_view, sampler.clone()),
@@ -339,6 +348,7 @@ where
                 ray_top_right: [0.0, 0.0, 0.0],
                 camera_position: [0.0, 0.0, 0.0],
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
+                world_to_warped: world_to_warped.clone(),
                 sky: (sky.texture_view.clone(), sampler.clone()),
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
@@ -358,6 +368,7 @@ where
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                world_to_warped: world_to_warped.clone(),
                 transmittance: transmittance.clone(),
                 inscattering: inscattering.clone(),
                 color: (planet_mesh_texture_view, sampler.clone()),
@@ -379,6 +390,7 @@ where
                 sun_direction: [0.0, 0.70710678118, 0.70710678118],
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
+                world_to_warped: world_to_warped.clone(),
                 transmittance: transmittance,
                 inscattering: inscattering,
                 color_buffer: color_buffer.clone(),
@@ -550,8 +562,10 @@ where
     }
 
     pub fn get_height(&self, p: Point2<f32>) -> Option<f32> {
-        if self.nodes[0].bounds.min.x > p.x || self.nodes[0].bounds.max.x < p.x
-            || self.nodes[0].bounds.min.z > p.y || self.nodes[0].bounds.max.z < p.y
+        if self.nodes[0].bounds.min.x > p.x
+            || self.nodes[0].bounds.max.x < p.x
+            || self.nodes[0].bounds.min.z > p.y
+            || self.nodes[0].bounds.max.z < p.y
         {
             return None;
         }
@@ -560,7 +574,8 @@ where
         while self.nodes[id].children.iter().any(|c| c.is_some()) {
             for c in self.nodes[id].children.iter() {
                 if let Some(c) = *c {
-                    if self.nodes[c].bounds.min.x <= p.x && self.nodes[c].bounds.max.x >= p.x
+                    if self.nodes[c].bounds.min.x <= p.x
+                        && self.nodes[c].bounds.max.x >= p.x
                         && self.nodes[c].bounds.min.z <= p.y
                         && self.nodes[c].bounds.max.z >= p.y
                     {
@@ -596,12 +611,14 @@ where
 
         if fx + fy < 1.0 {
             Some(
-                (1.0 - fx - fy) * get_texel(ix, iy) + fx * get_texel(ix + 1, iy)
+                (1.0 - fx - fy) * get_texel(ix, iy)
+                    + fx * get_texel(ix + 1, iy)
                     + fy * get_texel(ix, iy + 1),
             )
         } else {
             Some(
-                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1) + (1.0 - fx) * get_texel(ix, iy + 1)
+                (fx + fy - 1.0) * get_texel(ix + 1, iy + 1)
+                    + (1.0 - fx) * get_texel(ix, iy + 1)
                     + (1.0 - fy) * get_texel(ix + 1, iy),
             )
         }

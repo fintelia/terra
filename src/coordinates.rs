@@ -1,7 +1,7 @@
-use cgmath::{Matrix, Matrix3, Vector2, Vector3};
+use cgmath::{Matrix, Matrix3, Matrix4, Vector2, Vector3};
 use coord_transforms::geo;
-use coord_transforms::structs::geo_ellipsoid::*;
 use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
+use coord_transforms::structs::geo_ellipsoid::*;
 use nalgebra as na;
 
 lazy_static! {
@@ -16,19 +16,20 @@ pub const PLANET_RADIUS: f64 = 6371000.0;
 /// *world* - Cartesian coordinate system with units of meters and centered at a point on the planet
 /// surface. The x-axis points east, the y-axis points up, and the z-axis points south.
 ///
-/// *warped* - Warped version of world, where the y value is shift to approximate the curvature of
-/// the planet.
-///
 /// *ecef* - Cartesian coordinate system centered at the planet center, and also with units of
 /// meters. The x-axis points to 0°N 0°E, the y-axis points towards 0°N 90°E, and the z-axis points
 /// towards the north pole. Commonly referred to as "earth-centered, earth-fixed".
+///
+/// *warped* - Coordinate system centered at the planet center, but warped such that all points on
+/// the planet surface are distance PLANET_RADIUS from the origin. Useful for sky rendering because
+/// the ellipsoidal shape of the earth can be ignored.
 ///
 /// *lla* - Consist of latitude, longitude, and altitude (above sea level). Angle measurements
 /// are given in radians, and altitude in meters.
 ///
 /// *polar* - Same as lla, but assumes a perfectly spherical planet which makes conversions
 /// considerably faster.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CoordinateSystem {
     center_ecef: Vector3<f64>,
     ecef_to_ned_matrix: Matrix3<f64>,
@@ -113,19 +114,6 @@ impl CoordinateSystem {
     }
 
     #[inline]
-    pub fn warped_to_world(&self, warped: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS
-            * (f64::sqrt(1.0 - (warped.x * warped.x - warped.z * warped.z) / PLANET_RADIUS) - 1.0);
-        Vector3::new(warped.x, warped.y - shift, warped.z)
-    }
-    #[inline]
-    pub fn world_to_warped(&self, world: Vector3<f64>) -> Vector3<f64> {
-        let shift = PLANET_RADIUS
-            * (f64::sqrt(1.0 - (world.x * world.x - world.z * world.z) / PLANET_RADIUS) - 1.0);
-        Vector3::new(world.x, world.y + shift, world.z)
-    }
-
-    #[inline]
     pub fn world_to_ecef(&self, world: Vector3<f64>) -> Vector3<f64> {
         self.ned_to_ecef(self.world_to_ned(world))
     }
@@ -151,6 +139,47 @@ impl CoordinateSystem {
         self.ecef_to_world(self.polar_to_ecef(lla))
     }
 
+    #[inline]
+    pub fn ecef_to_warped(&self, ecef: Vector3<f64>) -> Vector3<f64> {
+        Vector3::new(
+            ecef.x * PLANET_RADIUS / ELLIPSOID.get_semi_major_axis(),
+            ecef.y * PLANET_RADIUS / ELLIPSOID.get_semi_major_axis(),
+            ecef.z * PLANET_RADIUS / ELLIPSOID.get_semi_minor_axis(),
+        )
+    }
+
+    #[inline]
+    pub fn warped_to_ecef(&self, warped: Vector3<f64>) -> Vector3<f64> {
+        Vector3::new(
+            warped.x * ELLIPSOID.get_semi_major_axis() / PLANET_RADIUS,
+            warped.y * ELLIPSOID.get_semi_major_axis() / PLANET_RADIUS,
+            warped.z * ELLIPSOID.get_semi_minor_axis() / PLANET_RADIUS,
+        )
+    }
+
+    #[inline]
+    pub fn world_to_warped(&self, world: Vector3<f64>) -> Vector3<f64> {
+        self.ecef_to_warped(self.world_to_ecef(world))
+    }
+
+    #[inline]
+    pub fn warped_to_world(&self, warped: Vector3<f64>) -> Vector3<f64> {
+        self.ecef_to_world(self.warped_to_ecef(warped))
+    }
+
+    pub fn world_to_warped_matrix(&self) -> Matrix4<f64> {
+        let c = self.world_to_warped(Vector3::new(0.0, 0.0, 0.0));
+        let x = self.world_to_warped(Vector3::new(1.0, 0.0, 0.0)) - c;
+        let y = self.world_to_warped(Vector3::new(0.0, 1.0, 0.0)) - c;
+        let z = self.world_to_warped(Vector3::new(0.0, 0.0, 1.0)) - c;
+
+        #[rustfmt::skip]
+        Matrix4::new(x.x, y.x, z.x, c.x,
+                     x.y, y.y, z.y, c.y,
+                     x.z, y.z, z.z, c.z,
+                     0.0, 0.0, 0.0, 1.0).transpose()
+    }
+
     pub fn world_height_on_surface(&self, world_xz: Vector2<f64>) -> f64 {
         let mut world3 = Vector3::new(0., 0., 0.);
         for i in 0..5 {
@@ -167,7 +196,7 @@ impl CoordinateSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
+    use cgmath::{InnerSpace, Vector4};
 
     fn vec3_na2cgmath(v: na::Vector3<f64>) -> Vector3<f64> {
         Vector3::new(v.x, v.y, v.z)
@@ -268,28 +297,6 @@ mod tests {
     }
 
     #[test]
-    fn ecef_warped_ecef() {
-        let system =
-            CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
-        let roundtrip = |warped: Vector3<f64>| -> Vector3<f64> {
-            let p = system.ned_to_ecef(system.world_to_ned(system.warped_to_world(warped)));
-            system.world_to_warped(system.ned_to_world(system.ecef_to_ned(p)))
-        };
-
-        let a = Vector3::new(0.0, 0.0, 0.0);
-        let b = Vector3::new(1000.0, 0.0, 0.0);
-        let c = Vector3::new(0.0, 1000.0, 0.0);
-        let d = Vector3::new(0.0, 0.0, 1000.0);
-        let e = Vector3::new(1000.0, 1000.0, 1000.0);
-
-        assert_relative_eq!(a, roundtrip(a), epsilon = 3.0);
-        assert_relative_eq!(b, roundtrip(b), epsilon = 3.0);
-        assert_relative_eq!(c, roundtrip(c), epsilon = 3.0);
-        assert_relative_eq!(d, roundtrip(d), epsilon = 3.0);
-        assert_relative_eq!(e, roundtrip(e), epsilon = 3.0);
-    }
-
-    #[test]
     fn lla_ecef_lla() {
         let system =
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
@@ -369,15 +376,24 @@ mod tests {
         );
     }
 
-    #[bench]
-    fn bench_warped_to_lla(b: &mut Bencher) {
+    #[test]
+    fn world_to_warped() {
         let system =
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
-        b.iter(|| {
-            let p = Vector3::new(10.0, 20.0, 30.0);
-            system
-                .ecef_to_lla(system.ned_to_ecef(system.world_to_ned(system.warped_to_world(p))))
-                .x
-        });
+        let world = system.lla_to_world(Vector3::new(1.0, 0.5, 0.0));
+        let warped = system.world_to_warped(world);
+        assert_relative_eq!(warped.magnitude(), PLANET_RADIUS, epsilon = 0.01);
+        assert_relative_eq!(world, system.warped_to_world(warped), epsilon = 0.01);
+    }
+
+    #[test]
+    fn warped_to_world_matrix() {
+        let system =
+            CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
+        let matrix = system.world_to_warped_matrix();
+        let a = Vector3::new(-534.9, 342.0, 584.3);
+        let aw = matrix * Vector4::new(a.x, a.y, a.z, 1.0);
+        let aw = Vector3::new(aw.x / aw.w, aw.y / aw.w, aw.z / aw.w);
+        assert_relative_eq!(system.world_to_warped(a), aw, epsilon = 0.01);
     }
 }

@@ -5,6 +5,7 @@ use memmap::MmapViewSync;
 use std::convert::TryInto;
 use vec_map::VecMap;
 
+use coordinates::CoordinateSystem;
 use terrain::quadtree::{Node, NodeId};
 use runtime_texture::{TextureArray, TextureFormat};
 
@@ -117,6 +118,7 @@ pub(crate) struct TileHeader {
     pub nodes: Vec<Node>,
     pub planet_mesh: MeshDescriptor,
     pub planet_mesh_texture: TextureDescriptor,
+    pub system: CoordinateSystem,
 }
 
 gfx_vertex_struct!(MeshInstance {

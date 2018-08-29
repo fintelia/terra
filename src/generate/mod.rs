@@ -382,9 +382,15 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
         let planet_mesh = state.generate_planet_mesh(context)?;
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
         let noise = state.generate_noise(context)?;
-        let State { layers, nodes, .. } = state;
+        let State {
+            layers,
+            nodes,
+            system,
+            ..
+        } = state;
 
         Ok(TileHeader {
+            system,
             planet_mesh,
             planet_mesh_texture,
             layers,
@@ -618,9 +624,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     // let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
                     // let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
 
-                    let normal =
-                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
-                            .normalize();
+                    let normal = Vector3::new(
+                        h10 + h11 - h00 - h01,
+                        2.0 * spacing,
+                        -1.0 * (h01 + h11 - h00 - h10),
+                    ).normalize();
                     let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
                     let color = if use_blue_marble {
@@ -966,9 +974,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h11 =
                         heights.get(id, self.skirt + step * x + 1, self.skirt + step * y + 1, 0);
 
-                    let normal =
-                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
-                            .normalize();
+                    let normal = Vector3::new(
+                        h10 + h11 - h00 - h01,
+                        2.0 * spacing,
+                        -1.0 * (h01 + h11 - h00 - h10),
+                    ).normalize();
 
                     if normal.y > 0.965 {
                         let position = Vector3::new(
@@ -1185,22 +1195,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
                 let mut world3 = Vector3::new(
                     world.x,
-                    EARTH_RADIUS * (1.0 - radius * radius / EARTH_RADIUS).max(0.25).sqrt()
-                        - EARTH_RADIUS,
+                    -2.0 * EARTH_RADIUS * fx,
                     world.y,
                 );
                 for _ in 0..5 {
                     world3.x = world.x;
                     world3.z = world.y;
-                    let mut lla = self.system.world_to_lla(world3);
-                    lla.z = 0.0;
-                    world3 = self.system.lla_to_world(lla);
-                }
-
-                if x == 0 {
-                    world3 = Vector3::new(world.x, world3.y, world.y);
-                } else {
-                    world3 = Vector3::new(world.x, world3.y - EARTH_RADIUS * 2.0 * fx, world.y);
                     let mut lla = self.system.world_to_lla(world3);
                     lla.z = 0.0;
                     world3 = self.system.lla_to_world(lla);

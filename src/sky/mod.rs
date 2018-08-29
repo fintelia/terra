@@ -153,12 +153,12 @@ impl<R: gfx::Resources> Atmosphere<R> {
         factory: &mut F,
         context: &mut AssetLoadContext,
     ) -> Result<Self, Error> {
-        let transmittance = TransmittanceTable { steps: 1000 }.load(context)?;
+        let transmittance = TransmittanceTable { steps: 300 }.load(context)?;
         let transmittance_table = GpuLookupTable::new(factory, &transmittance)?;
         let inscattering_table = GpuLookupTable::new(
             factory,
             &InscatteringTable {
-                steps: 30,
+                steps: 100,
                 transmittance,
             }.load(context)?,
         )?;
