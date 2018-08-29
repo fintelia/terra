@@ -84,10 +84,10 @@ impl LookupTableDefinition for TransmittanceTable {
             self.steps
         )
     }
-    fn size(&self) -> [u16; 3] {
-        [1024, 4096, 1]
+    fn size(&self) -> [u16; 4] {
+        [1024, 4096, 1, 1]
     }
-    fn compute(&self, [x, y, _]: [u16; 3]) -> [f32; 4] {
+    fn compute(&self, [x, y, _, _]: [u16; 4]) -> [f32; 4] {
         let xx = f64::from(x) / f64::from(self.size()[0] - 1);
         let yy = f64::from(y) / f64::from(self.size()[1] - 1);
 
@@ -116,11 +116,12 @@ pub(super) struct InscatteringTable {
 }
 impl InscatteringTable {
     fn compute_parameters(
-        size: [u16; 3],
+        size: [u16; 4],
         u_r: f64,
         u_µ: f64,
         u_µ_s: f64,
-    ) -> (f64, f64, f64) {
+        u_v: f64,
+    ) -> (f64, f64, f64, f64) {
         assert!(u_r >= 0.0 && u_r <= 1.0);
         assert!(u_µ >= 0.0 && u_µ <= 1.0);
         assert!(u_µ_s >= 0.0 && u_µ_s <= 1.0);
@@ -141,15 +142,18 @@ impl InscatteringTable {
             .max(-1.0)
             .min(1.0);
 
-        (r, µ, µ_s)
+        let v = u_v * 2.0 - 1.0;
+
+        (r, µ, µ_s, v)
     }
     #[cfg(test)]
     fn reverse_parameters(
-        size: [u16; 3],
+        size: [u16; 4],
         r: f64,
         µ: f64,
         µ_s: f64,
-    ) -> (f64, f64, f64) {
+        v: f64,
+    ) -> (f64, f64, f64, f64) {
         assert!(r >= Rg && r <= Rt);
         assert!(µ >= -1.0 && µ <= 1.0);
         assert!(µ_s >= -1.0 && µ_s <= 1.0);
@@ -169,7 +173,9 @@ impl InscatteringTable {
         let u_µ_s =
             0.5 * (f64::atan(µ_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
 
-        (u_r, u_µ, u_µ_s)
+        let u_v = v * 0.5 + 0.5;
+
+        (u_r, u_µ, u_µ_s, u_v)
     }
 }
 impl LookupTableDefinition for InscatteringTable {
@@ -182,15 +188,16 @@ impl LookupTableDefinition for InscatteringTable {
             self.steps
         )
     }
-    fn size(&self) -> [u16; 3] {
-        [32, 256, 32]
+    fn size(&self) -> [u16; 4] {
+        [32, 256, 32, 8]
     }
-    fn compute(&self, [x, y, z]: [u16; 3]) -> [f32; 4] {
-        let (r, µ, µ_s) = Self::compute_parameters(
+    fn compute(&self, [x, y, z, w]: [u16; 4]) -> [f32; 4] {
+        let (r, µ, µ_s, v) = Self::compute_parameters(
             self.size(),
             f64::from(x) / f64::from(self.size()[0] - 1),
             f64::from(y) / f64::from(self.size()[1] - 1),
             f64::from(z) / f64::from(self.size()[2] - 1),
+            f64::from(w) / f64::from(self.size()[3] - 1),
         );
 
         let intersects_ground = y < self.size()[1] / 2;
@@ -253,21 +260,23 @@ mod tests {
     #[test]
     fn invert_inscatter_parameters() {
         let mut rng = rand::thread_rng();
-        let size = [32, 256, 32];
+        let size = [32, 256, 32, 8];
         for _ in 0..100 {
-            let (x, y, z) = (
+            let (x, y, z, w) = (
+                rng.gen_range(0.0, 1.0),
                 rng.gen_range(0.0, 1.0),
                 rng.gen_range(0.0, 1.0),
                 rng.gen_range(0.0, 1.0),
             );
 
-            let (r, µ, µ_s) = InscatteringTable::compute_parameters(size.clone(), x, y, z);
-            let (x2, y2, z2) =
-                InscatteringTable::reverse_parameters(size.clone(), r, µ, µ_s);
+            let (r, µ, µ_s, v) = InscatteringTable::compute_parameters(size.clone(), x, y, z, w);
+            let (x2, y2, z2, w2) =
+                InscatteringTable::reverse_parameters(size.clone(), r, µ, µ_s, v);
 
             assert_relative_eq!(x, x2, max_relative = 0.0001);
             assert_relative_eq!(y, y2, max_relative = 0.0001);
             assert_relative_eq!(z, z2, max_relative = 0.0001);
+            assert_relative_eq!(w, w2, max_relative = 0.0001);
         }
     }
 
