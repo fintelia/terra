@@ -25,7 +25,7 @@ void main() {
 	vec4 color = texture(color, texcoord);
 
 	OutColor = vec4(mix(color.rgb, water_color(normal), color.a), 1);
-	OutColor.rgb *= max(dot(normal, sunDirection.xyz), 0.02);
+	OutColor.rgb *= max(dot(normal, sunDirection.xyz), 0.0);
 	OutColor.rgb = precomputed_aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 	OutColor.rgb += dither();
 }

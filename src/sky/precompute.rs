@@ -115,7 +115,12 @@ pub(super) struct InscatteringTable {
     pub transmittance: LookupTable,
 }
 impl InscatteringTable {
-    fn compute_parameters(u_r: f64, u_µ: f64, u_µ_s: f64) -> (f64, f64, f64) {
+    fn compute_parameters(
+        size: [u16; 3],
+        u_r: f64,
+        u_µ: f64,
+        u_µ_s: f64,
+    ) -> (f64, f64, f64) {
         assert!(u_r >= 0.0 && u_r <= 1.0);
         assert!(u_µ >= 0.0 && u_µ <= 1.0);
         assert!(u_µ_s >= 0.0 && u_µ_s <= 1.0);
@@ -124,21 +129,27 @@ impl InscatteringTable {
         let ρ = u_r * H;
         let r = f64::sqrt(ρ * ρ + Rg * Rg);
 
+        let hp = (size[1] as f64 - 1.0) / size[1] as f64;
         let µ_horizon = -f64::sqrt(r * r - Rg * Rg) / r;
         let µ = if u_µ > 0.5 {
-            f64::powf(2.0 * u_µ - 1.0, 5.0) * (1.0 - µ_horizon) + µ_horizon
+            f64::powf(2.0 * (u_µ - 0.5 * (2.0 - hp)) / hp, 5.0) * (1.0 - µ_horizon) + µ_horizon
         } else {
-            µ_horizon - f64::powf(2.0 * u_µ, 5.0) * (µ_horizon + 1.0)
+            µ_horizon - f64::powf(2.0 * u_µ / hp, 5.0) * (µ_horizon + 1.0)
         };
 
-        let µ_s = (-(f64::ln(1.0 - u_µ_s * (1.0 - f64::exp(-3.6))) + 0.6) / 3.0)
+        let µ_s = (f64::tan((2.0 * u_µ_s - 1.0 + 0.26) * 0.75) / f64::tan(1.26 * 0.75))
             .max(-1.0)
             .min(1.0);
 
         (r, µ, µ_s)
     }
     #[cfg(test)]
-    fn reverse_parameters(r: f64, µ: f64, µ_s: f64) -> (f64, f64, f64) {
+    fn reverse_parameters(
+        size: [u16; 3],
+        r: f64,
+        µ: f64,
+        µ_s: f64,
+    ) -> (f64, f64, f64) {
         assert!(r >= Rg && r <= Rt);
         assert!(µ >= -1.0 && µ <= 1.0);
         assert!(µ_s >= -1.0 && µ_s <= 1.0);
@@ -147,14 +158,16 @@ impl InscatteringTable {
         let ρ = f64::sqrt(r * r - Rg * Rg);
         let u_r = ρ / H;
 
+        let hp = (size[1] as f64 - 1.0) / size[1] as f64;
         let µ_horizon = -f64::sqrt(r * r - Rg * Rg) / r;
         let u_µ = if µ > µ_horizon {
-            0.5 + 0.5 * f64::powf((µ - µ_horizon) / (1.0 - µ_horizon), 0.2)
+            0.5 * (2.0 - hp) + 0.5 * hp * f64::powf((µ - µ_horizon) / (1.0 - µ_horizon), 0.2)
         } else {
-            0.5 * f64::powf((µ_horizon - µ) / (µ_horizon + 1.0), 0.2)
+            0.5 * hp * f64::powf((µ_horizon - µ) / (µ_horizon + 1.0), 0.2)
         };
 
-        let u_µ_s = (1.0 - f64::exp(-3.0 * µ_s - 0.6)) / (1.0 - f64::exp(-3.6));
+        let u_µ_s =
+            0.5 * (f64::atan(µ_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
 
         (u_r, u_µ, u_µ_s)
     }
@@ -174,6 +187,7 @@ impl LookupTableDefinition for InscatteringTable {
     }
     fn compute(&self, [x, y, z]: [u16; 3]) -> [f32; 4] {
         let (r, µ, µ_s) = Self::compute_parameters(
+            self.size(),
             f64::from(x) / f64::from(self.size()[0] - 1),
             f64::from(y) / f64::from(self.size()[1] - 1),
             f64::from(z) / f64::from(self.size()[2] - 1),
@@ -239,6 +253,7 @@ mod tests {
     #[test]
     fn invert_inscatter_parameters() {
         let mut rng = rand::thread_rng();
+        let size = [32, 256, 32];
         for _ in 0..100 {
             let (x, y, z) = (
                 rng.gen_range(0.0, 1.0),
@@ -246,8 +261,9 @@ mod tests {
                 rng.gen_range(0.0, 1.0),
             );
 
-            let (r, µ, µ_s) = InscatteringTable::compute_parameters(x, y, z);
-            let (x2, y2, z2) = InscatteringTable::reverse_parameters(r, µ, µ_s);
+            let (r, µ, µ_s) = InscatteringTable::compute_parameters(size.clone(), x, y, z);
+            let (x2, y2, z2) =
+                InscatteringTable::reverse_parameters(size.clone(), r, µ, µ_s);
 
             assert_relative_eq!(x, x2, max_relative = 0.0001);
             assert_relative_eq!(y, y2, max_relative = 0.0001);

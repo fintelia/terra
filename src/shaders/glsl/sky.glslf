@@ -21,11 +21,9 @@ void main() {
 		return;
 	}
 
-	vec4 hwr = worldToWarped * vec4(r, 0);
-	vec4 hws = worldToWarped * vec4(sunDirection, 0);
-	vec4 hwc = worldToWarped * vec4(cameraPosition, 1);
-	vec3 wr = normalize(hwr.xyz);
-	vec3 ws = normalize(hws.xyz);
+	vec3 wr = normalize((worldToWarped * vec4(r,0)).xyz);
+	vec3 ws = normalize((worldToWarped * vec4(sunDirection,0)).xyz);
+	vec4 hwc = worldToWarped * vec4(cameraPosition,1);
 	vec3 wc = hwc.xyz / hwc.w;
 
 	// Check ray atmosphere intersection points.
@@ -34,7 +32,6 @@ void main() {
 		OutColor = vec4(0,0,0,1);
 		return;
 	}
-
 
 	vec3 color = precomputed_atmosphere(wc + wr * max(p.x, 0.0),
 										wc + wr * p.y,
