@@ -45,7 +45,7 @@ vec_map = "0.8"
 vecmath = "0.3.0"
 zip = "0.2.7"
 
-lightbox = { path = "../lightbox", default-features = false }
+lightbox = { git = "https://github.com/fintelia/lightbox", default-features = false }
 
 # For preview
 [dev-dependencies]
