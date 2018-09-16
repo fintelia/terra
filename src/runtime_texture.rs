@@ -1,7 +1,7 @@
 use gfx;
 use gfx_core::{self, format, handle};
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum TextureFormat {
     F32,
     RGBA8,
@@ -52,16 +52,14 @@ impl<R: gfx::Resources> TextureArray<R> {
                         gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Float),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 let view = factory
                     .view_texture_as_shader_resource::<f32>(
                         &texture,
                         (0, 0),
                         gfx::format::Swizzle::new(),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 TextureArray::F32 { texture, view }
             }
@@ -78,16 +76,14 @@ impl<R: gfx::Resources> TextureArray<R> {
                         gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Unorm),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 let view = factory
                     .view_texture_as_shader_resource::<gfx::format::Rgba8>(
                         &texture,
                         (0, 0),
                         gfx::format::Swizzle::new(),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 TextureArray::RGBA8 { texture, view }
             }
@@ -104,16 +100,14 @@ impl<R: gfx::Resources> TextureArray<R> {
                         gfx::memory::Bind::SHADER_RESOURCE,
                         gfx::memory::Usage::Dynamic,
                         Some(gfx::format::ChannelType::Srgb),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 let view = factory
                     .view_texture_as_shader_resource::<gfx::format::Srgba8>(
                         &texture,
                         (0, 0),
                         gfx::format::Swizzle::new(),
-                    )
-                    .unwrap();
+                    ).unwrap();
 
                 TextureArray::SRGBA { texture, view }
             }
@@ -146,8 +140,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                         None,
                         new_image_info,
                         gfx::memory::cast_slice(data),
-                    )
-                    .unwrap();
+                    ).unwrap();
             }
             TextureArray::RGBA8 { ref texture, .. } => {
                 encoder
@@ -156,8 +149,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                         None,
                         new_image_info,
                         gfx::memory::cast_slice(data),
-                    )
-                    .unwrap();
+                    ).unwrap();
             }
             TextureArray::SRGBA { ref texture, .. } => {
                 encoder
@@ -166,8 +158,7 @@ impl<R: gfx::Resources> TextureArray<R> {
                         None,
                         new_image_info,
                         gfx::memory::cast_slice(data),
-                    )
-                    .unwrap();
+                    ).unwrap();
             }
         }
     }

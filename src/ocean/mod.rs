@@ -5,11 +5,11 @@ use gfx;
 use gfx::format::*;
 use gfx_core;
 use rand;
-use rand::distributions::{IndependentSample, Normal};
-use rustfft::FFT;
+use rand::distributions::{Distribution, Normal};
 use rustfft::algorithm::Radix4;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
+use rustfft::FFT;
 
 // See: https://github.com/deiss/fftocean
 
@@ -45,8 +45,7 @@ impl<R: gfx::Resources> Ocean<R> {
                 gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Unorm),
-            )
-            .unwrap();
+            ).unwrap();
 
         let texture_view = factory
             .view_texture_as_shader_resource::<gfx::format::Rgba8>(&texture, (0, 0), Swizzle::new())
@@ -76,13 +75,14 @@ impl<R: gfx::Resources> Ocean<R> {
                     {
                         Zero::zero()
                     } else {
-                        let power = 1.0 * f32::exp(-1.0 / (k2 * l * l))
+                        let power = 1.0
+                            * f32::exp(-1.0 / (k2 * l * l))
                             * f32::exp(-k2 * min_wave_size * min_wave_size)
                             * f32::powi(kx * wx + ky * wy, 2)
                             / (k2 * k2);
                         Complex::new(
-                            normal.ind_sample(&mut rng) as f32,
-                            normal.ind_sample(&mut rng) as f32,
+                            normal.sample(&mut rng) as f32,
+                            normal.sample(&mut rng) as f32,
                         ) * (power / 2.0).sqrt()
                     }
                 };
@@ -251,8 +251,7 @@ impl<R: gfx::Resources> Ocean<R> {
                         mipmap: i as u8,
                     },
                     &mipmap_data[..],
-                )
-                .unwrap();
+                ).unwrap();
         }
     }
 }

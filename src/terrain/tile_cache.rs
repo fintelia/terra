@@ -1,13 +1,13 @@
 use gfx;
-use gfx_core;
 use gfx::traits::FactoryExt;
+use gfx_core;
 use memmap::MmapViewSync;
 use std::convert::TryInto;
 use vec_map::VecMap;
 
 use coordinates::CoordinateSystem;
-use terrain::quadtree::{Node, NodeId};
 use runtime_texture::{TextureArray, TextureFormat};
+use terrain::quadtree::{Node, NodeId};
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Priority(f32);
@@ -72,6 +72,10 @@ pub(crate) enum PayloadType {
         format: TextureFormat,
     },
     InstancedMesh {
+        /// Actual mesh that is being instanced.
+        mesh: MeshDescriptor,
+        /// Texture map for the mesh.
+        texture: TextureDescriptor,
         /// Maximum number of instances in any tile.
         max_instances: usize,
     },
@@ -96,14 +100,14 @@ pub(crate) struct NoiseParams {
     pub wavelength: f32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct MeshDescriptor {
     pub offset: usize,
     pub bytes: usize,
     pub num_vertices: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TextureDescriptor {
     pub offset: usize,
     pub resolution: u32,
@@ -122,10 +126,13 @@ pub(crate) struct TileHeader {
 }
 
 gfx_vertex_struct!(MeshInstance {
-    position: [f32; 3] = "position",
-    color: [f32; 3] = "color",
-    rotation: f32 = "rotation",
-    texture_layer: f32 = "textureLayer",
+    position: [f32; 3] = "vPosition",
+    color: [f32; 3] = "vColor",
+    rotation: f32 = "vRotation",
+    scale: f32 = "vScale",
+    light: f32 = "vLight",
+    padding1: [f32; 3] = "vPadding1",
+    padding2: [f32; 4] = "vPadding2",
 });
 
 enum PayloadSet<R: gfx::Resources> {
@@ -173,7 +180,7 @@ impl<R: gfx::Resources> TileCache<R> {
                 texture: TextureArray::new(format, resolution as u16, cache_size, factory),
                 resolution: resolution.try_into().unwrap(),
             },
-            PayloadType::InstancedMesh { max_instances } => PayloadSet::InstancedMesh {
+            PayloadType::InstancedMesh { max_instances, .. } => PayloadSet::InstancedMesh {
                 buffer: factory.create_constant_buffer(max_instances * cache_size as usize),
                 max_elements_per_slot: max_instances,
             },
@@ -196,7 +203,8 @@ impl<R: gfx::Resources> TileCache<R> {
             *priority = nodes[id].priority();
         }
 
-        self.min_priority = self.slots
+        self.min_priority = self
+            .slots
             .iter()
             .map(|s| s.0)
             .min()
@@ -223,7 +231,8 @@ impl<R: gfx::Resources> TileCache<R> {
         }
 
         if !self.missing.is_empty() {
-            let mut possible: Vec<_> = self.slots
+            let mut possible: Vec<_> = self
+                .slots
                 .iter()
                 .cloned()
                 .chain(self.missing.iter().cloned())
@@ -282,8 +291,7 @@ impl<R: gfx::Resources> TileCache<R> {
                     buffer,
                     gfx::memory::cast_slice(data),
                     max_elements_per_slot * slot,
-                )
-                .unwrap(),
+                ).unwrap(),
         }
     }
 

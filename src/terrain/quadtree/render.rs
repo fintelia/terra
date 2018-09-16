@@ -1,12 +1,12 @@
 use failure::Error;
 use gfx;
-use gfx_core;
-use gfx::traits::*;
 use gfx::format::*;
 use gfx::state;
+use gfx::traits::*;
+use gfx_core;
 
-use terrain::tile_cache::{LayerType, MeshInstance};
 use super::*;
+use terrain::tile_cache::{LayerType, MeshInstance};
 
 gfx_defines!{
     vertex NodeState {
@@ -28,7 +28,9 @@ gfx_defines!{
     }
 
     vertex MeshVertex {
-        mposition: [f32; 3] = "mposition",
+        position: [f32; 3] = "mPosition",
+        texcoord: [f32; 2] = "mTexcoord",
+        normal: [f32; 3] = "mNormal",
     }
 }
 
@@ -99,6 +101,7 @@ gfx_pipeline!( instanced_mesh_pipe {
     planet_radius: gfx::Global<f32> = "planetRadius",
     atmosphere_radius: gfx::Global<f32> = "atmosphereRadius",
     world_to_warped: gfx::Global<[[f32; 4]; 4]> = "worldToWarped",
+    albedo: gfx::TextureSampler<[f32; 4]> = "albedo",
     transmittance: gfx::TextureSampler<[f32; 4]> = "transmittance",
     inscattering: gfx::TextureSampler<[f32; 4]> = "inscattering",
     color_buffer: gfx::RenderTarget<Rgba16F> = "OutColor",
@@ -183,19 +186,22 @@ where
     }
 
     pub(super) fn update_shaders(&mut self) -> Result<(), Error> {
-        if self.shader
+        if self
+            .shader
             .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set())?;
         }
 
-        if self.sky_shader
+        if self
+            .sky_shader
             .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set())?;
         }
 
-        if self.planet_mesh_shader
+        if self
+            .planet_mesh_shader
             .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.planet_mesh_pso = Self::make_planet_mesh_pso(
@@ -204,7 +210,8 @@ where
             )?;
         }
 
-        if self.instanced_mesh_shader
+        if self
+            .instanced_mesh_shader
             .refresh(&mut self.factory, &mut self.shaders_watcher)
         {
             self.instanced_mesh_pso = Self::make_instanced_mesh_pso(
@@ -288,8 +295,10 @@ where
                     find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
                 let child_offset = node::OFFSETS[child_index as usize];
                 let offset = offset
-                    + Vector2::new(child_offset.x as f32, child_offset.y as f32) * scale
-                        * texture_ratio * 0.5;
+                    + Vector2::new(child_offset.x as f32, child_offset.y as f32)
+                        * scale
+                        * texture_ratio
+                        * 0.5;
                 (c, n, w, offset, scale * 0.5)
             } else {
                 (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
@@ -366,15 +375,19 @@ where
                             heights_slot,
                         ],
                         texture_origin: [
-                            texture_origin + texture_offset.x
+                            texture_origin
+                                + texture_offset.x
                                 + offset.0 * (0.5 - texture_origin) * texture_step_scale,
-                            texture_origin + texture_offset.y
+                            texture_origin
+                                + texture_offset.y
                                 + offset.1 * (0.5 - texture_origin) * texture_step_scale,
                         ],
                         parent_texture_origin: [
-                            texture_origin + ptexture_offset.x
+                            texture_origin
+                                + ptexture_offset.x
                                 + offset.0 * (0.5 - texture_origin) * ptexture_step_scale,
-                            texture_origin + ptexture_offset.y
+                            texture_origin
+                                + ptexture_offset.y
                                 + offset.1 * (0.5 - texture_origin) * ptexture_step_scale,
                         ],
                         colors_layer: [colors_layer, pcolors_layer],

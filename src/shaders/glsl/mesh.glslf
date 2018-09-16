@@ -3,9 +3,11 @@
 uniform vec3 cameraPosition;
 uniform vec3 sunDirection;
 
+uniform sampler2D albedo;
+
 in vec3 fPosition;
 in vec3 fColor;
-in float fRotation;
+in vec2 fTexcoord;
 
 out vec4 OutColor;
 
@@ -18,8 +20,6 @@ void main() {
 
 	OutColor = vec4(0,0,0, 1);
 
-	float light = fRotation; // Should really be renamed...
-
-	OutColor.rgb = max(vec3(13, 31, 0)/255 + (fColor-1) * 0.1, 0) * light;
+	OutColor.rgb = fColor * mix(texture(albedo, fTexcoord).rgb*2, vec3(1), 0.7);
 	OutColor.rgb = precomputed_aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 }

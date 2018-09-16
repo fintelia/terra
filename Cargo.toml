@@ -34,7 +34,7 @@ nalgebra = "0.13"
 notify = "4.0"
 num = "0.1"
 pbr = { git = "https://github.com/fintelia/pb", rev = "7740234295184f84b4fbcd55c8c3fd5528b474ad" }
-rand = "0.3"
+rand = "0.5.5"
 rshader = { path = "rshader", features = [], version = "0.1.0" }
 rustfft = "2.0.0"
 safe-transmute = "0.3"

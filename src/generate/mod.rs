@@ -9,7 +9,7 @@ use cgmath::*;
 use failure::Error;
 use gfx;
 use gfx_core;
-use rand::distributions::{IndependentSample, Normal};
+use rand::distributions::{Distribution, Normal, Uniform};
 use rand::{self, Rng};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
@@ -337,7 +337,7 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             random: {
                 let normal = Normal::new(0.0, 1.0);
                 let v = (0..(15 * 15))
-                    .map(|_| normal.ind_sample(&mut rand::thread_rng()) as f32)
+                    .map(|_| normal.sample(&mut rand::thread_rng()) as f32)
                     .collect();
                 Heightmap::new(v, 15, 15)
             },
@@ -734,12 +734,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                                     (z + k).max(0).min(colormap_resolution as isize - 1) as usize;
                                 let color = &mut colormap
                                     [4 * (x + z * colormap_resolution as usize)..][..4];
-                                let r = 13.0 + 25.5 * (placement.color[0] - 1.0);
-                                let g = 31.0 + 25.5 * (placement.color[1] - 1.0);
-                                let b = 0.0 + 25.5 * (placement.color[2] - 1.0);
-                                color[0] = LINEAR_TO_SRGB[r.min(255.0).max(0.0).round() as u8];
-                                color[1] = LINEAR_TO_SRGB[g.min(255.0).max(0.0).round() as u8];
-                                color[2] = LINEAR_TO_SRGB[b.min(255.0).max(0.0).round() as u8];
+
+                                for i in 0..3 {
+                                    color[i] =
+                                        LINEAR_TO_SRGB[(255.0 * placement.color[i]).round() as u8];
+                                }
                             }
                         }
                     }
@@ -940,7 +939,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         )?);
 
         let mut rng = rand::thread_rng();
-        let color_dist = rand::distributions::Normal::new(1.0, 0.08);
+        let color_dist = Normal::new(1.0, 0.08);
+        let rotation_dist = Uniform::new(0.0, 2.0 * PI);
 
         context.increment_level("Placing trees... ", nodes.len());
         for (i, id) in nodes.into_iter().enumerate() {
@@ -990,13 +990,18 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                                 + (y as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
                                     * side_length,
                         );
-                        let color = Vector3::new(
-                            color_dist.ind_sample(&mut rng) as f32,
-                            color_dist.ind_sample(&mut rng) as f32,
-                            color_dist.ind_sample(&mut rng) as f32,
-                        );
                         let light = normal.dot(self.sun_direction).max(0.0);
-                        let texture_layer = 0.0;
+                        let color = Vector3::new(
+                            (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1 + 13.0 / 255.0)
+                                .max(0.0)
+                                .min(1.0),
+                            (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1 + 31.0 / 255.0)
+                                .max(0.0)
+                                .min(1.0),
+                            (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1)
+                                .max(0.0)
+                                .min(1.0),
+                        );
 
                         self.tree_placements
                             .get_mut(&id)
@@ -1004,8 +1009,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                             .push(MeshInstance {
                                 position: [position.x, position.y, position.z],
                                 color: [color.x, color.y, color.z],
-                                rotation: light,
-                                texture_layer,
+                                rotation: rotation_dist.sample(&mut rng) as f32,
+                                scale: 1.5,
+                                light,
+                                padding1: [0.0, 0.0, 0.0],
+                                padding2: [0.0, 0.0, 0.0, 0.0],
                             });
                     }
                 }
@@ -1052,9 +1060,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                         self.writer.write_f32::<LittleEndian>(placement.color[i])?;
                     }
                     self.writer.write_f32::<LittleEndian>(placement.rotation)?;
-                    self.writer
-                        .write_f32::<LittleEndian>(placement.texture_layer)?;
-                    self.bytes_written += 32;
+                    self.writer.write_f32::<LittleEndian>(placement.scale)?;
+                    self.writer.write_f32::<LittleEndian>(placement.light)?;
+                    for _ in 0..7 {
+                        self.writer.write_f32::<LittleEndian>(0.0)?;
+                    }
+                    self.bytes_written += 64;
                     instances += 1;
                 }
             }
@@ -1067,10 +1078,69 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             });
         }
 
+        #[rustfmt::skip]
+        let mesh_data: Vec<f32> = vec![
+            -5.0,  0.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
+             5.0,  0.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+            -5.0, 10.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
+            -5.0, 10.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
+             5.0, 10.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+             5.0,  0.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+
+             0.0,  0.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+             0.0,  0.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
+             0.0, 10.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+             0.0, 10.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+             0.0, 10.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
+             0.0,  0.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
+
+            -5.0,  5.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+             5.0,  5.0, -5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
+             5.0,  5.0,  5.0,    1.0, 1.0,    0.0, 0.0, 0.0,
+            -5.0,  5.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+            -5.0,  5.0,  5.0,    0.5, 1.0,    0.0, 0.0, 0.0,
+             5.0,  5.0,  5.0,    1.0, 1.0,    0.0, 0.0, 0.0,
+        ];
+        let mesh = MeshDescriptor {
+            offset: self.bytes_written,
+            bytes: mesh_data.len() * 4,
+            num_vertices: mesh_data.len() / 8,
+        };
+        for f in mesh_data {
+            self.writer.write_f32::<LittleEndian>(f)?;
+        }
+        self.bytes_written += mesh.bytes;
+
+        let mut texture_data = vec![255u8; 256 * 256 * 4];
+        for x in 0..16 {
+            for h in 0..16 {
+                for y in 0..16 {
+                    for k in 0..16 {
+                        for i in 0..4 {
+                            texture_data[((x * 16 + h) + (y * 16 + k) * 256) * 4 + i] =
+                                if x % 2 == y % 2 { 64 } else { 192 };
+                        }
+                    }
+                }
+            }
+        }
+        let texture = TextureDescriptor {
+            offset: self.bytes_written,
+            resolution: 256,
+            format: TextureFormat::SRGBA,
+            bytes: texture_data.len(),
+        };
+        self.writer.write_all(&texture_data[..])?;
+        self.bytes_written += texture.bytes;
+
         self.layers.push(LayerParams {
             layer_type: LayerType::Foliage,
             tile_locations,
-            payload_type: PayloadType::InstancedMesh { max_instances },
+            payload_type: PayloadType::InstancedMesh {
+                mesh,
+                texture,
+                max_instances,
+            },
         });
         context.decrement_level();
         Ok(())
@@ -1193,11 +1263,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 let fy = y as f64 / resolution.y as f64;
                 let theta = 2.0 * PI * fy;
                 let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
-                let mut world3 = Vector3::new(
-                    world.x,
-                    -2.0 * EARTH_RADIUS * fx,
-                    world.y,
-                );
+                let mut world3 = Vector3::new(world.x, -2.0 * EARTH_RADIUS * fx, world.y);
                 for _ in 0..5 {
                     world3.x = world.x;
                     world3.z = world.y;

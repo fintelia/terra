@@ -2,22 +2,28 @@
 
 uniform mat4 modelViewProjection;
 
-in vec3 mposition;
-in vec3 position;
-in vec3 color;
-in float rotation;
-in float texture_layer;
+in vec3 mPosition;
+in vec2 mTexcoord;
+in vec3 mNormal;
 
-out vec3 fPosition;
+in vec3 vPosition;
+in vec3 vColor;
+in float vRotation;
+in float vScale;
+in float vLight;
+
 out vec3 fColor;
-out float fRotation;
-out float fTextureLayer;
+out vec3 fPosition;
+out vec2 fTexcoord;
 
 void main() {
-	fPosition = position + mposition * 1.5;
-	fColor = color;
-	fRotation = rotation;
-	fTextureLayer = texture_layer;
+	float sr = sin(vRotation);
+	float cr = cos(vRotation);
+	mat3 rotation = mat3(cr, 0, sr, 0, 1, 0, -sr, 0, cr);
+
+	fPosition = vPosition + (rotation * mPosition) * vScale;
+	fColor = vColor * vLight;
+	fTexcoord = mTexcoord;
 
 	gl_Position = modelViewProjection * vec4(fPosition, 1.0);
 }

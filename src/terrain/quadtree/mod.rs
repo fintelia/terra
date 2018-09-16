@@ -11,6 +11,7 @@ use vec_map::VecMap;
 use vecmath;
 
 use rshader;
+use runtime_texture::TextureFormat;
 
 use std::collections::VecDeque;
 use std::env;
@@ -18,7 +19,10 @@ use std::fmt::Debug;
 
 use cache::AssetLoadContext;
 use terrain::material::MaterialSet;
-use terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
+use terrain::tile_cache::{
+    LayerType, MeshDescriptor, PayloadType, Priority, TextureDescriptor, TileCache, TileHeader,
+    NUM_LAYERS,
+};
 
 use ocean::Ocean;
 use sky::{Atmosphere, Skybox};
@@ -161,9 +165,8 @@ where
             );
         }
 
-        let noise_start = header.noise.offset;
-        let noise_end = noise_start + header.noise.bytes;
-        let noise_data = unsafe { &data_view.as_slice()[noise_start..noise_end] };
+        let noise_data =
+            unsafe { &data_view.as_slice()[header.noise.offset..][..header.noise.bytes] };
         let (noise_texture, noise_texture_view) = factory.create_texture_immutable_u8::<(
             gfx_core::format::R8_G8_B8_A8,
             gfx_core::format::Unorm,
@@ -178,9 +181,9 @@ where
         )?;
         encoder.generate_mipmap(&noise_texture_view);
 
-        let planet_mesh_start = header.planet_mesh.offset;
-        let planet_mesh_end = planet_mesh_start + header.planet_mesh.bytes;
-        let planet_mesh_data = unsafe { &data_view.as_slice()[planet_mesh_start..planet_mesh_end] };
+        let planet_mesh_data = unsafe {
+            &data_view.as_slice()[header.planet_mesh.offset..][..header.planet_mesh.bytes]
+        };
         let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
 
         let pm_texture_start = header.planet_mesh_texture.offset;
@@ -193,34 +196,53 @@ where
                     header.planet_mesh_texture.resolution as u16,
                     gfx::texture::AaMode::Single,
                 ),
-                gfx::texture::Mipmap::Provided,
+                gfx::texture::Mipmap::Allocated,
                 &[gfx::memory::cast_slice(pm_texture_data)],
             )?;
+        encoder.generate_mipmap(&planet_mesh_texture_view);
 
-        #[rustfmt_skip]
-        let instanced_mesh_vertices: Vec<f32> = vec![
-            -5.0,  0.0,  0.0,
-             5.0,  0.0,  0.0,
-            -5.0, 10.0,  0.0,
-            -5.0, 10.0,  0.0,
-             5.0, 10.0,  0.0,
-             5.0,  0.0,  0.0,
+        let (
+            foliage_mesh_offset,
+            foliage_mesh_bytes,
+            foliage_texture_offset,
+            foliage_texture_bytes,
+            foliage_texture_resolution,
+        ) = if let PayloadType::InstancedMesh {
+            mesh: MeshDescriptor { offset, bytes, .. },
+            texture:
+                TextureDescriptor {
+                    offset: toffset,
+                    bytes: tbytes,
+                    format,
+                    resolution,
+                },
+            ..
+        } = header.layers[LayerType::Foliage as usize].payload_type
+        {
+            assert_eq!(format, TextureFormat::SRGBA);
+            (offset, bytes, toffset, tbytes, resolution)
+        } else {
+            unreachable!()
+        };
 
-             0.0,  0.0, -5.0,
-             0.0,  0.0,  5.0,
-             0.0, 10.0, -5.0,
-             0.0, 10.0, -5.0,
-             0.0, 10.0,  5.0,
-             0.0,  0.0,  5.0,
+        let instanced_mesh_vertices = gfx::memory::cast_slice(unsafe {
+            &data_view.as_slice()[foliage_mesh_offset..][..foliage_mesh_bytes]
+        });
 
-            -5.0,  5.0, -5.0,
-             5.0,  5.0, -5.0,
-             5.0,  5.0,  5.0,
-            -5.0,  5.0, -5.0,
-            -5.0,  5.0,  5.0,
-             5.0,  5.0,  5.0,
-        ];
-        let instanced_mesh_vertices = gfx::memory::cast_slice(&instanced_mesh_vertices[..]);
+        let instanced_mesh_texture_data = gfx::memory::cast_slice(unsafe {
+            &data_view.as_slice()[foliage_texture_offset..][..foliage_texture_bytes]
+        });
+        let (instanced_mesh_texture, instanced_mesh_texture_view) = factory
+            .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+                gfx::texture::Kind::D2(
+                    foliage_texture_resolution as u16,
+                    foliage_texture_resolution as u16,
+                    gfx::texture::AaMode::Single,
+                ),
+                gfx::texture::Mipmap::Allocated,
+                &[instanced_mesh_texture_data],
+            )?;
+        encoder.generate_mipmap(&instanced_mesh_texture_view);
 
         let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
             .get_texture_view_f32()
@@ -391,6 +413,7 @@ where
                 planet_radius: 6371000.0,
                 atmosphere_radius: 6471000.0,
                 world_to_warped: world_to_warped.clone(),
+                albedo: (instanced_mesh_texture_view, sampler.clone()),
                 transmittance: transmittance,
                 inscattering: inscattering,
                 color_buffer: color_buffer.clone(),

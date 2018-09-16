@@ -1,6 +1,6 @@
 use rand;
+use rand::distributions::{Distribution, Normal};
 use rand::Rng;
-use rand::distributions::{IndependentSample, Normal};
 
 use std::f32::consts::PI;
 use std::ops::{Add, AddAssign, Div};
@@ -203,7 +203,7 @@ pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f
         // Step 1. Fill the tile with random numbers in the range -1 to 1.
         let normal = Normal::new(0.0, 1.0);
         for _ in 0..(n * n) {
-            noise.push(normal.ind_sample(&mut rand::thread_rng()) as f32);
+            noise.push(normal.sample(&mut rand::thread_rng()) as f32);
         }
 
         // Steps 2 and 3. Downsample and upsample the tile
