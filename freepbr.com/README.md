@@ -1,0 +1,1 @@
+Files in this directory are all from [freepbr.com](https://freepbr.com). Because that site does not have static URLs for downloads, terra is unable to directly access them. To get around that limitation, the files are mirrored here. If you are affiliated with Free PBR and would rather I didn't host them here, just let me know!
