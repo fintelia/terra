@@ -3,11 +3,13 @@ use std::mem;
 use std::str::FromStr;
 
 use failure::Error;
+use image::tiff::TIFFDecoder;
+use image::{DecodingResult, ImageDecoder};
 use safe_transmute;
 use zip::ZipArchive;
 
 use cache::{AssetLoadContext, WebAsset};
-use terrain::raster::{Raster, RasterSource};
+use terrain::raster::{GlobalRaster, Raster, RasterSource};
 
 #[derive(Debug, Fail)]
 #[fail(display = "failed to parse DEM file")]
@@ -262,4 +264,40 @@ fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
         cell_size,
         values: elevations,
     })
+}
+
+pub struct GlobalDem;
+impl WebAsset for GlobalDem {
+    type Type = GlobalRaster<i16>;
+
+    fn url(&self) -> String {
+        "https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/ice_surface/cell_registered/georeferenced_tiff/ETOPO1_Ice_c_geotiff.zip".to_string()
+    }
+    fn filename(&self) -> String {
+        "dems/ETOPO1_Ice_c_geotiff.zip".to_string()
+    }
+    fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
+        let mut zip = ZipArchive::new(Cursor::new(data))?;
+        ensure!(zip.len() == 1, "Unexpected zip file contents");
+        let mut file = zip.by_index(0)?;
+        ensure!(
+            file.name() == "ETOPO1_Ice_c_geotiff.tif",
+            "Unexpected zip file contents"
+        );
+
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)?;
+
+        let mut tiff_decoder = TIFFDecoder::new(Cursor::new(contents))?;
+        let (width, height) = tiff_decoder.dimensions()?;
+        match tiff_decoder.read_image()? {
+            DecodingResult::U8(_) => bail!("unexpected format"),
+            DecodingResult::U16(values) => Ok(GlobalRaster {
+                bands: 1,
+                width: width as usize,
+                height: height as usize,
+                values: values.into_iter().map(|i| i as i16).collect(),
+            }),
+        }
+    }
 }

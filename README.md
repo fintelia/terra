@@ -59,6 +59,7 @@ it into your own project, please be sure to give proper credit to all of the fol
 
 * [USGS National Elevation Dataset (NED)](https://lta.cr.usgs.gov/NED)
 * [Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global](https://lta.cr.usgs.gov/SRTM1Arc)
+* [ETOPO1 Global Relief Model](https://www.ngdc.noaa.gov/mgg/global)
 
 ## Land Cover
 

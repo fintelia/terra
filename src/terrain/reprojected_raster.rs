@@ -8,9 +8,10 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::ops::Index;
 use std::rc::Rc;
+use terrain::dem::GlobalDem;
 use terrain::heightmap::Heightmap;
-use terrain::quadtree::Node;
 use terrain::quadtree::node;
+use terrain::quadtree::Node;
 use terrain::raster::{GlobalRaster, RasterCache};
 use utils::math::BoundingBox;
 
@@ -59,11 +60,13 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         context: &mut AssetLoadContext,
         mut writer: W,
     ) -> Result<Self::Header, Error> {
-        let tiles = self.nodes
+        let tiles = self
+            .nodes
             .iter()
             .filter(|n| n.level <= self.max_texture_level)
             .count();
 
+        let global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
 
         context.increment_level("Reprojecting DEMs... ", tiles);
@@ -141,7 +144,10 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                 let slope_scale = 0.5 * (self.resolution - 1) as f32 / self.nodes[i].side_length;
                 for y in 0..self.resolution {
                     for x in 0..self.resolution {
-                        if (x % 2 != 0 || y % 2 != 0) && x > 0 && y > 0 && x < self.resolution - 1
+                        if (x % 2 != 0 || y % 2 != 0)
+                            && x > 0
+                            && y > 0
+                            && x < self.resolution - 1
                             && y < self.resolution - 1
                             && heightmap.at(x, y) > 0.0
                         {
@@ -156,8 +162,10 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                             let wx = layer_origin.x + (x as i32 - self.skirt as i32);
                             let wy = layer_origin.y + (y as i32 - self.skirt as i32);
                             noise.push(
-                                0.15 * self.random.get_wrapping(wx as i64, wy as i64) * noise_scale
-                                    * noise_strength + bias,
+                                0.15 * self.random.get_wrapping(wx as i64, wy as i64)
+                                    * noise_scale
+                                    * noise_strength
+                                    + bias,
                             );
                         } else {
                             noise.push(0.0);
@@ -194,11 +202,20 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                             world3.x = world.x;
                             world3.z = world.y;
                             let mut lla = self.system.world_to_lla(world3);
-                            lla.z = if i >= 3 && world.magnitude2() < 250000.0 * 250000.0 {
-                                self.dem_cache
-                                    .borrow_mut()
-                                    .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees())
-                                    .unwrap_or(0.0) as f64
+                            lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
+                                if world.magnitude2() < 250000.0 * 250000.0 {
+                                    self.dem_cache
+                                        .borrow_mut()
+                                        .interpolate(
+                                            context,
+                                            lla.x.to_degrees(),
+                                            lla.y.to_degrees(),
+                                        ).unwrap_or(0.0) as f64
+                                } else {
+                                    global_dem
+                                        .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
+                                        .max(0.0)
+                                }
                             } else {
                                 0.0
                             };
@@ -342,11 +359,10 @@ where
                                         .borrow_mut()
                                         .interpolate(context, lat, long)
                                         .unwrap_or_else(|| {
-                                            global_raster.as_ref().unwrap().interpolate(
-                                                lat,
-                                                long,
-                                                0,
-                                            )
+                                            global_raster
+                                                .as_ref()
+                                                .unwrap()
+                                                .interpolate(lat, long, 0)
                                         })
                                 }
                             }
