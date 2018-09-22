@@ -29,7 +29,7 @@ gfx_core = "0.8.0"
 image = { git = "https://github.com/PistonDevelopers/image" }
 lazy_static = "1.0.0"
 lru-cache = "0.1.1"
-memmap = "0.5.2"
+memmap = "0.7.0"
 nalgebra = "0.13"
 notify = "4.0"
 num = "0.1"

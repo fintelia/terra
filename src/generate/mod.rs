@@ -1386,8 +1386,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             system: &self.system,
             resolution,
         }.load(context)?;
-        self.writer
-            .write_all(&unsafe { mmap.as_slice() }[..bytes])?;
+        self.writer.write_all(&mmap[..bytes])?;
         self.bytes_written += bytes;
 
         Ok(descriptor)

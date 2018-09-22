@@ -1,13 +1,14 @@
 use bit_vec::BitVec;
+use failure::Error;
 use lru_cache::LruCache;
 
-use cache::AssetLoadContext;
+use cache::{AssetLoadContext, MMappedAsset};
 use coordinates;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::f64::consts::PI;
-use std::ops::Index;
+use std::ops::{Deref, Index};
 use std::rc::Rc;
 
 pub trait Scalar: Copy + 'static {
@@ -29,9 +30,8 @@ impl Index<usize> for BitContainer {
     }
 }
 
-/// Currently assumes that values are taken at the lower left corner of each cell.
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Raster<T: Into<f64> + Copy> {
+#[derive(Serialize, Deserialize)]
+pub(crate) struct MMappedRasterHeader {
     pub width: usize,
     pub height: usize,
     pub cell_size: f64,
@@ -39,7 +39,29 @@ pub struct Raster<T: Into<f64> + Copy> {
     pub xllcorner: f64,
     pub yllcorner: f64,
 
-    pub values: Vec<T>,
+    pub bands: usize,
+}
+
+/// Currently assumes that values are taken at the lower left corner of each cell.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Raster<T: Into<f64> + Copy, C: Deref<Target = [T]> = Vec<T>> {
+    pub width: usize,
+    pub height: usize,
+    pub cell_size: f64,
+
+    pub xllcorner: f64,
+    pub yllcorner: f64,
+
+    pub values: C,
+}
+
+impl<T: Into<f64> + Copy> Raster<T> {
+    pub(crate) fn from_mmapped_raster<MR: MMappedAsset<Header = MMappedRasterHeader>>(
+        asset: MR,
+        context: &mut AssetLoadContext,
+    ) -> Result<Self, Error> {
+        unimplemented!()
+    }
 }
 
 impl<T: Into<f64> + Copy> Raster<T> {

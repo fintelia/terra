@@ -1,8 +1,8 @@
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Stdout, Write};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use bincode::{self, Infinite};
 use dirs;
@@ -10,12 +10,15 @@ use failure::Error;
 use memmap::Mmap;
 use num::ToPrimitive;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 lazy_static! {
-    static ref TERRA_DIRECTORY: PathBuf =
-        { dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra") };
+    static ref TERRA_DIRECTORY: PathBuf = {
+        dirs::cache_dir()
+            .unwrap_or(PathBuf::from("."))
+            .join("terra")
+    };
 }
 
 pub(crate) struct AssetLoadContext {
@@ -237,7 +240,7 @@ pub(crate) trait MMappedAsset {
                 let mut contents = Vec::new();
                 header.read_to_end(&mut contents)?;
                 let header = bincode::deserialize(&contents)?;
-                let mapping = Mmap::open(&data, ::memmap::Protection::Read)?;
+                let mapping = unsafe { Mmap::map(&data)? };
                 Ok((header, mapping))
             } else {
                 context.reset(&format!("Generating {}... ", &self.filename()), 100);
@@ -259,7 +262,7 @@ pub(crate) trait MMappedAsset {
                 // Open for reading this time
                 context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
                 let data_file = File::open(&data_filename)?;
-                let mapping = Mmap::open(&data_file, ::memmap::Protection::Read)?;
+                let mapping = unsafe { Mmap::map(&data_file)? };
                 Ok((header, mapping))
             }
         })();

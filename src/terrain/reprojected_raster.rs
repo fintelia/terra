@@ -432,8 +432,8 @@ impl ReprojectedRaster {
             + (x as usize + (y as usize + tile * resolution) * resolution)
                 * self.header.bands as usize;
         match self.header.datatype {
-            DataType::F32 => LittleEndian::read_f32(&unsafe { self.data.as_slice() }[index * 4..]),
-            DataType::U8 => unsafe { f32::from(self.data.as_slice()[index]) },
+            DataType::F32 => LittleEndian::read_f32(&self.data[index * 4..]),
+            DataType::U8 => f32::from(self.data[index]),
         }
     }
 

@@ -6,7 +6,6 @@ use gfx;
 use gfx::traits::FactoryExt;
 use gfx_core;
 use memmap::Mmap;
-use std::convert::TryFrom;
 use vec_map::VecMap;
 use vecmath;
 
@@ -14,8 +13,10 @@ use rshader;
 use runtime_texture::TextureFormat;
 
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::env;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use cache::AssetLoadContext;
 use terrain::material::MaterialSet;
@@ -156,17 +157,16 @@ where
             ),
         )?;
 
-        let mut data_view = data_file.into_view_sync();
+        let mut data_view = Arc::new(data_file);
         let mut tile_cache_layers = VecMap::new();
         for layer in header.layers.iter().cloned() {
             tile_cache_layers.insert(
                 layer.layer_type as usize,
-                TileCache::new(layer, unsafe { data_view.clone() }, &mut factory),
+                TileCache::new(layer, data_view.clone(), &mut factory),
             );
         }
 
-        let noise_data =
-            unsafe { &data_view.as_slice()[header.noise.offset..][..header.noise.bytes] };
+        let noise_data = &data_view[header.noise.offset..][..header.noise.bytes];
         let (noise_texture, noise_texture_view) = factory.create_texture_immutable_u8::<(
             gfx_core::format::R8_G8_B8_A8,
             gfx_core::format::Unorm,
@@ -181,14 +181,12 @@ where
         )?;
         encoder.generate_mipmap(&noise_texture_view);
 
-        let planet_mesh_data = unsafe {
-            &data_view.as_slice()[header.planet_mesh.offset..][..header.planet_mesh.bytes]
-        };
+        let planet_mesh_data = &data_view[header.planet_mesh.offset..][..header.planet_mesh.bytes];
         let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
 
         let pm_texture_start = header.planet_mesh_texture.offset;
         let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
-        let pm_texture_data = unsafe { &data_view.as_slice()[pm_texture_start..pm_texture_end] };
+        let pm_texture_data = &data_view[pm_texture_start..pm_texture_end];
         let (planet_mesh_texture, planet_mesh_texture_view) = factory
             .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
                 gfx::texture::Kind::D2(
@@ -225,13 +223,11 @@ where
             unreachable!()
         };
 
-        let instanced_mesh_vertices = gfx::memory::cast_slice(unsafe {
-            &data_view.as_slice()[foliage_mesh_offset..][..foliage_mesh_bytes]
-        });
+        let instanced_mesh_vertices =
+            gfx::memory::cast_slice(&data_view[foliage_mesh_offset..][..foliage_mesh_bytes]);
 
-        let instanced_mesh_texture_data = gfx::memory::cast_slice(unsafe {
-            &data_view.as_slice()[foliage_texture_offset..][..foliage_texture_bytes]
-        });
+        let instanced_mesh_texture_data =
+            gfx::memory::cast_slice(&data_view[foliage_texture_offset..][..foliage_texture_bytes]);
         let (instanced_mesh_texture, instanced_mesh_texture_view) = factory
             .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
                 gfx::texture::Kind::D2(

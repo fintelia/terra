@@ -1,8 +1,10 @@
+use std::convert::TryInto;
+use std::sync::Arc;
+
 use gfx;
 use gfx::traits::FactoryExt;
 use gfx_core;
-use memmap::MmapViewSync;
-use std::convert::TryInto;
+use memmap::Mmap;
 use vec_map::VecMap;
 
 use coordinates::CoordinateSystem;
@@ -164,12 +166,12 @@ pub(crate) struct TileCache<R: gfx::Resources> {
     payloads: PayloadSet<R>,
 
     /// Section of memory map that holds the data for this layer.
-    data_file: MmapViewSync,
+    data_file: Arc<Mmap>,
 }
 impl<R: gfx::Resources> TileCache<R> {
     pub fn new<F: gfx::Factory<R>>(
         params: LayerParams,
-        data_file: MmapViewSync,
+        data_file: Arc<Mmap>,
         factory: &mut F,
     ) -> Self {
         let cache_size = params.layer_type.cache_size();
@@ -271,7 +273,7 @@ impl<R: gfx::Resources> TileCache<R> {
         let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
         let offset = self.layer_params.tile_locations[tile].offset;
         let length = self.layer_params.tile_locations[tile].length;
-        let data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
+        let data = &self.data_file[offset..(offset + length)];
 
         match self.payloads {
             PayloadSet::Texture {
@@ -386,7 +388,7 @@ impl<R: gfx::Resources> TileCache<R> {
             let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
             let offset = self.layer_params.tile_locations[tile].offset;
             let length = self.layer_params.tile_locations[tile].length;
-            let tile_data = unsafe { &self.data_file.as_slice()[offset..(offset + length)] };
+            let tile_data = &self.data_file[offset..(offset + length)];
             let bytes_per_texel = format.bytes_per_texel();
             let border = border_size as usize;
             let index = ((x + border) + (y + border) * resolution as usize) * bytes_per_texel;
