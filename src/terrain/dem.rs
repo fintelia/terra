@@ -68,6 +68,7 @@ impl DemSource {
 }
 impl RasterSource for DemSource {
     type Type = f32;
+    type Container = Vec<f32>;
     fn load(
         &self,
         context: &mut AssetLoadContext,
@@ -80,6 +81,9 @@ impl RasterSource for DemSource {
             source: *self,
         }.load(context)
         .ok()
+    }
+    fn bands(&self) -> usize {
+        1
     }
 }
 
@@ -226,8 +230,9 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
     Ok(Raster {
         width,
         height,
-        xllcorner,
-        yllcorner,
+        bands: 1,
+        latitude_llcorner: xllcorner,
+        longitude_llcorner: yllcorner,
         cell_size,
         values: elevations,
     })
@@ -245,9 +250,9 @@ fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
     let hgt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
     let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
-    for x in 0..resolution {
-        for y in 0..resolution {
-            let h = i16::from_be(hgt[(resolution - x - 1) + (resolution - y - 1) * resolution]);
+    for y in 0..resolution {
+        for x in 0..resolution {
+            let h = i16::from_be(hgt[x + y * resolution]);
             if h == -32768 {
                 elevations.push(0.0);
             } else {
@@ -259,8 +264,9 @@ fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
     Ok(Raster {
         width: resolution,
         height: resolution,
-        xllcorner: latitude as f64,
-        yllcorner: longitude as f64,
+        bands: 1,
+        latitude_llcorner: latitude as f64,
+        longitude_llcorner: longitude as f64,
         cell_size,
         values: elevations,
     })

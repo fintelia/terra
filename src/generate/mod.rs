@@ -19,7 +19,7 @@ use sky::Skybox;
 use srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use terrain::dem::DemSource;
 use terrain::heightmap::{self, Heightmap};
-use terrain::landcover::{BlueMarble, GlobalWaterMask, LandCoverKind};
+use terrain::landcover::{BlueMarble, BlueMarbleTileSource, GlobalWaterMask, LandCoverKind};
 use terrain::material::{MaterialSet, MaterialType};
 use terrain::quadtree::{node, Node, NodeId, QuadTree};
 use terrain::raster::{BlurredSource, RasterCache};
@@ -594,8 +594,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             nodes: &self.nodes,
             skirt: self.skirt,
             datatype: DataType::U8,
-            raster: RasterSource::GlobalRaster {
+            raster: RasterSource::Hybrid {
                 global: Box::new(BlueMarble),
+                cache: Rc::new(RefCell::new(RasterCache::new(
+                    Box::new(BlueMarbleTileSource),
+                    8,
+                ))),
             },
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
@@ -612,7 +616,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-            let use_blue_marble = spacing >= bluemarble.spacing().unwrap() as f32;
+            let use_blue_marble = spacing * 2.0 >= bluemarble.spacing().unwrap() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
                     // let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
@@ -792,9 +796,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     let h10 = heights.get(id, x + 1, y, 0);
                     let h11 = heights.get(id, x + 1, y + 1, 0);
 
-                    let normal =
-                        Vector3::new(h10 + h11 - h00 - h01, 2.0 * spacing, h01 + h11 - h00 - h10)
-                            .normalize();
+                    let normal = Vector3::new(
+                        h10 + h11 - h00 - h01,
+                        2.0 * spacing,
+                        -1.0 * (h01 + h11 - h00 - h10),
+                    ).normalize();
 
                     self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
@@ -844,11 +850,11 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     Box::new(BlurredSource::new(
                         Rc::new(RefCell::new(RasterCache::new(
                             Box::new(LandCoverKind::WaterMask),
-                            256,
+                            128,
                         ))),
                         0.0,
                     )),
-                    128,
+                    64,
                 ))),
             },
         };
@@ -917,7 +923,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             .filter(|&i| self.nodes[i].level as i32 == self.max_tree_density_level + 1)
             .collect();
 
-        let reproject_treecover = ReprojectedRasterDef::<u8> {
+        let reproject_treecover = ReprojectedRasterDef::<u8, Vec<u8>, Vec<u8>> {
             name: format!("{}treecover", self.directory_name),
             heights: self.heightmaps.as_ref().unwrap(),
             system: &self.system,
@@ -990,7 +996,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                                 + (y as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
                                     * side_length,
                         );
-                        let light = normal.dot(self.sun_direction).max(0.0);
                         let color = Vector3::new(
                             (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1 + 13.0 / 255.0)
                                 .max(0.0)
@@ -1011,8 +1016,8 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                                 color: [color.x, color.y, color.z],
                                 rotation: rotation_dist.sample(&mut rng) as f32,
                                 scale: 1.5,
-                                light,
-                                padding1: [0.0, 0.0, 0.0],
+                                normal: [normal.x, normal.y, normal.z],
+                                padding1: 0.0,
                                 padding2: [0.0, 0.0, 0.0, 0.0],
                             });
                     }
@@ -1061,8 +1066,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     }
                     self.writer.write_f32::<LittleEndian>(placement.rotation)?;
                     self.writer.write_f32::<LittleEndian>(placement.scale)?;
-                    self.writer.write_f32::<LittleEndian>(placement.light)?;
-                    for _ in 0..7 {
+                    for i in 0..3 {
+                        self.writer.write_f32::<LittleEndian>(placement.normal[i])?;
+                    }
+                    for _ in 0..5 {
                         self.writer.write_f32::<LittleEndian>(0.0)?;
                     }
                     self.bytes_written += 64;

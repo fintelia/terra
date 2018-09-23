@@ -6,10 +6,11 @@ use image::png::PNGDecoder;
 use image::{
     self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat, ImageLuma8,
 };
+use memmap::Mmap;
 use zip::ZipArchive;
 
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use terrain::raster::{BitContainer, GlobalRaster, Raster, RasterSource};
+use terrain::raster::{BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
@@ -18,6 +19,10 @@ pub enum LandCoverKind {
 }
 impl RasterSource for LandCoverKind {
     type Type = u8;
+    type Container = Vec<u8>;
+    fn bands(&self) -> usize {
+        1
+    }
     fn load(
         &self,
         context: &mut AssetLoadContext,
@@ -31,7 +36,7 @@ impl RasterSource for LandCoverKind {
                 kind: *self,
                 raw: None,
             }.load(context)
-                .unwrap(),
+            .unwrap(),
         )
     }
 }
@@ -150,11 +155,10 @@ impl LandCoverParams {
                     (h / 10) * (9 - ((self.latitude % 10 + 10) % 10) as u32),
                     w / 10 + 1,
                     h / 10 + 1,
-                )
-                .clone();
+                ).clone();
             (w, h, image)
         };
-        let image = image.rotate90().flipv();
+        // let image = image.rotate90().flipv();
         let values = if let ImageLuma8(image) = image {
             image.into_raw().into_iter()
         } else {
@@ -172,16 +176,16 @@ impl LandCoverParams {
                     } else {
                         unreachable!()
                     }
-                })
-                .collect(),
+                }).collect(),
         };
 
         Ok(Raster {
             width: w as usize / 10 + 1,
             height: h as usize / 10 + 1,
+            bands: 1,
             cell_size: 10.0 / (w - 1) as f64,
-            xllcorner: self.latitude as f64,
-            yllcorner: self.longitude as f64,
+            longitude_llcorner: self.longitude as f64,
+            latitude_llcorner: self.latitude as f64,
             values,
         })
     }
@@ -259,9 +263,100 @@ impl WebAsset for BlueMarble {
     }
 }
 
+pub struct BlueMarbleTile {
+    latitude_llcorner: i16,
+    longitude_llcorner: i16,
+}
+impl BlueMarbleTile {
+    fn name(&self) -> String {
+        let x = match self.longitude_llcorner {
+            -180 => "A",
+            -90 => "B",
+            0 => "C",
+            90 => "D",
+            _ => unreachable!(),
+        };
+        let y = match self.latitude_llcorner {
+            0 => "1",
+            -90 => "2",
+            _ => unreachable!(),
+        };
+        format!("world.200406.3x21600x21600.{}{}.png", x, y)
+    }
+}
+impl WebAsset for BlueMarbleTile {
+    type Type = (MMappedRasterHeader, Vec<u8>);
+
+    fn url(&self) -> String {
+        format!(
+            "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/{}",
+            self.name()
+        )
+    }
+    fn filename(&self) -> String {
+        format!("bluemarble/{}", self.name())
+    }
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
+        let mut decoder = PNGDecoder::new(Cursor::new(data));
+        let (width, height) = decoder.dimensions()?;
+        let (width, height) = (width as usize, height as usize);
+        assert_eq!(decoder.colortype()?, ColorType::RGB(8));
+
+        context.set_progress_and_total(0, height / 108);
+        let row_len = decoder.row_len()?;
+        let mut values = vec![0; row_len * height];
+        for row in 0..height {
+            decoder.read_scanline(&mut values[(row * row_len)..((row + 1) * row_len)])?;
+            if (row + 1) % 108 == 0 {
+                context.set_progress((row + 1) / 108);
+            }
+        }
+
+        Ok((
+            MMappedRasterHeader {
+                width,
+                height,
+                bands: 3,
+                cell_size: 90.0 / 21600.0,
+                latitude_llcorner: self.latitude_llcorner as f64,
+                longitude_llcorner: self.longitude_llcorner as f64,
+            },
+            values,
+        ))
+    }
+}
+
+pub struct BlueMarbleTileSource;
+impl RasterSource for BlueMarbleTileSource {
+    type Type = u8;
+    type Container = Mmap;
+    fn bands(&self) -> usize {
+        3
+    }
+    fn raster_size(&self) -> i16 {
+        90
+    }
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster<Self::Type, Self::Container>> {
+        Some(
+            Raster::from_mmapped_raster(
+                BlueMarbleTile {
+                    latitude_llcorner: latitude,
+                    longitude_llcorner: longitude,
+                },
+                context,
+            ).unwrap(),
+        )
+    }
+}
+
 pub struct GlobalWaterMask;
 impl WebAsset for GlobalWaterMask {
-    type Type = GlobalRaster<f64, BitContainer>;
+    type Type = GlobalRaster<u8, BitContainer>;
 
     fn url(&self) -> String {
         "https://landcover.usgs.gov/documents/GlobalLandCover_tif.zip".to_owned()

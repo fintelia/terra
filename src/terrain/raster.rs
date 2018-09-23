@@ -1,6 +1,7 @@
 use bit_vec::BitVec;
 use failure::Error;
 use lru_cache::LruCache;
+use memmap::Mmap;
 
 use cache::{AssetLoadContext, MMappedAsset};
 use coordinates;
@@ -20,12 +21,12 @@ pub trait Scalar: Copy + 'static {
 /// GlobalRaster.
 pub struct BitContainer(pub BitVec<u32>);
 impl Index<usize> for BitContainer {
-    type Output = f64;
-    fn index(&self, i: usize) -> &f64 {
+    type Output = u8;
+    fn index(&self, i: usize) -> &u8 {
         if self.0[i] {
-            &255.0
+            &255
         } else {
-            &0.0
+            &0
         }
     }
 }
@@ -34,12 +35,11 @@ impl Index<usize> for BitContainer {
 pub(crate) struct MMappedRasterHeader {
     pub width: usize,
     pub height: usize,
+    pub bands: usize,
     pub cell_size: f64,
 
-    pub xllcorner: f64,
-    pub yllcorner: f64,
-
-    pub bands: usize,
+    pub latitude_llcorner: f64,
+    pub longitude_llcorner: f64,
 }
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
@@ -47,53 +47,65 @@ pub(crate) struct MMappedRasterHeader {
 pub struct Raster<T: Into<f64> + Copy, C: Deref<Target = [T]> = Vec<T>> {
     pub width: usize,
     pub height: usize,
+    pub bands: usize,
     pub cell_size: f64,
 
-    pub xllcorner: f64,
-    pub yllcorner: f64,
+    pub latitude_llcorner: f64,
+    pub longitude_llcorner: f64,
 
     pub values: C,
 }
 
-impl<T: Into<f64> + Copy> Raster<T> {
+impl Raster<u8, Mmap> {
     pub(crate) fn from_mmapped_raster<MR: MMappedAsset<Header = MMappedRasterHeader>>(
         asset: MR,
         context: &mut AssetLoadContext,
     ) -> Result<Self, Error> {
-        unimplemented!()
+        let (header, mmap) = asset.load(context)?;
+
+        Ok(Self {
+            width: header.width,
+            height: header.height,
+            bands: header.bands,
+            cell_size: header.cell_size,
+            latitude_llcorner: header.latitude_llcorner,
+            longitude_llcorner: header.longitude_llcorner,
+            values: mmap,
+        })
     }
 }
 
-impl<T: Into<f64> + Copy> Raster<T> {
+impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
     /// Returns the vertical spacing between cells, in meters.
     pub fn vertical_spacing(&self) -> f64 {
         self.cell_size.to_radians() * coordinates::PLANET_RADIUS
     }
 
     /// Returns the horizontal spacing between cells, in meters.
-    pub fn horizontal_spacing(&self, x: usize) -> f64 {
+    pub fn horizontal_spacing(&self, y: usize) -> f64 {
         self.vertical_spacing()
-            * (self.yllcorner + self.cell_size * x as f64)
+            * (self.latitude_llcorner + self.cell_size * y as f64)
                 .to_radians()
                 .cos()
     }
 
-    pub fn interpolate(&self, latitude: f64, longitude: f64) -> Option<f64> {
-        let x = (latitude - self.xllcorner) / self.cell_size;
-        let y = (longitude - self.yllcorner) / self.cell_size;
+    pub fn interpolate(&self, latitude: f64, longitude: f64, band: usize) -> Option<f64> {
+        assert!(band < self.bands);
 
-        let y = (self.height - 1) as f64 - y;
+        let x = (longitude - self.longitude_llcorner) / self.cell_size;
+        let y = (self.height - 1) as f64 - (latitude - self.latitude_llcorner) / self.cell_size;
 
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
+
         if x < 0.0 || fx >= self.width - 1 || y < 0.0 || fy >= self.height - 1 {
             return None;
         }
 
-        let h00 = self.values[fx + fy * self.width].into();
-        let h10 = self.values[fx + 1 + fy * self.width].into();
-        let h01 = self.values[fx + (fy + 1) * self.width].into();
-        let h11 = self.values[fx + 1 + (fy + 1) * self.width].into();
+        let h00 = self.values[(fx + fy * self.width) * self.bands + band].into();
+        let h10 = self.values[(fx + 1 + fy * self.width) * self.bands + band].into();
+        let h01 = self.values[(fx + (fy + 1) * self.width) * self.bands + band].into();
+        let h11 = self.values[(fx + 1 + (fy + 1) * self.width) * self.bands + band].into();
         let h0 = h00 + (h01 - h00) * (y - fy as f64);
         let h1 = h10 + (h11 - h10) * (y - fy as f64);
         Some(h0 + (h1 - h0) * (x - fx as f64))
@@ -102,12 +114,14 @@ impl<T: Into<f64> + Copy> Raster<T> {
     pub fn ambient_occlusion(&self) -> Raster<u8> {
         // See: https://nothings.org/gamedev/horizon
 
+        assert_eq!(self.bands, 1);
         let mut output = Raster {
             width: self.width,
             height: self.height,
+            bands: 1,
             cell_size: self.cell_size,
-            xllcorner: self.xllcorner,
-            yllcorner: self.yllcorner,
+            latitude_llcorner: self.latitude_llcorner,
+            longitude_llcorner: self.longitude_llcorner,
             values: vec![0; self.width * self.height],
         };
 
@@ -158,20 +172,28 @@ impl<T: Into<f64> + Copy> Raster<T> {
 
 pub(crate) trait RasterSource {
     type Type: Into<f64> + Copy;
+    type Container: Deref<Target = [Self::Type]>;
     fn load(
         &self,
         context: &mut AssetLoadContext,
         latitude: i16,
         longitude: i16,
-    ) -> Option<Raster<Self::Type>>;
+    ) -> Option<Raster<Self::Type, Self::Container>>;
+    fn bands(&self) -> usize;
+
+    /// Degrees of latitude and longitude covered by each raster.
+    fn raster_size(&self) -> i16 {
+        1
+    }
 }
 
 #[allow(unused)]
 pub(crate) struct AmbientOcclusionSource<T: Into<f64> + Copy + 'static>(
-    pub(crate) Rc<RefCell<RasterCache<T>>>,
+    pub(crate) Rc<RefCell<RasterCache<T, Vec<T>>>>,
 );
 impl<T: Into<f64> + Copy + 'static> RasterSource for AmbientOcclusionSource<T> {
     type Type = u8;
+    type Container = Vec<u8>;
     fn load(
         &self,
         context: &mut AssetLoadContext,
@@ -183,6 +205,9 @@ impl<T: Into<f64> + Copy + 'static> RasterSource for AmbientOcclusionSource<T> {
             .get(context, latitude, longitude)
             .map(|raster| raster.ambient_occlusion())
     }
+    fn bands(&self) -> usize {
+        1
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -191,12 +216,12 @@ pub(crate) enum Axis {
     Y,
 }
 pub(crate) struct BlurredSource {
-    cache: Rc<RefCell<RasterCache<u8>>>,
+    cache: Rc<RefCell<RasterCache<u8, Vec<u8>>>>,
     sigma: f64,
     axis: Axis,
 }
 impl BlurredSource {
-    pub fn new(cache: Rc<RefCell<RasterCache<u8>>>, sigma: f64) -> Self {
+    pub fn new(cache: Rc<RefCell<RasterCache<u8, Vec<u8>>>>, sigma: f64) -> Self {
         Self {
             cache: Rc::new(RefCell::new(RasterCache::new(
                 Box::new(Self {
@@ -213,6 +238,10 @@ impl BlurredSource {
 }
 impl RasterSource for BlurredSource {
     type Type = u8;
+    type Container = Vec<u8>;
+    fn bands(&self) -> usize {
+        self.cache.borrow().bands()
+    }
     fn load(
         &self,
         context: &mut AssetLoadContext,
@@ -305,13 +334,13 @@ impl RasterSource for BlurredSource {
     }
 }
 
-pub(crate) struct RasterCache<T: Into<f64> + Copy> {
-    source: Box<RasterSource<Type = T>>,
+pub(crate) struct RasterCache<T: Into<f64> + Copy, C: Deref<Target = [T]>> {
+    source: Box<RasterSource<Type = T, Container = C>>,
     holes: HashSet<(i16, i16)>,
-    rasters: LruCache<(i16, i16), Raster<T>>,
+    rasters: LruCache<(i16, i16), Raster<T, C>>,
 }
-impl<T: Into<f64> + Copy> RasterCache<T> {
-    pub fn new(source: Box<RasterSource<Type = T>>, size: usize) -> Self {
+impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
+    pub fn new(source: Box<RasterSource<Type = T, Container = C>>, size: usize) -> Self {
         Self {
             source,
             holes: HashSet::new(),
@@ -323,8 +352,12 @@ impl<T: Into<f64> + Copy> RasterCache<T> {
         context: &mut AssetLoadContext,
         latitude: i16,
         longitude: i16,
-    ) -> Option<&mut Raster<T>> {
-        let key = (latitude, longitude);
+    ) -> Option<&mut Raster<T, C>> {
+        let rs = self.source.raster_size();
+        let key = (
+            latitude - (latitude % rs + rs) % rs,
+            longitude - (longitude % rs + rs) % rs,
+        );
         if self.holes.contains(&key) {
             return None;
         }
@@ -347,9 +380,20 @@ impl<T: Into<f64> + Copy> RasterCache<T> {
         context: &mut AssetLoadContext,
         latitude: f64,
         longitude: f64,
+        band: usize,
     ) -> Option<f64> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
-            .and_then(|raster| raster.interpolate(latitude, longitude))
+            .and_then(|raster| raster.interpolate(latitude, longitude, band))
+    }
+    pub fn bands(&self) -> usize {
+        self.source.bands()
+    }
+    /// Returns the approximate spacing of the rasters in meters, if known.
+    pub fn spacing(&self) -> Option<f64> {
+        self.rasters
+            .iter()
+            .next()
+            .map(|r| r.1.cell_size.to_radians() * coordinates::PLANET_RADIUS)
     }
 }
 

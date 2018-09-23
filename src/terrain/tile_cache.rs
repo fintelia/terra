@@ -132,8 +132,8 @@ gfx_vertex_struct!(MeshInstance {
     color: [f32; 3] = "vColor",
     rotation: f32 = "vRotation",
     scale: f32 = "vScale",
-    light: f32 = "vLight",
-    padding1: [f32; 3] = "vPadding1",
+    normal: [f32; 3] = "vNormal",
+    padding1: f32 = "vPadding1",
     padding2: [f32; 4] = "vPadding2",
 });
 

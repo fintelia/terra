@@ -216,8 +216,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
                 gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Srgb),
-            )
-            .unwrap();
+            ).unwrap();
 
         for (layer, material) in materials.iter().enumerate() {
             assert_eq!(mipmaps, material.mipmaps);
@@ -239,8 +238,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
                             mipmap: level as u8,
                         },
                         &albedo[..],
-                    )
-                    .unwrap();
+                    ).unwrap();
             }
             average_albedos.push(material.albedo.last().unwrap()[0]);
         }
@@ -260,8 +258,7 @@ impl<R: gfx::Resources> MaterialSet<R> {
                 &texture,
                 (0, mipmaps),
                 Swizzle::new(),
-            )
-            .unwrap();
+            ).unwrap();
 
         Ok(Self {
             texture_view,

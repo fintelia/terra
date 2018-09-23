@@ -270,3 +270,21 @@ pub(crate) trait MMappedAsset {
         ret
     }
 }
+
+impl<H: Serialize + DeserializeOwned, A: WebAsset<Type = (H, Vec<u8>)>> MMappedAsset for A {
+    type Header = H;
+
+    fn filename(&self) -> String {
+        WebAsset::filename(self)
+    }
+
+    fn generate<W: Write>(
+        &self,
+        context: &mut AssetLoadContext,
+        mut w: W,
+    ) -> Result<Self::Header, Error> {
+        let (header, data) = WebAsset::load(self, context)?;
+        w.write_all(&data[..])?;
+        Ok(header)
+    }
+}

@@ -5,8 +5,9 @@ use coordinates::{CoordinateSystem, PLANET_RADIUS};
 use failure::Error;
 use memmap::Mmap;
 use std::cell::RefCell;
+use std::convert::TryInto;
 use std::io::Write;
-use std::ops::Index;
+use std::ops::{Deref, Index};
 use std::rc::Rc;
 use terrain::dem::GlobalDem;
 use terrain::heightmap::Heightmap;
@@ -39,7 +40,7 @@ fn world_position(
 
 pub(crate) struct ReprojectedDemDef<'a> {
     pub name: String,
-    pub dem_cache: Rc<RefCell<RasterCache<f32>>>,
+    pub dem_cache: Rc<RefCell<RasterCache<f32, Vec<f32>>>>,
     pub system: &'a CoordinateSystem,
     pub nodes: &'a Vec<Node>,
     pub random: &'a Heightmap<f32>,
@@ -210,6 +211,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                                             context,
                                             lla.x.to_degrees(),
                                             lla.y.to_degrees(),
+                                            0,
                                         ).unwrap_or(0.0) as f64
                                 } else {
                                     global_dem
@@ -245,28 +247,30 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
     }
 }
 
-pub(crate) enum RasterSource<T, C = Vec<T>>
+pub(crate) enum RasterSource<T, C = Vec<T>, C2: Deref<Target = [T]> = Vec<T>>
 where
     T: Into<f64> + Copy,
     C: Index<usize, Output = T>,
 {
+    #[allow(unused)]
     GlobalRaster {
         global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
     },
     RasterCache {
-        cache: Rc<RefCell<RasterCache<u8>>>,
+        cache: Rc<RefCell<RasterCache<T, C2>>>,
         default: f64,
         radius2: Option<f64>,
     },
     Hybrid {
         global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
-        cache: Rc<RefCell<RasterCache<u8>>>,
+        cache: Rc<RefCell<RasterCache<T, C2>>>,
     },
 }
-pub(crate) struct ReprojectedRasterDef<'a, T, C = Vec<T>>
+pub(crate) struct ReprojectedRasterDef<'a, T, C, C2>
 where
     T: Into<f64> + Copy,
     C: Index<usize, Output = T>,
+    C2: Deref<Target = [T]>,
 {
     pub name: String,
     pub heights: &'a ReprojectedRaster,
@@ -276,12 +280,13 @@ where
     pub skirt: u16,
 
     pub datatype: DataType,
-    pub raster: RasterSource<T, C>,
+    pub raster: RasterSource<T, C, C2>,
 }
-impl<'a, T, C> MMappedAsset for ReprojectedRasterDef<'a, T, C>
+impl<'a, T, C, C2> MMappedAsset for ReprojectedRasterDef<'a, T, C, C2>
 where
     T: Into<f64> + Copy,
     C: Index<usize, Output = T>,
+    C2: Deref<Target = [T]>,
 {
     type Header = ReprojectedRasterHeader;
 
@@ -303,9 +308,15 @@ where
         };
 
         let bands = match self.raster {
-            RasterSource::GlobalRaster { .. } => global_raster.as_ref().unwrap().bands as u16,
-            RasterSource::RasterCache { .. } => 1,
-            RasterSource::Hybrid { .. } => 1,
+            RasterSource::GlobalRaster { .. } => global_raster.as_ref().unwrap().bands,
+            RasterSource::RasterCache { ref cache, .. } => cache.borrow().bands(),
+            RasterSource::Hybrid { ref cache, .. } => {
+                assert_eq!(
+                    global_raster.as_ref().unwrap().bands,
+                    cache.borrow().bands()
+                );
+                cache.borrow().bands()
+            }
         };
 
         assert_eq!(self.heights.header.bands, 1);
@@ -345,7 +356,7 @@ where
                                 if radius2.is_none() || world.magnitude2() < radius2.unwrap() {
                                     cache
                                         .borrow_mut()
-                                        .interpolate(context, lat, long)
+                                        .interpolate(context, lat, long, band)
                                         .unwrap_or(default)
                                 } else {
                                     default
@@ -353,16 +364,16 @@ where
                             }
                             RasterSource::Hybrid { ref cache, .. } => {
                                 if spacing >= *global_spacing.as_ref().unwrap() {
-                                    global_raster.as_ref().unwrap().interpolate(lat, long, 0)
+                                    global_raster.as_ref().unwrap().interpolate(lat, long, band)
                                 } else {
                                     cache
                                         .borrow_mut()
-                                        .interpolate(context, lat, long)
+                                        .interpolate(context, lat, long, band)
                                         .unwrap_or_else(|| {
                                             global_raster
                                                 .as_ref()
                                                 .unwrap()
-                                                .interpolate(lat, long, 0)
+                                                .interpolate(lat, long, band)
                                         })
                                 }
                             }
@@ -378,12 +389,21 @@ where
             context.set_progress(i + 1);
         }
 
+        let spacing = match self.raster {
+            RasterSource::GlobalRaster { .. } => Some(global_raster.unwrap().spacing()),
+            RasterSource::RasterCache { ref cache, .. } => cache.borrow().spacing(),
+            RasterSource::Hybrid { ref cache, .. } => cache
+                .borrow()
+                .spacing()
+                .or(Some(global_raster.unwrap().spacing())),
+        };
+
         Ok(ReprojectedRasterHeader {
             resolution: self.heights.header.resolution - 1,
             tiles: self.heights.header.tiles,
             datatype: self.datatype,
-            bands,
-            spacing: global_raster.map(|gr| gr.spacing()),
+            bands: bands.try_into().unwrap(),
+            spacing,
         })
     }
 }
@@ -410,13 +430,14 @@ impl ReprojectedRaster {
         Ok(Self { data, header })
     }
 
-    pub fn from_raster<'a, T, C>(
-        def: ReprojectedRasterDef<'a, T, C>,
+    pub fn from_raster<'a, T, C, C2>(
+        def: ReprojectedRasterDef<'a, T, C, C2>,
         context: &mut AssetLoadContext,
     ) -> Result<Self, Error>
     where
         T: Into<f64> + Copy,
         C: Index<usize, Output = T>,
+        C2: Deref<Target = [T]>,
     {
         let (header, data) = def.load(context)?;
         Ok(Self { data, header })
