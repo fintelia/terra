@@ -4,7 +4,7 @@ uniform mat4 modelViewProjection;
 
 uniform sampler2DArray colors;
 uniform sampler2DArray normals;
-uniform sampler2DArray water;
+uniform sampler2DArray splats;
 uniform sampler2DArray materials;
 uniform samplerCube sky;
 
@@ -19,7 +19,7 @@ in vec2 fTexcoord;
 in vec2 fParentTexcoord;
 in vec2 fColorsLayer;
 in vec2 fNormalsLayer;
-in vec2 fWaterLayer;
+in vec2 fSplatsLayer;
 in float fMorph;
 
 out vec4 OutColor;
@@ -62,10 +62,10 @@ vec3 material(vec3 pos, uint mat) {
 	return v * (0.625 + fractal2(pos.xz) * .75);
 }
 
-vec3 compute_splatting(vec3 pos, vec2 t, vec3 normal) {
-	t += 0.0001 * fractal(pos.xz).xy * 10;
-	vec2 weights = fract(t.xy * textureSize(normals, 0).xy - 0.5);
-	uvec4 m = uvec4(ceil(textureGather(normals, vec3(t, fNormalsLayer), 3) * 255));
+vec3 compute_splatting(vec3 pos, vec2 texcoord, vec3 normal, float splatsLayer) {
+	texcoord += 0.0001 * fractal(pos.xz).xy * 10;
+	vec2 weights = fract(texcoord.xy * textureSize(splats, 0).xy - 0.5);
+	uvec4 m = uvec4(ceil(textureGather(splats, vec3(texcoord, splatsLayer), 3) * 255));
 	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
 				 mix(vec4(0,0,1,0), vec4(0,1,0,0), weights.y), weights.x);
 
@@ -92,31 +92,28 @@ vec3 water_color() {
 	return mix(refractedColor, reflectedColor, R);
 }
 
-vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float waterLayer) {
-	float waterAmount = smoothstep(0.2,0.5, texture(water, vec3(texcoord, waterLayer)).x);
-	if(normalsLayer >= 0) {
-		// return vec3(fractal2(fPosition.xz));
-		vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);
+vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float splatsLayer) {
+	vec4 color = texture(colors, vec3(texcoord, colorsLayer));
+	vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);
+	normal = normalize(fPosition + vec3(0,planetRadius,0));
 
-		vec3 color = compute_splatting(fPosition, texcoord, normal);
-		color = mix(color, vec3(0,0.05,0.1), waterAmount);
-		color *= max(dot(normal, sunDirection), 0);
-		return color;
-	} else {
-		vec4 color = texture(colors, vec3(texcoord, colorsLayer));
-		color.rgb = mix(color.rgb, water_color(), waterAmount);
-		return color.rgb * color.a;
+	if(splatsLayer >= 0) {
+		color.rgb = compute_splatting(fPosition, texcoord, normal, splatsLayer);
 	}
+
+	color.rgb = mix(color.rgb, water_color(), smoothstep(0.2,0.5, color.a));
+	color.rgb *= max(dot(normal, sunDirection), 0);
+	return color.rgb;
 }
 
 void main() {
 	OutColor = vec4(0,0,0,1);
 	if(fMorph < 0.9999) {
-		OutColor.rgb += land_color(fParentTexcoord, fColorsLayer.y, fNormalsLayer.y, fWaterLayer.y)
+		OutColor.rgb += land_color(fParentTexcoord, fColorsLayer.y, fNormalsLayer.y, fSplatsLayer.y)
 			* (1.0 - fMorph);
 	}
 	if(fMorph > 0.0) {
-		OutColor.rgb += land_color(fTexcoord, fColorsLayer.x, fNormalsLayer.x, fWaterLayer.x)
+		OutColor.rgb += land_color(fTexcoord, fColorsLayer.x, fNormalsLayer.x, fSplatsLayer.x)
 			* fMorph;
 	}
 

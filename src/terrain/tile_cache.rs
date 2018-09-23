@@ -39,7 +39,7 @@ pub(crate) enum LayerType {
     Heights = 0,
     Colors = 1,
     Normals = 2,
-    Water = 3,
+    Splats = 3,
     Foliage = 4,
 }
 impl LayerType {
@@ -47,8 +47,8 @@ impl LayerType {
         match *self {
             LayerType::Heights => 512,
             LayerType::Colors => 256,
-            LayerType::Normals => 32,
-            LayerType::Water => 256,
+            LayerType::Normals => 256,
+            LayerType::Splats => 32,
             LayerType::Foliage => 64,
         }
     }
@@ -303,6 +303,16 @@ impl<R: gfx::Resources> TileCache<R> {
 
     pub fn get_slot(&self, id: NodeId) -> Option<usize> {
         self.reverse.get(id.index()).cloned()
+    }
+
+    pub fn get_texture_view_r8(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
+        match self.payloads {
+            PayloadSet::Texture {
+                texture: TextureArray::R8 { ref view, .. },
+                ..
+            } => Some(view),
+            _ => None,
+        }
     }
 
     pub fn get_texture_view_f32(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {

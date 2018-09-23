@@ -301,7 +301,6 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
     ) -> Result<Self::Header, Error> {
         let world_center =
             Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
-        let sun_direction = Vector3::new(0.0, 1.0, 1.0).normalize();
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
@@ -354,7 +353,6 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             max_dem_level,
             materials: &self.materials,
             skirt,
-            sun_direction,
             system: CoordinateSystem::from_lla(Vector3::new(
                 world_center.y.to_radians() as f64,
                 world_center.x.to_radians() as f64,
@@ -366,21 +364,24 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             directory_name: format!("maps/t.{}/", self.name()),
         };
 
-        context.set_progress_and_total(0, 4);
+        context.set_progress_and_total(0, 8);
         state.generate_heightmaps(context)?;
         context.set_progress(1);
         state.generate_normalmaps(context)?;
         context.set_progress(2);
-        state.generate_watermasks(context)?;
+        state.generate_splats(context)?;
         context.set_progress(3);
         state.place_trees(context)?;
         state.generate_colormaps(context)?;
         context.set_progress(4);
 
         state.write_trees(context)?;
+        context.set_progress(5);
 
         let planet_mesh = state.generate_planet_mesh(context)?;
+        context.set_progress(6);
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
+        context.set_progress(7);
         let noise = state.generate_noise(context)?;
         let State {
             layers,
@@ -388,6 +389,8 @@ impl<'a, R: gfx::Resources, F: gfx::Factory<R>, C: gfx_core::command::Buffer<R>>
             system,
             ..
         } = state;
+
+        context.set_progress(8);
 
         Ok(TileHeader {
             system,
@@ -424,7 +427,6 @@ struct State<'a, W: Write, R: gfx::Resources> {
     resolution_ratio: u16,
     writer: W,
     materials: &'a MaterialSet<R>,
-    sun_direction: Vector3<f32>,
 
     system: CoordinateSystem,
 
@@ -604,6 +606,29 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
 
+        let reproject = ReprojectedRasterDef {
+            name: format!("{}watermasks", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            datatype: DataType::U8,
+            raster: RasterSource::Hybrid {
+                global: Box::new(GlobalWaterMask),
+                cache: Rc::new(RefCell::new(RasterCache::new(
+                    Box::new(BlurredSource::new(
+                        Rc::new(RefCell::new(RasterCache::new(
+                            Box::new(LandCoverKind::WaterMask),
+                            128,
+                        ))),
+                        0.0,
+                    )),
+                    64,
+                ))),
+            },
+        };
+        let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
+
         let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
@@ -619,28 +644,24 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             let use_blue_marble = spacing * 2.0 >= bluemarble.spacing().unwrap() as f32;
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    // let world = self.world_position(x as i32, y as i32, self.nodes[i].bounds);
                     let h00 = heights.get(i, x, y, 0);
                     let h01 = heights.get(i, x, y + 1, 0);
                     let h10 = heights.get(i, x + 1, y, 0);
                     let h11 = heights.get(i, x + 1, y + 1, 0);
-                    // let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
-                    // let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    // let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
 
                     let normal = Vector3::new(
                         h10 + h11 - h00 - h01,
                         2.0 * spacing,
                         -1.0 * (h01 + h11 - h00 - h10),
                     ).normalize();
-                    let light = (normal.dot(self.sun_direction).max(0.0) * 255.0) as u8;
 
+                    let water = watermasks.get(i, x, y, 0) as u8;
                     let color = if use_blue_marble {
                         let brighten = |x: f32| (255.0 * (x / 255.0).powf(0.6)) as u8;
                         let r = brighten(bluemarble.get(i, x, y, 0));
                         let g = brighten(bluemarble.get(i, x, y, 1));
                         let b = brighten(bluemarble.get(i, x, y, 2));
-                        [r, g, b, light]
+                        [r, g, b, water]
                     } else {
                         let splat = Self::compute_splat(normal.y);
                         let albedo = self.materials.get_average_albedo(splat);
@@ -651,10 +672,10 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                                 mix(albedo[0], LINEAR_TO_SRGB[13], tree_density),
                                 mix(albedo[1], LINEAR_TO_SRGB[31], tree_density),
                                 mix(albedo[2], 0, tree_density),
-                                light,
+                                water,
                             ]
                         } else {
-                            [albedo[0], albedo[1], albedo[2], light]
+                            [albedo[0], albedo[1], albedo[2], water]
                         }
                     };
                     colormap.extend_from_slice(&color);
@@ -763,7 +784,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
         let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
+//            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
             .collect();
         let tile_count = normalmap_nodes.len();
         let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
@@ -805,7 +826,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                     self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    self.writer.write_u8(Self::compute_splat(normal.y) as u8)?;
+                    self.writer.write_u8(0)?;
                     self.bytes_written += 4;
                 }
             }
@@ -813,70 +834,58 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_watermasks(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+    fn generate_splats(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
-        let watermap_resolution = self.heightmap_resolution - 5;
-        let tile_count = self.heightmaps.as_ref().unwrap().len();
-        let tile_bytes = 4 * watermap_resolution as usize * watermap_resolution as usize;
+        let normalmap_resolution = self.heightmap_resolution - 5;
+        let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
+            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
+            .collect();
+        let tile_count = normalmap_nodes.len();
+        let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange {
                 offset: self.bytes_written + i * tile_bytes,
                 length: tile_bytes,
             }).collect();
         self.layers.push(LayerParams {
-            layer_type: LayerType::Water,
+            layer_type: LayerType::Splats,
             tile_locations,
             payload_type: PayloadType::Texture {
-                resolution: watermap_resolution as u32,
+                resolution: normalmap_resolution as u32,
                 border_size: self.skirt as u32 - 2,
-                format: TextureFormat::RGBA8,
+                format: TextureFormat::R8,
             },
         });
-        context.increment_level(
-            "Generating water masks... ",
-            self.heightmaps.as_ref().unwrap().len(),
-        );
-
-        let reproject = ReprojectedRasterDef {
-            name: format!("{}watermasks", self.directory_name),
-            heights: self.heightmaps.as_ref().unwrap(),
-            system: &self.system,
-            nodes: &self.nodes,
-            skirt: self.skirt,
-            datatype: DataType::U8,
-            raster: RasterSource::Hybrid {
-                global: Box::new(GlobalWaterMask),
-                cache: Rc::new(RefCell::new(RasterCache::new(
-                    Box::new(BlurredSource::new(
-                        Rc::new(RefCell::new(RasterCache::new(
-                            Box::new(LandCoverKind::WaterMask),
-                            128,
-                        ))),
-                        0.0,
-                    )),
-                    64,
-                ))),
-            },
-        };
-        let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
-
-        for i in 0..self.heightmaps.as_ref().unwrap().len() {
+        context.increment_level("Generating splats... ", normalmap_nodes.len());
+        for (i, id) in normalmap_nodes.into_iter().enumerate() {
             context.set_progress(i as u64);
-            self.nodes[i].tile_indices[LayerType::Water.index()] = Some(i as u32);
+            self.nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
-            for y in 2..(2 + watermap_resolution) {
-                for x in 2..(2 + watermap_resolution) {
-                    self.writer.write_u8(watermasks.get(i, x, y, 0) as u8)?;
-                    self.writer.write_u8(0)?;
-                    self.writer.write_u8(255)?;
-                    self.writer.write_u8(0)?;
-                    self.bytes_written += 4;
+            let heights = self.heightmaps.as_ref().unwrap();
+            let spacing =
+                self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            for y in 2..(2 + normalmap_resolution) {
+                for x in 2..(2 + normalmap_resolution) {
+                    let h00 = heights.get(id, x, y, 0);
+                    let h01 = heights.get(id, x, y + 1, 0);
+                    let h10 = heights.get(id, x + 1, y, 0);
+                    let h11 = heights.get(id, x + 1, y + 1, 0);
+
+                    let normal = Vector3::new(
+                        h10 + h11 - h00 - h01,
+                        2.0 * spacing,
+                        -1.0 * (h01 + h11 - h00 - h10),
+                    ).normalize();
+
+                    self.writer.write_u8(Self::compute_splat(normal.y) as u8)?;
+                    self.bytes_written += 1;
                 }
             }
         }
         context.decrement_level();
         Ok(())
     }
+
     fn generate_noise(&mut self, _context: &mut AssetLoadContext) -> Result<NoiseParams, Error> {
         let noise = NoiseParams {
             offset: self.bytes_written,

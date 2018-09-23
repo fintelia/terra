@@ -15,14 +15,14 @@ in vec2 parentTextureOrigin;
 in float parentTextureStep;
 in vec2 colorsLayer;
 in vec2 normalsLayer;
-in vec2 waterLayer;
+in vec2 splatsLayer;
 
 out vec3 fPosition;
 out vec2 fTexcoord;
 out vec2 fParentTexcoord;
 out vec2 fColorsLayer;
 out vec2 fNormalsLayer;
-out vec2 fWaterLayer;
+out vec2 fSplatsLayer;
 out float fMorph;
 
 void main() {
@@ -56,7 +56,7 @@ void main() {
 	fParentTexcoord = parentTextureOrigin + nPosition * parentTextureStep;
 	fColorsLayer = colorsLayer;
 	fNormalsLayer = normalsLayer;
-	fWaterLayer = waterLayer;
+	fSplatsLayer = splatsLayer;
 	fMorph = morph;
 	gl_Position = modelViewProjection * vec4(position, 1.0);
 }

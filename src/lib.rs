@@ -12,6 +12,7 @@
 #[cfg(test)]
 #[macro_use]
 extern crate approx;
+extern crate astro;
 extern crate bincode;
 extern crate bit_vec;
 extern crate byteorder;

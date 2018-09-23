@@ -18,7 +18,7 @@ gfx_defines!{
         parent_texture_origin: [f32; 2] = "parentTextureOrigin",
         colors_layer: [f32; 2] = "colorsLayer",
         normals_layer: [f32; 2] = "normalsLayer",
-        water_layer: [f32; 2] = "waterLayer",
+        splats_layer: [f32; 2] = "splatsLayer",
         texture_step: f32 = "textureStep",
         parent_texture_step: f32 = "parentTextureStep",
     }
@@ -46,7 +46,7 @@ gfx_pipeline!( pipe {
     heights: gfx::TextureSampler<f32> = "heights",
     normals: gfx::TextureSampler<[f32; 4]> = "normals",
     colors: gfx::TextureSampler<[f32; 4]> = "colors",
-    water: gfx::TextureSampler<[f32; 4]> = "water",
+    splats: gfx::TextureSampler<f32> = "splats",
     materials: gfx::TextureSampler<[f32; 4]> = "materials",
     sky: gfx::TextureSampler<[f32; 4]> = "sky",
     ocean_surface: gfx::TextureSampler<[f32; 4]> = "oceanSurface",
@@ -272,17 +272,17 @@ where
             let normals_slot = tile_cache_layers[LayerType::Normals.index()]
                 .get_slot(ancestor)
                 .map(|s| s as f32)
-                .unwrap_or(-1.0);
-            let water_slot = tile_cache_layers[LayerType::Water.index()]
+                .unwrap();
+            let splats_slot = tile_cache_layers[LayerType::Splats.index()]
                 .get_slot(ancestor)
                 .map(|s| s as f32)
-                .unwrap();
+                .unwrap_or(-1.0);
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(
                 offset.x as f32 * texture_ratio * scale,
                 offset.y as f32 * texture_ratio * scale,
             );
-            (colors_slot, normals_slot, water_slot, offset, scale)
+            (colors_slot, normals_slot, splats_slot, offset, scale)
         };
         fn find_parent_texture_slots<R: gfx::Resources>(
             nodes: &Vec<Node>,
@@ -291,7 +291,7 @@ where
             texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
             if let Some((parent, child_index)) = nodes[id].parent {
-                let (c, n, w, offset, scale) =
+                let (c, n, s, offset, scale) =
                     find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
                 let child_offset = node::OFFSETS[child_index as usize];
                 let offset = offset
@@ -299,7 +299,7 @@ where
                         * scale
                         * texture_ratio
                         * 0.5;
-                (c, n, w, offset, scale * 0.5)
+                (c, n, s, offset, scale * 0.5)
             } else {
                 (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
             }
@@ -310,9 +310,9 @@ where
             let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
                 .get_slot(id)
                 .unwrap() as f32;
-            let (colors_layer, normals_layer, water_layer, texture_offset, tex_step_scale) =
+            let (colors_layer, normals_layer, splats_layer, texture_offset, tex_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-            let (pcolors_layer, pnormals_layer, pwater_layer, ptexture_offset, ptex_step_scale) =
+            let (pcolors_layer, pnormals_layer, psplats_layer, ptexture_offset, ptex_step_scale) =
                 find_parent_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z],
@@ -329,7 +329,7 @@ where
                 ],
                 colors_layer: [colors_layer, pcolors_layer],
                 normals_layer: [normals_layer, pnormals_layer],
-                water_layer: [water_layer, pwater_layer],
+                splats_layer: [splats_layer, psplats_layer],
                 texture_step: texture_step * tex_step_scale,
                 parent_texture_step: texture_step * ptex_step_scale,
             });
@@ -346,14 +346,14 @@ where
                     let (
                         colors_layer,
                         normals_layer,
-                        water_layer,
+                        splats_layer,
                         texture_offset,
                         texture_step_scale,
                     ) = find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
                     let (
                         pcolors_layer,
                         pnormals_layer,
-                        pwater_layer,
+                        psplats_layer,
                         ptexture_offset,
                         ptexture_step_scale,
                     ) = find_parent_texture_slots(
@@ -392,7 +392,7 @@ where
                         ],
                         colors_layer: [colors_layer, pcolors_layer],
                         normals_layer: [normals_layer, pnormals_layer],
-                        water_layer: [water_layer, pwater_layer],
+                        splats_layer: [splats_layer, psplats_layer],
                         texture_step: texture_step * texture_step_scale,
                         parent_texture_step: texture_step * ptexture_step_scale,
                     });

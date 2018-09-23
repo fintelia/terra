@@ -1,3 +1,5 @@
+#![feature(duration_as_u128)]
+
 extern crate camera_controllers;
 extern crate cgmath;
 extern crate collision;
@@ -152,8 +154,7 @@ fn main() {
 
         window.draw_3d(&e, |window| {
             let now = Instant::now();
-            let dt = (now - last_frame).as_secs() as f32
-                + (now - last_frame).subsec_nanos() as f32 / 1000_000_000.0;
+            let dt = (now - last_frame).as_nanos() as f32 / 1000_000_000.0;
             last_frame = now;
 
             window.encoder.clear_depth(&smaa_target.output_depth(), 0.0);

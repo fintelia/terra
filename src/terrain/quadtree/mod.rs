@@ -1,3 +1,4 @@
+use astro::{coords, sun};
 use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
@@ -19,6 +20,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cache::AssetLoadContext;
+use coordinates::CoordinateSystem;
 use terrain::material::MaterialSet;
 use terrain::tile_cache::{
     LayerType, MeshDescriptor, PayloadType, Priority, TextureDescriptor, TileCache, TileHeader,
@@ -77,6 +79,7 @@ where
     num_planet_mesh_vertices: usize,
     node_states: Vec<NodeState>,
     _materials: MaterialSet<R>,
+    system: CoordinateSystem,
 }
 
 #[allow(unused)]
@@ -252,8 +255,8 @@ where
             .get_texture_view_rgba8()
             .unwrap()
             .clone();
-        let water_texture_view = tile_cache_layers[LayerType::Water.index()]
-            .get_texture_view_rgba8()
+        let splats_texture_view = tile_cache_layers[LayerType::Splats.index()]
+            .get_texture_view_r8()
             .unwrap()
             .clone();
 
@@ -345,7 +348,7 @@ where
                 heights: (heights_texture_view, sampler.clone()),
                 colors: (colors_texture_view, sampler.clone()),
                 normals: (normals_texture_view, sampler.clone()),
-                water: (water_texture_view, sampler.clone()),
+                splats: (splats_texture_view, sampler.clone()),
                 materials: (materials.texture_view.clone(), sampler_wrap.clone()),
                 sky: (sky.texture_view.clone(), sampler.clone()),
                 ocean_surface: (ocean.texture_view.clone(), sampler_wrap.clone()),
@@ -428,6 +431,7 @@ where
             node_states: Vec::new(),
             tile_cache_layers,
             _materials: materials,
+            system: header.system,
         })
     }
 
@@ -520,6 +524,28 @@ where
         encoder: &mut gfx::Encoder<R, C>,
         dt: f32,
     ) {
+        let sun_direction = {
+            let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
+            let distance = distance_au * 149597870700.0;
+
+            let e = 0.40905;
+            let declination = coords::dec_frm_ecl(ecl.long, ecl.lat, e);
+            let right_ascension = coords::asc_frm_ecl(ecl.long, ecl.lat, e);
+
+            let eq_rect = Vector3::new(
+                distance * declination.cos() * right_ascension.cos(),
+                distance * declination.cos() * right_ascension.sin(),
+                distance * declination.sin(),
+            );
+
+            // TODO: Is this conversion from equatorial coordinates to ECEF actually valid?
+            let ecef = Vector3::new(eq_rect.x, -eq_rect.y, eq_rect.z);
+
+            let world = self.system.ecef_to_world(ecef);
+            let direction = world.normalize();
+            [direction.x as f32, direction.y as f32, direction.z as f32]
+        };
+
         // Convert the MVP matrix to "vecmath encoding".
         let to_array = |v: Vector4<f32>| [v.x, v.y, v.z, v.w];
         let mvp_mat = [
@@ -538,6 +564,7 @@ where
 
         self.pipeline_data.model_view_projection = mvp_mat;
         self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        self.pipeline_data.sun_direction = sun_direction;
 
         let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
         let homogeneous = |[x, y, z, w]: [f64; 4]| [x / w, y / w, z / w];
@@ -553,12 +580,15 @@ where
         self.sky_pipeline_data.ray_top_left = ray(-1.0, 1.0);
         self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
         self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        self.sky_pipeline_data.sun_direction = sun_direction;
 
         self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
         self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        self.planet_mesh_pipeline_data.sun_direction = sun_direction;
 
         self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
         self.instanced_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        self.instanced_mesh_pipeline_data.sun_direction = sun_direction;
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)
