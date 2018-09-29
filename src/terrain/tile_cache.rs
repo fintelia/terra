@@ -416,6 +416,6 @@ mod tests {
 
     #[test]
     fn mesh_instance_size() {
-        assert_eq!(mem::size_of::<MeshInstance>(), 32);
+        assert_eq!(mem::size_of::<MeshInstance>(), 64);
     }
 }
