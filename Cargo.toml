@@ -64,6 +64,9 @@ dynamic_shaders = ["rshader/dynamic_shaders"]
 [profile.release]
 debug=true
 
+[profile.dev]
+opt-level = 1
+
 [workspace]
 
 [patch.crates-io]

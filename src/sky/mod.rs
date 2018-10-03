@@ -9,9 +9,9 @@ use gfx_core;
 use image::{self, RgbaImage};
 use zip::ZipArchive;
 
-use sky::precompute::{InscatteringTable, TransmittanceTable};
-use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
 use self::lut::GpuLookupTable;
+use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
+use sky::precompute::{InscatteringTable, TransmittanceTable};
 
 pub mod lut;
 mod precompute;
@@ -84,9 +84,7 @@ impl<R: gfx::Resources> Skybox<R> {
         encoder: &mut gfx::Encoder<R, C>,
         context: &mut AssetLoadContext,
     ) -> Self {
-        let mut raw = SkyboxAsset::default()
-            .load(context)
-            .unwrap();
+        let mut raw = SkyboxAsset::default().load(context).unwrap();
         let mut data = Vec::new();
         let mut data_slices = Vec::new();
         for face in FACE_NAMES.iter() {
@@ -104,8 +102,7 @@ impl<R: gfx::Resources> Skybox<R> {
                 gfx::memory::Bind::SHADER_RESOURCE,
                 gfx::memory::Usage::Dynamic,
                 Some(ChannelType::Srgb),
-            )
-            .unwrap();
+            ).unwrap();
 
         for (i, face) in gfx::texture::CUBE_FACES.iter().cloned().enumerate() {
             encoder
@@ -123,8 +120,7 @@ impl<R: gfx::Resources> Skybox<R> {
                         mipmap: 0,
                     },
                     &data_slices[i][..],
-                )
-                .unwrap();
+                ).unwrap();
         }
 
         let texture_view = factory
@@ -132,8 +128,7 @@ impl<R: gfx::Resources> Skybox<R> {
                 &texture,
                 (0, mipmaps),
                 Swizzle::new(),
-            )
-            .unwrap();
+            ).unwrap();
 
         encoder.generate_mipmap(&texture_view);
 

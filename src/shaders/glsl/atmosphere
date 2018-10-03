@@ -145,13 +145,13 @@ void reverse_parameters(float r, float mu, float mu_s,
 
 	ivec3 size = textureSize(inscattering, 0);
 
-	float hp = (size.y - 1.0) / size.y;
+	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
 	float mu_horizon = -sqrt(1.0 - (planetRadius / r) * (planetRadius / r));
-	if(mu > mu_horizon) {
-		u_mu = 0.5 * (2.0 - hp) + 0.5 * hp * pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
+	if (mu > mu_horizon) {
+		u_mu = (1.0 - hp) + hp * pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
 	} else {
-		u_mu = 0.5 * hp * pow((mu_horizon - mu) / (mu_horizon + 1.0), 0.2);
-	};
+		u_mu = hp * pow((mu_horizon - mu) / (1.0 + mu_horizon), 0.2);
+	}
 
 	u_mu_s = clamp(0.5*(atan(max(mu_s, -0.45)*tan(1.26 * 0.75))
 						/ 0.75 + (1.0 - 0.26)), 0, 1);
@@ -173,19 +173,55 @@ vec4 texture4D(sampler3D sampler, vec4 P, int slices) {
 	return mix(texture(sampler,P1), texture(sampler,P2), t);
 }
 
-vec3 precomputed_transmittance(float r, float v) {
+vec3 precomputed_transmittance(float r, float mu) {
 	vec2 size = textureSize(transmittance, 0);
-	r = clamp(r, planetRadius, atmosphereRadius);
-	vec2 P = vec2((r - planetRadius) / (atmosphereRadius - planetRadius), v * 0.5 + 0.5);
-	return texture(transmittance, (P * (size-1) + 0.5) / size).rgb;
+	float u_r = clamp((r - planetRadius) / (atmosphereRadius - planetRadius), 0, 1);
+
+	float u_mu;
+	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
+
+	float mu_horizon = -sqrt(1.0 - (planetRadius / r) * (planetRadius / r));
+	if (mu > mu_horizon) {
+		float uu = pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
+		u_mu = uu * hp + (1.0 - hp);
+	} else {
+		float uu = pow((mu_horizon - mu) / (1.0 + mu_horizon), 0.2);
+		u_mu = uu * hp;
+	}
+
+	return texture(transmittance, (vec2(u_r, u_mu) * (size-1) + 0.5) / size).rgb;
 }
 
 vec3 precomputed_transmittance2(vec3 x, vec3 y) {
-	float v = dot(normalize(x), normalize(x - y));
-	vec3 t1 = precomputed_transmittance(length(x), v);
-	vec3 t2 = precomputed_transmittance(length(y), v);
-	if(t1.x == 0 || t1.y == 0 || t1.z == 0)
-		return vec3(0);
+	float r1 = length(x);
+	float r2 = length(y);
+	float mu1 = dot(normalize(x), normalize(x - y));
+	float mu2 = dot(normalize(y), normalize(x - y));
+
+	vec2 size = textureSize(transmittance, 0);
+	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
+
+	float mu1_horizon = -sqrt(1.0 - (planetRadius / r1) * (planetRadius / r1));
+	float mu2_horizon = -sqrt(1.0 - (planetRadius / r2) * (planetRadius / r2));
+
+	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
+	float rho1 = sqrt(max(r1 * r1 - planetRadius * planetRadius, 0));
+	float rho2 = sqrt(max(r2 * r2 - planetRadius * planetRadius, 0));
+	float u_r1 = rho1 / H;
+	float u_r2 = rho2 / H;
+
+	float u_mu1, u_mu2;
+	if (mu1 > mu1_horizon) {
+		u_mu1 = (1.0 - hp) + hp * pow((mu1 - mu1_horizon) / (1.0 - mu1_horizon), 0.2);
+		u_mu2 = (1.0 - hp) + hp * pow(max(mu2 - mu2_horizon, 0) / (1.0 - mu2_horizon), 0.2);
+	} else {
+		u_mu1 = hp * pow((mu1_horizon - mu1) / (1.0 + mu1_horizon), 0.2);
+		u_mu2 = hp * pow(max(mu2_horizon - mu2, 0) / (1.0 + mu2_horizon), 0.2);
+	}
+
+	vec3 t1 = texture(transmittance, (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
+	vec3 t2 = texture(transmittance, (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
+
 	return t2 / t1;
 }
 
@@ -277,6 +313,7 @@ vec3 precomputed_aerial_perspective(vec3 color, vec3 position, vec3 cameraPositi
 
 	// if(distance(wc, wp) > 100000) return vec3(1,0,0);
 	// if(t.x > .991) return vec3(0);
+//	if(u_mu > 0.5) return vec3(0);
 
 	return color + 10 * inscattering;
 }

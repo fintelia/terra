@@ -60,15 +60,15 @@ pub struct LookupTable {
     pub data: Vec<[f32; 4]>,
 }
 impl LookupTable {
-    pub fn get2(&self, x: f32, y: f32) -> [f32; 4] {
+    pub fn get2(&self, x: f64, y: f64) -> [f32; 4] {
         assert_eq!(self.size[2], 1);
         assert!(x >= 0.0);
         assert!(y >= 0.0);
         assert!(x <= 1.0);
         assert!(y <= 1.0);
 
-        let x = (x * (self.size[0] - 1) as f32).round() as usize;
-        let y = (y * (self.size[1] - 1) as f32).round() as usize;
+        let x = (x * (self.size[0] - 1) as f64).round() as usize;
+        let y = (y * (self.size[1] - 1) as f64).round() as usize;
         self.data[x + y * self.size[0] as usize]
     }
 }
