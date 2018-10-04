@@ -37,7 +37,7 @@ features.
 Terrain:
 - [x] CDLOD quadtree implementation
 - [x] Frustum culling
-- [ ] Oceans *(in* *progress)*
+- [ ] Oceans
 - [ ] Biomes
 
 Foliage:
@@ -47,7 +47,7 @@ Foliage:
 Atmosphere:
 - [x] Fog rendering
 - [x] Aerial perspective
-- [ ] Precomputed scattering *(in* *progress)*
+- [x] Precomputed scattering
 - [ ] Clouds
 
 # Data Sources / Credits
