@@ -65,7 +65,7 @@ vec3 material(vec3 pos, uint mat) {
 vec3 compute_splatting(vec3 pos, vec2 texcoord, vec3 normal, float splatsLayer) {
 	texcoord += 0.0001 * fractal(pos.xz).xy * 10;
 	vec2 weights = fract(texcoord.xy * textureSize(splats, 0).xy - 0.5);
-	uvec4 m = uvec4(ceil(textureGather(splats, vec3(texcoord, splatsLayer), 3) * 255));
+	uvec4 m = uvec4(ceil(textureGather(splats, vec3(texcoord, splatsLayer), 0) * 255));
 	vec4 w = mix(mix(vec4(0,0,0,1), vec4(1,0,0,0), weights.y),
 				 mix(vec4(0,0,1,0), vec4(0,1,0,0), weights.y), weights.x);
 
@@ -95,7 +95,6 @@ vec3 water_color() {
 vec3 land_color(vec2 texcoord, float colorsLayer, float normalsLayer, float splatsLayer) {
 	vec4 color = texture(colors, vec3(texcoord, colorsLayer));
 	vec3 normal = normalize(texture(normals, vec3(texcoord, normalsLayer)).xyz * 2.0 - 1.0);
-	normal = normalize(fPosition + vec3(0,planetRadius,0));
 
 	if(splatsLayer >= 0) {
 		color.rgb = compute_splatting(fPosition, texcoord, normal, splatsLayer);

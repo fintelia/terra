@@ -783,10 +783,7 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
-        let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-//            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
-            .collect();
-        let tile_count = normalmap_nodes.len();
+        let tile_count = self.heightmaps.as_ref().unwrap().len();
         let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange {
@@ -802,20 +799,20 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 format: TextureFormat::RGBA8,
             },
         });
-        context.increment_level("Generating normalmaps... ", normalmap_nodes.len());
-        for (i, id) in normalmap_nodes.into_iter().enumerate() {
+        context.increment_level("Generating normalmaps... ", tile_count);
+        for i in 0..tile_count {
             context.set_progress(i as u64);
-            self.nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
+            self.nodes[i].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
-                self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+                self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {
-                    let h00 = heights.get(id, x, y, 0);
-                    let h01 = heights.get(id, x, y + 1, 0);
-                    let h10 = heights.get(id, x + 1, y, 0);
-                    let h11 = heights.get(id, x + 1, y + 1, 0);
+                    let h00 = heights.get(i, x, y, 0);
+                    let h01 = heights.get(i, x, y + 1, 0);
+                    let h10 = heights.get(i, x + 1, y, 0);
+                    let h11 = heights.get(i, x + 1, y + 1, 0);
 
                     let normal = Vector3::new(
                         h10 + h11 - h00 - h01,
@@ -836,12 +833,12 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
     }
     fn generate_splats(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
-        let normalmap_resolution = self.heightmap_resolution - 5;
-        let normalmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
+        let splatmap_resolution = self.heightmap_resolution - 5;
+        let splatmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
             .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
             .collect();
-        let tile_count = normalmap_nodes.len();
-        let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
+        let tile_count = splatmap_nodes.len();
+        let tile_bytes = splatmap_resolution as usize * splatmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange {
                 offset: self.bytes_written + i * tile_bytes,
@@ -851,21 +848,21 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
             layer_type: LayerType::Splats,
             tile_locations,
             payload_type: PayloadType::Texture {
-                resolution: normalmap_resolution as u32,
+                resolution: splatmap_resolution as u32,
                 border_size: self.skirt as u32 - 2,
                 format: TextureFormat::R8,
             },
         });
-        context.increment_level("Generating splats... ", normalmap_nodes.len());
-        for (i, id) in normalmap_nodes.into_iter().enumerate() {
+        context.increment_level("Generating splats... ", splatmap_nodes.len());
+        for (i, id) in splatmap_nodes.into_iter().enumerate() {
             context.set_progress(i as u64);
-            self.nodes[id].tile_indices[LayerType::Normals.index()] = Some(i as u32);
+            self.nodes[id].tile_indices[LayerType::Splats.index()] = Some(i as u32);
 
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-            for y in 2..(2 + normalmap_resolution) {
-                for x in 2..(2 + normalmap_resolution) {
+            for y in 2..(2 + splatmap_resolution) {
+                for x in 2..(2 + splatmap_resolution) {
                     let h00 = heights.get(id, x, y, 0);
                     let h01 = heights.get(id, x, y + 1, 0);
                     let h10 = heights.get(id, x + 1, y, 0);
@@ -1270,28 +1267,38 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         let mut vertices = Vec::new();
         let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
         let resolution = Vector2::new(
-            self.heights_resolution,
+            self.heights_resolution / 4,
             ((self.heights_resolution - 1) / 2) * 4,
         );
+
         for y in 0..resolution.y {
+            let fy = y as f64 / resolution.y as f64;
+            let theta = 2.0 * PI * fy;
+
+            let tworld = Vector2::new(theta.cos() * radius, theta.sin() * radius);
+            let mut tworld3 = Vector3::new(tworld.x, 0.0, tworld.y);
+            for _ in 0..5 {
+                tworld3.x = tworld.x;
+                tworld3.z = tworld.y;
+                let mut lla = self.system.world_to_lla(tworld3);
+                lla.z = 0.0;
+                tworld3 = self.system.lla_to_world(lla);
+            }
+
+            let phi_min = f64::acos((EARTH_RADIUS + tworld3.y) / EARTH_RADIUS);
+
             for x in 0..resolution.x {
                 let fx = x as f64 / (resolution.x - 1) as f64;
-                let fy = y as f64 / resolution.y as f64;
-                let theta = 2.0 * PI * fy;
-                let world = Vector2::new(theta.cos() * radius, theta.sin() * radius);
-                let mut world3 = Vector3::new(world.x, -2.0 * EARTH_RADIUS * fx, world.y);
-                for _ in 0..5 {
-                    world3.x = world.x;
-                    world3.z = world.y;
-                    let mut lla = self.system.world_to_lla(world3);
-                    lla.z = 0.0;
-                    world3 = self.system.lla_to_world(lla);
-                }
+                let phi = phi_min + fx * (100f64.to_radians() - phi_min);
+
+                let world = Vector3::new(tworld3.x, (phi.cos() - 1.0) * EARTH_RADIUS, tworld3.z);
+                let lla = self.system.world_to_lla(world);
+                let surface_point = self.system.lla_to_world(Vector3::new(lla.x, lla.y, 0.0));
 
                 vertices.push(Vector3::new(
-                    world3.x as f32,
-                    world3.y as f32,
-                    world3.z as f32,
+                    surface_point.x as f32,
+                    surface_point.y as f32,
+                    surface_point.z as f32,
                 ));
             }
         }
@@ -1314,14 +1321,6 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
                 self.bytes_written += 72;
                 num_vertices += 6;
             }
-        }
-        for y in 0..(resolution.y - 2) as usize {
-            for i in [0, y + 2, y + 1].iter() {
-                let v = vertices[(resolution.x as usize - 1) + i * resolution.x as usize];
-                write_vertex(&mut self.writer, v)?;
-            }
-            self.bytes_written += 36;
-            num_vertices += 3;
         }
 
         Ok(MeshDescriptor {

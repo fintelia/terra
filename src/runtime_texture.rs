@@ -165,7 +165,7 @@ impl<R: gfx::Resources> TextureArray<R> {
         match *self {
             TextureArray::R8 { ref texture, .. } => {
                 encoder
-                    .update_texture::<gfx::format::R8, u8>(
+                    .update_texture::<gfx::format::R8, (gfx::format::R8, gfx::format::Unorm)>(
                         texture,
                         None,
                         new_image_info,

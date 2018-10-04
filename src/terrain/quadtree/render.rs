@@ -263,7 +263,7 @@ where
             texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
             let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
-                tile_cache_layers[LayerType::Colors.index()].contains(id)
+                tile_cache_layers[LayerType::Normals.index()].contains(id)
             }).unwrap();
             let colors_slot = tile_cache_layers[LayerType::Colors.index()]
                 .get_slot(ancestor)
@@ -464,7 +464,7 @@ where
         encoder.draw(
             &gfx::Slice {
                 start: 0,
-                end: 6,
+                end: 3,
                 base_vertex: 0,
                 instances: None,
                 buffer: gfx::IndexBuffer::Auto,
