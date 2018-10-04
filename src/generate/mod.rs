@@ -105,14 +105,10 @@ pub enum TextureQuality {
     High,
     /// About half the quality `High`.
     Low,
-    /// Bad looking at virtually any resolution, but very fast. Requires vertex quality of medium or
-    /// lower.
-    VeryLow,
 }
 impl TextureQuality {
     fn resolution(&self) -> u16 {
         match *self {
-            TextureQuality::VeryLow => 64,
             TextureQuality::Low => 256,
             TextureQuality::High => 512,
             TextureQuality::Ultra => 1024,
@@ -120,7 +116,6 @@ impl TextureQuality {
     }
     fn as_str(&self) -> &str {
         match *self {
-            TextureQuality::VeryLow => "tvl",
             TextureQuality::Low => "tl",
             TextureQuality::High => "th",
             TextureQuality::Ultra => "tu",
