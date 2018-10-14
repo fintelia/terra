@@ -22,8 +22,8 @@ void main() {
 	float cr = cos(vRotation);
 	mat3 rotation = mat3(cr, 0, sr, 0, 1, 0, -sr, 0, cr);
 
-	fPosition = vPosition + (rotation * mPosition) * vScale;
-	fColor = vColor*max(dot(vNormal, sunDirection), 0.0);
+	fPosition = vPosition + (rotation * mPosition) * vScale * 2.0;
+	fColor = vColor*max(dot(vNormal, sunDirection), 0.0) * 2 ;
 	fTexcoord = mTexcoord;
 
 	gl_Position = modelViewProjection * vec4(fPosition, 1.0);

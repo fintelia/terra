@@ -18,8 +18,10 @@ void main() {
 	if(smoothstep(0.8, 0.95, r) > h)
 		discard;
 
-	OutColor = vec4(0,0,0, 1);
-
-	OutColor.rgb = fColor * mix(texture(albedo, fTexcoord).rgb*2, vec3(1), 0.7);
+	OutColor = texture(albedo, fTexcoord);
+	if(OutColor.a < 0.5) discard;
+	OutColor.rgb *= fColor / OutColor.a;
+	OutColor.a = 1.0;
+	
 	OutColor.rgb = precomputed_aerial_perspective(OutColor.rgb, fPosition, cameraPosition, sunDirection);
 }

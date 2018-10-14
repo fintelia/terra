@@ -29,11 +29,13 @@ extern crate gfx_core;
 extern crate image;
 #[macro_use]
 extern crate lazy_static;
+extern crate lightbox;
 extern crate lru_cache;
 extern crate memmap;
 extern crate nalgebra;
 extern crate notify;
 extern crate num;
+extern crate obj;
 extern crate pbr;
 extern crate rand;
 #[macro_use]
@@ -64,8 +66,62 @@ pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 pub use terrain::dem::DemSource;
 pub use terrain::quadtree::QuadTree;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
+use cache::{AssetLoadContext, GeneratedAsset};
+use model::{TreeBillboardDef, TreeType};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+lazy_static! {
+    static ref TREE_BILLBOARDS: Arc<Mutex<HashMap<TreeType, Vec<(u32, u32, Vec<u8>)>>>> =
+        { Arc::new(Mutex::new(HashMap::new())) };
+}
+
+pub fn prepare_assets<R, F, C, D>(
+    factory: F,
+    encoder: &mut gfx::Encoder<R, C>,
+    device: &mut D,
+) -> Result<(), failure::Error>
+where
+    R: gfx::Resources,
+    F: gfx::Factory<R> + 'static + Clone,
+    C: gfx_core::command::Buffer<R>,
+    D: gfx::Device<Resources = R, CommandBuffer = C>,
+{
+    let lightbox = lightbox::Lightbox::new(2048, 2048, factory).unwrap();
+
+    let lightbox = Arc::new(Mutex::new(lightbox));
+    let encoder = Arc::new(Mutex::new(encoder));
+    let device = Arc::new(Mutex::new(device));
+
+    TREE_BILLBOARDS.lock().unwrap().insert(
+        TreeType::Birch,
+        TreeBillboardDef::<R, F, C, D> {
+            ty: TreeType::Birch,
+            lightbox: lightbox.clone(),
+            encoder: encoder.clone(),
+            device: device.clone(),
+        }.load(&mut AssetLoadContext::new())?,
+    );
+
+    TREE_BILLBOARDS.lock().unwrap().insert(
+        TreeType::Beech,
+        TreeBillboardDef::<R, F, C, D> {
+            ty: TreeType::Beech,
+            lightbox: lightbox.clone(),
+            encoder: encoder.clone(),
+            device: device.clone(),
+        }.load(&mut AssetLoadContext::new())?,
+    );
+
+    TREE_BILLBOARDS.lock().unwrap().insert(
+        TreeType::Pine,
+        TreeBillboardDef::<R, F, C, D> {
+            ty: TreeType::Pine,
+            lightbox: lightbox.clone(),
+            encoder: encoder.clone(),
+            device: device.clone(),
+        }.load(&mut AssetLoadContext::new())?,
+    );
+
+    Ok(())
 }

@@ -79,7 +79,11 @@ fn main() {
         });
     }
 
-    // let mut lightbox = lightbox::Lightbox::new(1024, 1024, window.factory.clone()).unwrap();
+    terra::prepare_assets(
+        window.factory.clone(),
+        &mut window.encoder,
+        &mut window.device,
+    ).unwrap();
 
     let mut smaa_target = SmaaTarget::with_tone_mapping(
         &mut window.factory,

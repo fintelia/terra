@@ -14,6 +14,7 @@ use rand::{self, Rng};
 
 use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use coordinates::CoordinateSystem;
+use model::TreeType;
 use runtime_texture::TextureFormat;
 use sky::Skybox;
 use srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
@@ -31,6 +32,7 @@ use terrain::tile_cache::{
     TextureDescriptor, TileHeader,
 };
 use utils::math::BoundingBox;
+use TREE_BILLBOARDS;
 
 /// The radius of the earth in meters.
 const EARTH_RADIUS: f64 = 6371000.0;
@@ -1088,19 +1090,19 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
 
         #[rustfmt::skip]
         let mesh_data: Vec<f32> = vec![
-            -5.0,  0.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
-             5.0,  0.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
-            -5.0, 10.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
-            -5.0, 10.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
-             5.0, 10.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-             5.0,  0.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+            -5.0,  0.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
+             5.0,  0.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+            -5.0, 10.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
+            -5.0, 10.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
+             5.0, 10.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+             5.0,  0.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
 
-             0.0,  0.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
-             0.0,  0.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
-             0.0, 10.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-             0.0, 10.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-             0.0, 10.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
-             0.0,  0.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
+             0.0,  0.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
+             0.0,  0.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
+             0.0, 10.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+             0.0, 10.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
+             0.0, 10.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
+             0.0,  0.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
 
             -5.0,  5.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
              5.0,  5.0, -5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
@@ -1119,22 +1121,27 @@ impl<'a, W: Write, R: gfx::Resources> State<'a, W, R> {
         }
         self.bytes_written += mesh.bytes;
 
-        let mut texture_data = vec![255u8; 256 * 256 * 4];
-        for x in 0..16 {
-            for h in 0..16 {
-                for y in 0..16 {
-                    for k in 0..16 {
-                        for i in 0..4 {
-                            texture_data[((x * 16 + h) + (y * 16 + k) * 256) * 4 + i] =
-                                if x % 2 == y % 2 { 64 } else { 192 };
-                        }
-                    }
+        let tree_billboards = TREE_BILLBOARDS.lock().unwrap();
+        let birch = tree_billboards.get(&TreeType::Birch).unwrap();
+        let (width, height) = (birch[0].0 as usize, birch[0].1 as usize);
+        assert_eq!(width, height);
+
+        let mut texture_data = vec![255u8; width * height * 16];
+        for y in 0..2 {
+            for x in 0..2 {
+                if y == 1 && x == 0 {
+                    continue;
+                }
+
+                for k in 0..height {
+                    texture_data[((y * height + k) * width * 2 + x * width) * 4..][..width * 4]
+                        .copy_from_slice(&birch[x + y].2[k * width * 4..][..width * 4]);
                 }
             }
         }
         let texture = TextureDescriptor {
             offset: self.bytes_written,
-            resolution: 256,
+            resolution: 2 * width as u32,
             format: TextureFormat::SRGBA,
             bytes: texture_data.len(),
         };

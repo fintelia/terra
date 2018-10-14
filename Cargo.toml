@@ -34,6 +34,7 @@ memmap = "0.7.0"
 nalgebra = "0.13"
 notify = "4.0"
 num = "0.1"
+obj = "0.8.2"
 pbr = { git = "https://github.com/fintelia/pb", rev = "7740234295184f84b4fbcd55c8c3fd5528b474ad" }
 rand = "0.5.5"
 rshader = { path = "rshader", features = [], version = "0.1.0" }
@@ -54,7 +55,7 @@ camera_controllers = "0.23"
 fps_counter = "1.0"
 gfx_text = { git = "https://github.com/PistonDevelopers/gfx_text" }
 piston_window = "0.75.0"
-gfx_smaa = "0.2.0"
+gfx_smaa = "0.2.1"
 gl = "0.10.0"
 
 [features]
@@ -68,6 +69,3 @@ debug=true
 opt-level = 1
 
 [workspace]
-
-[patch.crates-io]
-tiff = { path = "/home/jonathan/git/image-tiff" }
