@@ -1,7 +1,7 @@
 # Terra [![crates.io](https://img.shields.io/crates/v/terra.svg)](https://crates.io/crates/terra) [![docs.rs](https://docs.rs/terra/badge.svg)](https://docs.rs/terra) [![Travis](https://img.shields.io/travis/fintelia/terra.svg)]()
 
 Terra is a large scale terrain rendering library built on top of
-[gfx](https://github.com/gfx-rs/gfx).
+[gfx pre-ll](https://github.com/gfx-rs/gfx).
 
 ![Screenshot](/screenshot.png?raw=true)
 
@@ -17,7 +17,7 @@ kilometers.
 In Terra, terrain is treated as a [heightmap](https://en.wikipedia.org/wiki/Heightmap) along with a
 collection of texture maps storing the surface normal, color, etc. However, to ensure smooth frame
 rates and avoid noticable "LOD popping", Terra internally uses [a much more sophisticated
-representation](http://www.vertexasylum.com/downloads/cdlod/cdlod_latest.pdf) that provides
+representation](https://pdfs.semanticscholar.org/6a75/892f45b72f8765379134e8d2a4ed6a04f1b0.pdf) that provides
 continuous level of detail.
 
 ### Convenient Coordinate System
@@ -42,7 +42,7 @@ Terrain:
 
 Foliage:
 - [ ] Grass
-- [ ] Trees *(in* *progress)*
+- [x] Trees
 
 Atmosphere:
 - [x] Fog rendering
