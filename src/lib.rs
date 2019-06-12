@@ -1,127 +1,242 @@
-//! Terra is a large scale terrain rendering library built on top of gfx.
+//! Terra is a large scale terrain generation and rendering library built on top of rendy.
 
-#![feature(custom_attribute)]
-#![feature(nll)]
-#![feature(non_ascii_idents)]
-#![feature(slice_patterns)]
-#![feature(stmt_expr_attributes)]
-#![feature(test)]
-#![feature(try_from)]
-#![feature(unboxed_closures)]
+use rendy::{
+    command::{Families, QueueId, RenderPassEncoder},
+    factory::{Config, Factory},
+    graph::{
+        present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
+    },
+    memory::MemoryUsageValue,
+    mesh::{AsVertex, PosColor},
+    resource::Buffer,
+    shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
+};
 
-#[cfg(test)]
-#[macro_use]
-extern crate approx;
-extern crate astro;
-extern crate bincode;
-extern crate bit_vec;
-extern crate byteorder;
-extern crate cgmath;
-extern crate collision;
-extern crate coord_transforms;
-extern crate curl;
-extern crate dirs;
-#[macro_use]
-extern crate failure;
-#[macro_use]
-extern crate gfx;
-extern crate gfx_core;
-extern crate image;
-#[macro_use]
-extern crate lazy_static;
-extern crate lightbox;
-extern crate lru_cache;
-extern crate memmap;
-extern crate nalgebra;
-extern crate notify;
-extern crate num;
-extern crate obj;
-extern crate pbr;
-extern crate rand;
-#[macro_use]
-extern crate rshader;
-extern crate rustfft;
-extern crate safe_transmute;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate shader_version;
-extern crate test;
-extern crate vec_map;
-extern crate vecmath;
-extern crate zip;
+use rendy::{
+    shader::{PathBufShaderInfo, ShaderSetBuilder},
+    graph::render::*,
+    memory::Dynamic,
+    resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
+};
 
-mod cache;
-mod coordinates;
-mod generate;
-mod model;
-mod ocean;
-mod runtime_texture;
-mod sky;
-mod srgb;
-mod terrain;
-mod utils;
+use gfx_hal::pso::ShaderStageFlags;
 
-pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
-pub use terrain::dem::DemSource;
-pub use terrain::quadtree::QuadTree;
+use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 
-use cache::{AssetLoadContext, GeneratedAsset};
-use model::{TreeBillboardDef, TreeType};
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+type Backend = rendy::vulkan::Backend;
 
-lazy_static! {
-    static ref TREE_BILLBOARDS: Arc<Mutex<HashMap<TreeType, Vec<(u32, u32, Vec<u8>)>>>> =
-        { Arc::new(Mutex::new(HashMap::new())) };
+lazy_static::lazy_static! {
+    static ref VERTEX: PathBufShaderInfo = PathBufShaderInfo::new(
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tri.vert")),
+        ShaderKind::Vertex,
+        SourceLanguage::GLSL,
+        "main",
+    );
+
+    static ref FRAGMENT: PathBufShaderInfo = PathBufShaderInfo::new(
+        std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/src/tri.frag")),
+        ShaderKind::Fragment,
+        SourceLanguage::GLSL,
+        "main",
+    );
+
+    static ref SHADERS: rendy::shader::ShaderSetBuilder = rendy::shader::ShaderSetBuilder::default()
+        .with_vertex(&*VERTEX).unwrap()
+        .with_fragment(&*FRAGMENT).unwrap();
 }
 
-pub fn prepare_assets<R, F, C, D>(
-    factory: F,
-    encoder: &mut gfx::Encoder<R, C>,
-    device: &mut D,
-) -> Result<(), failure::Error>
-where
-    R: gfx::Resources,
-    F: gfx::Factory<R> + 'static + Clone,
-    C: gfx_core::command::Buffer<R>,
-    D: gfx::Device<Resources = R, CommandBuffer = C>,
-{
-    let lightbox = lightbox::Lightbox::new(2048, 2048, factory).unwrap();
+pub fn main() {
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Warn)
+        .filter_module("triangle", log::LevelFilter::Trace)
+        .init();
 
-    let lightbox = Arc::new(Mutex::new(lightbox));
-    let encoder = Arc::new(Mutex::new(encoder));
-    let device = Arc::new(Mutex::new(device));
+    let config: Config = Default::default();
 
-    TREE_BILLBOARDS.lock().unwrap().insert(
-        TreeType::Birch,
-        TreeBillboardDef::<R, F, C, D> {
-            ty: TreeType::Birch,
-            lightbox: lightbox.clone(),
-            encoder: encoder.clone(),
-            device: device.clone(),
-        }.load(&mut AssetLoadContext::new())?,
+    let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
+
+    let mut event_loop = EventsLoop::new();
+
+    let window = WindowBuilder::new()
+        .with_title("Rendy Triangle")
+        .build(&event_loop)
+        .unwrap();
+
+    event_loop.poll_events(|_| ());
+
+    let surface = factory.create_surface(&window);
+
+    let mut graph_builder = GraphBuilder::<Backend, ()>::new();
+
+    let color = graph_builder.create_image(
+        rendy::resource::Kind::D2(640, 480, 1, 1),
+        1,
+        factory.get_surface_format(&surface),
+        Some(gfx_hal::command::ClearValue::Color(
+            [1.0, 1.0, 1.0, 1.0].into(),
+        )),
     );
 
-    TREE_BILLBOARDS.lock().unwrap().insert(
-        TreeType::Beech,
-        TreeBillboardDef::<R, F, C, D> {
-            ty: TreeType::Beech,
-            lightbox: lightbox.clone(),
-            encoder: encoder.clone(),
-            device: device.clone(),
-        }.load(&mut AssetLoadContext::new())?,
+    let pass = graph_builder.add_node(
+        TriangleRenderPipeline::builder()
+            .into_subpass()
+            .with_color(color)
+            .into_pass(),
     );
 
-    TREE_BILLBOARDS.lock().unwrap().insert(
-        TreeType::Pine,
-        TreeBillboardDef::<R, F, C, D> {
-            ty: TreeType::Pine,
-            lightbox: lightbox.clone(),
-            encoder: encoder.clone(),
-            device: device.clone(),
-        }.load(&mut AssetLoadContext::new())?,
-    );
+    graph_builder
+        .add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
 
+    let graph = graph_builder
+        .build(&mut factory, &mut families, &mut ())
+        .unwrap();
+
+    run(&mut event_loop, &mut factory, &mut families, graph).unwrap();
+}
+
+fn run(
+    event_loop: &mut EventsLoop,
+    factory: &mut Factory<Backend>,
+    families: &mut Families<Backend>,
+    mut graph: Graph<Backend, ()>,
+) -> Result<(), failure::Error> {
+    loop {
+        factory.maintain(families);
+
+        let mut should_close = false;
+        event_loop.poll_events(|event| match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => should_close = true,
+            _ => (),
+        });
+        if should_close {
+            break;
+        }
+        graph.run(factory, families, &mut ());
+    }
+
+    graph.dispose(factory, &mut ());
     Ok(())
+}
+
+#[derive(Debug, Default)]
+struct TriangleRenderPipelineDesc;
+
+#[derive(Debug)]
+struct TriangleRenderPipeline<B: gfx_hal::Backend> {
+    vertex: Escape<Buffer<B>>,
+}
+
+impl<B, T> SimpleGraphicsPipelineDesc<B, T> for TriangleRenderPipelineDesc
+where
+    B: gfx_hal::Backend,
+    T: ?Sized,
+{
+    type Pipeline = TriangleRenderPipeline<B>;
+
+    fn vertices(
+        &self,
+    ) -> Vec<(
+        Vec<gfx_hal::pso::Element<gfx_hal::format::Format>>,
+        u32,
+        gfx_hal::pso::VertexInputRate,
+    )> {
+        vec![PosColor::vertex().gfx_vertex_input_desc(gfx_hal::pso::VertexInputRate::Vertex)]
+    }
+
+    fn depth_stencil(&self) -> Option<gfx_hal::pso::DepthStencilDesc> {
+        None
+    }
+
+    fn load_shader_set<'a>(
+        &self,
+        factory: &mut Factory<B>,
+        _aux: &T,
+    ) -> rendy::shader::ShaderSet<B> {
+        SHADERS.build(factory, Default::default()).unwrap()
+    }
+
+    fn build<'a>(
+        self,
+        _ctx: &GraphContext<B>,
+        factory: &mut Factory<B>,
+        queue: QueueId,
+        aux: &T,
+        buffers: Vec<NodeBuffer>,
+        images: Vec<NodeImage>,
+        set_layouts: &[Handle<DescriptorSetLayout<B>>],
+    ) -> Result<TriangleRenderPipeline<B>, failure::Error> {
+        assert!(buffers.is_empty());
+        assert!(images.is_empty());
+        assert!(set_layouts.is_empty());
+
+        let mut vbuf = factory
+            .create_buffer(
+                BufferInfo {
+                    size: PosColor::vertex().stride as u64 * 3,
+                    usage: gfx_hal::buffer::Usage::VERTEX,
+                },
+                Dynamic,
+            )
+            .unwrap();
+
+        unsafe {
+            factory
+                .upload_visible_buffer(
+                    &mut vbuf,
+                    0,
+                    &[
+                        PosColor {
+                            position: [0.0, -0.5, 0.0].into(),
+                            color: [1.0, 0.0, 0.0, 1.0].into(),
+                        },
+                        PosColor {
+                            position: [0.5, 0.5, 0.0].into(),
+                            color: [0.0, 1.0, 0.0, 1.0].into(),
+                        },
+                        PosColor {
+                            position: [-0.5, 0.5, 0.0].into(),
+                            color: [0.0, 0.0, 1.0, 1.0].into(),
+                        },
+                    ],
+                )
+                .unwrap();
+        }
+
+        Ok(TriangleRenderPipeline { vertex: vbuf })
+    }
+}
+
+impl<B, T> SimpleGraphicsPipeline<B, T> for TriangleRenderPipeline<B>
+where
+    B: gfx_hal::Backend,
+    T: ?Sized,
+{
+    type Desc = TriangleRenderPipelineDesc;
+
+    fn prepare(
+        &mut self,
+        factory: &Factory<B>,
+        _queue: QueueId,
+        _set_layouts: &[Handle<DescriptorSetLayout<B>>],
+        index: usize,
+        aux: &T,
+    ) -> PrepareResult {
+        PrepareResult::DrawReuse
+    }
+
+    fn draw(
+        &mut self,
+        _layout: &B::PipelineLayout,
+        mut encoder: RenderPassEncoder<'_, B>,
+        _index: usize,
+        _aux: &T,
+    ) {
+        encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
+        encoder.draw(0..3, 0..1);
+    }
+
+    fn dispose(self, _factory: &mut Factory<B>, _aux: &T) {}
 }
