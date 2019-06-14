@@ -1,4 +1,7 @@
 //! Terra is a large scale terrain generation and rendering library built on top of rendy.
+#![feature(custom_attribute)]
+
+use std::collections::BTreeMap;
 
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
@@ -23,6 +26,8 @@ use gfx_hal::pso::ShaderStageFlags;
 
 use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 
+mod config;
+
 type Backend = rendy::vulkan::Backend;
 
 lazy_static::lazy_static! {
@@ -46,6 +51,9 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() {
+    let config: BTreeMap<String, config::Node> = toml::from_str(include_str!("../examples/graph.toml")).unwrap();
+    println!("{:#?}", config);
+
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Warn)
         .filter_module("triangle", log::LevelFilter::Trace)

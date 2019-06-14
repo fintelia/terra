@@ -19,6 +19,8 @@ gfx-hal = "0.2.0"
 env_logger = "0.6.1"
 log = "0.4.6"
 failure = "0.1.5"
+serde = { version = "1.0.92", features = ["derive"] }
+toml = "0.5.1"
 
 # For preview
 [dev-dependencies]
