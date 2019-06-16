@@ -1,4 +1,3 @@
-
 [3DEP_13]
 projection = "NAD83"
 resolution = 10812
@@ -10,10 +9,10 @@ url = " https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/GridFloat/U
 
 [base_heights]
 shader = "reproject_heights.glsl"
-resolution = 256
+resolution = 257
 kind = "heightmap"
 inputs = { heights = "3DEP_13" }
-center_registration = false
+corner_registration = true
 
 [base_normals]
 shader = "compute_normals.glsl"

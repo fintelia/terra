@@ -21,6 +21,8 @@ log = "0.4.6"
 failure = "0.1.5"
 serde = { version = "1.0.92", features = ["derive"] }
 toml = "0.5.1"
+memmap = "0.7.0"
+petgraph = "0.4.13"
 
 # For preview
 [dev-dependencies]

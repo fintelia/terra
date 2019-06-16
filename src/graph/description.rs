@@ -1,20 +1,20 @@
 use std::collections::BTreeMap;
 use serde::{Serialize, Deserialize};
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum Registration {
     Vertex,
     Center,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum TextureFormat {
     R32F,
     Rgba8,
 }
 
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputKind {
     HeightMap,
@@ -23,25 +23,25 @@ pub enum OutputKind {
     F32,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum Projection {
     #[serde(alias = "NAD83")]
     Nad83,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub enum DatasetFormat {
     #[serde(alias = "GridFloat+zip")]
     ZippedGridFloat,
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub struct NodeOutput {
     name: String,
     format: TextureFormat,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
 pub enum Node {
     Generated {
@@ -54,7 +54,7 @@ pub enum Node {
         tiles: Option<u64>,
 
         #[serde(default)]
-        center_registration: bool,
+        corner_registration: bool,
     },
     Dataset {
         url: String,

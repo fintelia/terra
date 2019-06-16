@@ -26,7 +26,7 @@ use gfx_hal::pso::ShaderStageFlags;
 
 use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 
-mod config;
+mod graph;
 
 type Backend = rendy::vulkan::Backend;
 
@@ -51,9 +51,6 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() {
-    let config: BTreeMap<String, config::Node> = toml::from_str(include_str!("../examples/graph.toml")).unwrap();
-    println!("{:#?}", config);
-
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Warn)
         .filter_module("triangle", log::LevelFilter::Trace)
