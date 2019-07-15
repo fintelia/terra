@@ -1,5 +1,6 @@
 //! Terra is a large scale terrain generation and rendering library built on top of rendy.
 #![feature(custom_attribute)]
+#![feature(try_blocks)]
 
 use std::collections::BTreeMap;
 
@@ -16,10 +17,10 @@ use rendy::{
 };
 
 use rendy::{
-    shader::{PathBufShaderInfo, ShaderSetBuilder},
     graph::render::*,
     memory::Dynamic,
     resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
+    shader::{PathBufShaderInfo, ShaderSetBuilder},
 };
 
 use gfx_hal::pso::ShaderStageFlags;
@@ -51,6 +52,13 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() {
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("terra").unwrap();
+    let g = crate::graph::Graph::from_file(
+        &std::fs::read_to_string("examples/graph.toml").unwrap(),
+        xdg_dirs,
+    )
+    .unwrap();
+
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Warn)
         .filter_module("triangle", log::LevelFilter::Trace)
@@ -89,8 +97,7 @@ pub fn main() {
             .into_pass(),
     );
 
-    graph_builder
-        .add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
+    graph_builder.add_node(PresentNode::builder(&factory, surface, color).with_dependency(pass));
 
     let graph = graph_builder
         .build(&mut factory, &mut families, &mut ())

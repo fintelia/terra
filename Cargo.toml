@@ -23,6 +23,17 @@ serde = { version = "1.0.92", features = ["derive"] }
 toml = "0.5.1"
 memmap = "0.7.0"
 petgraph = "0.4.13"
+sha2 = "0.8.0"
+sled = "0.24.1"
+bincode = "1.1.4"
+generic-array = { version = "0.12", features = ["serde"] }
+xdg = "2.2.0"
+hex = "0.3.2"
+open-location-code = "0.1.0"
+serde_json = "1.0.40"
+curl = "0.4.22"
+safe-transmute = "0.10.1"
+zip = "0.5.2"
 
 # For preview
 [dev-dependencies]

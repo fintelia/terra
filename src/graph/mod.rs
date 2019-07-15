@@ -1,20 +1,54 @@
-use failure::Error;
+use failure::{bail, format_err, Error};
+use generic_array::{ArrayLength, GenericArray};
 use memmap::MmapMut;
-use petgraph::{graph::{NodeIndex, DiGraph}, visit::Topo};
 use petgraph::visit::Walker;
-use serde::{Serialize, Deserialize};
+use petgraph::{
+    graph::{DiGraph, NodeIndex},
+    visit::Topo,
+};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
+use sled::{Db, IVec};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::{Seek, SeekFrom, Write};
+use std::path::PathBuf;
+use xdg::BaseDirectories;
 
+mod dataset;
 mod description;
 
-use description::{Node, OutputKind};
+use dataset::{Dataset, DatasetDesc};
+use description::{GraphFile, Node, OutputKind, TextureFormat};
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub struct Sector(i32, i32);
 
-#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
-pub struct LayerId(u32);
+/// A LayerId is the Sha256 hash of the layer's LayerHeader.
+#[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
+pub struct LayerId(GenericArray<u8, <Sha256 as Digest>::OutputSize>);
+impl Serialize for LayerId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        hex::encode(self.0.as_slice()).serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for LayerId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de::Error;
+        <&str>::deserialize(deserializer).and_then(|s| {
+            Ok(LayerId(GenericArray::clone_from_slice(
+                &hex::decode(s).map_err(|e| D::Error::custom(e))?,
+            )))
+        })
+    }
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub struct Tile(u16, u16);
@@ -29,81 +63,234 @@ pub enum LayerType {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct LayerHeader {
+pub struct LayerDesc {
+    parents: BTreeMap<String, LayerId>,
     resolution: u64,
-    center_registration: bool,
-    format: description::TextureFormat,
-
+    corner_registration: bool,
+    format: TextureFormat,
     sector_bytes: u64,
-    sector_offsets: BTreeMap<Sector, u64>,
+    shader: String,
+    center: String,
 }
 
 pub struct Layer {
-    filename: String,
-
-    header: LayerHeader,
+    desc: LayerDesc,
+    filename: PathBuf,
     data: MmapMut,
+}
+impl Layer {
+    fn compute_sector_index(&self, sector: Sector) -> u64 {
+        let ax = if sector.0 >= 0 {
+            sector.0
+        } else {
+            -sector.0 - 1
+        } as u64;
+        let ay = if sector.1 >= 0 {
+            sector.1
+        } else {
+            -sector.1 - 1
+        } as u64;
+        let q = match (sector.0 >= 0, sector.1 >= 0) {
+            (true, true) => 0,
+            (false, true) => 1,
+            (true, false) => 2,
+            (false, false) => 3,
+        };
+        (ax * ax + 2 * ay) * 4 + q
+    }
+    fn compute_sector_offset(&self, sector: Sector) -> u64 {
+        self.desc.sector_bytes * self.compute_sector_index(sector)
+    }
 }
 
 pub struct Graph {
-    config: BTreeMap<String, description::Node>,
+    config: GraphFile,
+    xdg_dirs: BaseDirectories,
 
     layer_ids: HashMap<String, LayerId>,
-    layer_priorities: HashMap<LayerType, Vec<LayerId>>,
-    layers: HashMap<LayerId, Layer>,
+    generated_layers: HashMap<LayerId, Layer>,
+    dataset_layers: HashMap<LayerId, Dataset>,
 
     order: Vec<LayerId>,
-
-    sectors: u16,
+    priorities: HashMap<LayerType, Vec<LayerId>>,
 }
 
 impl Graph {
     #[allow(unused)]
-    pub fn from_file(filename: &str, sectors: u16, latitude: i16, longitude: i16) -> Result<Graph, Error> {
-        let file = fs::read_to_string(filename)?;
-        let config: BTreeMap<String, description::Node> = toml::from_str(&file)?;
+    pub fn from_file(config_string: &str, xdg_dirs: BaseDirectories) -> Result<Graph, Error> {
+        let config: GraphFile = toml::from_str(&config_string)?;
+        let center = open_location_code::decode(&config.center)
+            .map_err(|e| format_err!("{}", e))?
+            .center;
+        let center = (center.x(), center.y());
 
-        let mut layer_ids = HashMap::new();
-        let mut g = DiGraph::new();
-        for name in config.keys() {
-            let id = g.add_node(name);
-            layer_ids.insert(name.to_owned(), LayerId(id.index() as u32));
-        }
-        for (name, node) in config.iter() {
-            if let description::Node::Generated { ref inputs, .. } = node {
-                let child = NodeIndex::new(layer_ids[name].0 as usize);
-                for parent in inputs.values() {
-                    g.add_edge(NodeIndex::new(layer_ids[parent].0 as usize), child, ());
+        let order: Vec<String> = {
+            let mut ids = HashMap::new();
+            let mut g = DiGraph::new();
+            for name in config.nodes.keys() {
+                ids.insert(name.to_owned(), g.add_node(name));
+            }
+            for (name, node) in config.nodes.iter() {
+                if let description::Node::Generated { ref inputs, .. } = node {
+                    let child = ids[name];
+                    for parent in inputs.values() {
+                        match ids.get(parent) {
+                            Some(p) => g.add_edge(p.clone(), child, ()),
+                            None => bail!("node.{} not found", parent),
+                        };
+                    }
                 }
             }
+
+            Topo::new(&g)
+                .iter(&g)
+                .map(|id| g.node_weight(id).unwrap().to_string())
+                .collect()
+        };
+
+        let mut layer_ids = HashMap::new();
+        let mut layer_descriptors = BTreeMap::new();
+        let mut dataset_layers = HashMap::new();
+        for name in &order {
+            match &config.nodes[name] {
+                Node::Dataset {
+                    url,
+                    resolution,
+                    format,
+                    bib,
+                    license,
+                    projection,
+                    ..
+                } => {
+                    let desc = DatasetDesc {
+                        url: url.to_owned(),
+                        credentials: None,
+                        projection: *projection,
+                        resolution: *resolution,
+                        file_format: *format,
+                        texture_format: TextureFormat::R32F,
+                    };
+                    let desc_bytes = bincode::serialize(&desc)?;
+                    let id = LayerId(Sha256::digest(&desc_bytes));
+                    layer_ids.insert(name.to_owned(), id.clone());
+                    let directory = xdg_dirs.create_cache_directory(format!(
+                        "datasets/{}",
+                        hex::encode(id.0.as_slice())
+                    ))?;
+                    fs::write(
+                        directory.join("header.json"),
+                        serde_json::to_string_pretty(&desc)?,
+                    )?;
+                    dataset_layers.insert(
+                        id,
+                        Dataset {
+                            desc,
+                            bib: bib.to_owned(),
+                            license: license.to_owned(),
+                            directory,
+                        },
+                    );
+                }
+                Node::Generated {
+                    ref inputs,
+                    resolution,
+                    corner_registration,
+                    format,
+                    ref shader,
+                    ..
+                } => {
+                    let desc = LayerDesc {
+                        parents: {
+                            let mut parents = BTreeMap::new();
+                            for input in inputs.values() {
+                                let id = layer_ids[input];
+                                parents.insert(input.to_owned(), id);
+                            }
+                            parents
+                        },
+                        resolution: *resolution,
+                        corner_registration: *corner_registration,
+                        format: *format,
+                        sector_bytes: resolution * resolution * format.bytes_per_pixel(),
+                        shader: config
+                            .shaders
+                            .get(shader)
+                            .ok_or(format_err!("Missing shader '{}'", shader))?
+                            .to_owned(),
+                        center: config.center.clone(),
+                    };
+                    let desc_bytes = bincode::serialize(&desc)?;
+                    let id = LayerId(Sha256::digest(&desc_bytes));
+                    layer_ids.insert(name.to_owned(), id);
+                    layer_descriptors.insert(name.to_owned(), desc);
+                }
+            };
         }
 
-        let order: Vec<LayerId> = Topo::new(&g)
-            .iter(&g)
-            .map(|id| LayerId(id.index() as u32))
-            .collect();
-
-        let mut layer_priorities = HashMap::new();
-        for id in order.iter().rev() {
-            let ty = match config[g[NodeIndex::new(id.0 as usize)]] {
-                Node::Generated { kind: OutputKind::HeightMap , .. } => LayerType::Heightmap,
-                Node::Generated { kind: OutputKind::NormalMap , .. } => LayerType::Heightmap,
-                Node::Generated { kind: OutputKind::AlbedoMap , .. } => LayerType::Albedo,
+        let mut priorities = HashMap::new();
+        for name in order.iter().rev() {
+            let ty = match config.nodes[name] {
+                Node::Generated {
+                    kind: OutputKind::HeightMap,
+                    ..
+                } => LayerType::Heightmap,
+                Node::Generated {
+                    kind: OutputKind::NormalMap,
+                    ..
+                } => LayerType::Heightmap,
+                Node::Generated {
+                    kind: OutputKind::AlbedoMap,
+                    ..
+                } => LayerType::Albedo,
                 _ => continue,
             };
 
-            layer_priorities.entry(ty).or_insert(vec![]).push(*id);
+            priorities.entry(ty).or_insert(vec![]).push(layer_ids[name]);
         }
 
-        println!("{:#?}", config);
+        let mut generated_layers = HashMap::new();
+        for (name, desc) in layer_descriptors {
+            let id = layer_ids[&name].to_owned();
+            let hash = hex::encode(id.0.as_slice());
+            let header_filename =
+                xdg_dirs.place_cache_file(format!("generated/{}.header", &hash))?;
+            let data_filename = xdg_dirs.place_cache_file(format!("generated/{}.data", &hash))?;
+
+            fs::write(header_filename, serde_json::to_string_pretty(&desc)?);
+            let mut file = OpenOptions::new()
+                .create(true)
+                .read(true)
+                .write(true)
+                .open(&data_filename)?;
+
+            // TODO: Seeking past end is implementation defined. Use a cross platform option instead.
+            let target_size = desc.sector_bytes
+                * config.side_length_sectors as u64
+                * config.side_length_sectors as u64;
+            file.seek(SeekFrom::Start(target_size))?;
+            file.write_all(&[0u8])?;
+            file.seek(SeekFrom::Start(0))?;
+
+            let data = unsafe { MmapMut::map_mut(&file)? };
+
+            generated_layers.insert(
+                id,
+                Layer {
+                    desc,
+                    filename: data_filename,
+                    data,
+                },
+            );
+        }
 
         Ok(Graph {
             config,
+            xdg_dirs,
+            order: order.iter().map(|name| layer_ids[name]).collect(),
             layer_ids,
-            layer_priorities,
-            layers: HashMap::new(),
-            order,
-            sectors,
+            priorities,
+            generated_layers,
+            dataset_layers,
         })
     }
 }

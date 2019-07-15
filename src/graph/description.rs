@@ -12,6 +12,14 @@ pub enum TextureFormat {
     R32F,
     Rgba8,
 }
+impl TextureFormat {
+    pub fn bytes_per_pixel(&self) -> u64 {
+        match self {
+            TextureFormat::R32F => 4,
+            TextureFormat::Rgba8 => 4,
+        }
+    }
+}
 
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
@@ -35,11 +43,11 @@ pub enum DatasetFormat {
     ZippedGridFloat,
 }
 
-#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
-pub struct NodeOutput {
-    name: String,
-    format: TextureFormat,
-}
+// #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+// pub struct NodeOutput {
+//     name: String,
+//     format: TextureFormat,
+// }
 
 #[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
@@ -48,6 +56,7 @@ pub enum Node {
         shader: String,
         resolution: u64,
         kind: OutputKind,
+        format: TextureFormat,
         inputs: BTreeMap<String, String>,
 
         #[serde(default)]
@@ -64,4 +73,13 @@ pub enum Node {
         bib: Option<String>,
         license: Option<String>,
     },
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+pub struct GraphFile {
+    pub center: String,
+    /// Map will be a square with this many sectors on each side.
+    pub side_length_sectors: u16,
+    pub nodes: BTreeMap<String, Node>,
+    pub shaders: BTreeMap<String, String>,
 }
