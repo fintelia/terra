@@ -79,7 +79,7 @@ pub struct Layer {
     data: MmapMut,
 }
 impl Layer {
-    fn compute_sector_index(&self, sector: Sector) -> u64 {
+    fn compute_sector_index(sector: Sector) -> u64 {
         let ax = if sector.0 >= 0 {
             sector.0
         } else {
@@ -96,10 +96,14 @@ impl Layer {
             (true, false) => 2,
             (false, false) => 3,
         };
-        (ax * ax + 2 * ay) * 4 + q
+        if ax > ay {
+            (ax * ax + 2 * ay + 1) * 4 + q
+        } else {
+            (ay * ay + 2 * ax) * 4 + q
+        }
     }
     fn compute_sector_offset(&self, sector: Sector) -> u64 {
-        self.desc.sector_bytes * self.compute_sector_index(sector)
+        self.desc.sector_bytes * Self::compute_sector_index(sector)
     }
 }
 
@@ -292,5 +296,22 @@ impl Graph {
             generated_layers,
             dataset_layers,
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn compute_sector_index() {
+        assert_eq!(Layer::compute_sector_index(Sector(0, 0)), 0*4);
+        assert_eq!(Layer::compute_sector_index(Sector(1, 1)), 3*4);
+        assert_eq!(Layer::compute_sector_index(Sector(1, 2)), 6*4);
+        assert_eq!(Layer::compute_sector_index(Sector(2, 3)), 13*4);
+        assert_eq!(Layer::compute_sector_index(Sector(4, 1)), 19*4);
+
+        assert_eq!(Layer::compute_sector_index(Sector(-3, -1)), 5*4+3);
+        assert_eq!(Layer::compute_sector_index(Sector(-3, -4)), 13*4+3);
     }
 }
