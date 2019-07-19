@@ -1,11 +1,14 @@
 use failure::{bail, format_err, Error};
 use generic_array::{ArrayLength, GenericArray};
+use gfx_hal::{pso::ShaderStageFlags, Backend};
 use memmap::MmapMut;
 use petgraph::visit::Walker;
 use petgraph::{
     graph::{DiGraph, NodeIndex},
     visit::Topo,
 };
+use rendy::factory::Factory;
+use rendy::shader::{ShaderSet, ShaderSetBuilder, SpirvShader};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use sled::{Db, IVec};
@@ -70,15 +73,17 @@ pub struct LayerDesc {
     format: TextureFormat,
     sector_bytes: u64,
     shader: String,
+    shader_name: String,
     center: String,
 }
 
-pub struct Layer {
+pub struct Layer<B: Backend> {
     desc: LayerDesc,
     filename: PathBuf,
+    shader: ShaderSet<B>,
     data: MmapMut,
 }
-impl Layer {
+impl<B: Backend> Layer<B> {
     fn compute_sector_index(sector: Sector) -> u64 {
         let ax = if sector.0 >= 0 {
             sector.0
@@ -107,21 +112,25 @@ impl Layer {
     }
 }
 
-pub struct Graph {
+pub struct Graph<B: Backend> {
     config: GraphFile,
     xdg_dirs: BaseDirectories,
 
     layer_ids: HashMap<String, LayerId>,
-    generated_layers: HashMap<LayerId, Layer>,
+    generated_layers: HashMap<LayerId, Layer<B>>,
     dataset_layers: HashMap<LayerId, Dataset>,
 
     order: Vec<LayerId>,
     priorities: HashMap<LayerType, Vec<LayerId>>,
 }
 
-impl Graph {
+impl<B: Backend> Graph<B> {
     #[allow(unused)]
-    pub fn from_file(config_string: &str, xdg_dirs: BaseDirectories) -> Result<Graph, Error> {
+    pub fn from_file(
+        config_string: &str,
+        xdg_dirs: BaseDirectories,
+        factory: &mut Factory<B>,
+    ) -> Result<Graph<B>, Error> {
         let config: GraphFile = toml::from_str(&config_string)?;
         let center = open_location_code::decode(&config.center)
             .map_err(|e| format_err!("{}", e))?
@@ -221,6 +230,7 @@ impl Graph {
                             .get(shader)
                             .ok_or(format_err!("Missing shader '{}'", shader))?
                             .to_owned(),
+                        shader_name: shader.clone(),
                         center: config.center.clone(),
                     };
                     let desc_bytes = bincode::serialize(&desc)?;
@@ -252,6 +262,9 @@ impl Graph {
             priorities.entry(ty).or_insert(vec![]).push(layer_ids[name]);
         }
 
+        let mut glsl_compiler =
+            shaderc::Compiler::new().ok_or(format_err!("Shader compiler init failed"))?;
+
         let mut generated_layers = HashMap::new();
         for (name, desc) in layer_descriptors {
             let id = layer_ids[&name].to_owned();
@@ -277,11 +290,27 @@ impl Graph {
 
             let data = unsafe { MmapMut::map_mut(&file)? };
 
+            let spirv = glsl_compiler
+                .compile_into_spirv(
+                    &desc.shader,
+                    shaderc::ShaderKind::Compute,
+                    &desc.shader_name,
+                    "main",
+                    None,
+                )?
+                .as_binary_u8()
+                .to_vec();
+            let shader = SpirvShader::new(spirv, ShaderStageFlags::COMPUTE, "main");
+            let shader = ShaderSetBuilder::default()
+                .with_compute(&shader)?
+                .build(&factory, Default::default())?;
+
             generated_layers.insert(
                 id,
                 Layer {
                     desc,
                     filename: data_filename,
+                    shader,
                     data,
                 },
             );
@@ -297,6 +326,8 @@ impl Graph {
             dataset_layers,
         })
     }
+
+    fn generate(&mut self, sector: Sector, layer: LayerId) {}
 }
 
 #[cfg(test)]
@@ -305,13 +336,13 @@ mod test {
 
     #[test]
     fn compute_sector_index() {
-        assert_eq!(Layer::compute_sector_index(Sector(0, 0)), 0*4);
-        assert_eq!(Layer::compute_sector_index(Sector(1, 1)), 3*4);
-        assert_eq!(Layer::compute_sector_index(Sector(1, 2)), 6*4);
-        assert_eq!(Layer::compute_sector_index(Sector(2, 3)), 13*4);
-        assert_eq!(Layer::compute_sector_index(Sector(4, 1)), 19*4);
+        assert_eq!(Layer::compute_sector_index(Sector(0, 0)), 0 * 4);
+        assert_eq!(Layer::compute_sector_index(Sector(1, 1)), 3 * 4);
+        assert_eq!(Layer::compute_sector_index(Sector(1, 2)), 6 * 4);
+        assert_eq!(Layer::compute_sector_index(Sector(2, 3)), 13 * 4);
+        assert_eq!(Layer::compute_sector_index(Sector(4, 1)), 19 * 4);
 
-        assert_eq!(Layer::compute_sector_index(Sector(-3, -1)), 5*4+3);
-        assert_eq!(Layer::compute_sector_index(Sector(-3, -4)), 13*4+3);
+        assert_eq!(Layer::compute_sector_index(Sector(-3, -1)), 5 * 4 + 3);
+        assert_eq!(Layer::compute_sector_index(Sector(-3, -4)), 13 * 4 + 3);
     }
 }

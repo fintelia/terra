@@ -52,24 +52,23 @@ lazy_static::lazy_static! {
 }
 
 pub fn main() {
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("terra").unwrap();
-    let g = crate::graph::Graph::from_file(
-        &std::fs::read_to_string("examples/graph.toml").unwrap(),
-        xdg_dirs,
-    )
-    .unwrap();
-
     env_logger::Builder::from_default_env()
         .filter_level(log::LevelFilter::Warn)
         .filter_module("triangle", log::LevelFilter::Trace)
         .init();
 
     let config: Config = Default::default();
-
     let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
 
-    let mut event_loop = EventsLoop::new();
+    let xdg_dirs = xdg::BaseDirectories::with_prefix("terra").unwrap();
+    let g = crate::graph::Graph::from_file(
+        &std::fs::read_to_string("examples/graph.toml").unwrap(),
+        xdg_dirs,
+        &mut factory
+    )
+    .unwrap();
 
+    let mut event_loop = EventsLoop::new();
     let window = WindowBuilder::new()
         .with_title("Rendy Triangle")
         .build(&event_loop)
@@ -246,8 +245,10 @@ where
         _index: usize,
         _aux: &T,
     ) {
-        encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
-        encoder.draw(0..3, 0..1);
+        unsafe {
+            encoder.bind_vertex_buffers(0, Some((self.vertex.raw(), 0)));
+            encoder.draw(0..3, 0..1);
+        }
     }
 
     fn dispose(self, _factory: &mut Factory<B>, _aux: &T) {}
