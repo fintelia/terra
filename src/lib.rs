@@ -2,28 +2,22 @@
 #![feature(custom_attribute)]
 #![feature(try_blocks)]
 
-use std::collections::BTreeMap;
-
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
     factory::{Config, Factory},
     graph::{
         present::PresentNode, render::*, Graph, GraphBuilder, GraphContext, NodeBuffer, NodeImage,
     },
-    memory::MemoryUsageValue,
     mesh::{AsVertex, PosColor},
     resource::Buffer,
-    shader::{Shader, ShaderKind, SourceLanguage, StaticShaderInfo},
+    shader::{ShaderKind, SourceLanguage},
 };
 
 use rendy::{
-    graph::render::*,
     memory::Dynamic,
     resource::{BufferInfo, DescriptorSetLayout, Escape, Handle},
-    shader::{PathBufShaderInfo, ShaderSetBuilder},
+    shader::{PathBufShaderInfo},
 };
-
-use gfx_hal::pso::ShaderStageFlags;
 
 use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 

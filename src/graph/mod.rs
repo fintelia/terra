@@ -1,17 +1,16 @@
 use failure::{bail, format_err, Error};
-use generic_array::{ArrayLength, GenericArray};
-use gfx_hal::{pso::ShaderStageFlags, Backend};
+use generic_array::GenericArray;
+use gfx_hal::{image::Usage, pso::ShaderStageFlags, Backend};
+use linked_hash_map::LinkedHashMap;
 use memmap::MmapMut;
 use petgraph::visit::Walker;
-use petgraph::{
-    graph::{DiGraph, NodeIndex},
-    visit::Topo,
-};
+use petgraph::{graph::DiGraph, visit::Topo};
 use rendy::factory::Factory;
+use rendy::memory;
+use rendy::resource::{self, Handle, Image, ImageInfo};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpirvShader};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
-use sled::{Db, IVec};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::fs::OpenOptions;
@@ -24,6 +23,13 @@ mod description;
 
 use dataset::{Dataset, DatasetDesc};
 use description::{GraphFile, Node, OutputKind, TextureFormat};
+
+pub struct SectorCache<B: Backend> {
+    image: Handle<Image<B>>,
+    size: usize,
+    contents: Vec<Sector>,
+    sector_indices: LinkedHashMap<Sector, usize>,
+}
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 pub struct Sector(i32, i32);
@@ -68,12 +74,11 @@ pub enum LayerType {
 #[derive(Serialize, Deserialize)]
 pub struct LayerDesc {
     parents: BTreeMap<String, LayerId>,
-    resolution: u64,
+    resolution: u32,
     corner_registration: bool,
     format: TextureFormat,
     sector_bytes: u64,
     shader: String,
-    shader_name: String,
     center: String,
 }
 
@@ -82,6 +87,7 @@ pub struct Layer<B: Backend> {
     filename: PathBuf,
     shader: ShaderSet<B>,
     data: MmapMut,
+    sector_cache: SectorCache<B>,
 }
 impl<B: Backend> Layer<B> {
     fn compute_sector_index(sector: Sector) -> u64 {
@@ -118,7 +124,7 @@ pub struct Graph<B: Backend> {
 
     layer_ids: HashMap<String, LayerId>,
     generated_layers: HashMap<LayerId, Layer<B>>,
-    dataset_layers: HashMap<LayerId, Dataset>,
+    dataset_layers: HashMap<LayerId, Dataset<B>>,
 
     order: Vec<LayerId>,
     priorities: HashMap<LayerType, Vec<LayerId>>,
@@ -173,6 +179,7 @@ impl<B: Backend> Graph<B> {
                     bib,
                     license,
                     projection,
+                    cache_size,
                     ..
                 } => {
                     let desc = DatasetDesc {
@@ -194,6 +201,30 @@ impl<B: Backend> Graph<B> {
                         directory.join("header.json"),
                         serde_json::to_string_pretty(&desc)?,
                     )?;
+
+                    let image = factory
+                        .create_image(
+                            ImageInfo {
+                                kind: resource::Kind::D2(
+                                    *resolution as u32,
+                                    *resolution as u32,
+                                    *cache_size,
+                                    1,
+                                ),
+                                levels: 1,
+                                format: gfx_hal::format::Format::R32Sfloat,
+                                tiling: resource::Tiling::Optimal,
+                                view_caps: resource::ViewCapabilities::KIND_2D_ARRAY,
+                                usage: Usage::TRANSFER_SRC
+                                    | Usage::TRANSFER_DST
+                                    | Usage::SAMPLED
+                                    | Usage::COLOR_ATTACHMENT
+                                    | Usage::INPUT_ATTACHMENT,
+                            },
+                            memory::Data,
+                        )?
+                        .into();
+
                     dataset_layers.insert(
                         id,
                         Dataset {
@@ -201,6 +232,12 @@ impl<B: Backend> Graph<B> {
                             bib: bib.to_owned(),
                             license: license.to_owned(),
                             directory,
+                            sector_cache: SectorCache {
+                                image,
+                                size: *cache_size as usize,
+                                contents: Vec::new(),
+                                sector_indices: LinkedHashMap::new(),
+                            },
                         },
                     );
                 }
@@ -224,13 +261,12 @@ impl<B: Backend> Graph<B> {
                         resolution: *resolution,
                         corner_registration: *corner_registration,
                         format: *format,
-                        sector_bytes: resolution * resolution * format.bytes_per_pixel(),
+                        sector_bytes: (resolution * resolution * format.bytes_per_pixel()) as u64,
                         shader: config
                             .shaders
                             .get(shader)
                             .ok_or(format_err!("Missing shader '{}'", shader))?
                             .to_owned(),
-                        shader_name: shader.clone(),
                         center: config.center.clone(),
                     };
                     let desc_bytes = bincode::serialize(&desc)?;
@@ -273,6 +309,15 @@ impl<B: Backend> Graph<B> {
                 xdg_dirs.place_cache_file(format!("generated/{}.header", &hash))?;
             let data_filename = xdg_dirs.place_cache_file(format!("generated/{}.data", &hash))?;
 
+            let (ref shader_name, cache_size) = match config.nodes[&name] {
+                Node::Generated {
+                    ref shader,
+                    cache_size,
+                    ..
+                } => (shader, cache_size),
+                _ => unreachable!(),
+            };
+
             fs::write(header_filename, serde_json::to_string_pretty(&desc)?);
             let mut file = OpenOptions::new()
                 .create(true)
@@ -294,7 +339,7 @@ impl<B: Backend> Graph<B> {
                 .compile_into_spirv(
                     &desc.shader,
                     shaderc::ShaderKind::Compute,
-                    &desc.shader_name,
+                    shader_name,
                     "main",
                     None,
                 )?
@@ -305,6 +350,27 @@ impl<B: Backend> Graph<B> {
                 .with_compute(&shader)?
                 .build(&factory, Default::default())?;
 
+            let image = factory
+                .create_image(
+                    ImageInfo {
+                        kind: resource::Kind::D2(desc.resolution, desc.resolution, cache_size, 1),
+                        levels: 1,
+                        format: match desc.format {
+                            TextureFormat::R32F => gfx_hal::format::Format::R32Sfloat,
+                            TextureFormat::Rgba8 => gfx_hal::format::Format::Rgba8Unorm,
+                        },
+                        tiling: resource::Tiling::Optimal,
+                        view_caps: resource::ViewCapabilities::KIND_2D_ARRAY,
+                        usage: Usage::TRANSFER_SRC
+                            | Usage::TRANSFER_DST
+                            | Usage::SAMPLED
+                            | Usage::COLOR_ATTACHMENT
+                            | Usage::INPUT_ATTACHMENT,
+                    },
+                    memory::Data,
+                )?
+                .into();
+
             generated_layers.insert(
                 id,
                 Layer {
@@ -312,6 +378,12 @@ impl<B: Backend> Graph<B> {
                     filename: data_filename,
                     shader,
                     data,
+                    sector_cache: SectorCache {
+                        image,
+                        size: cache_size as usize,
+                        contents: Vec::new(),
+                        sector_indices: LinkedHashMap::new(),
+                    },
                 },
             );
         }

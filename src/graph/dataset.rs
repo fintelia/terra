@@ -1,31 +1,35 @@
 use serde::{Deserialize, Serialize};
 use super::description::{TextureFormat, DatasetFormat, Projection};
-use std::{fs, mem};
+use super::SectorCache;
+use std::{fs};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
 use std::path::PathBuf;
 use zip::ZipArchive;
 use failure::format_err;
+use gfx_hal::Backend;
 
 #[derive(Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 pub struct DatasetDesc {
     pub url: String,
     pub credentials: Option<(String, String)>,
     pub projection: Projection,
-    pub resolution: u64,
+    pub resolution: u32,
     pub file_format: DatasetFormat,
     pub texture_format: TextureFormat,
 }
 
-pub struct Dataset {
+pub struct Dataset<B: Backend> {
     pub desc: DatasetDesc,
 
     pub bib: Option<String>,
     pub license: Option<String>,
 
     pub directory: PathBuf,
+
+    pub sector_cache: SectorCache<B>,
 }
-impl Dataset {
+impl<B: Backend> Dataset<B> {
     fn parse(&mut self, data: Vec<u8>) -> Result<Vec<u8>, failure::Error> {
         match self.desc.file_format {
             DatasetFormat::ZippedGridFloat => parse_ned_zip(data),

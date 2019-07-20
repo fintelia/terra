@@ -13,7 +13,7 @@ pub enum TextureFormat {
     Rgba8,
 }
 impl TextureFormat {
-    pub fn bytes_per_pixel(&self) -> u64 {
+    pub fn bytes_per_pixel(&self) -> u32 {
         match self {
             TextureFormat::R32F => 4,
             TextureFormat::Rgba8 => 4,
@@ -54,10 +54,11 @@ pub enum DatasetFormat {
 pub enum Node {
     Generated {
         shader: String,
-        resolution: u64,
+        resolution: u32,
         kind: OutputKind,
         format: TextureFormat,
         inputs: BTreeMap<String, String>,
+        cache_size: u16,
 
         #[serde(default)]
         tiles: Option<u64>,
@@ -68,10 +69,11 @@ pub enum Node {
     Dataset {
         url: String,
         projection: Projection,
-        resolution: u64,
+        resolution: u32,
         format: DatasetFormat,
         bib: Option<String>,
         license: Option<String>,
+        cache_size: u16,
     },
 }
 
