@@ -1,19 +1,21 @@
 use failure::{bail, format_err, Error};
 use generic_array::GenericArray;
-use gfx_hal::{image::Usage, pso::ShaderStageFlags, Backend};
+use gfx_hal::{Device, image::Usage, pso::ShaderStageFlags, Backend};
 use linked_hash_map::LinkedHashMap;
 use memmap::MmapMut;
 use petgraph::visit::Walker;
 use petgraph::{graph::DiGraph, visit::Topo};
-use rendy::factory::Factory;
+use rendy::command::QueueId;
+use rendy::factory::{ImageState, Factory};
 use rendy::memory;
-use rendy::resource::{self, Handle, Image, ImageInfo};
+use rendy::resource::{self, Handle, Image, ImageInfo, Layout};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpirvShader};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::fs::OpenOptions;
+use std::hash::Hash;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use xdg::BaseDirectories;
@@ -24,11 +26,64 @@ mod description;
 use dataset::{Dataset, DatasetDesc};
 use description::{GraphFile, Node, OutputKind, TextureFormat};
 
-pub struct SectorCache<B: Backend> {
+pub struct Fence<B: Backend>(Option<B::Fence>);
+impl<B: Backend> Fence<B> {
+    pub fn is_done(&mut self, device: &impl Device<B>) -> bool {
+        unsafe {
+            if self.0.as_ref().and_then(|f| device.get_fence_status(f).ok()).unwrap_or(false) {
+                self.0 = None;
+            }
+        }
+
+        self.0.is_none()
+    }
+}
+
+pub struct TileCache<K: Eq + Hash + Copy, B: Backend> {
     image: Handle<Image<B>>,
     size: usize,
-    contents: Vec<Sector>,
-    sector_indices: LinkedHashMap<Sector, usize>,
+    contents: Vec<(K, Fence<B>)>,
+    sector_indices: LinkedHashMap<K, usize>,
+
+    resolution: u32,
+}
+impl<K: Eq + Hash + Copy, B: Backend> TileCache<K, B> {
+    pub fn insert(&mut self, factory: &mut Factory<B>, queue: QueueId, key: K, data: &[u8]) -> usize {
+        if let Some(&index) = self.sector_indices.get(&key) {
+            return index;
+        }
+
+        let index = if self.sector_indices.len() == self.size {
+            let index = self.sector_indices.pop_back().unwrap().1;
+            self.contents[index] = (key, Fence(None));
+            index
+        } else {
+            self.contents.push((key, Fence(None)));
+            self.contents.len() - 1
+        };
+
+        self.sector_indices.insert(key, index);
+
+        unsafe {
+            factory.upload_image(
+                self.image.clone(),
+                self.resolution,
+                self.resolution,
+                rendy::resource::SubresourceLayers {
+                    aspects: gfx_hal::format::Aspects::COLOR,
+                    level: 0,
+                    layers: (index as u16)..(index as u16 + 1),
+                },
+                gfx_hal::image::Offset { x: 0, y: 0, z: index as i32 },
+                rendy::resource::Extent { width: self.resolution, height: self.resolution, depth: 1 },
+                data,
+                ImageState::new(queue, Layout::General),
+                ImageState::new(queue, Layout::General),
+            );
+            // factory.flush_uploads();
+        }
+        index
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
@@ -87,7 +142,7 @@ pub struct Layer<B: Backend> {
     filename: PathBuf,
     shader: ShaderSet<B>,
     data: MmapMut,
-    sector_cache: SectorCache<B>,
+    sector_cache: TileCache<Sector, B>,
 }
 impl<B: Backend> Layer<B> {
     fn compute_sector_index(sector: Sector) -> u64 {
@@ -228,16 +283,17 @@ impl<B: Backend> Graph<B> {
                     dataset_layers.insert(
                         id,
                         Dataset {
-                            desc,
                             bib: bib.to_owned(),
                             license: license.to_owned(),
                             directory,
-                            sector_cache: SectorCache {
+                            tile_cache: TileCache {
                                 image,
                                 size: *cache_size as usize,
                                 contents: Vec::new(),
                                 sector_indices: LinkedHashMap::new(),
+                                resolution: desc.resolution,
                             },
+                            desc,
                         },
                     );
                 }
@@ -374,16 +430,17 @@ impl<B: Backend> Graph<B> {
             generated_layers.insert(
                 id,
                 Layer {
-                    desc,
                     filename: data_filename,
                     shader,
                     data,
-                    sector_cache: SectorCache {
+                    sector_cache: TileCache {
                         image,
                         size: cache_size as usize,
                         contents: Vec::new(),
                         sector_indices: LinkedHashMap::new(),
+                        resolution: desc.resolution,
                     },
+                    desc,
                 },
             );
         }
@@ -399,7 +456,8 @@ impl<B: Backend> Graph<B> {
         })
     }
 
-    fn generate(&mut self, sector: Sector, layer: LayerId) {}
+    fn generate(&mut self, sector: Sector, id: LayerId) {
+    }
 }
 
 #[cfg(test)]

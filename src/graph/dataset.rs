@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use super::description::{TextureFormat, DatasetFormat, Projection};
-use super::SectorCache;
+use super::TileCache;
 use std::{fs};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
@@ -26,8 +26,7 @@ pub struct Dataset<B: Backend> {
     pub license: Option<String>,
 
     pub directory: PathBuf,
-
-    pub sector_cache: SectorCache<B>,
+    pub tile_cache: TileCache<(i16, i16), B>,
 }
 impl<B: Backend> Dataset<B> {
     fn parse(&mut self, data: Vec<u8>) -> Result<Vec<u8>, failure::Error> {
