@@ -1,5 +1,3 @@
-#![feature(duration_as_u128)]
-
 extern crate camera_controllers;
 extern crate cgmath;
 extern crate collision;
@@ -62,7 +60,7 @@ fn main() {
         0,
         WindowSettings::new("terra preview", [1920, 1080])
             .exit_on_esc(true)
-            .opengl(OpenGL::V3_3)
+            .graphics_api(OpenGL::V3_3)
             .vsync(false)
             // .srgb(false)
             .fullscreen(true)
