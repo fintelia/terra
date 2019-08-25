@@ -1,17 +1,21 @@
 extern crate failure;
-extern crate gfx;
 extern crate notify;
+extern crate rendy;
+extern crate shaderc;
 
-pub mod static_shaders;
 pub mod dynamic_shaders;
+pub mod static_shaders;
 
-#[cfg(not(feature = "dynamic_shaders"))]
-pub use static_shaders::*;
+use rendy::hal::pso::ShaderStageFlags;
+use rendy::shader::SpirvShader;
+
 #[cfg(feature = "dynamic_shaders")]
 pub use dynamic_shaders::*;
+#[cfg(not(feature = "dynamic_shaders"))]
+pub use static_shaders::*;
 
 pub struct ShaderSource {
-    pub source: Option<Vec<u8>>,
+    pub source: Option<String>,
     pub filenames: Option<Vec<String>>,
 }
 
@@ -21,11 +25,11 @@ macro_rules! shader_source {
     ($directory:expr, $( $filename:expr ),+ ) => {
         $crate::ShaderSource{
             source: Some({
-                let mut tmp_vec = Vec::new();
-                $( tmp_vec.extend_from_slice(
-                    include_bytes!(concat!($directory, "/", $filename)));
+                let mut tmp = String::new();
+                $( tmp.push_str(
+                    include_str!(concat!($directory, "/", $filename)));
                 )*
-                tmp_vec
+                tmp
             }),
             filenames: None,
         }
@@ -41,42 +45,37 @@ macro_rules! shader_source {
             filenames: Some({
                 let mut tmp_vec = Vec::new();
                 $( tmp_vec.push($filename.to_string()); )*
-                tmp_vec
+                    tmp_vec
             }),
         }
     };
 }
 
-fn print_shader_error(error: &gfx::shade::core::CreateShaderError) {
-    use gfx::shade::core::CreateShaderError::*;
-    match *error {
-        ModelNotSupported => eprintln!("Attempted to use unsupported shader model"),
-        StageNotSupported(ref stage) => eprintln!("Shader stage '{:?}' not supported", stage),
-        CompilationFailed(ref msg) => eprintln!("Shader complilation failed: \n{}", msg),
-    }
+fn create_vertex_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
+    let shader = glsl_compiler
+        .compile_into_spirv(
+            source,
+            shaderc::ShaderKind::Vertex,
+            "[VERTEX]",
+            "main",
+            None,
+        )?
+        .as_binary_u8()
+        .to_vec();
+    Ok(SpirvShader::new(shader, ShaderStageFlags::VERTEX, "main"))
 }
-
-fn create_vertex_shader<R: gfx::Resources, F: gfx::Factory<R>>(
-    factory: &mut F,
-    source: &[u8],
-) -> Result<gfx::VertexShader<R>, gfx::shade::core::CreateShaderError> {
-    match factory.create_shader_vertex(source) {
-        Ok(shader) => Ok(shader),
-        Err(error) => {
-            print_shader_error(&error);
-            Err(error)
-        }
-    }
-}
-fn create_pixel_shader<R: gfx::Resources, F: gfx::Factory<R>>(
-    factory: &mut F,
-    source: &[u8],
-) -> Result<gfx::PixelShader<R>, gfx::shade::core::CreateShaderError> {
-    match factory.create_shader_pixel(source) {
-        Ok(shader) => Ok(shader),
-        Err(error) => {
-            print_shader_error(&error);
-            Err(error)
-        }
-    }
+fn create_pixel_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
+    let shader = glsl_compiler
+        .compile_into_spirv(
+            source,
+            shaderc::ShaderKind::Fragment,
+            "[FRAGMENT]",
+            "main",
+            None,
+        )?
+        .as_binary_u8()
+        .to_vec();
+    Ok(SpirvShader::new(shader, ShaderStageFlags::FRAGMENT, "main"))
 }

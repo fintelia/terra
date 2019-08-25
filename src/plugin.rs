@@ -14,8 +14,8 @@ use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
 use rendy::graph::render::{Layout, PrepareResult, RenderGroup, RenderGroupDesc};
 use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
-use rendy::resource::{DescriptorSetLayout, Handle};
-use rendy::shader::ShaderSet;
+use rendy::resource::{DescriptorSet, DescriptorSetLayout, Escape, Handle};
+use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
 
 #[derive(Debug)]
 pub struct RenderTerrain {}
@@ -56,21 +56,11 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
     ) -> Result<Box<dyn RenderGroup<B, T> + 'static>, Error> {
-        let mut shader_set: ShaderSet<B> = unimplemented!();
-        let layout: Layout = unimplemented!();
-        let input_assembler = InputAssemblerDesc {
-            primitive: Primitive::TriangleList,
-            primitive_restart: PrimitiveRestart::Disabled,
+        // layouts
+        let layout = Layout {
+            sets: Vec::new(),
+            push_constants: Vec::new(),
         };
-        let depth_stencil = DepthStencilDesc {
-            depth: DepthTest::On {
-                fun: Comparison::Less,
-                write: true,
-            },
-            depth_bounds: true,
-            stencil: StencilTest::Off,
-        };
-
         let set_layouts = layout
             .sets
             .into_iter()
@@ -79,33 +69,31 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
                     .create_descriptor_set_layout(set.bindings)
                     .map(Handle::from)
             })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| {
-                shader_set.dispose(factory);
-                e
-            })?;
-
+            .collect::<Result<Vec<_>, _>>()?;
         let pipeline_layout = unsafe {
             factory
                 .device()
-                .create_pipeline_layout(set_layouts.iter().map(|l| l.raw()), layout.push_constants)
-        }
-        .map_err(|e| {
-            shader_set.dispose(factory);
-            e
-        })?;
+                .create_pipeline_layout(set_layouts.iter().map(|l| l.raw()), layout.push_constants)?
+        };
 
+        // descriptor sets
+        let descriptor_sets = set_layouts
+            .iter()
+            .map(|set| factory.create_descriptor_set(set.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // buffers
         let mut vertex_buffers = Vec::new();
         let mut attributes: Vec<gfx_hal::pso::AttributeDesc> = Vec::new();
 
         // for &(ref elements, stride, rate) in &pipeline.vertices {
-        //     let index = vertex_buffers.len() as gfx_hal::pso::BufferIndex;
+        //     let index =
 
-        //     vertex_buffers.push(gfx_hal::pso::VertexBufferDesc {
-        //         binding: index,
-        //         stride,
-        //         rate,
-        //     });
+        // vertex_buffers.push(gfx_hal::pso::VertexBufferDesc {
+        //     binding: vertex_buffers.len() as gfx_hal::pso::BufferIndex,
+        //     stride: 0,
+        //     rate: VertexInputRate::Vertex,
+        // });
 
         //     let mut location = attributes.last().map_or(0, |a| a.location + 1);
         //     for &element in elements {
@@ -125,6 +113,17 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
             h: framebuffer_height as i16,
         };
 
+        // Shaders
+        let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
+        let shader_set = rshader::ShaderSet::simple(
+            &mut watcher,
+            shader_source!("../src/shaders", "version", "a.vert"),
+            shader_source!("../src/shaders", "version", "a.frag"),
+        )?;
+        let mut shader_set: ShaderSet<B> = ShaderSetBuilder::default()
+            .with_vertex(shader_set.vertex())?
+            .with_fragment(shader_set.fragment())?
+            .build(factory, SpecConstantSet::default())?;
         let shaders = match shader_set.raw() {
             Err(e) => {
                 shader_set.dispose(factory);
@@ -137,15 +136,26 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
             factory.device().create_graphics_pipelines(
                 Some(gfx_hal::pso::GraphicsPipelineDesc {
                     shaders,
-                    rasterizer: gfx_hal::pso::Rasterizer::FILL,
                     vertex_buffers,
                     attributes,
-                    input_assembler,
+                    layout: &pipeline_layout,
+                    rasterizer: gfx_hal::pso::Rasterizer::FILL,
+                    input_assembler: InputAssemblerDesc {
+                        primitive: Primitive::TriangleList,
+                        primitive_restart: PrimitiveRestart::Disabled,
+                    },
                     blender: gfx_hal::pso::BlendDesc {
                         logic_op: None,
-                        targets: Vec::new(),
+                        targets: vec![rendy::hal::pso::ColorBlendDesc::EMPTY],
                     },
-                    depth_stencil,
+                    depth_stencil: DepthStencilDesc {
+                        depth: DepthTest::On {
+                            fun: Comparison::Always,
+                            write: true,
+                        },
+                        depth_bounds: false,
+                        stencil: StencilTest::Off,
+                    },
                     multisampling: None,
                     baked_states: gfx_hal::pso::BakedStates {
                         viewport: Some(gfx_hal::pso::Viewport {
@@ -156,10 +166,9 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
                         blend_color: None,
                         depth_bounds: None,
                     },
-                    layout: &pipeline_layout,
-                    subpass,
                     flags: gfx_hal::pso::PipelineCreationFlags::empty(),
                     parent: gfx_hal::pso::BasePipeline::None,
+                    subpass,
                 }),
                 None,
             )
@@ -174,6 +183,7 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
 
         Ok(Box::new(TerrainRenderGroup {
             set_layouts,
+            descriptor_sets,
             pipeline_layout,
             graphics_pipeline,
         }))
@@ -183,6 +193,7 @@ impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
 #[derive(Debug)]
 pub struct TerrainRenderGroup<B: Backend> {
     set_layouts: Vec<Handle<DescriptorSetLayout<B>>>,
+    descriptor_sets: Vec<Escape<DescriptorSet<B>>>,
     pipeline_layout: B::PipelineLayout,
     graphics_pipeline: B::GraphicsPipeline,
 }
@@ -207,6 +218,16 @@ impl<B: Backend, T: ?Sized> RenderGroup<B, T> for TerrainRenderGroup<B> {
         aux: &T,
     ) {
         encoder.bind_graphics_pipeline(&self.graphics_pipeline);
+        unsafe {
+            encoder.bind_graphics_descriptor_sets(
+                &self.pipeline_layout,
+                0,
+                self.descriptor_sets.iter().map(|s| s.raw()),
+                std::iter::empty::<u32>(),
+            );
+
+            encoder.draw(0..3, 0..1);
+        }
         // TODO: render terrain.
     }
 

@@ -1,4 +1,1 @@
-#version 330 core
-#extension GL_ARB_texture_query_lod : require
-#extension GL_ARB_gpu_shader_fp64 : enable
-#extension GL_ARB_gpu_shader5 : require
+#version 450

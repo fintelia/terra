@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use gfx;
-use failure::Error;
 use notify;
 
 use super::*;
@@ -16,31 +14,27 @@ impl ShaderDirectoryWatcher {
     }
 }
 
-pub struct Shader<R: gfx::Resources> {
-    shader_set: gfx::ShaderSet<R>,
+pub struct ShaderSet {
+    vertex: SpirvShader,
+    fragment: SpirvShader,
 }
-impl<R: gfx::Resources> Shader<R> {
-    pub fn simple<F: gfx::Factory<R>>(
-        factory: &mut F,
+impl ShaderSet {
+    pub fn simple(
         _: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         pixel_source: ShaderSource,
-    ) -> Result<Self, Error> {
-        let v = create_vertex_shader(factory, &vertex_source.source.unwrap()).unwrap();
-        let f = create_pixel_shader(factory, &pixel_source.source.unwrap()).unwrap();
-        Ok(Self {
-            shader_set: gfx::ShaderSet::Simple(v, f),
-        })
+    ) -> Result<Self, failure::Error> {
+        let vertex = create_vertex_shader(&vertex_source.source.unwrap()).unwrap();
+        let fragment = create_pixel_shader(&pixel_source.source.unwrap()).unwrap();
+        Ok(Self { vertex, fragment })
     }
-
-    pub fn as_shader_set(&self) -> &gfx::ShaderSet<R> {
-        &self.shader_set
-    }
-    pub fn refresh<F: gfx::Factory<R>>(
-        &mut self,
-        _: &mut F,
-        _: &mut ShaderDirectoryWatcher,
-    ) -> bool {
+    pub fn refresh(&mut self, _: &mut ShaderDirectoryWatcher) -> bool {
         false
+    }
+    pub fn vertex(&self) -> &SpirvShader {
+        &self.vertex
+    }
+    pub fn fragment(&self) -> &SpirvShader {
+        &self.fragment
     }
 }

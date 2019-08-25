@@ -5,8 +5,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use gfx;
-use failure::Error;
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::*;
@@ -53,75 +51,71 @@ fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io
     Ok(contents)
 }
 
-pub struct Shader<R: gfx::Resources> {
-    shader_set: gfx::ShaderSet<R>,
+pub struct ShaderSet {
+    vertex: SpirvShader,
+    fragment: SpirvShader,
+
     vertex_filenames: Vec<PathBuf>,
     pixel_filenames: Vec<PathBuf>,
     last_update: Instant,
 }
-impl<R: gfx::Resources> Shader<R> {
-    pub fn simple<F: gfx::Factory<R>>(
-        factory: &mut F,
+impl ShaderSet {
+    pub fn simple(
         watcher: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         pixel_source: ShaderSource,
-    ) -> Result<Self, Error> {
-        let vertex_filenames = vertex_source
+    ) -> Result<Self, failure::Error> {
+        let vertex_filenames: Vec<_> = vertex_source
             .filenames
             .unwrap()
             .into_iter()
             .map(|f| watcher.directory.join(f))
             .collect();
-        let pixel_filenames = pixel_source
+        let pixel_filenames: Vec<_> = pixel_source
             .filenames
             .unwrap()
             .into_iter()
             .map(|f| watcher.directory.join(f))
             .collect();
+        let (vertex, fragment) = Self::load(&vertex_filenames, &pixel_filenames)?;
 
         Ok(Self {
-            shader_set: Self::load(factory, &vertex_filenames, &pixel_filenames)?,
+            vertex,
+            fragment,
             last_update: Instant::now(),
             vertex_filenames,
             pixel_filenames,
         })
     }
 
-    pub fn as_shader_set(&self) -> &gfx::ShaderSet<R> {
-        &self.shader_set
-    }
-
     /// Refreshes the shader if necessary. Returns whether a refresh happened.
-    pub fn refresh<F: gfx::Factory<R>>(
-        &mut self,
-        factory: &mut F,
-        directory_watcher: &mut ShaderDirectoryWatcher,
-    ) -> bool {
+    pub fn refresh(&mut self, directory_watcher: &mut ShaderDirectoryWatcher) -> bool {
         directory_watcher.detect_changes();
         if directory_watcher.last_modification > self.last_update {
-            let new = Self::load(factory, &self.vertex_filenames, &self.pixel_filenames);
+            let new = Self::load(&self.vertex_filenames, &self.pixel_filenames);
             self.last_update = Instant::now();
-            if let Ok(shader_set) = new {
-                self.shader_set = shader_set;
+            if let Ok((vertex, fragment)) = new {
+                self.vertex = vertex;
+                self.fragment = fragment;
                 return true;
             }
         }
         false
     }
 
-    fn load<F: gfx::Factory<R>>(
-        factory: &mut F,
-        vertex_filenames: &Vec<PathBuf>,
-        pixel_filenames: &Vec<PathBuf>,
-    ) -> Result<gfx::ShaderSet<R>, Error> {
-        let v = create_vertex_shader(
-            factory,
-            concat_file_contents(vertex_filenames.iter())?.as_bytes(),
-        )?;
-        let f = create_pixel_shader(
-            factory,
-            concat_file_contents(pixel_filenames.iter())?.as_bytes(),
-        )?;
-        Ok(gfx::ShaderSet::Simple(v, f))
+    fn load(
+        vertex_filenames: &[PathBuf],
+        pixel_filenames: &[PathBuf],
+    ) -> Result<(SpirvShader, SpirvShader), failure::Error> {
+        let v = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
+        let f = create_pixel_shader(&concat_file_contents(pixel_filenames.iter())?)?;
+        Ok((v, f))
+    }
+
+    pub fn vertex(&self) -> &SpirvShader {
+        &self.vertex
+    }
+    pub fn fragment(&self) -> &SpirvShader {
+        &self.fragment
     }
 }

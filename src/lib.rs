@@ -5,6 +5,8 @@
 
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate rshader;
 
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},

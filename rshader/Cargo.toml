@@ -1,6 +1,6 @@
 [package]
 name = "rshader"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Jonathan Behrens <fintelia@gmail.com>"]
 license = "Apache-2.0"
 description = "A simply library for reloading shaders at runtime"
@@ -9,9 +9,10 @@ homepage = "https://github.com/fintelia/terra"
 categories = ["game-engines", "rendering"]
 
 [dependencies]
-gfx = "0.17.1"
 failure = "0.1.1"
 notify = "4.0"
+shaderc = "0.5.0"
+rendy = "0.3.2"
 
 [features]
 default = []
