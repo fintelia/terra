@@ -3,285 +3,282 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use failure::Error;
-use gfx;
-use gfx::traits::FactoryExt;
-use gfx_core;
+// use gfx;
+// use gfx::traits::FactoryExt;
+// use gfx_core;
 use memmap::Mmap;
 use vec_map::VecMap;
 use vecmath;
+use zerocopy::AsBytes;
 
-use rshader;
-use runtime_texture::TextureFormat;
+use gfx_hal::Backend;
+use rendy::factory::Factory;
+use rendy::resource::Buffer;
+use rendy::resource::Escape;
+
+// use rshader;
+// use runtime_texture::TextureFormat;
 
 use std::collections::VecDeque;
 use std::convert::TryFrom;
-use std::env;
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::{env, mem};
 
-use cache::AssetLoadContext;
-use coordinates::CoordinateSystem;
-use terrain::material::MaterialSet;
-use terrain::tile_cache::{
-    LayerType, MeshDescriptor, PayloadType, Priority, TextureDescriptor, TileCache, TileHeader,
-    NUM_LAYERS,
+// use cache::AssetLoadContext;
+use crate::coordinates::CoordinateSystem;
+// use terrain::material::MaterialSet;
+use crate::terrain::tile_cache::{
+    LayerType, MeshDescriptor, PayloadType, Priority, TextureDescriptor, TextureFormat, TileCache,
+    TileHeader, NUM_LAYERS,
 };
 
-use ocean::Ocean;
-use sky::{Atmosphere, Skybox};
+// use ocean::Ocean;
+// use sky::{Atmosphere, Skybox};
 
 pub(crate) mod id;
 pub(crate) mod node;
 pub(crate) mod render;
 
-pub(crate) use terrain::quadtree::id::*;
-pub(crate) use terrain::quadtree::node::*;
-pub(crate) use terrain::quadtree::render::*;
+pub(crate) use crate::terrain::quadtree::id::*;
+pub(crate) use crate::terrain::quadtree::node::*;
+pub(crate) use crate::terrain::quadtree::render::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
-pub struct QuadTree<R, F>
-where
-    R: gfx::Resources,
-    F: gfx::Factory<R>,
-{
+pub struct QuadTree<B: Backend> {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
-    ocean: Ocean<R>,
+    // ocean: Ocean<R>,
 
-    #[allow(unused)]
-    atmosphere: Atmosphere<R>,
-
+    // #[allow(unused)]
+    // atmosphere: Atmosphere<R>,
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
-    tile_cache_layers: VecMap<TileCache<R>>,
+    tile_cache_layers: VecMap<TileCache<B>>,
 
-    index_buffer: gfx::IndexBuffer<R>,
-    index_buffer_partial: gfx::IndexBuffer<R>,
+    index_buffer: Escape<Buffer<B>>,
+    index_buffer_partial: Escape<Buffer<B>>,
 
-    factory: F,
-    pso: gfx::PipelineState<R, pipe::Meta>,
-    pipeline_data: pipe::Data<R>,
-    sky_pso: gfx::PipelineState<R, sky_pipe::Meta>,
-    sky_pipeline_data: sky_pipe::Data<R>,
-    planet_mesh_pso: gfx::PipelineState<R, planet_mesh_pipe::Meta>,
-    planet_mesh_pipeline_data: planet_mesh_pipe::Data<R>,
-    instanced_mesh_pso: gfx::PipelineState<R, instanced_mesh_pipe::Meta>,
-    instanced_mesh_pipeline_data: instanced_mesh_pipe::Data<R>,
-    shaders_watcher: rshader::ShaderDirectoryWatcher,
-    shader: rshader::Shader<R>,
-    sky_shader: rshader::Shader<R>,
-    planet_mesh_shader: rshader::Shader<R>,
-    instanced_mesh_shader: rshader::Shader<R>,
-    num_planet_mesh_vertices: usize,
-    node_states: Vec<NodeState>,
-    _materials: MaterialSet<R>,
+    // factory: F,
+    // pso: gfx::PipelineState<R, pipe::Meta>,
+    // pipeline_data: pipe::Data<R>,
+    // sky_pso: gfx::PipelineState<R, sky_pipe::Meta>,
+    // sky_pipeline_data: sky_pipe::Data<R>,
+    // planet_mesh_pso: gfx::PipelineState<R, planet_mesh_pipe::Meta>,
+    // planet_mesh_pipeline_data: planet_mesh_pipe::Data<R>,
+    // instanced_mesh_pso: gfx::PipelineState<R, instanced_mesh_pipe::Meta>,
+    // instanced_mesh_pipeline_data: instanced_mesh_pipe::Data<R>,
+    // shaders_watcher: rshader::ShaderDirectoryWatcher,
+    // shader: rshader::Shader<R>,
+    // sky_shader: rshader::Shader<R>,
+    // planet_mesh_shader: rshader::Shader<R>,
+    // instanced_mesh_shader: rshader::Shader<R>,
+    // num_planet_mesh_vertices: usize,
+    // node_states: Vec<NodeState>,
+    // _materials: MaterialSet<R>,
     system: CoordinateSystem,
 }
 
 #[allow(unused)]
-impl<R, F> QuadTree<R, F>
-where
-    R: gfx::Resources,
-    F: gfx::Factory<R>,
-{
-    pub(crate) fn new<C: gfx_core::command::Buffer<R>>(
+impl<B: Backend> QuadTree<B> {
+    pub(crate) fn new(
         header: TileHeader,
         data_file: Mmap,
-        materials: MaterialSet<R>,
-        sky: Skybox<R>,
-        mut factory: F,
-        encoder: &mut gfx::Encoder<R, C>,
-        color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Rgba16F>,
-        depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
-        mut context: AssetLoadContext,
+        // materials: MaterialSet<R>,
+        // sky: Skybox<R>,
+        factory: &mut Factory<B>,
+        // encoder: &mut gfx::Encoder<R, C>,
+        // color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Rgba16F>,
+        // depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
+        // mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
-        let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
-            env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
-        )?;
+        // let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
+        //     env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
+        // )?;
 
-        let shader = rshader::Shader::simple(
-            &mut factory,
-            &mut shaders_watcher,
-            shader_source!(
-                "../../shaders/glsl",
-                "version",
-                "atmosphere",
-                "terrain.glslv"
-            ),
-            shader_source!(
-                "../../shaders/glsl",
-                "version",
-                "atmosphere",
-                "hash",
-                "terrain.glslf"
-            ),
-        )?;
+        // let shader = rshader::Shader::simple(
+        //     &mut factory,
+        //     &mut shaders_watcher,
+        //     shader_source!(
+        //         "../../shaders/glsl",
+        //         "version",
+        //         "atmosphere",
+        //         "terrain.glslv"
+        //     ),
+        //     shader_source!(
+        //         "../../shaders/glsl",
+        //         "version",
+        //         "atmosphere",
+        //         "hash",
+        //         "terrain.glslf"
+        //     ),
+        // )?;
 
-        let sky_shader = rshader::Shader::simple(
-            &mut factory,
-            &mut shaders_watcher,
-            shader_source!("../../shaders/glsl", "version", "sky.glslv"),
-            shader_source!(
-                "../../shaders/glsl",
-                "version",
-                "atmosphere",
-                "hash",
-                "sky.glslf"
-            ),
-        )?;
+        // let sky_shader = rshader::Shader::simple(
+        //     &mut factory,
+        //     &mut shaders_watcher,
+        //     shader_source!("../../shaders/glsl", "version", "sky.glslv"),
+        //     shader_source!(
+        //         "../../shaders/glsl",
+        //         "version",
+        //         "atmosphere",
+        //         "hash",
+        //         "sky.glslf"
+        //     ),
+        // )?;
 
-        let planet_mesh_shader = rshader::Shader::simple(
-            &mut factory,
-            &mut shaders_watcher,
-            shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
-            shader_source!(
-                "../../shaders/glsl",
-                "version",
-                "atmosphere",
-                "hash",
-                "planet_mesh.glslf"
-            ),
-        )?;
+        // let planet_mesh_shader = rshader::Shader::simple(
+        //     &mut factory,
+        //     &mut shaders_watcher,
+        //     shader_source!("../../shaders/glsl", "version", "planet_mesh.glslv"),
+        //     shader_source!(
+        //         "../../shaders/glsl",
+        //         "version",
+        //         "atmosphere",
+        //         "hash",
+        //         "planet_mesh.glslf"
+        //     ),
+        // )?;
 
-        let instanced_mesh_shader = rshader::Shader::simple(
-            &mut factory,
-            &mut shaders_watcher,
-            shader_source!("../../shaders/glsl", "version", "mesh.glslv"),
-            shader_source!(
-                "../../shaders/glsl",
-                "version",
-                "atmosphere",
-                "hash",
-                "mesh.glslf"
-            ),
-        )?;
+        // let instanced_mesh_shader = rshader::Shader::simple(
+        //     &mut factory,
+        //     &mut shaders_watcher,
+        //     shader_source!("../../shaders/glsl", "version", "mesh.glslv"),
+        //     shader_source!(
+        //         "../../shaders/glsl",
+        //         "version",
+        //         "atmosphere",
+        //         "hash",
+        //         "mesh.glslf"
+        //     ),
+        // )?;
 
         let mut data_view = Arc::new(data_file);
         let mut tile_cache_layers = VecMap::new();
         for layer in header.layers.iter().cloned() {
             tile_cache_layers.insert(
                 layer.layer_type as usize,
-                TileCache::new(layer, data_view.clone(), &mut factory),
+                TileCache::new(layer, data_view.clone()),
             );
         }
 
-        let noise_data = &data_view[header.noise.offset..][..header.noise.bytes];
-        let (noise_texture, noise_texture_view) = factory.create_texture_immutable_u8::<(
-            gfx_core::format::R8_G8_B8_A8,
-            gfx_core::format::Unorm,
-        )>(
-            gfx::texture::Kind::D2(
-                header.noise.resolution as u16,
-                header.noise.resolution as u16,
-                gfx::texture::AaMode::Single,
-            ),
-            gfx::texture::Mipmap::Allocated,
-            &[gfx::memory::cast_slice(noise_data)],
-        )?;
-        encoder.generate_mipmap(&noise_texture_view);
+        // let noise_data = &data_view[header.noise.offset..][..header.noise.bytes];
+        // let (noise_texture, noise_texture_view) = factory.create_texture_immutable_u8::<(
+        //     gfx_core::format::R8_G8_B8_A8,
+        //     gfx_core::format::Unorm,
+        // )>(
+        //     gfx::texture::Kind::D2(
+        //         header.noise.resolution as u16,
+        //         header.noise.resolution as u16,
+        //         gfx::texture::AaMode::Single,
+        //     ),
+        //     gfx::texture::Mipmap::Allocated,
+        //     &[gfx::memory::cast_slice(noise_data)],
+        // )?;
+        // encoder.generate_mipmap(&noise_texture_view);
 
-        let planet_mesh_data = &data_view[header.planet_mesh.offset..][..header.planet_mesh.bytes];
-        let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
+        // let planet_mesh_data = &data_view[header.planet_mesh.offset..][..header.planet_mesh.bytes];
+        // let planet_mesh_vertices = gfx::memory::cast_slice(planet_mesh_data);
 
-        let pm_texture_start = header.planet_mesh_texture.offset;
-        let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
-        let pm_texture_data = &data_view[pm_texture_start..pm_texture_end];
-        let (planet_mesh_texture, planet_mesh_texture_view) = factory
-            .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
-                gfx::texture::Kind::D2(
-                    header.planet_mesh_texture.resolution as u16,
-                    header.planet_mesh_texture.resolution as u16,
-                    gfx::texture::AaMode::Single,
-                ),
-                gfx::texture::Mipmap::Allocated,
-                &[gfx::memory::cast_slice(pm_texture_data)],
-            )?;
-        encoder.generate_mipmap(&planet_mesh_texture_view);
+        // let pm_texture_start = header.planet_mesh_texture.offset;
+        // let pm_texture_end = pm_texture_start + header.planet_mesh_texture.bytes;
+        // let pm_texture_data = &data_view[pm_texture_start..pm_texture_end];
+        // let (planet_mesh_texture, planet_mesh_texture_view) = factory
+        //     .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+        //         gfx::texture::Kind::D2(
+        //             header.planet_mesh_texture.resolution as u16,
+        //             header.planet_mesh_texture.resolution as u16,
+        //             gfx::texture::AaMode::Single,
+        //         ),
+        //         gfx::texture::Mipmap::Allocated,
+        //         &[gfx::memory::cast_slice(pm_texture_data)],
+        //     )?;
+        // encoder.generate_mipmap(&planet_mesh_texture_view);
 
-        let (
-            foliage_mesh_offset,
-            foliage_mesh_bytes,
-            foliage_texture_offset,
-            foliage_texture_bytes,
-            foliage_texture_resolution,
-        ) = if let PayloadType::InstancedMesh {
-            mesh: MeshDescriptor { offset, bytes, .. },
-            texture:
-                TextureDescriptor {
-                    offset: toffset,
-                    bytes: tbytes,
-                    format,
-                    resolution,
-                },
-            ..
-        } = header.layers[LayerType::Foliage as usize].payload_type
-        {
-            assert_eq!(format, TextureFormat::SRGBA);
-            (offset, bytes, toffset, tbytes, resolution)
-        } else {
-            unreachable!()
-        };
+        // let (
+        //     foliage_mesh_offset,
+        //     foliage_mesh_bytes,
+        //     foliage_texture_offset,
+        //     foliage_texture_bytes,
+        //     foliage_texture_resolution,
+        // ) = if let PayloadType::InstancedMesh {
+        //     mesh: MeshDescriptor { offset, bytes, .. },
+        //     texture:
+        //         TextureDescriptor {
+        //             offset: toffset,
+        //             bytes: tbytes,
+        //             format,
+        //             resolution,
+        //         },
+        //     ..
+        // } = header.layers[LayerType::Foliage as usize].payload_type
+        // {
+        //     assert_eq!(format, TextureFormat::SRGBA);
+        //     (offset, bytes, toffset, tbytes, resolution)
+        // } else {
+        //     unreachable!()
+        // };
 
-        let instanced_mesh_vertices =
-            gfx::memory::cast_slice(&data_view[foliage_mesh_offset..][..foliage_mesh_bytes]);
+        // let instanced_mesh_vertices =
+        //     gfx::memory::cast_slice(&data_view[foliage_mesh_offset..][..foliage_mesh_bytes]);
 
-        let instanced_mesh_texture_data =
-            gfx::memory::cast_slice(&data_view[foliage_texture_offset..][..foliage_texture_bytes]);
-        let (instanced_mesh_texture, instanced_mesh_texture_view) = factory
-            .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
-                gfx::texture::Kind::D2(
-                    foliage_texture_resolution as u16,
-                    foliage_texture_resolution as u16,
-                    gfx::texture::AaMode::Single,
-                ),
-                gfx::texture::Mipmap::Allocated,
-                &[instanced_mesh_texture_data],
-            )?;
-        encoder.generate_mipmap(&instanced_mesh_texture_view);
+        // let instanced_mesh_texture_data =
+        //     gfx::memory::cast_slice(&data_view[foliage_texture_offset..][..foliage_texture_bytes]);
+        // let (instanced_mesh_texture, instanced_mesh_texture_view) = factory
+        //     .create_texture_immutable_u8::<(gfx_core::format::R8_G8_B8_A8, gfx_core::format::Srgb)>(
+        //         gfx::texture::Kind::D2(
+        //             foliage_texture_resolution as u16,
+        //             foliage_texture_resolution as u16,
+        //             gfx::texture::AaMode::Single,
+        //         ),
+        //         gfx::texture::Mipmap::Allocated,
+        //         &[instanced_mesh_texture_data],
+        //     )?;
+        // encoder.generate_mipmap(&instanced_mesh_texture_view);
 
-        let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
-            .get_texture_view_f32()
-            .unwrap()
-            .clone();
-        let colors_texture_view = tile_cache_layers[LayerType::Colors.index()]
-            .get_texture_view_srgba()
-            .unwrap()
-            .clone();
-        let normals_texture_view = tile_cache_layers[LayerType::Normals.index()]
-            .get_texture_view_rgba8()
-            .unwrap()
-            .clone();
-        let splats_texture_view = tile_cache_layers[LayerType::Splats.index()]
-            .get_texture_view_r8()
-            .unwrap()
-            .clone();
+        // let heights_texture_view = tile_cache_layers[LayerType::Heights.index()]
+        //     .get_texture_view_f32()
+        //     .unwrap()
+        //     .clone();
+        // let colors_texture_view = tile_cache_layers[LayerType::Colors.index()]
+        //     .get_texture_view_srgba()
+        //     .unwrap()
+        //     .clone();
+        // let normals_texture_view = tile_cache_layers[LayerType::Normals.index()]
+        //     .get_texture_view_rgba8()
+        //     .unwrap()
+        //     .clone();
+        // let splats_texture_view = tile_cache_layers[LayerType::Splats.index()]
+        //     .get_texture_view_r8()
+        //     .unwrap()
+        //     .clone();
 
-        let ocean = Ocean::new(&mut factory);
-        let atmosphere = Atmosphere::new(&mut factory, &mut context)?;
+        // let ocean = Ocean::new(&mut factory);
+        // let atmosphere = Atmosphere::new(&mut factory, &mut context)?;
 
-        let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Trilinear,
-            gfx::texture::WrapMode::Clamp,
-        ));
+        // let sampler = factory.create_sampler(gfx::texture::SamplerInfo::new(
+        //     gfx::texture::FilterMethod::Trilinear,
+        //     gfx::texture::WrapMode::Clamp,
+        // ));
 
-        let sampler_wrap = factory.create_sampler(gfx::texture::SamplerInfo::new(
-            gfx::texture::FilterMethod::Trilinear,
-            gfx::texture::WrapMode::Tile,
-        ));
+        // let sampler_wrap = factory.create_sampler(gfx::texture::SamplerInfo::new(
+        //     gfx::texture::FilterMethod::Trilinear,
+        //     gfx::texture::WrapMode::Tile,
+        // ));
 
         // Extra scope to work around lack of non-lexical lifetimes.
         let (index_buffer, index_buffer_partial) = {
-            let mut make_index_buffer = |resolution: u32| -> Result<gfx::IndexBuffer<R>, Error> {
-                fn make_indices_inner<R: gfx::Resources, F: gfx::Factory<R>, T>(
-                    factory: &mut F,
+            let mut make_index_buffer = |resolution: u32| -> Result<Escape<Buffer<B>>, Error> {
+                fn make_indices_inner<B: Backend, T>(
+                    factory: &mut Factory<B>,
                     resolution: u32,
-                ) -> Result<gfx::handle::Buffer<R, T>, Error>
+                ) -> Result<Escape<Buffer<B>>, Error>
                 where
-                    T: TryFrom<u32> + gfx_core::memory::Pod,
+                    T: TryFrom<u32>,
                     <T as TryFrom<u32>>::Error: Debug,
                 {
                     let width = resolution + 1;
@@ -293,19 +290,24 @@ where
                             }
                         }
                     }
-                    Ok(factory.create_buffer_immutable(
-                        &indices[..],
-                        gfx::buffer::Role::Index,
-                        gfx::memory::Bind::empty(),
-                    )?)
+                    let buffer = factory.create_buffer(
+                        rendy::resource::BufferInfo {
+                            size: (indices.len() * mem::size_of::<T>()) as u64,
+                            usage: gfx_hal::buffer::Usage::INDEX,
+                        },
+                        rendy::memory::Data,
+                    )?;
+                    unsafe {
+                        factory.upload_buffer(&buffer, 0, &indices, None, unimplemented!())?;
+                    }
+                    Ok(buffer)
                 }
-                Ok(
-                    if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
-                        gfx::IndexBuffer::Index16(make_indices_inner(&mut factory, resolution)?)
-                    } else {
-                        gfx::IndexBuffer::Index32(make_indices_inner(&mut factory, resolution)?)
-                    },
-                )
+
+                if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
+                    make_indices_inner::<B, u16>(factory, resolution)
+                } else {
+                    make_indices_inner::<B, u32>(factory, resolution)
+                }
             };
             let resolution =
                 (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u32;
@@ -315,14 +317,14 @@ where
             )
         };
 
-        let transmittance = (
-            atmosphere.transmittance.texture_view.clone(),
-            sampler.clone(),
-        );
-        let inscattering = (
-            atmosphere.inscattering.texture_view.clone(),
-            sampler.clone(),
-        );
+        // let transmittance = (
+        //     atmosphere.transmittance.texture_view.clone(),
+        //     sampler.clone(),
+        // );
+        // let inscattering = (
+        //     atmosphere.inscattering.texture_view.clone(),
+        //     sampler.clone(),
+        // );
 
         let ww: Matrix4<f32> = header.system.world_to_warped_matrix().cast().unwrap();
         let world_to_warped = [
@@ -337,100 +339,100 @@ where
             partially_visible_nodes: Vec::new(),
             index_buffer,
             index_buffer_partial,
-            pso: Self::make_pso(&mut factory, shader.as_shader_set())?,
-            pipeline_data: pipe::Data {
-                instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
-                model_view_projection: [[0.0; 4]; 4],
-                camera_position: [0.0, 0.0, 0.0],
-                sun_direction: [0.0, 0.70710678118, 0.70710678118],
-                resolution: 0,
-                world_to_warped: world_to_warped.clone(),
-                heights: (heights_texture_view, sampler.clone()),
-                colors: (colors_texture_view, sampler.clone()),
-                normals: (normals_texture_view, sampler.clone()),
-                splats: (splats_texture_view, sampler.clone()),
-                materials: (materials.texture_view.clone(), sampler_wrap.clone()),
-                sky: (sky.texture_view.clone(), sampler.clone()),
-                ocean_surface: (ocean.texture_view.clone(), sampler_wrap.clone()),
-                noise: (noise_texture_view, sampler_wrap),
-                noise_wavelength: header.noise.wavelength,
-                planet_radius: 6371000.0,
-                atmosphere_radius: 6471000.0,
-                transmittance: transmittance.clone(),
-                inscattering: inscattering.clone(),
-                color_buffer: color_buffer.clone(),
-                depth_buffer: depth_buffer.clone(),
-            },
-            sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set())?,
-            sky_pipeline_data: sky_pipe::Data {
-                ray_bottom_left: [0.0, 0.0, 0.0],
-                ray_bottom_right: [0.0, 0.0, 0.0],
-                ray_top_left: [0.0, 0.0, 0.0],
-                ray_top_right: [0.0, 0.0, 0.0],
-                camera_position: [0.0, 0.0, 0.0],
-                sun_direction: [0.0, 0.70710678118, 0.70710678118],
-                world_to_warped: world_to_warped.clone(),
-                sky: (sky.texture_view.clone(), sampler.clone()),
-                planet_radius: 6371000.0,
-                atmosphere_radius: 6471000.0,
-                transmittance: transmittance.clone(),
-                inscattering: inscattering.clone(),
-                color_buffer: color_buffer.clone(),
-                depth_buffer: depth_buffer.clone(),
-            },
-            planet_mesh_pso: Self::make_planet_mesh_pso(
-                &mut factory,
-                planet_mesh_shader.as_shader_set(),
-            )?,
-            planet_mesh_pipeline_data: planet_mesh_pipe::Data {
-                vertices: factory.create_vertex_buffer(planet_mesh_vertices),
-                model_view_projection: [[0.0; 4]; 4],
-                camera_position: [0.0, 0.0, 0.0],
-                sun_direction: [0.0, 0.70710678118, 0.70710678118],
-                planet_radius: 6371000.0,
-                atmosphere_radius: 6471000.0,
-                world_to_warped: world_to_warped.clone(),
-                transmittance: transmittance.clone(),
-                inscattering: inscattering.clone(),
-                color: (planet_mesh_texture_view, sampler.clone()),
-                color_buffer: color_buffer.clone(),
-                depth_buffer: depth_buffer.clone(),
-            },
-            instanced_mesh_pso: Self::make_instanced_mesh_pso(
-                &mut factory,
-                instanced_mesh_shader.as_shader_set(),
-            )?,
-            instanced_mesh_pipeline_data: instanced_mesh_pipe::Data {
-                vertices: factory.create_vertex_buffer(instanced_mesh_vertices),
-                instances: tile_cache_layers[LayerType::Foliage.index()]
-                    .get_buffer()
-                    .unwrap()
-                    .clone(),
-                model_view_projection: [[0.0; 4]; 4],
-                camera_position: [0.0, 0.0, 0.0],
-                sun_direction: [0.0, 0.70710678118, 0.70710678118],
-                planet_radius: 6371000.0,
-                atmosphere_radius: 6471000.0,
-                world_to_warped: world_to_warped.clone(),
-                albedo: (instanced_mesh_texture_view, sampler.clone()),
-                transmittance: transmittance,
-                inscattering: inscattering,
-                color_buffer: color_buffer.clone(),
-                depth_buffer: depth_buffer.clone(),
-            },
-            ocean,
-            atmosphere,
-            factory,
-            shaders_watcher,
-            shader,
-            sky_shader,
-            planet_mesh_shader,
-            instanced_mesh_shader,
-            num_planet_mesh_vertices: header.planet_mesh.num_vertices,
+            // pso: Self::make_pso(&mut factory, shader.as_shader_set())?,
+            // pipeline_data: pipe::Data {
+            //     instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
+            //     model_view_projection: [[0.0; 4]; 4],
+            //     camera_position: [0.0, 0.0, 0.0],
+            //     sun_direction: [0.0, 0.70710678118, 0.70710678118],
+            //     resolution: 0,
+            //     world_to_warped: world_to_warped.clone(),
+            //     heights: (heights_texture_view, sampler.clone()),
+            //     colors: (colors_texture_view, sampler.clone()),
+            //     normals: (normals_texture_view, sampler.clone()),
+            //     splats: (splats_texture_view, sampler.clone()),
+            //     materials: (materials.texture_view.clone(), sampler_wrap.clone()),
+            //     sky: (sky.texture_view.clone(), sampler.clone()),
+            //     ocean_surface: (ocean.texture_view.clone(), sampler_wrap.clone()),
+            //     noise: (noise_texture_view, sampler_wrap),
+            //     noise_wavelength: header.noise.wavelength,
+            //     planet_radius: 6371000.0,
+            //     atmosphere_radius: 6471000.0,
+            //     transmittance: transmittance.clone(),
+            //     inscattering: inscattering.clone(),
+            //     color_buffer: color_buffer.clone(),
+            //     depth_buffer: depth_buffer.clone(),
+            // },
+            // sky_pso: Self::make_sky_pso(&mut factory, sky_shader.as_shader_set())?,
+            // sky_pipeline_data: sky_pipe::Data {
+            //     ray_bottom_left: [0.0, 0.0, 0.0],
+            //     ray_bottom_right: [0.0, 0.0, 0.0],
+            //     ray_top_left: [0.0, 0.0, 0.0],
+            //     ray_top_right: [0.0, 0.0, 0.0],
+            //     camera_position: [0.0, 0.0, 0.0],
+            //     sun_direction: [0.0, 0.70710678118, 0.70710678118],
+            //     world_to_warped: world_to_warped.clone(),
+            //     sky: (sky.texture_view.clone(), sampler.clone()),
+            //     planet_radius: 6371000.0,
+            //     atmosphere_radius: 6471000.0,
+            //     transmittance: transmittance.clone(),
+            //     inscattering: inscattering.clone(),
+            //     color_buffer: color_buffer.clone(),
+            //     depth_buffer: depth_buffer.clone(),
+            // },
+            // planet_mesh_pso: Self::make_planet_mesh_pso(
+            //     &mut factory,
+            //     planet_mesh_shader.as_shader_set(),
+            // )?,
+            // planet_mesh_pipeline_data: planet_mesh_pipe::Data {
+            //     vertices: factory.create_vertex_buffer(planet_mesh_vertices),
+            //     model_view_projection: [[0.0; 4]; 4],
+            //     camera_position: [0.0, 0.0, 0.0],
+            //     sun_direction: [0.0, 0.70710678118, 0.70710678118],
+            //     planet_radius: 6371000.0,
+            //     atmosphere_radius: 6471000.0,
+            //     world_to_warped: world_to_warped.clone(),
+            //     transmittance: transmittance.clone(),
+            //     inscattering: inscattering.clone(),
+            //     color: (planet_mesh_texture_view, sampler.clone()),
+            //     color_buffer: color_buffer.clone(),
+            //     depth_buffer: depth_buffer.clone(),
+            // },
+            // instanced_mesh_pso: Self::make_instanced_mesh_pso(
+            //     &mut factory,
+            //     instanced_mesh_shader.as_shader_set(),
+            // )?,
+            // instanced_mesh_pipeline_data: instanced_mesh_pipe::Data {
+            //     vertices: factory.create_vertex_buffer(instanced_mesh_vertices),
+            //     instances: tile_cache_layers[LayerType::Foliage.index()]
+            //         .get_buffer()
+            //         .unwrap()
+            //         .clone(),
+            //     model_view_projection: [[0.0; 4]; 4],
+            //     camera_position: [0.0, 0.0, 0.0],
+            //     sun_direction: [0.0, 0.70710678118, 0.70710678118],
+            //     planet_radius: 6371000.0,
+            //     atmosphere_radius: 6471000.0,
+            //     world_to_warped: world_to_warped.clone(),
+            //     albedo: (instanced_mesh_texture_view, sampler.clone()),
+            //     transmittance: transmittance,
+            //     inscattering: inscattering,
+            //     color_buffer: color_buffer.clone(),
+            //     depth_buffer: depth_buffer.clone(),
+            // },
+            // ocean,
+            // atmosphere,
+            // factory,
+            // shaders_watcher,
+            // shader,
+            // sky_shader,
+            // planet_mesh_shader,
+            // instanced_mesh_shader,
+            // num_planet_mesh_vertices: header.planet_mesh.num_vertices,
             nodes: header.nodes,
-            node_states: Vec::new(),
+            // node_states: Vec::new(),
             tile_cache_layers,
-            _materials: materials,
+            // _materials: materials,
             system: header.system,
         })
     }
@@ -447,25 +449,25 @@ where
         }
     }
 
-    fn update_cache<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-        self.breadth_first(|qt, id| {
-            if qt.nodes[id].priority < Priority::cutoff() {
-                return false;
-            }
+    // fn update_cache<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
+    //     self.breadth_first(|qt, id| {
+    //         if qt.nodes[id].priority < Priority::cutoff() {
+    //             return false;
+    //         }
 
-            for layer in 0..NUM_LAYERS {
-                if qt.nodes[id].tile_indices[layer].is_some()
-                    && !qt.tile_cache_layers[layer].contains(id)
-                {
-                    qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
-                }
-            }
-            true
-        });
-        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
-            cache_layer.load_missing(&mut self.nodes, encoder);
-        }
-    }
+    //         for layer in 0..NUM_LAYERS {
+    //             if qt.nodes[id].tile_indices[layer].is_some()
+    //                 && !qt.tile_cache_layers[layer].contains(id)
+    //             {
+    //                 qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
+    //             }
+    //         }
+    //         true
+    //     });
+    //     for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
+    //         cache_layer.load_missing(&mut self.nodes, encoder);
+    //     }
+    // }
 
     fn update_visibility(&mut self, cull_frustum: Option<Frustum<f32>>) {
         self.visible_nodes.clear();
@@ -516,12 +518,12 @@ where
         });
     }
 
-    pub fn update<C: gfx_core::command::Buffer<R>>(
+    pub fn update(
         &mut self,
         mvp_mat: Matrix4<f32>,
         camera: Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
-        encoder: &mut gfx::Encoder<R, C>,
+        // encoder: &mut gfx::Encoder<R, C>,
         dt: f32,
     ) {
         let sun_direction = {
@@ -556,39 +558,39 @@ where
         ];
 
         self.update_priorities(camera);
-        self.update_cache(encoder);
+        // self.update_cache(encoder);
         self.update_visibility(cull_frustum);
-        self.update_shaders();
+        // self.update_shaders();
 
-        self.ocean.update(encoder, dt);
+        // self.ocean.update(encoder, dt);
 
-        self.pipeline_data.model_view_projection = mvp_mat;
-        self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
-        self.pipeline_data.sun_direction = sun_direction;
+        // self.pipeline_data.model_view_projection = mvp_mat;
+        // self.pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        // self.pipeline_data.sun_direction = sun_direction;
 
-        let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
-        let homogeneous = |[x, y, z, w]: [f64; 4]| [x / w, y / w, z / w];
-        let unproject = |v| homogeneous(vecmath::col_mat4_transform(inv_mvp_mat, v));
-        let ray = |x, y| {
-            vecmath::vec3_cast(vecmath::vec3_normalized(vecmath::vec3_sub(
-                unproject([x, y, 0.5, 1.0]),
-                unproject([x, y, 1.0, 1.0]),
-            )))
-        };
-        self.sky_pipeline_data.ray_bottom_left = ray(-1.0, -1.0);
-        self.sky_pipeline_data.ray_bottom_right = ray(1.0, -1.0);
-        self.sky_pipeline_data.ray_top_left = ray(-1.0, 1.0);
-        self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
-        self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
-        self.sky_pipeline_data.sun_direction = sun_direction;
+        // let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
+        // let homogeneous = |[x, y, z, w]: [f64; 4]| [x / w, y / w, z / w];
+        // let unproject = |v| homogeneous(vecmath::col_mat4_transform(inv_mvp_mat, v));
+        // let ray = |x, y| {
+        //     vecmath::vec3_cast(vecmath::vec3_normalized(vecmath::vec3_sub(
+        //         unproject([x, y, 0.5, 1.0]),
+        //         unproject([x, y, 1.0, 1.0]),
+        //     )))
+        // };
+        // self.sky_pipeline_data.ray_bottom_left = ray(-1.0, -1.0);
+        // self.sky_pipeline_data.ray_bottom_right = ray(1.0, -1.0);
+        // self.sky_pipeline_data.ray_top_left = ray(-1.0, 1.0);
+        // self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
+        // self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        // self.sky_pipeline_data.sun_direction = sun_direction;
 
-        self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
-        self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
-        self.planet_mesh_pipeline_data.sun_direction = sun_direction;
+        // self.planet_mesh_pipeline_data.model_view_projection = mvp_mat;
+        // self.planet_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        // self.planet_mesh_pipeline_data.sun_direction = sun_direction;
 
-        self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
-        self.instanced_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
-        self.instanced_mesh_pipeline_data.sun_direction = sun_direction;
+        // self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
+        // self.instanced_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
+        // self.instanced_mesh_pipeline_data.sun_direction = sun_direction;
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)

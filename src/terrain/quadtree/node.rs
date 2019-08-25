@@ -1,11 +1,12 @@
 use cgmath::*;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use std::collections::VecDeque;
 
-use super::{NodeId, NUM_LAYERS};
-use terrain::tile_cache::Priority;
+use crate::terrain::quadtree::NodeId;
+use crate::terrain::tile_cache::{Priority, NUM_LAYERS};
 
-use utils::math::BoundingBox;
+use crate::utils::math::BoundingBox;
 
 lazy_static! {
     pub static ref OFFSETS: [Vector2<i32>; 4] = [

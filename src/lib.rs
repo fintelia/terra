@@ -1,6 +1,10 @@
 //! Terra is a large scale terrain generation and rendering library built on top of rendy.
 #![feature(custom_attribute)]
 #![feature(try_blocks)]
+#![feature(stmt_expr_attributes)]
+
+#[macro_use]
+extern crate lazy_static;
 
 use rendy::{
     command::{Families, QueueId, RenderPassEncoder},
@@ -21,7 +25,14 @@ use rendy::{
 
 use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 
+mod coordinates;
 mod graph;
+mod terrain;
+mod utils;
+
+#[cfg(feature = "amethyst")]
+pub mod plugin;
+
 
 type Backend = rendy::vulkan::Backend;
 

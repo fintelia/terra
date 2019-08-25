@@ -1,5 +1,6 @@
 use cgmath::*;
 use collision::Aabb3;
+use serde::{Serialize, Deserialize};
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct BoundingBox {
