@@ -1,6 +1,7 @@
 use amethyst::core::ecs::Resources;
 /// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
+    submodules::gather::CameraGatherer,
     bundle::{RenderOrder, RenderPlan, Target},
     Factory, RenderPlugin,
 };
@@ -16,6 +17,20 @@ use rendy::graph::render::{Layout, PrepareResult, RenderGroup, RenderGroupDesc};
 use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
 use rendy::resource::{DescriptorSet, DescriptorSetLayout, Escape, Handle};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
+
+/// Collection of functions terra needs on an aux object to render a scene.
+pub trait TerraAux {
+    fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4);
+}
+impl TerraAux for Resources {
+    fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4) {
+        let CameraGatherer {
+            camera_position,
+            projview,
+        } = CameraGatherer::gather(self);
+        (camera_position, projview.proj, projview.view)
+    }
+}
 
 #[derive(Debug)]
 pub struct RenderTerrain {}
@@ -43,7 +58,7 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
 
 #[derive(Debug)]
 pub struct TerrainRenderGroupDesc {}
-impl<B: Backend, T: ?Sized> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
+impl<B: Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
     fn build(
         self,
         ctx: &GraphContext<B>,
@@ -196,8 +211,12 @@ pub struct TerrainRenderGroup<B: Backend> {
     descriptor_sets: Vec<Escape<DescriptorSet<B>>>,
     pipeline_layout: B::PipelineLayout,
     graphics_pipeline: B::GraphicsPipeline,
+
+    // patch_resolution: u16,
+    // index_buffer: Escape<Buffer<B>>,
+    // index_buffer_partial: Escape<Buffer<B>>,
 }
-impl<B: Backend, T: ?Sized> RenderGroup<B, T> for TerrainRenderGroup<B> {
+impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
     fn prepare(
         &mut self,
         factory: &Factory<B>,
@@ -206,7 +225,8 @@ impl<B: Backend, T: ?Sized> RenderGroup<B, T> for TerrainRenderGroup<B> {
         subpass: Subpass<B>,
         aux: &T,
     ) -> PrepareResult {
-        // TODO: what needs to happen here?
+        let camera = aux.camera();
+
         PrepareResult::DrawRecord
     }
 

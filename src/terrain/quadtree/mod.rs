@@ -60,8 +60,8 @@ pub struct QuadTree<B: Backend> {
     /// Cache holding nearby tiles for each layer.
     tile_cache_layers: VecMap<TileCache<B>>,
 
-    index_buffer: Escape<Buffer<B>>,
-    index_buffer_partial: Escape<Buffer<B>>,
+    // index_buffer: Escape<Buffer<B>>,
+    // index_buffer_partial: Escape<Buffer<B>>,
 
     // factory: F,
     // pso: gfx::PipelineState<R, pipe::Meta>,
@@ -271,51 +271,6 @@ impl<B: Backend> QuadTree<B> {
         // ));
 
         // Extra scope to work around lack of non-lexical lifetimes.
-        let (index_buffer, index_buffer_partial) = {
-            let mut make_index_buffer = |resolution: u32| -> Result<Escape<Buffer<B>>, Error> {
-                fn make_indices_inner<B: Backend, T>(
-                    factory: &mut Factory<B>,
-                    resolution: u32,
-                ) -> Result<Escape<Buffer<B>>, Error>
-                where
-                    T: TryFrom<u32>,
-                    <T as TryFrom<u32>>::Error: Debug,
-                {
-                    let width = resolution + 1;
-                    let mut indices = Vec::new();
-                    for y in 0..resolution {
-                        for x in 0..resolution {
-                            for offset in [0, 1, width, 1, width + 1, width].iter() {
-                                indices.push(T::try_from(offset + (x + y * width)).unwrap());
-                            }
-                        }
-                    }
-                    let buffer = factory.create_buffer(
-                        rendy::resource::BufferInfo {
-                            size: (indices.len() * mem::size_of::<T>()) as u64,
-                            usage: gfx_hal::buffer::Usage::INDEX,
-                        },
-                        rendy::memory::Data,
-                    )?;
-                    unsafe {
-                        factory.upload_buffer(&buffer, 0, &indices, None, unimplemented!())?;
-                    }
-                    Ok(buffer)
-                }
-
-                if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
-                    make_indices_inner::<B, u16>(factory, resolution)
-                } else {
-                    make_indices_inner::<B, u32>(factory, resolution)
-                }
-            };
-            let resolution =
-                (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u32;
-            (
-                make_index_buffer(resolution)?,
-                make_index_buffer(resolution / 2)?,
-            )
-        };
 
         // let transmittance = (
         //     atmosphere.transmittance.texture_view.clone(),
@@ -337,8 +292,8 @@ impl<B: Backend> QuadTree<B> {
         Ok(Self {
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
-            index_buffer,
-            index_buffer_partial,
+            // index_buffer,
+            // index_buffer_partial,
             // pso: Self::make_pso(&mut factory, shader.as_shader_set())?,
             // pipeline_data: pipe::Data {
             //     instances: factory.create_constant_buffer::<NodeState>(header.nodes.len() * 3),
@@ -674,4 +629,52 @@ impl<B: Backend> QuadTree<B> {
             )
         }
     }
+
+    // fn make_index_buffers(&mut self, factory: &Factory<B>, queue: QueueId, index: usize, subpass: &Subpass<B>) {
+    //     let (index_buffer, index_buffer_partial) = {
+    //         let mut make_index_buffer = |resolution: u32| -> Result<Escape<Buffer<B>>, Error> {
+    //             fn make_indices_inner<B: Backend, T>(
+    //                 factory: &mut Factory<B>,
+    //                 resolution: u32,
+    //             ) -> Result<Escape<Buffer<B>>, Error>
+    //             where
+    //                 T: TryFrom<u32>,
+    //                 <T as TryFrom<u32>>::Error: Debug,
+    //             {
+    //                 let width = resolution + 1;
+    //                 let mut indices = Vec::new();
+    //                 for y in 0..resolution {
+    //                     for x in 0..resolution {
+    //                         for offset in [0, 1, width, 1, width + 1, width].iter() {
+    //                             indices.push(T::try_from(offset + (x + y * width)).unwrap());
+    //                         }
+    //                     }
+    //                 }
+    //                 let buffer = factory.create_buffer(
+    //                     rendy::resource::BufferInfo {
+    //                         size: (indices.len() * mem::size_of::<T>()) as u64,
+    //                         usage: gfx_hal::buffer::Usage::INDEX,
+    //                     },
+    //                     rendy::memory::Data,
+    //                 )?;
+    //                 unsafe {
+    //                     factory.upload_buffer(&buffer, 0, &indices, None, unimplemented!())?;
+    //                 }
+    //                 Ok(buffer)
+    //             }
+
+    //             if (resolution + 1) * (resolution + 1) - 1 <= u16::max_value() as u32 {
+    //                 make_indices_inner::<B, u16>(factory, resolution)
+    //             } else {
+    //                 make_indices_inner::<B, u32>(factory, resolution)
+    //             }
+    //         };
+    //         let resolution =
+    //             (tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u32;
+    //         (
+    //             make_index_buffer(resolution)?,
+    //             make_index_buffer(resolution / 2)?,
+    //         )
+    //     };
+    // }
 }

@@ -49,6 +49,8 @@ rshader = { path = "rshader", features = ["dynamic_shaders"] }
 
 amethyst = { version = "0.12.0", optional = true, features = ["vulkan", "gltf"] }
 derivative = "1.0.2" # TODO: include for amethyst binary only.
+mint = "0.5.1"
+glsl-layout = "0.3.2"
 
 # For preview
 [dev-dependencies]
