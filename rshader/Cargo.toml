@@ -9,8 +9,8 @@ homepage = "https://github.com/fintelia/terra"
 categories = ["game-engines", "rendering"]
 
 [dependencies]
-failure = "0.1.1"
-notify = "4.0"
+failure = "0.1.6"
+notify = "4.0.13"
 shaderc = "0.5.0"
 rendy = "0.3.2"
 

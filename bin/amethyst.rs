@@ -9,19 +9,19 @@ use amethyst::{
     },
     assets::{
         AssetLoaderSystemData, AssetStorage, Completion, Handle, Loader, PrefabLoader,
-        PrefabLoaderSystem, ProgressCounter, RonFormat,
+        PrefabLoaderSystemDesc, ProgressCounter, RonFormat,
     },
     controls::{FlyControlBundle, FlyControlTag},
     core::{
         ecs::{
             Component, DenseVecStorage, DispatcherBuilder, Entities, Entity, Join, Read,
-            ReadStorage, Resources, System, SystemData, Write, WriteStorage,
+            ReadStorage, System, SystemData, Write, WriteStorage,
         },
         math::{Unit, UnitQuaternion, Vector3},
         Time, Transform, TransformBundle,
     },
     error::Error,
-    gltf::GltfSceneLoaderSystem,
+    gltf::GltfSceneLoaderSystemDesc,
     input::{
         is_close_requested, is_key_down, is_key_up, Axis, Bindings, Button, InputBundle,
         StringBindings,
@@ -323,12 +323,12 @@ impl SimpleState for Example {
             .with(FlyControlTag)
             .build();
 
-        world.add_resource(ActiveCamera {
+        world.insert(ActiveCamera {
             entity: Some(camera),
         });
 
-        world.add_resource(RenderMode::default());
-        world.add_resource(DebugLines::new());
+        world.insert(RenderMode::default());
+        world.insert(DebugLines::new());
     }
 
     fn handle_event(
@@ -595,13 +595,13 @@ fn main() -> amethyst::Result<()> {
         .with(OrbitSystem, "orbit", &[])
         .with(AutoFovSystem::default(), "auto_fov", &[])
         .with_bundle(FpsCounterBundle::default())?
-    .with(
-        PrefabLoaderSystem::<ScenePrefabData>::default(),
+    .with_system_desc(
+        PrefabLoaderSystemDesc::<ScenePrefabData>::default(),
         "scene_loader",
         &[],
     )
-        .with(
-            GltfSceneLoaderSystem::default(),
+        .with_system_desc(
+            GltfSceneLoaderSystemDesc::default(),
             "gltf_loader",
             &["scene_loader"], // This is important so that entity instantiation is performed in a single frame.
         )
@@ -666,11 +666,11 @@ struct RenderSwitchable3D {
 }
 
 impl RenderPlugin<DefaultBackend> for RenderSwitchable3D {
-    fn on_build<'a, 'b>(&mut self, builder: &mut DispatcherBuilder<'a, 'b>) -> Result<(), Error> {
-        <RenderPbr3D as RenderPlugin<DefaultBackend>>::on_build(&mut self.pbr, builder)
+    fn on_build<'a, 'b>(&mut self, world: &mut World, builder: &mut DispatcherBuilder<'a, 'b>) -> Result<(), Error> {
+        <RenderPbr3D as RenderPlugin<DefaultBackend>>::on_build(&mut self.pbr, world, builder)
     }
 
-    fn should_rebuild(&mut self, res: &Resources) -> bool {
+    fn should_rebuild(&mut self, res: &World) -> bool {
         let mode = *<Read<'_, RenderMode>>::fetch(res);
         self.last_mode != mode
     }
@@ -679,7 +679,7 @@ impl RenderPlugin<DefaultBackend> for RenderSwitchable3D {
         &mut self,
         plan: &mut RenderPlan<DefaultBackend>,
         factory: &mut Factory<DefaultBackend>,
-        res: &Resources,
+        res: &World,
     ) -> Result<(), Error> {
         let mode = *<Read<'_, RenderMode>>::fetch(res);
         self.last_mode = mode;

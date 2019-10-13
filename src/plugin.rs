@@ -1,10 +1,10 @@
-use amethyst::core::ecs::Resources;
 /// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
     submodules::gather::CameraGatherer,
     bundle::{RenderOrder, RenderPlan, Target},
     Factory, RenderPlugin,
 };
+use amethyst::prelude::World;
 use failure::Error;
 use gfx_hal::device::Device;
 use gfx_hal::pass::Subpass;
@@ -22,7 +22,7 @@ use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
 pub trait TerraAux {
     fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4);
 }
-impl TerraAux for Resources {
+impl TerraAux for World {
     fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4) {
         let CameraGatherer {
             camera_position,
@@ -45,10 +45,10 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
         &mut self,
         plan: &mut RenderPlan<B>,
         factory: &mut Factory<B>,
-        res: &Resources,
+        res: &World
     ) -> Result<(), amethyst::error::Error> {
         plan.extend_target(Target::Main, |ctx| {
-            let builder: DescBuilder<B, Resources, _> = TerrainRenderGroupDesc {}.builder();
+            let builder: DescBuilder<B, World, _> = TerrainRenderGroupDesc {}.builder();
             ctx.add(RenderOrder::Opaque, builder)?;
             Ok(())
         });
@@ -58,7 +58,7 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
 
 #[derive(Debug)]
 pub struct TerrainRenderGroupDesc {}
-impl<B: Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
+impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
     fn build(
         self,
         ctx: &GraphContext<B>,
