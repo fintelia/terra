@@ -1,21 +1,24 @@
+use amethyst::prelude::World;
 /// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
-    submodules::gather::CameraGatherer,
     bundle::{RenderOrder, RenderPlan, Target},
+    submodules::gather::CameraGatherer,
     Factory, RenderPlugin,
 };
-use amethyst::prelude::World;
 use failure::Error;
+use gfx_hal::buffer::Usage;
 use gfx_hal::device::Device;
 use gfx_hal::pass::Subpass;
 use gfx_hal::pso::{
-    Comparison, DepthStencilDesc, DepthTest, InputAssemblerDesc, PrimitiveRestart, StencilTest,
+    Comparison, DepthStencilDesc, DepthTest, DescriptorSetLayoutBinding, DescriptorType,
+    InputAssemblerDesc, PrimitiveRestart, ShaderStageFlags, StencilTest, DescriptorSetWrite, Descriptor
 };
 use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
 use rendy::graph::render::{Layout, PrepareResult, RenderGroup, RenderGroupDesc};
 use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
-use rendy::resource::{DescriptorSet, DescriptorSetLayout, Escape, Handle};
+use rendy::memory::Dynamic;
+use rendy::resource::{BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
 
 /// Collection of functions terra needs on an aux object to render a scene.
@@ -45,7 +48,7 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
         &mut self,
         plan: &mut RenderPlan<B>,
         factory: &mut Factory<B>,
-        res: &World
+        res: &World,
     ) -> Result<(), amethyst::error::Error> {
         plan.extend_target(Target::Main, |ctx| {
             let builder: DescBuilder<B, World, _> = TerrainRenderGroupDesc {}.builder();
@@ -54,6 +57,14 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
         });
         Ok(())
     }
+}
+
+#[repr(C)]
+struct UniformBlock {
+    view: glsl_layout::mat4,
+    projection: glsl_layout::mat4,
+    camera: glsl_layout::vec3,
+    padding: f32,
 }
 
 #[derive(Debug)]
@@ -72,23 +83,29 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
         images: Vec<NodeImage>,
     ) -> Result<Box<dyn RenderGroup<B, T> + 'static>, Error> {
         // layouts
-        let layout = Layout {
-            sets: Vec::new(),
-            push_constants: Vec::new(),
-        };
-        let set_layouts = layout
-            .sets
+        let set_layouts = vec![vec![DescriptorSetLayoutBinding {
+            binding: 0,
+            ty: DescriptorType::UniformBuffer,
+            count: 1,
+            stage_flags: ShaderStageFlags::VERTEX,
+            immutable_samplers: false,
+        }]];
+
+        let push_constants: Vec<(gfx_hal::pso::ShaderStageFlags, std::ops::Range<u32>)> =
+            Vec::new();
+
+        let set_layouts = set_layouts
             .into_iter()
-            .map(|set| {
+            .map(|bindings| {
                 factory
-                    .create_descriptor_set_layout(set.bindings)
+                    .create_descriptor_set_layout(bindings)
                     .map(Handle::from)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let pipeline_layout = unsafe {
             factory
                 .device()
-                .create_pipeline_layout(set_layouts.iter().map(|l| l.raw()), layout.push_constants)?
+                .create_pipeline_layout(set_layouts.iter().map(|l| l.raw()), push_constants)?
         };
 
         // descriptor sets
@@ -120,6 +137,25 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
         //         location += 1;
         //     }
         // }
+
+        // Uniforms
+        let uniform_buffer = factory.create_buffer(
+            BufferInfo {
+                size: std::mem::size_of::<UniformBlock>() as u64,
+                usage: Usage::UNIFORM,
+            },
+            Dynamic,
+        )?;
+
+        unsafe {
+            factory.device().write_descriptor_sets(vec![DescriptorSetWrite {
+                set: descriptor_sets[0].raw(),
+                binding: 0,
+                array_offset: 0,
+                descriptors: Some(Descriptor::Buffer(uniform_buffer.raw(), None..None)),
+            }]);
+        }
+
 
         let rect = gfx_hal::pso::Rect {
             x: 0,
@@ -201,6 +237,7 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
             descriptor_sets,
             pipeline_layout,
             graphics_pipeline,
+            uniform_buffer,
         }))
     }
 }
@@ -212,6 +249,7 @@ pub struct TerrainRenderGroup<B: Backend> {
     pipeline_layout: B::PipelineLayout,
     graphics_pipeline: B::GraphicsPipeline,
 
+    uniform_buffer: Escape<rendy::resource::Buffer<B>>,
     // patch_resolution: u16,
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
@@ -226,6 +264,18 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
         aux: &T,
     ) -> PrepareResult {
         let camera = aux.camera();
+        unsafe {
+            factory.upload_visible_buffer(
+                &mut self.uniform_buffer,
+                0,
+                &[UniformBlock {
+                    camera: camera.0,
+                    view: camera.2,
+                    projection: camera.1,
+                    padding: 0.0,
+                }],
+            ).unwrap();
+        }
 
         PrepareResult::DrawRecord
     }
