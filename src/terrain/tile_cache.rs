@@ -181,7 +181,8 @@ pub(crate) struct TileCache<B: Backend> {
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
 
-    payloads: PayloadSet<B>,
+    // payloads: PayloadSet<B>,
+    _phantom: std::marker::PhantomData<B>,
 
     /// Section of memory map that holds the data for this layer.
     data_file: Arc<Mmap>,
@@ -214,7 +215,8 @@ impl<B: Backend> TileCache<B> {
             min_priority: Priority::none(),
             layer_params: params,
             data_file,
-            payloads: unimplemented!(),
+            _phantom: std::marker::PhantomData,
+            // payloads: unimplemented!(),
         }
     }
 
