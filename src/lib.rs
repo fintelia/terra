@@ -28,13 +28,19 @@ use rendy::{
 use winit::{Event, EventsLoop, WindowBuilder, WindowEvent};
 
 mod coordinates;
+mod generate;
 mod graph;
 mod terrain;
 mod utils;
+mod runtime_texture;
+mod srgb;
+mod cache;
 
 #[cfg(feature = "amethyst")]
 pub mod plugin;
 
+pub use generate::{QuadTreeBuilder, VertexQuality, TextureQuality, GridSpacing};
+pub use terrain::quadtree::QuadTree;
 
 type Backend = rendy::vulkan::Backend;
 

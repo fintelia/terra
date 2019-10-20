@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use bincode::{self, Infinite};
+use bincode;
 use dirs;
 use failure::Error;
 use memmap::Mmap;
@@ -207,7 +207,7 @@ pub(crate) trait GeneratedAsset {
                 let mut file = File::create(&filename)?;
                 {
                     let mut writer = BufWriter::new(&mut file);
-                    bincode::serialize_into(&mut writer, &generated, Infinite)?;
+                    bincode::serialize_into(&mut writer, &generated)?;
                 }
                 file.sync_all()?;
                 Ok(generated)
@@ -255,7 +255,7 @@ pub(crate) trait MMappedAsset {
                 let mut header_file = File::create(&header_filename)?;
                 {
                     let mut writer = BufWriter::new(&mut header_file);
-                    bincode::serialize_into(&mut writer, &header, Infinite)?;
+                    bincode::serialize_into(&mut writer, &header)?;
                 }
                 header_file.sync_all()?;
 

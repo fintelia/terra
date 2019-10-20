@@ -1,3 +1,4 @@
+use crate::terrain::quadtree::QuadTree;
 use amethyst::prelude::World;
 /// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
@@ -10,8 +11,9 @@ use gfx_hal::buffer::Usage;
 use gfx_hal::device::Device;
 use gfx_hal::pass::Subpass;
 use gfx_hal::pso::{
-    Comparison, DepthStencilDesc, DepthTest, DescriptorSetLayoutBinding, DescriptorType,
-    InputAssemblerDesc, PrimitiveRestart, ShaderStageFlags, StencilTest, DescriptorSetWrite, Descriptor
+    Comparison, DepthStencilDesc, DepthTest, Descriptor, DescriptorSetLayoutBinding,
+    DescriptorSetWrite, DescriptorType, InputAssemblerDesc, PrimitiveRestart, ShaderStageFlags,
+    StencilTest,
 };
 use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
@@ -20,6 +22,7 @@ use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
 use rendy::memory::Dynamic;
 use rendy::resource::{BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
+use std::sync::{Arc, Mutex};
 
 /// Collection of functions terra needs on an aux object to render a scene.
 pub trait TerraAux {
@@ -36,22 +39,24 @@ impl TerraAux for World {
 }
 
 #[derive(Debug)]
-pub struct RenderTerrain {}
-impl RenderTerrain {
-    pub fn new() -> Self {
-        Self {}
+pub struct RenderTerrain<B: Backend>(Arc<Mutex<QuadTree<B>>>);
+impl<B: Backend> RenderTerrain<B> {
+    pub fn new(quadtree: QuadTree<B>) -> Self {
+        Self(Arc::new(Mutex::new(quadtree)))
     }
 }
 
-impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
+impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain<B> {
     fn on_plan(
         &mut self,
         plan: &mut RenderPlan<B>,
         factory: &mut Factory<B>,
         res: &World,
     ) -> Result<(), amethyst::error::Error> {
+        let quadtree = self.0.clone();
         plan.extend_target(Target::Main, |ctx| {
-            let builder: DescBuilder<B, World, _> = TerrainRenderGroupDesc {}.builder();
+            let builder: DescBuilder<B, World, _> =
+                TerrainRenderGroupDesc(quadtree).builder();
             ctx.add(RenderOrder::Opaque, builder)?;
             Ok(())
         });
@@ -68,8 +73,8 @@ struct UniformBlock {
 }
 
 #[derive(Debug)]
-pub struct TerrainRenderGroupDesc {}
-impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
+pub struct TerrainRenderGroupDesc<B: Backend>(Arc<Mutex<QuadTree<B>>>);
+impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc<B> {
     fn build(
         self,
         ctx: &GraphContext<B>,
@@ -148,14 +153,15 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
         )?;
 
         unsafe {
-            factory.device().write_descriptor_sets(vec![DescriptorSetWrite {
-                set: descriptor_sets[0].raw(),
-                binding: 0,
-                array_offset: 0,
-                descriptors: Some(Descriptor::Buffer(uniform_buffer.raw(), None..None)),
-            }]);
+            factory
+                .device()
+                .write_descriptor_sets(vec![DescriptorSetWrite {
+                    set: descriptor_sets[0].raw(),
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: Some(Descriptor::Buffer(uniform_buffer.raw(), None..None)),
+                }]);
         }
-
 
         let rect = gfx_hal::pso::Rect {
             x: 0,
@@ -238,6 +244,8 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
             pipeline_layout,
             graphics_pipeline,
             uniform_buffer,
+
+            quadtree: self.0.clone(),
         }))
     }
 }
@@ -253,6 +261,7 @@ pub struct TerrainRenderGroup<B: Backend> {
     // patch_resolution: u16,
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
+    quadtree: Arc<Mutex<QuadTree<B>>>,
 }
 impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
     fn prepare(
@@ -265,16 +274,18 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
     ) -> PrepareResult {
         let camera = aux.camera();
         unsafe {
-            factory.upload_visible_buffer(
-                &mut self.uniform_buffer,
-                0,
-                &[UniformBlock {
-                    camera: camera.0,
-                    view: camera.2,
-                    projection: camera.1,
-                    padding: 0.0,
-                }],
-            ).unwrap();
+            factory
+                .upload_visible_buffer(
+                    &mut self.uniform_buffer,
+                    0,
+                    &[UniformBlock {
+                        camera: camera.0,
+                        view: camera.2,
+                        projection: camera.1,
+                        padding: 0.0,
+                    }],
+                )
+                .unwrap();
         }
 
         PrepareResult::DrawRecord

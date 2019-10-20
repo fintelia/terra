@@ -1,20 +1,21 @@
+use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
+use crate::coordinates::{CoordinateSystem, PLANET_RADIUS};
+use crate::terrain::dem::GlobalDem;
+use crate::terrain::heightmap::Heightmap;
+use crate::terrain::quadtree::node;
+use crate::terrain::quadtree::Node;
+use crate::terrain::raster::{GlobalRaster, RasterCache};
+use crate::utils::math::BoundingBox;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use cgmath::*;
-use coordinates::{CoordinateSystem, PLANET_RADIUS};
 use failure::Error;
 use memmap::Mmap;
+use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::convert::TryInto;
 use std::io::Write;
 use std::ops::{Deref, Index};
 use std::rc::Rc;
-use terrain::dem::GlobalDem;
-use terrain::heightmap::Heightmap;
-use terrain::quadtree::node;
-use terrain::quadtree::Node;
-use terrain::raster::{GlobalRaster, RasterCache};
-use utils::math::BoundingBox;
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
 pub(crate) enum DataType {
@@ -212,7 +213,8 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                                             lla.x.to_degrees(),
                                             lla.y.to_degrees(),
                                             0,
-                                        ).unwrap_or(0.0) as f64
+                                        )
+                                        .unwrap_or(0.0) as f64
                                 } else {
                                     global_dem
                                         .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
@@ -254,7 +256,7 @@ where
 {
     #[allow(unused)]
     GlobalRaster {
-        global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
+        global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
     },
     RasterCache {
         cache: Rc<RefCell<RasterCache<T, C2>>>,
@@ -262,7 +264,7 @@ where
         radius2: Option<f64>,
     },
     Hybrid {
-        global: Box<WebAsset<Type = GlobalRaster<T, C>>>,
+        global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
         cache: Rc<RefCell<RasterCache<T, C2>>>,
     },
 }

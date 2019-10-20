@@ -2,9 +2,10 @@ use bit_vec::BitVec;
 use failure::Error;
 use lru_cache::LruCache;
 use memmap::Mmap;
+use serde::{Deserialize, Serialize};
 
-use cache::{AssetLoadContext, MMappedAsset};
-use coordinates;
+use crate::cache::{AssetLoadContext, MMappedAsset};
+use crate::coordinates;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -13,7 +14,7 @@ use std::ops::{Deref, Index};
 use std::rc::Rc;
 
 pub trait Scalar: Copy + 'static {
-    fn from_f64(f64) -> Self;
+    fn from_f64(_: f64) -> Self;
     fn to_f64(self) -> f64;
 }
 
@@ -335,12 +336,12 @@ impl RasterSource for BlurredSource {
 }
 
 pub(crate) struct RasterCache<T: Into<f64> + Copy, C: Deref<Target = [T]>> {
-    source: Box<RasterSource<Type = T, Container = C>>,
+    source: Box<dyn RasterSource<Type = T, Container = C>>,
     holes: HashSet<(i16, i16)>,
     rasters: LruCache<(i16, i16), Raster<T, C>>,
 }
 impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
-    pub fn new(source: Box<RasterSource<Type = T, Container = C>>, size: usize) -> Self {
+    pub fn new(source: Box<dyn RasterSource<Type = T, Container = C>>, size: usize) -> Self {
         Self {
             source,
             holes: HashSet::new(),

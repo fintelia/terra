@@ -3,7 +3,7 @@ use coord_transforms::geo;
 use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
 use coord_transforms::structs::geo_ellipsoid::*;
 use nalgebra as na;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 lazy_static! {
     static ref ELLIPSOID: GeoEllipsoid =

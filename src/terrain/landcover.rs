@@ -9,8 +9,8 @@ use image::{
 use memmap::Mmap;
 use zip::ZipArchive;
 
-use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use terrain::raster::{BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource};
+use crate::cache::{AssetLoadContext, GeneratedAsset, WebAsset};
+use crate::terrain::raster::{BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
@@ -109,7 +109,7 @@ impl WebAsset for RawLandCoverParams {
         let mut data = Vec::new();
         zip.by_index(0)?.read_to_end(&mut data)?;
 
-        let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
+        let image = image::load_from_memory_with_format(&data[..], ImageFormat::Tiff)?;
         let image = Arc::new(Mutex::new(image));
 
         for latitude in self.latitude..(self.latitude + 10) {
@@ -239,16 +239,17 @@ impl WebAsset for BlueMarble {
         "bluemarble/world.200406.3x21600x10800.png".to_owned()
     }
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        let mut decoder = PNGDecoder::new(Cursor::new(data));
-        let (width, height) = decoder.dimensions()?;
+        let mut decoder = PNGDecoder::new(Cursor::new(data))?;
+        let (width, height) = decoder.dimensions();
         let (width, height) = (width as usize, height as usize);
-        assert_eq!(decoder.colortype()?, ColorType::RGB(8));
+        assert_eq!(decoder.color_type(), ColorType::Rgb8);
 
         context.set_progress_and_total(0, height / 108);
-        let row_len = decoder.row_len()?;
-        let mut values = vec![0; row_len * height];
+        let row_len = width * 3;
+        let mut values = vec![0; decoder.total_bytes() as usize];
+        let mut reader = decoder.into_reader()?;
         for row in 0..height {
-            decoder.read_scanline(&mut values[(row * row_len)..((row + 1) * row_len)])?;
+            reader.read_exact(&mut values[(row * row_len)..((row + 1) * row_len)])?;
             if (row + 1) % 108 == 0 {
                 context.set_progress((row + 1) / 108);
             }
@@ -297,16 +298,17 @@ impl WebAsset for BlueMarbleTile {
         format!("bluemarble/{}", self.name())
     }
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        let mut decoder = PNGDecoder::new(Cursor::new(data));
-        let (width, height) = decoder.dimensions()?;
+        let mut decoder = PNGDecoder::new(Cursor::new(data))?;
+        let (width, height) = decoder.dimensions();
         let (width, height) = (width as usize, height as usize);
-        assert_eq!(decoder.colortype()?, ColorType::RGB(8));
+        assert_eq!(decoder.color_type(), ColorType::Rgb8);
 
         context.set_progress_and_total(0, height / 108);
-        let row_len = decoder.row_len()?;
-        let mut values = vec![0; row_len * height];
+        let row_len = width * 3 * 12;
+        let mut values = vec![0; decoder.total_bytes() as usize];
+        let mut reader = decoder.into_reader()?;
         for row in 0..height {
-            decoder.read_scanline(&mut values[(row * row_len)..((row + 1) * row_len)])?;
+            reader.read_exact(&mut values[(row * row_len)..((row + 1) * row_len)])?;
             if (row + 1) % 108 == 0 {
                 context.set_progress((row + 1) / 108);
             }
@@ -372,7 +374,7 @@ impl WebAsset for GlobalWaterMask {
         let mut data = Vec::new();
         zip.by_index(0)?.read_to_end(&mut data)?;
 
-        let image = image::load_from_memory_with_format(&data[..], ImageFormat::TIFF)?;
+        let image = image::load_from_memory_with_format(&data[..], ImageFormat::Tiff)?;
         context.set_progress(100);
         let (width, height) = image.dimensions();
         let (width, height) = (width as usize, height as usize);

@@ -83,6 +83,12 @@ pub struct QuadTree<B: Backend> {
     system: CoordinateSystem,
 }
 
+impl<B: Backend> std::fmt::Debug for QuadTree<B> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "QuadTree")
+    }
+}
+
 #[allow(unused)]
 impl<B: Backend> QuadTree<B> {
     pub(crate) fn new(
@@ -90,7 +96,7 @@ impl<B: Backend> QuadTree<B> {
         data_file: Mmap,
         // materials: MaterialSet<R>,
         // sky: Skybox<R>,
-        factory: &mut Factory<B>,
+        // factory: &mut Factory<B>,
         // encoder: &mut gfx::Encoder<R, C>,
         // color_buffer: &gfx::handle::RenderTargetView<R, gfx::format::Rgba16F>,
         // depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,

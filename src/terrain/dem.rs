@@ -1,15 +1,14 @@
+use crate::cache::{AssetLoadContext, WebAsset};
+use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
+use failure::{bail, ensure, Error, Fail};
+use image::tiff::TIFFDecoder;
+use image::{ImageDecoder, ImageResult};
+use safe_transmute;
 use std::io::{Cursor, Read};
 use std::mem;
 use std::str::FromStr;
-
-use failure::Error;
-use image::tiff::TIFFDecoder;
-use image::{DecodingResult, ImageDecoder};
-use safe_transmute;
+use zerocopy::AsBytes;
 use zip::ZipArchive;
-
-use cache::{AssetLoadContext, WebAsset};
-use terrain::raster::{GlobalRaster, Raster, RasterSource};
 
 #[derive(Debug, Fail)]
 #[fail(display = "failed to parse DEM file")]
@@ -79,7 +78,8 @@ impl RasterSource for DemSource {
             latitude,
             longitude,
             source: *self,
-        }.load(context)
+        }
+        .load(context)
         .ok()
     }
     fn bands(&self) -> usize {
@@ -295,15 +295,17 @@ impl WebAsset for GlobalDem {
         file.read_to_end(&mut contents)?;
 
         let mut tiff_decoder = TIFFDecoder::new(Cursor::new(contents))?;
-        let (width, height) = tiff_decoder.dimensions()?;
-        match tiff_decoder.read_image()? {
-            DecodingResult::U8(_) => bail!("unexpected format"),
-            DecodingResult::U16(values) => Ok(GlobalRaster {
-                bands: 1,
-                width: width as usize,
-                height: height as usize,
-                values: values.into_iter().map(|i| i as i16).collect(),
-            }),
-        }
+        let (width, height) = tiff_decoder.dimensions();
+
+        let mut values: Vec<i16> = vec![0; width as usize * height as usize];
+        tiff_decoder
+            .into_reader()?
+            .read_exact(values.as_bytes_mut());
+        Ok(GlobalRaster {
+            bands: 1,
+            width: width as usize,
+            height: height as usize,
+            values,
+        })
     }
 }

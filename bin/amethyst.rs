@@ -591,6 +591,15 @@ fn main() -> amethyst::Result<()> {
         },
     )?;
 
+    let quadtree = terra::QuadTreeBuilder::new()
+        .latitude(42)
+        .longitude(-73)
+        .vertex_quality(terra::VertexQuality::High)
+        .texture_quality(terra::TextureQuality::High)
+        .grid_spacing(terra::GridSpacing::TwoMeters)
+        .build()
+        .unwrap();
+
     let game_data = GameDataBuilder::default()
         .with(OrbitSystem, "orbit", &[])
         .with(AutoFovSystem::default(), "auto_fov", &[])
@@ -645,7 +654,7 @@ fn main() -> amethyst::Result<()> {
             .with_plugin(RenderSwitchable3D::default())
             .with_plugin(RenderFlat2D::default())
             .with_plugin(RenderDebugLines::default())
-            .with_plugin(terra::plugin::RenderTerrain::new())
+            .with_plugin(terra::plugin::RenderTerrain::new(quadtree))
             .with_plugin(RenderSkybox::with_colors(
                 Srgb::new(0.82, 0.51, 0.50),
                 Srgb::new(0.18, 0.11, 0.85),
