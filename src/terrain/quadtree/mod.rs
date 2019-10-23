@@ -78,7 +78,7 @@ pub struct QuadTree<B: Backend> {
     // planet_mesh_shader: rshader::Shader<R>,
     // instanced_mesh_shader: rshader::Shader<R>,
     // num_planet_mesh_vertices: usize,
-    // node_states: Vec<NodeState>,
+    node_states: Vec<NodeState>,
     // _materials: MaterialSet<R>,
     system: CoordinateSystem,
 }
@@ -391,7 +391,7 @@ impl<B: Backend> QuadTree<B> {
             // instanced_mesh_shader,
             // num_planet_mesh_vertices: header.planet_mesh.num_vertices,
             nodes: header.nodes,
-            // node_states: Vec::new(),
+            node_states: Vec::new(),
             tile_cache_layers,
             // _materials: materials,
             system: header.system,
@@ -481,11 +481,11 @@ impl<B: Backend> QuadTree<B> {
 
     pub fn update(
         &mut self,
-        mvp_mat: Matrix4<f32>,
+        // mvp_mat: Matrix4<f32>,
         camera: Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
         // encoder: &mut gfx::Encoder<R, C>,
-        dt: f32,
+        // dt: f32,
     ) {
         let sun_direction = {
             let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
@@ -510,13 +510,13 @@ impl<B: Backend> QuadTree<B> {
         };
 
         // Convert the MVP matrix to "vecmath encoding".
-        let to_array = |v: Vector4<f32>| [v.x, v.y, v.z, v.w];
-        let mvp_mat = [
-            to_array(mvp_mat.x),
-            to_array(mvp_mat.y),
-            to_array(mvp_mat.z),
-            to_array(mvp_mat.w),
-        ];
+        // let to_array = |v: Vector4<f32>| [v.x, v.y, v.z, v.w];
+        // let mvp_mat = [
+        //     to_array(mvp_mat.x),
+        //     to_array(mvp_mat.y),
+        //     to_array(mvp_mat.z),
+        //     to_array(mvp_mat.w),
+        // ];
 
         self.update_priorities(camera);
         // self.update_cache(encoder);

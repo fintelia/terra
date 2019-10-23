@@ -55,8 +55,7 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain<B>
     ) -> Result<(), amethyst::error::Error> {
         let quadtree = self.0.clone();
         plan.extend_target(Target::Main, |ctx| {
-            let builder: DescBuilder<B, World, _> =
-                TerrainRenderGroupDesc(quadtree).builder();
+            let builder: DescBuilder<B, World, _> = TerrainRenderGroupDesc(quadtree).builder();
             ctx.add(RenderOrder::Opaque, builder)?;
             Ok(())
         });
@@ -287,6 +286,11 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
                 )
                 .unwrap();
         }
+
+        self.quadtree
+            .lock()
+            .unwrap()
+            .update(*<&cgmath::Point3::<f32>>::from(camera.0.as_ref() as &[f32;3]), None);
 
         PrepareResult::DrawRecord
     }
