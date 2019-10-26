@@ -1,11 +1,13 @@
-use failure::Error;
-use rendy::graph::render::Pipeline;
-use gfx_hal::Backend;
-
 use super::*;
 use crate::terrain::tile_cache::LayerType;
+use failure::Error;
+use gfx_hal::{Backend, IndexType};
+use rendy::command::{QueueId, RenderPassEncoder};
+use rendy::factory::Factory;
+use rendy::graph::render::Pipeline;
+use std::iter;
 
-#[repr(C)]
+#[repr(C, align(4))]
 pub(crate) struct NodeState {
     position: glsl_layout::vec2,
     side_length: f32,
@@ -18,6 +20,7 @@ pub(crate) struct NodeState {
     splats_layer: glsl_layout::vec2,
     texture_step: f32,
     parent_texture_step: f32,
+    resolution: i32,
 }
 
 // gfx_defines!{
@@ -120,7 +123,7 @@ pub(crate) struct NodeState {
 //     depth_buffer: gfx::DepthTarget<Depth32F> = state::Depth{fun: state::Comparison::GreaterEqual, write: true},
 // });
 
-impl<B: Backend> QuadTree<B> {
+impl QuadTree {
     // pub(crate) fn make_pso(
     //     factory: &mut F,
     //     shader: &gfx::ShaderSet<R>,
@@ -231,18 +234,23 @@ impl<B: Backend> QuadTree<B> {
     //     Ok(())
     // }
 
-    pub fn render(&mut self) -> Result<(), Error> {
-    //     encoder.draw(
-    //         &gfx::Slice {
-    //             start: 0,
-    //             end: self.num_planet_mesh_vertices as u32,
-    //             base_vertex: 0,
-    //             instances: None,
-    //             buffer: gfx::IndexBuffer::Auto,
-    //         },
-    //         &self.planet_mesh_pso,
-    //         &self.planet_mesh_pipeline_data,
-    //     );
+    pub fn prepare_vertex_buffer<B: Backend>(
+        &mut self,
+        factory: &Factory<B>,
+        queue: QueueId,
+        vertex_buffer: &mut Buffer<B>,
+    ) {
+        //     encoder.draw(
+        //         &gfx::Slice {
+        //             start: 0,
+        //             end: self.num_planet_mesh_vertices as u32,
+        //             base_vertex: 0,
+        //             instances: None,
+        //             buffer: gfx::IndexBuffer::Auto,
+        //         },
+        //         &self.planet_mesh_pso,
+        //         &self.planet_mesh_pipeline_data,
+        //     );
 
         assert_eq!(
             self.tile_cache_layers[LayerType::Colors.index()].resolution(),
@@ -261,60 +269,63 @@ impl<B: Backend> QuadTree<B> {
         let texture_step = texture_ratio / resolution as f32;
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
-        fn find_texture_slots<B: Backend>(
+        fn find_texture_slots(
             nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache<B>>,
+            tile_cache_layers: &VecMap<TileCache>,
             id: NodeId,
             texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
-            let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
-                tile_cache_layers[LayerType::Normals.index()].contains(id)
-            }).unwrap();
-            let colors_slot = tile_cache_layers[LayerType::Colors.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap();
-            let normals_slot = tile_cache_layers[LayerType::Normals.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap();
-            let splats_slot = tile_cache_layers[LayerType::Splats.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap_or(-1.0);
-            let scale = (0.5f32).powi(generations as i32);
-            let offset = Vector2::new(
-                offset.x as f32 * texture_ratio * scale,
-                offset.y as f32 * texture_ratio * scale,
-            );
-            (colors_slot, normals_slot, splats_slot, offset, scale)
+            // let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
+            //     tile_cache_layers[LayerType::Normals.index()].contains(id)
+            // })
+            // .unwrap();
+            // let colors_slot = tile_cache_layers[LayerType::Colors.index()]
+            //     .get_slot(ancestor)
+            //     .map(|s| s as f32)
+            //     .unwrap();
+            // let normals_slot = tile_cache_layers[LayerType::Normals.index()]
+            //     .get_slot(ancestor)
+            //     .map(|s| s as f32)
+            //     .unwrap();
+            // let splats_slot = tile_cache_layers[LayerType::Splats.index()]
+            //     .get_slot(ancestor)
+            //     .map(|s| s as f32)
+            //     .unwrap_or(-1.0);
+            // let scale = (0.5f32).powi(generations as i32);
+            // let offset = Vector2::new(
+            //     offset.x as f32 * texture_ratio * scale,
+            //     offset.y as f32 * texture_ratio * scale,
+            // );
+            // (colors_slot, normals_slot, splats_slot, offset, scale)
+            (0.0, 0.0, 0.0, Vector2::new(0.0, 0.0), 0.0)
         };
-        fn find_parent_texture_slots<B: Backend>(
+        fn find_parent_texture_slots(
             nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache<B>>,
+            tile_cache_layers: &VecMap<TileCache>,
             id: NodeId,
             texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
-            if let Some((parent, child_index)) = nodes[id].parent {
-                let (c, n, s, offset, scale) =
-                    find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
-                let child_offset = node::OFFSETS[child_index as usize];
-                let offset = offset
-                    + Vector2::new(child_offset.x as f32, child_offset.y as f32)
-                        * scale
-                        * texture_ratio
-                        * 0.5;
-                (c, n, s, offset, scale * 0.5)
-            } else {
+            // if let Some((parent, child_index)) = nodes[id].parent {
+            //     let (c, n, s, offset, scale) =
+            //         find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
+            //     let child_offset = node::OFFSETS[child_index as usize];
+            //     let offset = offset
+            //         + Vector2::new(child_offset.x as f32, child_offset.y as f32)
+            //             * scale
+            //             * texture_ratio
+            //             * 0.5;
+            //     (c, n, s, offset, scale * 0.5)
+            // } else {
                 (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
-            }
+            // }
         }
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
-            let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
-                .get_slot(id)
-                .unwrap() as f32;
+            // let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
+            //     .get_slot(id)
+            //     .unwrap() as f32;
+            let heights_slot = 0.0;
             let (colors_layer, normals_layer, splats_layer, texture_offset, tex_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             let (pcolors_layer, pnormals_layer, psplats_layer, ptexture_offset, ptex_step_scale) =
@@ -327,16 +338,19 @@ impl<B: Backend> QuadTree<B> {
                 texture_origin: [
                     texture_origin + texture_offset.x,
                     texture_origin + texture_offset.y,
-                ].into(),
+                ]
+                .into(),
                 parent_texture_origin: [
                     texture_origin + ptexture_offset.x,
                     texture_origin + ptexture_offset.y,
-                ].into(),
+                ]
+                .into(),
                 colors_layer: [colors_layer, pcolors_layer].into(),
                 normals_layer: [normals_layer, pnormals_layer].into(),
                 splats_layer: [splats_layer, psplats_layer].into(),
                 texture_step: texture_step * tex_step_scale,
                 parent_texture_step: texture_step * ptex_step_scale,
+                resolution: resolution as i32,
             });
         }
         for &(id, mask) in self.partially_visible_nodes.iter() {
@@ -345,9 +359,10 @@ impl<B: Backend> QuadTree<B> {
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
-                        .get_slot(id)
-                        .unwrap() as f32;
+                    // let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
+                    //     .get_slot(id)
+                    //     .unwrap() as f32;
+                    let heights_slot = 0.0;
                     let (
                         colors_layer,
                         normals_layer,
@@ -371,14 +386,16 @@ impl<B: Backend> QuadTree<B> {
                         position: [
                             self.nodes[id].bounds.min.x + offset.0 * side_length,
                             self.nodes[id].bounds.min.z + offset.1 * side_length,
-                        ].into(),
+                        ]
+                        .into(),
                         side_length,
                         min_distance: self.nodes[id].min_distance,
                         heights_origin: [
                             offset.0 * (0.5 - 0.5 / (resolution + 1) as f32),
                             offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
                             heights_slot,
-                        ].into(),
+                        ]
+                        .into(),
                         texture_origin: [
                             texture_origin
                                 + texture_offset.x
@@ -386,7 +403,8 @@ impl<B: Backend> QuadTree<B> {
                             texture_origin
                                 + texture_offset.y
                                 + offset.1 * (0.5 - texture_origin) * texture_step_scale,
-                        ].into(),
+                        ]
+                        .into(),
                         parent_texture_origin: [
                             texture_origin
                                 + ptexture_offset.x
@@ -394,17 +412,24 @@ impl<B: Backend> QuadTree<B> {
                             texture_origin
                                 + ptexture_offset.y
                                 + offset.1 * (0.5 - texture_origin) * ptexture_step_scale,
-                        ].into(),
+                        ]
+                        .into(),
                         colors_layer: [colors_layer, pcolors_layer].into(),
                         normals_layer: [normals_layer, pnormals_layer].into(),
                         splats_layer: [splats_layer, psplats_layer].into(),
                         texture_step: texture_step * texture_step_scale,
                         parent_texture_step: texture_step * ptexture_step_scale,
+                        resolution: resolution as i32 / 2,
                     });
                 }
             }
         }
 
+        unsafe {
+            factory
+                .upload_visible_buffer(vertex_buffer, 0, &self.node_states[..])
+                .unwrap();
+        }
         // encoder.update_buffer(&self.pipeline_data.instances, &self.node_states[..], 0)?;
 
         // self.pipeline_data.resolution = resolution as i32;
@@ -458,8 +483,33 @@ impl<B: Backend> QuadTree<B> {
         //         );
         //     }
         // }
+    }
 
-        Ok(())
+    pub(crate) fn render<B: Backend>(
+        &mut self,
+        encoder: &mut RenderPassEncoder<B>,
+        vertex_buffer: &Buffer<B>,
+        index_buffer: &Buffer<B>,
+        index_buffer_partial: &Buffer<B>,
+    ) {
+        let resolution =
+            (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u32;
+        let visible_nodes = self.visible_nodes.len() as u32;
+        let total_nodes = self.node_states.len() as u32;
+
+        unsafe {
+            encoder.bind_vertex_buffers(0, iter::once((vertex_buffer.raw(), 0)));
+
+            encoder.bind_index_buffer(index_buffer.raw(), 0, IndexType::U16);
+            encoder.draw_indexed(0..(resolution * resolution * 6), 0, 0..visible_nodes);
+
+            encoder.bind_index_buffer(index_buffer_partial.raw(), 0, IndexType::U16);
+            encoder.draw_indexed(
+                0..((resolution / 2) * (resolution / 2) * 6),
+                0,
+                visible_nodes..total_nodes,
+            );
+        }
     }
 
     // pub fn render_sky<C: gfx_core::command::Buffer<R>>(

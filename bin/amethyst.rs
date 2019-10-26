@@ -633,7 +633,7 @@ fn main() -> amethyst::Result<()> {
             Some("vertical".into()),
         )
             .with_sensitivity(0.1, 0.1)
-            .with_speed(5.),
+            .with_speed(50.),
     )?
     .with_bundle(TransformBundle::new().with_dep(&[
         "animation_control",

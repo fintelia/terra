@@ -4,6 +4,6 @@
 */
 
 (
-  title: "Rendy Example",
-  dimensions: Some((1280, 720)),
+  title: "Terra Example",
+  dimensions: Some((1920, 1080)),
 )

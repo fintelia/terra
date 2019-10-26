@@ -2,8 +2,6 @@ use std::convert::TryInto;
 use std::sync::Arc;
 
 use memmap::Mmap;
-use gfx_hal::Backend;
-use rendy::texture::Texture;
 use serde::{Serialize, Deserialize};
 use vec_map::VecMap;
 
@@ -155,18 +153,18 @@ pub(crate) struct TileHeader {
 //     padding2: [f32; 4] = "vPadding2",
 // });
 
-enum PayloadSet<B: Backend> {
-    Texture {
-        texture: Texture<B>,
-        resolution: u16,
-    },
-    // InstancedMesh {
-    //     buffer: gfx::handle::Buffer<R, MeshInstance>,
-    //     max_elements_per_slot: usize,
-    // },
-}
+// enum PayloadSet<B: Backend> {
+//     Texture {
+//         texture: Texture<B>,
+//         resolution: u16,
+//     },
+//     InstancedMesh {
+//         buffer: gfx::handle::Buffer<R, MeshInstance>,
+//         max_elements_per_slot: usize,
+//     },
+// }
 
-pub(crate) struct TileCache<B: Backend> {
+pub(crate) struct TileCache {
     /// Maximum number of slots in this `TileCache`.
     size: usize,
     /// Actually contents of the cache.
@@ -182,12 +180,11 @@ pub(crate) struct TileCache<B: Backend> {
     layer_params: LayerParams,
 
     // payloads: PayloadSet<B>,
-    _phantom: std::marker::PhantomData<B>,
 
     /// Section of memory map that holds the data for this layer.
     data_file: Arc<Mmap>,
 }
-impl<B: Backend> TileCache<B> {
+impl TileCache {
     pub fn new(
         params: LayerParams,
         data_file: Arc<Mmap>,
@@ -215,8 +212,6 @@ impl<B: Backend> TileCache<B> {
             min_priority: Priority::none(),
             layer_params: params,
             data_file,
-            _phantom: std::marker::PhantomData,
-            // payloads: unimplemented!(),
         }
     }
 

@@ -245,7 +245,7 @@ impl QuadTreeBuilder {
     /// of CPU resources. You can expect it to run at full load continiously for several full
     /// minutes, even in release builds (you *really* don't want to wait for generation in debug
     /// mode...).
-    pub fn build<B: gfx_hal::Backend>(mut self) -> Result<QuadTree<B>, Error> {
+    pub fn build(mut self) -> Result<QuadTree, Error> {
         let mut context = self.context.take().unwrap();
         let (header, data) = self.load(&mut context)?;
 

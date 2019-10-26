@@ -1,3 +1,4 @@
+use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::quadtree::QuadTree;
 use amethyst::prelude::World;
 /// Plugin for Amethyst that renders a terrain.
@@ -9,17 +10,18 @@ use amethyst::renderer::{
 use failure::Error;
 use gfx_hal::buffer::Usage;
 use gfx_hal::device::Device;
+use gfx_hal::format::Format;
 use gfx_hal::pass::Subpass;
 use gfx_hal::pso::{
     Comparison, DepthStencilDesc, DepthTest, Descriptor, DescriptorSetLayoutBinding,
     DescriptorSetWrite, DescriptorType, InputAssemblerDesc, PrimitiveRestart, ShaderStageFlags,
-    StencilTest,
+    StencilTest, VertexInputRate, Element
 };
 use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
 use rendy::graph::render::{Layout, PrepareResult, RenderGroup, RenderGroupDesc};
 use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
-use rendy::memory::Dynamic;
+use rendy::memory;
 use rendy::resource::{BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
 use std::sync::{Arc, Mutex};
@@ -39,14 +41,14 @@ impl TerraAux for World {
 }
 
 #[derive(Debug)]
-pub struct RenderTerrain<B: Backend>(Arc<Mutex<QuadTree<B>>>);
-impl<B: Backend> RenderTerrain<B> {
-    pub fn new(quadtree: QuadTree<B>) -> Self {
+pub struct RenderTerrain(Arc<Mutex<QuadTree>>);
+impl RenderTerrain {
+    pub fn new(quadtree: QuadTree) -> Self {
         Self(Arc::new(Mutex::new(quadtree)))
     }
 }
 
-impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain<B> {
+impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
     fn on_plan(
         &mut self,
         plan: &mut RenderPlan<B>,
@@ -72,8 +74,8 @@ struct UniformBlock {
 }
 
 #[derive(Debug)]
-pub struct TerrainRenderGroupDesc<B: Backend>(Arc<Mutex<QuadTree<B>>>);
-impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc<B> {
+pub struct TerrainRenderGroupDesc(Arc<Mutex<QuadTree>>);
+impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
     fn build(
         self,
         ctx: &GraphContext<B>,
@@ -86,6 +88,8 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
     ) -> Result<Box<dyn RenderGroup<B, T> + 'static>, Error> {
+        let mut quadtree = &mut *self.0.lock().unwrap();
+
         // layouts
         let set_layouts = vec![vec![DescriptorSetLayoutBinding {
             binding: 0,
@@ -120,16 +124,36 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
 
         // buffers
         let mut vertex_buffers = Vec::new();
+        vertex_buffers.push(gfx_hal::pso::VertexBufferDesc {
+            binding: 0,
+            stride: std::mem::size_of::<NodeState>() as u32,
+            rate: VertexInputRate::Instance(1),
+        });
+
+        let attribute_offsets = [0, 8, 12, 16, 28, 36, 44, 52, 60, 68, 72, 76];
         let mut attributes: Vec<gfx_hal::pso::AttributeDesc> = Vec::new();
-
-        // for &(ref elements, stride, rate) in &pipeline.vertices {
-        //     let index =
-
-        // vertex_buffers.push(gfx_hal::pso::VertexBufferDesc {
-        //     binding: vertex_buffers.len() as gfx_hal::pso::BufferIndex,
-        //     stride: 0,
-        //     rate: VertexInputRate::Vertex,
-        // });
+        for i in 0..12 {
+            attributes.push(gfx_hal::pso::AttributeDesc {
+                location: i,
+                binding: 0,
+                element: Element {
+                    format: Format::Rg32Sfloat,
+                    offset: attribute_offsets[i as usize],
+                },
+            });
+        }
+        attributes[0].element.format = Format::Rg32Sfloat;
+        attributes[1].element.format = Format::R32Sfloat;
+        attributes[2].element.format = Format::R32Sfloat;
+        attributes[3].element.format = Format::Rgb32Sfloat;
+        attributes[4].element.format = Format::Rg32Sfloat;
+        attributes[5].element.format = Format::Rg32Sfloat;
+        attributes[6].element.format = Format::Rg32Sfloat;
+        attributes[7].element.format = Format::Rg32Sfloat;
+        attributes[8].element.format = Format::Rg32Sfloat;
+        attributes[9].element.format = Format::R32Sfloat;
+        attributes[10].element.format = Format::R32Sfloat;
+        attributes[11].element.format = Format::R32Sint;
 
         //     let mut location = attributes.last().map_or(0, |a| a.location + 1);
         //     for &element in elements {
@@ -142,13 +166,24 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
         //     }
         // }
 
+        let vertex_buffer = factory.create_buffer(
+            BufferInfo {
+                size: (std::mem::size_of::<NodeState>() * quadtree.total_nodes()) as u64,
+                usage: Usage::VERTEX,
+            },
+            memory::Dynamic,
+        )?;
+
+        // Index Buffers
+        let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(factory, queue)?;
+
         // Uniforms
         let uniform_buffer = factory.create_buffer(
             BufferInfo {
                 size: std::mem::size_of::<UniformBlock>() as u64,
                 usage: Usage::UNIFORM,
             },
-            Dynamic,
+            memory::Dynamic,
         )?;
 
         unsafe {
@@ -195,7 +230,14 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
                     vertex_buffers,
                     attributes,
                     layout: &pipeline_layout,
-                    rasterizer: gfx_hal::pso::Rasterizer::FILL,
+                    rasterizer: gfx_hal::pso::Rasterizer {
+                        polygon_mode: gfx_hal::pso::PolygonMode::Line(1.0),
+                        cull_face: gfx_hal::pso::Face::NONE,
+                        front_face: gfx_hal::pso::FrontFace::CounterClockwise,
+                        depth_clamping: false,
+                        depth_bias: None,
+                        conservative: false,
+                    },
                     input_assembler: InputAssemblerDesc {
                         primitive: Primitive::TriangleList,
                         primitive_restart: PrimitiveRestart::Disabled,
@@ -243,6 +285,10 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
             pipeline_layout,
             graphics_pipeline,
             uniform_buffer,
+            vertex_buffer,
+            index_buffer,
+            index_buffer_partial,
+            layers: Vec::new(),
 
             quadtree: self.0.clone(),
         }))
@@ -257,10 +303,15 @@ pub struct TerrainRenderGroup<B: Backend> {
     graphics_pipeline: B::GraphicsPipeline,
 
     uniform_buffer: Escape<rendy::resource::Buffer<B>>,
+    vertex_buffer: Escape<rendy::resource::Buffer<B>>,
+    index_buffer: Escape<rendy::resource::Buffer<B>>,
+    index_buffer_partial: Escape<rendy::resource::Buffer<B>>,
+    layers: Vec<rendy::texture::Texture<B>>,
+
     // patch_resolution: u16,
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
-    quadtree: Arc<Mutex<QuadTree<B>>>,
+    quadtree: Arc<Mutex<QuadTree>>,
 }
 impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
     fn prepare(
@@ -287,10 +338,14 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
                 .unwrap();
         }
 
-        self.quadtree
-            .lock()
-            .unwrap()
-            .update(*<&cgmath::Point3::<f32>>::from(camera.0.as_ref() as &[f32;3]), None);
+        let mut quadtree = self.quadtree.lock().unwrap();
+
+        quadtree.update(
+            *<&cgmath::Point3<f32>>::from(camera.0.as_ref() as &[f32; 3]),
+            None,
+        );
+
+        quadtree.prepare_vertex_buffer(factory, queue, &mut self.vertex_buffer);
 
         PrepareResult::DrawRecord
     }
@@ -310,10 +365,14 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
                 self.descriptor_sets.iter().map(|s| s.raw()),
                 std::iter::empty::<u32>(),
             );
-
-            encoder.draw(0..3, 0..1);
         }
-        // TODO: render terrain.
+
+        self.quadtree.lock().unwrap().render(
+            &mut encoder,
+            &self.vertex_buffer,
+            &self.index_buffer,
+            &self.index_buffer_partial,
+        );
     }
 
     fn dispose(self: Box<Self>, factory: &mut Factory<B>, aux: &T) {

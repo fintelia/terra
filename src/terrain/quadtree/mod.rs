@@ -10,11 +10,12 @@ use memmap::Mmap;
 use vec_map::VecMap;
 use vecmath;
 use zerocopy::AsBytes;
-
+use gfx_hal::buffer::{Usage, Access};
 use gfx_hal::Backend;
-use rendy::factory::Factory;
-use rendy::resource::Buffer;
-use rendy::resource::Escape;
+use rendy::factory::{Factory, BufferState};
+use rendy::resource::{BufferInfo, Escape, Buffer};
+use rendy::memory;
+use rendy::command::{QueueId};
 
 // use rshader;
 // use runtime_texture::TextureFormat;
@@ -46,7 +47,7 @@ pub(crate) use crate::terrain::quadtree::render::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
-pub struct QuadTree<B: Backend> {
+pub struct QuadTree {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
     // ocean: Ocean<R>,
@@ -58,7 +59,7 @@ pub struct QuadTree<B: Backend> {
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
-    tile_cache_layers: VecMap<TileCache<B>>,
+    tile_cache_layers: VecMap<TileCache>,
 
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
@@ -78,19 +79,20 @@ pub struct QuadTree<B: Backend> {
     // planet_mesh_shader: rshader::Shader<R>,
     // instanced_mesh_shader: rshader::Shader<R>,
     // num_planet_mesh_vertices: usize,
+
     node_states: Vec<NodeState>,
     // _materials: MaterialSet<R>,
     system: CoordinateSystem,
 }
 
-impl<B: Backend> std::fmt::Debug for QuadTree<B> {
+impl std::fmt::Debug for QuadTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "QuadTree")
     }
 }
 
 #[allow(unused)]
-impl<B: Backend> QuadTree<B> {
+impl QuadTree {
     pub(crate) fn new(
         header: TileHeader,
         data_file: Mmap,
@@ -102,6 +104,20 @@ impl<B: Backend> QuadTree<B> {
         // depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
         // mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
+        eprintln!("nodes.len() = {}", header.nodes.len());
+        eprintln!("layers.len() = {}", header.layers.len());
+        eprintln!("heights = {} ({:?})", header.layers[0].tile_locations.len(),
+                  header.layers[0].payload_type
+        );
+        eprintln!("colors = {} ({:?})", header.layers[1].tile_locations.len(),
+                  header.layers[1].payload_type
+        );
+        eprintln!("normals = {} ({:?})", header.layers[2].tile_locations.len(),
+                  header.layers[2].payload_type
+        );
+        eprintln!("splats = {} ({:?})", header.layers[3].tile_locations.len(),
+                  header.layers[3].payload_type
+        );
         // let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
         //     env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
         // )?;
@@ -398,6 +414,44 @@ impl<B: Backend> QuadTree<B> {
         })
     }
 
+    pub(crate) fn create_index_buffers<B: Backend>(&self, factory: &mut Factory<B>, queue: QueueId)
+                                        -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
+
+        let make_index_buffer = |resolution: u16| -> Result<Escape<Buffer<B>>, Error> {
+            let width = resolution + 1;
+            let mut indices: Vec<u16> = Vec::new();
+            for y in 0..resolution {
+                for x in 0..resolution {
+                    for offset in [0, 1, width, 1, width + 1, width].into_iter() {
+                        indices.push(offset + (x + y * width));
+                    }
+                }
+            }
+
+            let index_buffer = factory.create_buffer(
+                BufferInfo {
+                    size: (2 * indices.len()) as u64,
+                    usage: Usage::INDEX | Usage::TRANSFER_DST,
+                },
+                memory::Data,
+            )?;
+
+            unsafe {
+                factory.upload_buffer(&index_buffer, 0, &indices, None,
+                                      BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ));
+            }
+
+            Ok(index_buffer)
+        };
+        let resolution =
+            (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
+
+        Ok((
+            make_index_buffer(resolution)?,
+            make_index_buffer(resolution / 2)?,
+        ))
+    }
+
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
             node.priority = Priority::from_f32(
@@ -683,4 +737,8 @@ impl<B: Backend> QuadTree<B> {
     //         )
     //     };
     // }
+
+    pub(crate) fn total_nodes(&self) -> usize {
+        self.nodes.len()
+    }
 }
