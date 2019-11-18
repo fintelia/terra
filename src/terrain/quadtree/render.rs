@@ -1,10 +1,8 @@
 use super::*;
 use crate::terrain::tile_cache::LayerType;
-use failure::Error;
 use gfx_hal::{Backend, IndexType};
 use rendy::command::{QueueId, RenderPassEncoder};
 use rendy::factory::Factory;
-use rendy::graph::render::Pipeline;
 use std::iter;
 
 #[repr(C, align(4))]
@@ -237,7 +235,7 @@ impl QuadTree {
     pub fn prepare_vertex_buffer<B: Backend>(
         &mut self,
         factory: &Factory<B>,
-        queue: QueueId,
+        _queue: QueueId,
         vertex_buffer: &mut Buffer<B>,
     ) {
         //     encoder.draw(
@@ -270,10 +268,10 @@ impl QuadTree {
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
         fn find_texture_slots(
-            nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache>,
-            id: NodeId,
-            texture_ratio: f32,
+            _nodes: &Vec<Node>,
+            _tile_cache_layers: &VecMap<TileCache>,
+            _id: NodeId,
+            _texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
             // let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
             //     tile_cache_layers[LayerType::Normals.index()].contains(id)
@@ -300,10 +298,10 @@ impl QuadTree {
             (0.0, 0.0, 0.0, Vector2::new(0.0, 0.0), 0.0)
         };
         fn find_parent_texture_slots(
-            nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache>,
-            id: NodeId,
-            texture_ratio: f32,
+            _nodes: &Vec<Node>,
+            _tile_cache_layers: &VecMap<TileCache>,
+            _id: NodeId,
+            _texture_ratio: f32,
         ) -> (f32, f32, f32, Vector2<f32>, f32) {
             // if let Some((parent, child_index)) = nodes[id].parent {
             //     let (c, n, s, offset, scale) =
@@ -316,7 +314,7 @@ impl QuadTree {
             //             * 0.5;
             //     (c, n, s, offset, scale * 0.5)
             // } else {
-                (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
+            (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
             // }
         }
 
@@ -486,7 +484,7 @@ impl QuadTree {
     }
 
     pub(crate) fn render<B: Backend>(
-        &mut self,
+        &self,
         encoder: &mut RenderPassEncoder<B>,
         vertex_buffer: &Buffer<B>,
         index_buffer: &Buffer<B>,

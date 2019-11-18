@@ -53,6 +53,7 @@ bit-vec = "0.6.1"
 lru-cache = "0.1.2"
 rand_distr = "0.2.2"
 rand = "0.7.2"
+shred = { version = "0.9.3", features = ["nightly"] }
 
 [dependencies.amethyst]
 features = ["vulkan", "gltf"]

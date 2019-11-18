@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
@@ -9,9 +8,9 @@ use cgmath::*;
 use failure::Error;
 // use gfx;
 // use gfx_core;
+use rand;
 use rand::distributions::Distribution;
-use rand::{self, Rng};
-use rand_distr::{Normal, Uniform};
+use rand_distr::Normal;
 
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
@@ -19,16 +18,16 @@ use crate::coordinates::CoordinateSystem;
 use crate::srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use crate::terrain::dem::DemSource;
 use crate::terrain::heightmap::{self, Heightmap};
-use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource, LandCoverKind};
+use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
 // use terrain::material::{MaterialSet, MaterialType};
 use crate::terrain::quadtree::{node, Node, NodeId, QuadTree};
-use crate::terrain::raster::{BlurredSource, RasterCache};
+use crate::terrain::raster::RasterCache;
 use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
 use crate::terrain::tile_cache::{
-    ByteRange, LayerParams, LayerType, NoiseParams, PayloadType, TextureDescriptor, TextureFormat,
-    TileHeader, MeshDescriptor
+    ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams, PayloadType, TextureDescriptor,
+    TextureFormat, TileHeader,
 };
 use crate::utils::math::BoundingBox;
 // use TREE_BILLBOARDS;
@@ -187,7 +186,7 @@ impl QuadTreeBuilder {
     /// At very least, the latitude and longitude should probably be set to their desired values
     /// before calling `build()`.
     pub fn new() -> Self {
-        let mut context = AssetLoadContext::new();
+        let context = AssetLoadContext::new();
         Self {
             latitude: 38,
             longitude: -122,
@@ -649,7 +648,7 @@ impl<W: Write> State<W> {
                     )
                     .normalize();
 
-                    let water = 0;//watermasks.get(i, x, y, 0) as u8;
+                    let water = 0; //watermasks.get(i, x, y, 0) as u8;
                     let color = if use_blue_marble {
                         let brighten = |x: f32| (255.0 * (x / 255.0).powf(0.6)) as u8;
                         let r = brighten(bluemarble.get(i, x, y, 0));
@@ -657,7 +656,7 @@ impl<W: Write> State<W> {
                         let b = brighten(bluemarble.get(i, x, y, 2));
                         [r, g, b, water]
                     } else {
-                        let splat = Self::compute_splat(normal.y);
+                        let _splat = Self::compute_splat(normal.y);
                         let albedo = [0, 0, 0, 0]; //self.materials.get_average_albedo(splat);
                         if self.nodes[i].level <= self.max_tree_density_level as u8 {
                             let tree_density =
@@ -1388,7 +1387,7 @@ impl<W: Write> State<W> {
                         let r = brighten(bluemarble.interpolate(lat, long, 0));
                         let g = brighten(bluemarble.interpolate(lat, long, 1));
                         let b = brighten(bluemarble.interpolate(lat, long, 2));
-                        let a = 0;//watermask.interpolate(lat, long, 0) as u8;
+                        let a = 0; //watermask.interpolate(lat, long, 0) as u8;
 
                         writer.write_u8(r)?;
                         writer.write_u8(g)?;

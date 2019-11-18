@@ -1,4 +1,3 @@
-use std::convert::TryInto;
 use std::sync::Arc;
 
 use memmap::Mmap;
@@ -282,13 +281,13 @@ impl TileCache {
     fn load(
         &mut self,
         node: &mut Node,
-        slot: usize,
+        _slot: usize,
         // encoder: &mut gfx::Encoder<R, C>,
     ) {
         let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
         let offset = self.layer_params.tile_locations[tile].offset;
         let length = self.layer_params.tile_locations[tile].length;
-        let data = &self.data_file[offset..(offset + length)];
+        let _data = &self.data_file[offset..(offset + length)];
 
         // match self.payloads {
         //     PayloadSet::Texture {

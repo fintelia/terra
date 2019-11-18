@@ -1,5 +1,6 @@
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::quadtree::QuadTree;
+use amethyst::ecs::{DispatcherBuilder, WorldExt};
 use amethyst::prelude::World;
 /// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
@@ -14,51 +15,52 @@ use gfx_hal::format::Format;
 use gfx_hal::pass::Subpass;
 use gfx_hal::pso::{
     Comparison, DepthStencilDesc, DepthTest, Descriptor, DescriptorSetLayoutBinding,
-    DescriptorSetWrite, DescriptorType, InputAssemblerDesc, PrimitiveRestart, ShaderStageFlags,
-    StencilTest, VertexInputRate, Element
+    DescriptorSetWrite, DescriptorType, Element, InputAssemblerDesc, PrimitiveRestart,
+    ShaderStageFlags, StencilTest, VertexInputRate,
 };
 use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
-use rendy::graph::render::{Layout, PrepareResult, RenderGroup, RenderGroupDesc};
-use rendy::graph::{DescBuilder, GraphContext, NodeBuffer, NodeId, NodeImage};
+use rendy::graph::render::{PrepareResult, RenderGroup, RenderGroupBuilder};
+use rendy::graph::{
+    BufferAccess, BufferId, GraphContext, ImageAccess, ImageId, NodeBuffer, NodeId, NodeImage,
+};
 use rendy::memory;
 use rendy::resource::{BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle};
-use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet, SpirvShader};
-use std::sync::{Arc, Mutex};
-
-/// Collection of functions terra needs on an aux object to render a scene.
-pub trait TerraAux {
-    fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4);
-}
-impl TerraAux for World {
-    fn camera(&self) -> (glsl_layout::vec3, glsl_layout::mat4, glsl_layout::mat4) {
-        let CameraGatherer {
-            camera_position,
-            projview,
-        } = CameraGatherer::gather(self);
-        (camera_position, projview.proj, projview.view)
-    }
-}
+use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet};
+use std::ops::Deref;
 
 #[derive(Debug)]
-pub struct RenderTerrain(Arc<Mutex<QuadTree>>);
+pub struct RenderTerrain(Option<QuadTree>);
 impl RenderTerrain {
     pub fn new(quadtree: QuadTree) -> Self {
-        Self(Arc::new(Mutex::new(quadtree)))
+        Self(Some(quadtree))
     }
 }
 
 impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
+    fn on_build<'a, 'b>(
+        &mut self,
+        world: &mut World,
+        _builder: &mut DispatcherBuilder<'a, 'b>,
+    ) -> Result<(), amethyst::Error> {
+        world.insert(self.0.take().expect("on_build called multiple times?!"));
+        Ok(())
+    }
+
     fn on_plan(
         &mut self,
         plan: &mut RenderPlan<B>,
-        factory: &mut Factory<B>,
-        res: &World,
+        _factory: &mut Factory<B>,
+        _res: &World,
     ) -> Result<(), amethyst::error::Error> {
-        let quadtree = self.0.clone();
         plan.extend_target(Target::Main, |ctx| {
-            let builder: DescBuilder<B, World, _> = TerrainRenderGroupDesc(quadtree).builder();
-            ctx.add(RenderOrder::Opaque, builder)?;
+            ctx.add(
+                RenderOrder::Opaque,
+                TerrainRenderGroupBuilder {
+                    buffers: Vec::new(),
+                    images: Vec::new(),
+                },
+            )?;
             Ok(())
         });
         Ok(())
@@ -74,21 +76,44 @@ struct UniformBlock {
 }
 
 #[derive(Debug)]
-pub struct TerrainRenderGroupDesc(Arc<Mutex<QuadTree>>);
-impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGroupDesc {
+pub struct TerrainRenderGroupBuilder {
+    buffers: Vec<(BufferId, BufferAccess)>,
+    images: Vec<(ImageId, ImageAccess)>,
+}
+impl<B: gfx_hal::Backend> RenderGroupBuilder<B, World> for TerrainRenderGroupBuilder {
+    fn colors(&self) -> usize {
+        1
+    }
+
+    fn depth(&self) -> bool {
+        true
+    }
+
+    fn buffers(&self) -> Vec<(BufferId, BufferAccess)> {
+        self.buffers.clone()
+    }
+
+    fn images(&self) -> Vec<(ImageId, ImageAccess)> {
+        self.images.clone()
+    }
+
+    fn dependencies(&self) -> Vec<NodeId> {
+        Vec::new()
+    }
+
     fn build(
-        self,
-        ctx: &GraphContext<B>,
+        self: Box<Self>,
+        _ctx: &GraphContext<B>,
         factory: &mut Factory<B>,
         queue: QueueId,
-        aux: &T,
+        aux: &World,
         framebuffer_width: u32,
         framebuffer_height: u32,
         subpass: Subpass<B>,
-        buffers: Vec<NodeBuffer>,
-        images: Vec<NodeImage>,
-    ) -> Result<Box<dyn RenderGroup<B, T> + 'static>, Error> {
-        let mut quadtree = &mut *self.0.lock().unwrap();
+        _buffers: Vec<NodeBuffer>,
+        _images: Vec<NodeImage>,
+    ) -> Result<Box<dyn RenderGroup<B, World> + 'static>, Error> {
+        let quadtree = aux.read_resource::<QuadTree>();
 
         // layouts
         let set_layouts = vec![vec![DescriptorSetLayoutBinding {
@@ -289,8 +314,6 @@ impl<B: gfx_hal::Backend, T: TerraAux> RenderGroupDesc<B, T> for TerrainRenderGr
             index_buffer,
             index_buffer_partial,
             layers: Vec::new(),
-
-            quadtree: self.0.clone(),
         }))
     }
 }
@@ -307,44 +330,44 @@ pub struct TerrainRenderGroup<B: Backend> {
     index_buffer: Escape<rendy::resource::Buffer<B>>,
     index_buffer_partial: Escape<rendy::resource::Buffer<B>>,
     layers: Vec<rendy::texture::Texture<B>>,
-
     // patch_resolution: u16,
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
-    quadtree: Arc<Mutex<QuadTree>>,
 }
-impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
+impl<B: Backend> RenderGroup<B, World> for TerrainRenderGroup<B> {
     fn prepare(
         &mut self,
         factory: &Factory<B>,
         queue: QueueId,
-        index: usize,
-        subpass: Subpass<B>,
-        aux: &T,
+        _index: usize,
+        _subpass: Subpass<B>,
+        aux: &World,
     ) -> PrepareResult {
-        let camera = aux.camera();
+        let CameraGatherer {
+            camera_position,
+            projview,
+        } = CameraGatherer::gather(aux);
+
         unsafe {
             factory
                 .upload_visible_buffer(
                     &mut self.uniform_buffer,
                     0,
                     &[UniformBlock {
-                        camera: camera.0,
-                        view: camera.2,
-                        projection: camera.1,
+                        camera: camera_position,
+                        view: projview.view,
+                        projection: projview.proj,
                         padding: 0.0,
                     }],
                 )
                 .unwrap();
         }
 
-        let mut quadtree = self.quadtree.lock().unwrap();
-
+        let mut quadtree = aux.fetch_mut::<QuadTree>();
         quadtree.update(
-            *<&cgmath::Point3<f32>>::from(camera.0.as_ref() as &[f32; 3]),
+            *<&cgmath::Point3<f32>>::from(camera_position.as_ref() as &[f32; 3]),
             None,
         );
-
         quadtree.prepare_vertex_buffer(factory, queue, &mut self.vertex_buffer);
 
         PrepareResult::DrawRecord
@@ -353,9 +376,9 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
     fn draw_inline(
         &mut self,
         mut encoder: RenderPassEncoder<B>,
-        index: usize,
-        subpass: Subpass<B>,
-        aux: &T,
+        _index: usize,
+        _subpass: Subpass<B>,
+        aux: &World,
     ) {
         encoder.bind_graphics_pipeline(&self.graphics_pipeline);
         unsafe {
@@ -367,7 +390,7 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
             );
         }
 
-        self.quadtree.lock().unwrap().render(
+        aux.read_resource::<QuadTree>().render(
             &mut encoder,
             &self.vertex_buffer,
             &self.index_buffer,
@@ -375,7 +398,7 @@ impl<B: Backend, T: TerraAux> RenderGroup<B, T> for TerrainRenderGroup<B> {
         );
     }
 
-    fn dispose(self: Box<Self>, factory: &mut Factory<B>, aux: &T) {
+    fn dispose(self: Box<Self>, factory: &mut Factory<B>, _aux: &World) {
         unsafe {
             factory
                 .device()

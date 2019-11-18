@@ -6,33 +6,25 @@ use failure::Error;
 // use gfx;
 // use gfx::traits::FactoryExt;
 // use gfx_core;
-use memmap::Mmap;
-use vec_map::VecMap;
-use vecmath;
-use zerocopy::AsBytes;
-use gfx_hal::buffer::{Usage, Access};
+use gfx_hal::buffer::{Access, Usage};
 use gfx_hal::Backend;
-use rendy::factory::{Factory, BufferState};
-use rendy::resource::{BufferInfo, Escape, Buffer};
+use memmap::Mmap;
+use rendy::command::QueueId;
+use rendy::factory::{BufferState, Factory};
 use rendy::memory;
-use rendy::command::{QueueId};
+use rendy::resource::{Buffer, BufferInfo, Escape};
+use vec_map::VecMap;
 
 // use rshader;
 // use runtime_texture::TextureFormat;
 
 use std::collections::VecDeque;
-use std::convert::TryFrom;
-use std::fmt::Debug;
 use std::sync::Arc;
-use std::{env, mem};
 
 // use cache::AssetLoadContext;
 use crate::coordinates::CoordinateSystem;
 // use terrain::material::MaterialSet;
-use crate::terrain::tile_cache::{
-    LayerType, MeshDescriptor, PayloadType, Priority, TextureDescriptor, TextureFormat, TileCache,
-    TileHeader, NUM_LAYERS,
-};
+use crate::terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader};
 
 // use ocean::Ocean;
 // use sky::{Atmosphere, Skybox};
@@ -79,7 +71,6 @@ pub struct QuadTree {
     // planet_mesh_shader: rshader::Shader<R>,
     // instanced_mesh_shader: rshader::Shader<R>,
     // num_planet_mesh_vertices: usize,
-
     node_states: Vec<NodeState>,
     // _materials: MaterialSet<R>,
     system: CoordinateSystem,
@@ -106,18 +97,51 @@ impl QuadTree {
     ) -> Result<Self, Error> {
         eprintln!("nodes.len() = {}", header.nodes.len());
         eprintln!("layers.len() = {}", header.layers.len());
-        eprintln!("heights = {} ({:?})", header.layers[0].tile_locations.len(),
-                  header.layers[0].payload_type
+        eprintln!(
+            "heights = {} ({:?})",
+            header.layers[0].tile_locations.len(),
+            header.layers[0].payload_type
         );
-        eprintln!("colors = {} ({:?})", header.layers[1].tile_locations.len(),
-                  header.layers[1].payload_type
+        eprintln!(
+            "colors = {} ({:?})",
+            header.layers[1].tile_locations.len(),
+            header.layers[1].payload_type
         );
-        eprintln!("normals = {} ({:?})", header.layers[2].tile_locations.len(),
-                  header.layers[2].payload_type
+        eprintln!(
+            "normals = {} ({:?})",
+            header.layers[2].tile_locations.len(),
+            header.layers[2].payload_type
         );
-        eprintln!("splats = {} ({:?})", header.layers[3].tile_locations.len(),
-                  header.layers[3].payload_type
+        eprintln!(
+            "splats = {} ({:?})",
+            header.layers[3].tile_locations.len(),
+            header.layers[3].payload_type
         );
+
+        eprintln!();
+
+        let world_size = 4194304.0;
+        for spacing in -2..=1 {
+            for radius in 2..10 {
+                let max_level = (22i32 - (129u32 - 1).trailing_zeros() as i32 - spacing) as u8;
+                let nodes = Node::make_nodes(world_size, radius as f32 * 1000.0, max_level);
+                let hn = nodes.len();
+                let dn = nodes.iter().filter(|n| n.level <= max_level - 2).count();
+                let hmemory = (hn * (129 * 129 * 4)) as f32 / 2.0f32.powi(20);
+                let memory = (hn * (129 * 129 * 4) + dn * (512 * 512 * 2)) as f32 / 2.0f32.powi(20);
+                eprintln!(
+                    "spacing={}m, radius={}km, hn={}, dn={} hmemory={}MiB, memory={}MiB",
+                    2.0f32.powi(spacing),
+                    radius,
+                    hn,
+                    dn,
+                    hmemory,
+                    memory
+                );
+            }
+            eprintln!();
+        }
+
         // let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
         //     env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
         // )?;
@@ -414,9 +438,11 @@ impl QuadTree {
         })
     }
 
-    pub(crate) fn create_index_buffers<B: Backend>(&self, factory: &mut Factory<B>, queue: QueueId)
-                                        -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
-
+    pub(crate) fn create_index_buffers<B: Backend>(
+        &self,
+        factory: &mut Factory<B>,
+        queue: QueueId,
+    ) -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
         let make_index_buffer = |resolution: u16| -> Result<Escape<Buffer<B>>, Error> {
             let width = resolution + 1;
             let mut indices: Vec<u16> = Vec::new();
@@ -437,8 +463,13 @@ impl QuadTree {
             )?;
 
             unsafe {
-                factory.upload_buffer(&index_buffer, 0, &indices, None,
-                                      BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ));
+                factory.upload_buffer(
+                    &index_buffer,
+                    0,
+                    &indices,
+                    None,
+                    BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ),
+                );
             }
 
             Ok(index_buffer)

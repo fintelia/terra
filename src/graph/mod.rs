@@ -79,7 +79,7 @@ impl<K: Eq + Hash + Copy, B: Backend> TileCache<K, B> {
                 data,
                 ImageState::new(queue, Layout::General),
                 ImageState::new(queue, Layout::General),
-            );
+            ).unwrap();
             // factory.flush_uploads();
         }
         index
@@ -456,7 +456,7 @@ impl<B: Backend> Graph<B> {
         })
     }
 
-    fn generate(&mut self, sector: Sector, id: LayerId) {
+    fn generate(&mut self, _sector: Sector, _id: LayerId) {
     }
 }
 

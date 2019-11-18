@@ -2,7 +2,7 @@ use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use failure::{bail, ensure, Error, Fail};
 use image::tiff::TiffDecoder;
-use image::{ImageDecoder, ImageResult};
+use image::{ImageDecoder};
 use safe_transmute;
 use std::io::{Cursor, Read};
 use std::mem;
@@ -294,13 +294,13 @@ impl WebAsset for GlobalDem {
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)?;
 
-        let mut tiff_decoder = TiffDecoder::new(Cursor::new(contents))?;
+        let tiff_decoder = TiffDecoder::new(Cursor::new(contents))?;
         let (width, height) = tiff_decoder.dimensions();
 
         let mut values: Vec<i16> = vec![0; width as usize * height as usize];
         tiff_decoder
             .into_reader()?
-            .read_exact(values.as_bytes_mut());
+            .read_exact(values.as_bytes_mut())?;
         Ok(GlobalRaster {
             bands: 1,
             width: width as usize,

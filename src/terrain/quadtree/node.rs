@@ -1,5 +1,5 @@
 use cgmath::*;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 
 use std::collections::VecDeque;
 

@@ -239,7 +239,7 @@ impl WebAsset for BlueMarble {
         "bluemarble/world.200406.3x21600x10800.png".to_owned()
     }
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        let mut decoder = PngDecoder::new(Cursor::new(data))?;
+        let decoder = PngDecoder::new(Cursor::new(data))?;
         let (width, height) = decoder.dimensions();
         let (width, height) = (width as usize, height as usize);
         assert_eq!(decoder.color_type(), ColorType::Rgb8);
@@ -298,7 +298,7 @@ impl WebAsset for BlueMarbleTile {
         format!("bluemarble/{}", self.name())
     }
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        let mut decoder = PngDecoder::new(Cursor::new(data))?;
+        let decoder = PngDecoder::new(Cursor::new(data))?;
         let (width, height) = decoder.dimensions();
         let (width, height) = (width as usize, height as usize);
         assert_eq!(decoder.color_type(), ColorType::Rgb8);

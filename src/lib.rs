@@ -74,7 +74,7 @@ pub fn main() {
     let (mut factory, mut families): (Factory<Backend>, _) = rendy::factory::init(config).unwrap();
 
     let xdg_dirs = xdg::BaseDirectories::with_prefix("terra").unwrap();
-    let g = crate::graph::Graph::from_file(
+    let _g = crate::graph::Graph::from_file(
         &std::fs::read_to_string("examples/graph.toml").unwrap(),
         xdg_dirs,
         &mut factory
@@ -186,8 +186,8 @@ where
         self,
         _ctx: &GraphContext<B>,
         factory: &mut Factory<B>,
-        queue: QueueId,
-        aux: &T,
+        _queue: QueueId,
+        _aux: &T,
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
         set_layouts: &[Handle<DescriptorSetLayout<B>>],
@@ -242,11 +242,11 @@ where
 
     fn prepare(
         &mut self,
-        factory: &Factory<B>,
+        _factory: &Factory<B>,
         _queue: QueueId,
         _set_layouts: &[Handle<DescriptorSetLayout<B>>],
-        index: usize,
-        aux: &T,
+        _index: usize,
+        _aux: &T,
     ) -> PrepareResult {
         PrepareResult::DrawReuse
     }
