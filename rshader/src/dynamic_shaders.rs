@@ -52,39 +52,67 @@ fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io
 }
 
 pub struct ShaderSet {
-    vertex: SpirvShader,
-    fragment: SpirvShader,
+    vertex: Option<SpirvShader>,
+    fragment: Option<SpirvShader>,
+    compute: Option<SpirvShader>,
 
-    vertex_filenames: Vec<PathBuf>,
-    pixel_filenames: Vec<PathBuf>,
+    vertex_filenames: Option<Vec<PathBuf>>,
+    fragment_filenames: Option<Vec<PathBuf>>,
+    compute_filenames: Option<Vec<PathBuf>>,
     last_update: Instant,
 }
 impl ShaderSet {
     pub fn simple(
         watcher: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
-        pixel_source: ShaderSource,
+        fragment_source: ShaderSource,
     ) -> Result<Self, failure::Error> {
-        let vertex_filenames: Vec<_> = vertex_source
+        let vertex_filenames = vertex_source
             .filenames
             .unwrap()
             .into_iter()
             .map(|f| watcher.directory.join(f))
-            .collect();
-        let pixel_filenames: Vec<_> = pixel_source
+            .collect::<Vec<_>>();
+        let fragment_filenames = fragment_source
             .filenames
             .unwrap()
             .into_iter()
             .map(|f| watcher.directory.join(f))
-            .collect();
-        let (vertex, fragment) = Self::load(&vertex_filenames, &pixel_filenames)?;
+            .collect::<Vec<_>>();
+        let vertex = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
+        let fragment = create_fragment_shader(&concat_file_contents(fragment_filenames.iter())?)?;
 
         Ok(Self {
-            vertex,
-            fragment,
+            vertex: Some(vertex),
+            fragment: Some(fragment),
+            compute: None,
             last_update: Instant::now(),
-            vertex_filenames,
-            pixel_filenames,
+            vertex_filenames: Some(vertex_filenames),
+            fragment_filenames: Some(fragment_filenames),
+            compute_filenames: None,
+        })
+    }
+
+    pub fn compute_only(
+        watcher: &mut ShaderDirectoryWatcher,
+        compute_source: ShaderSource,
+    ) -> Result<Self, failure::Error> {
+        let compute_filenames = compute_source
+            .filenames
+            .unwrap()
+            .into_iter()
+            .map(|f| watcher.directory.join(f))
+            .collect::<Vec<_>>();
+        let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
+
+        Ok(Self {
+            vertex: None,
+            fragment: None,
+            compute: Some(compute),
+            last_update: Instant::now(),
+            vertex_filenames: None,
+            fragment_filenames: None,
+            compute_filenames: Some(compute_filenames),
         })
     }
 
@@ -92,30 +120,39 @@ impl ShaderSet {
     pub fn refresh(&mut self, directory_watcher: &mut ShaderDirectoryWatcher) -> bool {
         directory_watcher.detect_changes();
         if directory_watcher.last_modification > self.last_update {
-            let new = Self::load(&self.vertex_filenames, &self.pixel_filenames);
             self.last_update = Instant::now();
-            if let Ok((vertex, fragment)) = new {
-                self.vertex = vertex;
-                self.fragment = fragment;
+
+            let new_shaders  = || -> Result<_, failure::Error> {
+                let (mut vs, mut fs, mut cs) = (None, None, None);
+                if let Some(ref s) = self.vertex_filenames {
+                    vs = Some(create_vertex_shader(&concat_file_contents(s.iter())?)?);
+                }
+                if let Some(ref s) = self.fragment_filenames {
+                    fs = Some(create_fragment_shader(&concat_file_contents(s.iter())?)?);
+                }
+                if let Some(ref s) = self.compute_filenames {
+                    cs = Some(create_compute_shader(&concat_file_contents(s.iter())?)?);
+                }
+                Ok((vs, fs, cs))
+            } ();
+
+            if let Ok((vs, fs, cs)) = new_shaders {
+                self.vertex = vs;
+                self.fragment = fs;
+                self.compute = cs;
                 return true;
             }
         }
         false
     }
 
-    fn load(
-        vertex_filenames: &[PathBuf],
-        pixel_filenames: &[PathBuf],
-    ) -> Result<(SpirvShader, SpirvShader), failure::Error> {
-        let v = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
-        let f = create_pixel_shader(&concat_file_contents(pixel_filenames.iter())?)?;
-        Ok((v, f))
-    }
-
     pub fn vertex(&self) -> &SpirvShader {
-        &self.vertex
+        self.vertex.as_ref().unwrap()
     }
     pub fn fragment(&self) -> &SpirvShader {
-        &self.fragment
+        self.fragment.as_ref().unwrap()
+    }
+    pub fn compute(&self) -> &SpirvShader {
+        self.compute.as_ref().unwrap()
     }
 }

@@ -15,26 +15,37 @@ impl ShaderDirectoryWatcher {
 }
 
 pub struct ShaderSet {
-    vertex: SpirvShader,
-    fragment: SpirvShader,
+    vertex: Option<SpirvShader>,
+    fragment: Option<SpirvShader>,
+    compute: Option<SpirvShader>,
 }
 impl ShaderSet {
     pub fn simple(
         _: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
-        pixel_source: ShaderSource,
+        fragment_source: ShaderSource,
     ) -> Result<Self, failure::Error> {
-        let vertex = create_vertex_shader(&vertex_source.source.unwrap()).unwrap();
-        let fragment = create_pixel_shader(&pixel_source.source.unwrap()).unwrap();
-        Ok(Self { vertex, fragment })
+        let vertex = Some(create_vertex_shader(&vertex_source.source.unwrap()).unwrap());
+        let fragment = Some(create_fragment_shader(&fragment_source.source.unwrap()).unwrap());
+        Ok(Self { vertex, fragment, compute: None })
+    }
+    pub fn compute_only(
+        _: &mut ShaderDirectoryWatcher,
+        compute_source: ShaderSource,
+    ) -> Result<Self, failure::Error> {
+        let compute = Some(create_compute_shader(&compute_source.source.unwrap()).unwrap());
+        Ok(Self { vertex: None, fragment: None, compute })
     }
     pub fn refresh(&mut self, _: &mut ShaderDirectoryWatcher) -> bool {
         false
     }
     pub fn vertex(&self) -> &SpirvShader {
-        &self.vertex
+        self.vertex.as_ref().unwrap()
     }
     pub fn fragment(&self) -> &SpirvShader {
-        &self.fragment
+        self.fragment.as_ref().unwrap()
+    }
+    pub fn compute(&self) -> &SpirvShader {
+        self.compute.as_ref().unwrap()
     }
 }

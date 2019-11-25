@@ -65,7 +65,7 @@ fn create_vertex_shader(source: &str) -> Result<SpirvShader, failure::Error> {
         .to_vec();
     Ok(SpirvShader::new(shader, ShaderStageFlags::VERTEX, "main"))
 }
-fn create_pixel_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+fn create_fragment_shader(source: &str) -> Result<SpirvShader, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     let shader = glsl_compiler
         .compile_into_spirv(
@@ -78,4 +78,18 @@ fn create_pixel_shader(source: &str) -> Result<SpirvShader, failure::Error> {
         .as_binary_u8()
         .to_vec();
     Ok(SpirvShader::new(shader, ShaderStageFlags::FRAGMENT, "main"))
+}
+fn create_compute_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
+    let shader = glsl_compiler
+        .compile_into_spirv(
+            source,
+            shaderc::ShaderKind::Compute,
+            "[COMPUTE]",
+            "main",
+            None,
+        )?
+        .as_binary_u8()
+        .to_vec();
+    Ok(SpirvShader::new(shader, ShaderStageFlags::COMPUTE, "main"))
 }
