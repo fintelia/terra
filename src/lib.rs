@@ -1,6 +1,5 @@
 //! Terra is a large scale terrain generation and rendering library built on top of rendy.
 #![feature(custom_attribute)]
-#![feature(try_blocks)]
 #![feature(stmt_expr_attributes)]
 
 #[macro_use]
@@ -38,6 +37,8 @@ mod cache;
 
 #[cfg(feature = "amethyst")]
 pub mod plugin;
+
+pub mod compute;
 
 pub use generate::{QuadTreeBuilder, VertexQuality, TextureQuality, GridSpacing};
 pub use terrain::quadtree::QuadTree;

@@ -1,5 +1,6 @@
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::quadtree::QuadTree;
+use crate::compute::ComputeNode;
 use amethyst::ecs::{DispatcherBuilder, WorldExt};
 use amethyst::prelude::World;
 /// Plugin for Amethyst that renders a terrain.
@@ -22,12 +23,12 @@ use gfx_hal::{Backend, Primitive};
 use rendy::command::{QueueId, RenderPassEncoder};
 use rendy::graph::render::{PrepareResult, RenderGroup, RenderGroupBuilder};
 use rendy::graph::{
-    BufferAccess, BufferId, GraphContext, ImageAccess, ImageId, NodeBuffer, NodeId, NodeImage,
+    BufferAccess, BufferId, GraphContext, ImageAccess, ImageId, Node, NodeBuffer, NodeId,
+    NodeImage,
 };
 use rendy::memory;
 use rendy::resource::{BufferInfo, DescriptorSet, DescriptorSetLayout, Escape, Handle};
 use rendy::shader::{ShaderSet, ShaderSetBuilder, SpecConstantSet};
-use std::ops::Deref;
 
 #[derive(Debug)]
 pub struct RenderTerrain(Option<QuadTree>);
@@ -54,6 +55,8 @@ impl<B: amethyst::renderer::types::Backend> RenderPlugin<B> for RenderTerrain {
         _res: &World,
     ) -> Result<(), amethyst::error::Error> {
         plan.extend_target(Target::Main, |ctx| {
+            let compute_node = ctx.graph().add_node(ComputeNode::builder());
+            ctx.add_dep(compute_node);
             ctx.add(
                 RenderOrder::Opaque,
                 TerrainRenderGroupBuilder {
