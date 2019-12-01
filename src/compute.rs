@@ -1,35 +1,36 @@
-use crate::terrain::quadtree::QuadTree;
-use amethyst::ecs::{DispatcherBuilder, WorldExt};
-use amethyst::prelude::World;
-/// Plugin for Amethyst that renders a terrain.
-use amethyst::renderer::{
-    bundle::{RenderOrder, RenderPlan, Target},
-    submodules::gather::CameraGatherer,
-    Factory, RenderPlugin,
+use amethyst::renderer::rendy::hal::{
+    device::Device,
+    format::{Aspects, Swizzle},
+    image::{
+        Anisotropic, Filter, Kind, Layout, PackedColor, SamplerInfo, SubresourceRange, Tiling,
+        Usage, ViewCapabilities, ViewKind, WrapMode,
+    },
+    memory::Dependencies,
+    pso::{
+        BasePipeline, ComputePipelineDesc, Descriptor, DescriptorSetLayoutBinding,
+        DescriptorSetWrite, DescriptorType, EntryPoint, PipelineCreationFlags, ShaderStageFlags,
+        Specialization,
+    },
+    Backend,
+};
+use amethyst::renderer::rendy::{
+    command::{
+        CommandBuffer, CommandPool, Compute, ExecutableState, Family, MultiShot, PendingState,
+        SimultaneousUse, Submit,
+    },
+    frame::Frames,
+    graph::{
+        gfx_acquire_barriers, gfx_release_barriers, BufferAccess, GraphContext, Node, NodeBuffer,
+        NodeDesc, NodeImage, NodeSubmittable,
+    },
+    memory,
+    resource::{DescriptorSet, Image, DescriptorSetLayout, Escape, Handle, ImageInfo, ImageViewInfo},
+};
+use amethyst::{
+    prelude::World,
+    renderer::{Factory, Format},
 };
 use failure::Error;
-use gfx_hal::buffer::Usage;
-use gfx_hal::device::Device;
-use gfx_hal::format::Format;
-use gfx_hal::pass::Subpass;
-use gfx_hal::pso::{
-    Comparison, DepthStencilDesc, DepthTest, Descriptor, DescriptorSetLayoutBinding,
-    DescriptorSetWrite, DescriptorType, Element, InputAssemblerDesc, PrimitiveRestart,
-    ShaderStageFlags, StencilTest, VertexInputRate,
-};
-use gfx_hal::{Backend, Primitive, QueueType};
-use rendy::command::{
-    CommandBuffer, CommandPool, Compute, ExecutableState, Family, MultiShot, PendingState, QueueId,
-    RenderPassEncoder, SimultaneousUse, Submit,
-};
-use rendy::frame::Frames;
-use rendy::graph::render::{PrepareResult, RenderGroup, RenderGroupBuilder};
-use rendy::graph::{
-    BufferAccess, BufferId, GraphContext, ImageAccess, ImageId, Node, NodeBuffer, NodeDesc, NodeId,
-    NodeImage, NodeSubmittable,
-};
-use rendy::memory;
-use rendy::resource::{DescriptorSet, DescriptorSetLayout, Escape, Handle};
 
 #[derive(Debug, Default)]
 pub(crate) struct ComputeNodeDesc;
@@ -49,121 +50,189 @@ impl<B: Backend> NodeDesc<B, World> for ComputeNodeDesc {
         buffers: Vec<NodeBuffer>,
         images: Vec<NodeImage>,
     ) -> Result<Self::Node, Error> {
-        // TODO IMPLEMENT THIS FUNCTION
-
-        
         assert!(buffers.is_empty());
         assert!(images.is_empty());
 
-        // let module = unsafe { BOUNCE_COMPUTE.module(factory) }
-        //     .map_err(rendy_core::hal::pso::CreationError::Shader)
-        //     .map_err(NodeBuildError::Pipeline)?;
+        let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
+        let shader_set = rshader::ShaderSet::compute_only(
+            &mut watcher,
+            shader_source!("../src/shaders", "version", "reproject.comp"),
+        )?;
 
-        // let set_layout = Handle::from(
-        //     factory
-        //         .create_descriptor_set_layout(vec![hal::pso::DescriptorSetLayoutBinding {
-        //             binding: 0,
-        //             ty: hal::pso::DescriptorType::StorageBuffer,
-        //             count: 1,
-        //             stage_flags: hal::pso::ShaderStageFlags::COMPUTE,
-        //             immutable_samplers: false,
-        //         }])
-        //         .map_err(NodeBuildError::OutOfMemory)?,
-        // );
+        let module = unsafe {
+            factory
+                .device()
+                .create_shader_module(shader_set.compute())?
+        };
 
-        // let pipeline_layout = unsafe {
-        //     factory
-        //         .device()
-        //         .create_pipeline_layout(
-        //             std::iter::once(set_layout.raw()),
-        //             std::iter::empty::<(hal::pso::ShaderStageFlags, std::ops::Range<u32>)>(),
-        //         )
-        //         .map_err(NodeBuildError::OutOfMemory)?
-        // };
+        let set_layout = Handle::from(factory.create_descriptor_set_layout(vec![
+            DescriptorSetLayoutBinding {
+                binding: 0,
+                ty: DescriptorType::Sampler,
+                count: 1,
+                stage_flags: ShaderStageFlags::COMPUTE,
+                immutable_samplers: false,
+            },
+            DescriptorSetLayoutBinding {
+                binding: 1,
+                ty: DescriptorType::StorageImage,
+                count: 1,
+                stage_flags: ShaderStageFlags::COMPUTE,
+                immutable_samplers: false,
+            },
+        ])?);
 
-        // let pipeline = unsafe {
-        //     factory
-        //         .device()
-        //         .create_compute_pipeline(
-        //             &hal::pso::ComputePipelineDesc {
-        //                 shader: hal::pso::EntryPoint {
-        //                     entry: "main",
-        //                     module: &module,
-        //                     specialization: hal::pso::Specialization::default(),
-        //                 },
-        //                 layout: &pipeline_layout,
-        //                 flags: hal::pso::PipelineCreationFlags::empty(),
-        //                 parent: hal::pso::BasePipeline::None,
-        //             },
-        //             None,
-        //         )
-        //         .map_err(NodeBuildError::Pipeline)?
-        // };
+        let pipeline_layout = unsafe {
+            factory.device().create_pipeline_layout(
+                std::iter::once(set_layout.raw()),
+                std::iter::empty::<(ShaderStageFlags, std::ops::Range<u32>)>(),
+            )?
+        };
 
-        // unsafe { factory.destroy_shader_module(module) };
+        let pipeline = unsafe {
+            factory.device().create_compute_pipeline(
+                &ComputePipelineDesc {
+                    shader: EntryPoint {
+                        entry: "main",
+                        module: &module,
+                        specialization: Specialization::default(),
+                    },
+                    layout: &pipeline_layout,
+                    flags: PipelineCreationFlags::empty(),
+                    parent: BasePipeline::None,
+                },
+                None,
+            )?
+        };
 
-        // let descriptor_set = factory
-        //     .create_descriptor_set(set_layout.clone())
-        //     .map_err(NodeBuildError::OutOfMemory)?;
+        unsafe { factory.destroy_shader_module(module) };
 
-        // unsafe {
-        //     factory
-        //         .device()
-        //         .write_descriptor_sets(std::iter::once(hal::pso::DescriptorSetWrite {
-        //             set: descriptor_set.raw(),
-        //             binding: 0,
-        //             array_offset: 0,
-        //             descriptors: std::iter::once(hal::pso::Descriptor::Buffer(
-        //                 posvelbuff.raw(),
-        //                 Some(0)..Some(posvelbuff.size()),
-        //             )),
-        //         }));
-        // }
+        let descriptor_set = factory.create_descriptor_set(set_layout.clone())?;
 
-        // let mut command_pool = factory
-        //     .create_command_pool(family)
-        //     .map_err(NodeBuildError::OutOfMemory)?
-        //     .with_capability::<Compute>()
-        //     .expect("Graph builder must provide family with Compute capability");
-        // let initial = command_pool.allocate_buffers(1).remove(0);
-        // let mut recording = initial.begin(MultiShot(SimultaneousUse), ());
-        // let mut encoder = recording.encoder();
-        // encoder.bind_compute_pipeline(&pipeline);
-        // unsafe {
-        //     encoder.bind_compute_descriptor_sets(
-        //         &pipeline_layout,
-        //         0,
-        //         std::iter::once(descriptor_set.raw()),
-        //         std::iter::empty::<u32>(),
-        //     );
+        let dem: Handle<_> = factory.create_image(
+            ImageInfo {
+                kind: Kind::D2(1024, 1024, 1, 1),
+                levels: 1,
+                format: Format::R32Sfloat,
+                tiling: Tiling::Linear,
+                view_caps: ViewCapabilities::empty(),
+                usage: Usage::TRANSFER_DST | Usage::STORAGE | Usage::INPUT_ATTACHMENT,
+            },
+            memory::Data,
+        )?.into();
 
-        //     {
-        //         let (stages, barriers) = gfx_acquire_barriers(ctx, &*buffers, None);
-        //         log::info!("Acquire {:?} : {:#?}", stages, barriers);
-        //         encoder.pipeline_barrier(stages, hal::memory::Dependencies::empty(), barriers);
-        //     }
-        //     encoder.dispatch(QUADS, 1, 1);
+        let heights: Handle<_> = factory.create_image(
+            ImageInfo {
+                kind: Kind::D2(1024, 1024, 1, 1),
+                levels: 1,
+                format: Format::R32Sfloat,
+                tiling: Tiling::Linear,
+                view_caps: ViewCapabilities::empty(),
+                usage: Usage::TRANSFER_DST | Usage::STORAGE | Usage::INPUT_ATTACHMENT,
+            },
+            memory::Data,
+        )?.into();
 
-        //     {
-        //         let (stages, barriers) = gfx_release_barriers(ctx, &*buffers, None);
-        //         log::info!("Release {:?} : {:#?}", stages, barriers);
-        //         encoder.pipeline_barrier(stages, hal::memory::Dependencies::empty(), barriers);
-        //     }
-        // }
+        let dem_view = factory.create_image_view(
+            dem.clone(),
+            ImageViewInfo {
+                view_kind: ViewKind::D2,
+                format: Format::R32Sfloat,
+                swizzle: Swizzle::NO,
+                range: SubresourceRange {
+                    aspects: Aspects::COLOR,
+                    levels: 0..1,
+                    layers: 0..1,
+                },
+            },
+        )?;
+        let heights_view = factory.create_image_view(
+            heights.clone(),
+            ImageViewInfo {
+                view_kind: ViewKind::D2,
+                format: Format::R32Sfloat,
+                swizzle: Swizzle::NO,
+                range: SubresourceRange {
+                    aspects: Aspects::COLOR,
+                    levels: 0..1,
+                    layers: 0..1,
+                },
+            },
+        )?;
 
-        // let (submit, command_buffer) = recording.finish().submit();
+        let sampler = factory.create_sampler(SamplerInfo {
+            min_filter: Filter::Linear,
+            mag_filter: Filter::Linear,
+            mip_filter: Filter::Nearest,
+            wrap_mode: (WrapMode::Clamp, WrapMode::Clamp, WrapMode::Clamp),
+            lod_bias: 0.0.into(),
+            lod_range: 0.0.into()..1.0.into(),
+            comparison: None,
+            border: PackedColor(0),
+            anisotropic: Anisotropic::Off,
+        })?;
 
-        // Ok(GravBounce {
-        //     set_layout,
-        //     pipeline_layout,
-        //     pipeline,
-        //     descriptor_set,
-        //     // buffer_view,
-        //     command_pool,
-        //     command_buffer,
-        //     submit,
-        // })
-        unimplemented!()
+        unsafe {
+            factory
+                .device()
+                .write_descriptor_sets(std::iter::once(DescriptorSetWrite {
+                    set: descriptor_set.raw(),
+                    binding: 0,
+                    array_offset: 0,
+                    descriptors: vec![
+                        Descriptor::CombinedImageSampler(
+                            dem_view.raw(),
+                            Layout::General,
+                            sampler.raw(),
+                        ),
+                        Descriptor::Image(heights_view.raw(), Layout::General),
+                    ]
+                    .into_iter(),
+                }));
+        }
+
+        let mut command_pool = factory
+            .create_command_pool(family)?
+            .with_capability::<Compute>()
+            .expect("Graph builder must provide family with Compute capability");
+        let initial = command_pool.allocate_buffers(1).remove(0);
+        let mut recording = initial.begin(MultiShot(SimultaneousUse), ());
+        let mut encoder = recording.encoder();
+        encoder.bind_compute_pipeline(&pipeline);
+        unsafe {
+            encoder.bind_compute_descriptor_sets(
+                &pipeline_layout,
+                0,
+                std::iter::once(descriptor_set.raw()),
+                std::iter::empty::<u32>(),
+            );
+
+            {
+                let (stages, barriers) = gfx_acquire_barriers(ctx, &*buffers, None);
+                // log::info!("Acquire {:?} : {:#?}", stages, barriers);
+                encoder.pipeline_barrier(stages, Dependencies::empty(), barriers);
+            }
+            encoder.dispatch(512, 512, 1);
+            {
+                let (stages, barriers) = gfx_release_barriers(ctx, &*buffers, None);
+                // log::info!("Release {:?} : {:#?}", stages, barriers);
+                encoder.pipeline_barrier(stages, Dependencies::empty(), barriers);
+            }
+        }
+
+        let (submit, command_buffer) = recording.finish().submit();
+
+        Ok(ComputeNode {
+            set_layout,
+            pipeline_layout,
+            pipeline,
+            descriptor_set,
+            command_pool,
+            command_buffer,
+            submit,
+			dem,
+			heights,
+        })
     }
 }
 #[derive(Debug)]
@@ -178,6 +247,9 @@ pub(crate) struct ComputeNode<B: Backend> {
     command_buffer:
         CommandBuffer<B, Compute, PendingState<ExecutableState<MultiShot<SimultaneousUse>>>>,
     submit: Submit<B, SimultaneousUse>,
+
+	dem: Handle<Image<B>>,
+	heights: Handle<Image<B>>,
 }
 impl<'a, B: Backend> NodeSubmittable<'a, B> for ComputeNode<B> {
     type Submittable = &'a Submit<B, SimultaneousUse>;

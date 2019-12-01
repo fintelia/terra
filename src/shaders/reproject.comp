@@ -2,10 +2,10 @@
 
 layout(local_size_x = 1, local_size_y = 1) in;
 
-layout(r32f, binding = 0) uniform image2D input_heights;
-layout(r32f, binding = 1) uniform image2D output_heights;
+layout(r32f, binding = 0) uniform image2D dem;
+layout(r32f, binding = 1) uniform image2D heights;
 
 void main() {
   ivec2 pixel_coords = ivec2(gl_GlobalInvocationID.xy);
-  imageStore(img_output, pixel_coords, 1.0);
+  imageStore(heights, pixel_coords, vec4(1.0));
 }

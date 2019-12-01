@@ -1,9 +1,10 @@
+///! Plugin for Amethyst that renders a terrain.
+
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::quadtree::QuadTree;
 use crate::compute::ComputeNode;
 use amethyst::ecs::{DispatcherBuilder, WorldExt};
 use amethyst::prelude::World;
-/// Plugin for Amethyst that renders a terrain.
 use amethyst::renderer::{
     bundle::{RenderOrder, RenderPlan, Target},
     submodules::gather::CameraGatherer,

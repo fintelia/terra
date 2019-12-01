@@ -1,5 +1,4 @@
 //! Terra is a large scale terrain generation and rendering library built on top of rendy.
-#![feature(custom_attribute)]
 #![feature(stmt_expr_attributes)]
 
 #[macro_use]

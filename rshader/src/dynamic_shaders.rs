@@ -54,7 +54,7 @@ fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io
 pub struct ShaderSet {
     vertex: Option<SpirvShader>,
     fragment: Option<SpirvShader>,
-    compute: Option<SpirvShader>,
+    compute: Option<(SpirvShader, Vec<u8>)>,
 
     vertex_filenames: Option<Vec<PathBuf>>,
     fragment_filenames: Option<Vec<PathBuf>>,
@@ -122,7 +122,7 @@ impl ShaderSet {
         if directory_watcher.last_modification > self.last_update {
             self.last_update = Instant::now();
 
-            let new_shaders  = || -> Result<_, failure::Error> {
+            let new_shaders = || -> Result<_, failure::Error> {
                 let (mut vs, mut fs, mut cs) = (None, None, None);
                 if let Some(ref s) = self.vertex_filenames {
                     vs = Some(create_vertex_shader(&concat_file_contents(s.iter())?)?);
@@ -134,7 +134,7 @@ impl ShaderSet {
                     cs = Some(create_compute_shader(&concat_file_contents(s.iter())?)?);
                 }
                 Ok((vs, fs, cs))
-            } ();
+            }();
 
             if let Ok((vs, fs, cs)) = new_shaders {
                 self.vertex = vs;
@@ -152,7 +152,7 @@ impl ShaderSet {
     pub fn fragment(&self) -> &SpirvShader {
         self.fragment.as_ref().unwrap()
     }
-    pub fn compute(&self) -> &SpirvShader {
-        self.compute.as_ref().unwrap()
+    pub fn compute(&self) -> &[u8] {
+        self.compute.as_ref().map(|v| &v.1).unwrap()
     }
 }

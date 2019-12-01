@@ -79,7 +79,7 @@ fn create_fragment_shader(source: &str) -> Result<SpirvShader, failure::Error> {
         .to_vec();
     Ok(SpirvShader::new(shader, ShaderStageFlags::FRAGMENT, "main"))
 }
-fn create_compute_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+fn create_compute_shader(source: &str) -> Result<(SpirvShader, Vec<u8>), failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     let shader = glsl_compiler
         .compile_into_spirv(
@@ -91,5 +91,5 @@ fn create_compute_shader(source: &str) -> Result<SpirvShader, failure::Error> {
         )?
         .as_binary_u8()
         .to_vec();
-    Ok(SpirvShader::new(shader, ShaderStageFlags::COMPUTE, "main"))
+    Ok((SpirvShader::new(shader.clone(), ShaderStageFlags::COMPUTE, "main"), shader))
 }
