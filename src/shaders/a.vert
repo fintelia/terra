@@ -1,8 +1,7 @@
 #line 2
 
 layout(binding = 0) uniform UniformBlock {
-    mat4 view;
-    mat4 projection;
+    mat4 view_proj;
 	vec3 camera;
 	float padding;
 } uniform_block;
@@ -42,5 +41,5 @@ void main() {
 	position.y = mix(morphHeight, position.y, morph);
 	position.xz = nPosition * (side_length / (resolution)) + in_position;
 
-	gl_Position = uniform_block.projection * uniform_block.view * vec4(position, 1.0);
+	gl_Position = uniform_block.view_proj * vec4(position, 1.0);
 }

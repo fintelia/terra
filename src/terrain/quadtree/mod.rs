@@ -1,5 +1,5 @@
 use astro::{coords, sun};
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, NativeEndian, ReadBytesExt, ByteOrder};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use failure::Error;
@@ -421,50 +421,37 @@ impl QuadTree {
         })
     }
 
-    // pub(crate) fn create_index_buffers<B: Backend>(
-    //     &self,
-    //     factory: &mut Factory<B>,
-    //     queue: QueueId,
-    // ) -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
-    //     let make_index_buffer = |resolution: u16| -> Result<Escape<Buffer<B>>, Error> {
-    //         let width = resolution + 1;
-    //         let mut indices: Vec<u16> = Vec::new();
-    //         for y in 0..resolution {
-    //             for x in 0..resolution {
-    //                 for offset in [0, 1, width, 1, width + 1, width].into_iter() {
-    //                     indices.push(offset + (x + y * width));
-    //                 }
-    //             }
-    //         }
+    pub(crate) fn create_index_buffers(
+        &self,
+        device: &wgpu::Device,
+    ) -> (wgpu::Buffer, wgpu::Buffer) {
+        let make_index_buffer = |resolution: u16| -> wgpu::Buffer {
+            let mapped = device.create_buffer_mapped(
+                12 * (resolution as usize + 1) * (resolution as usize + 1),
+                wgpu::BufferUsage::INDEX,
+            );
 
-    //         let index_buffer = factory.create_buffer(
-    //             BufferInfo {
-    //                 size: (2 * indices.len()) as u64,
-    //                 usage: Usage::INDEX | Usage::TRANSFER_DST,
-    //             },
-    //             memory::Data,
-    //         )?;
+            let mut i = 0;
+            let width = resolution + 1;
+            for y in 0..resolution {
+                for x in 0..resolution {
+                    for offset in [0, 1, width, 1, width + 1, width].into_iter() {
+                        NativeEndian::write_u16(&mut mapped.data[i..], offset + (x + y * width));
+                        i += 2;
+                    }
+                }
+            }
 
-    //         unsafe {
-    //             factory.upload_buffer(
-    //                 &index_buffer,
-    //                 0,
-    //                 &indices,
-    //                 None,
-    //                 BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ),
-    //             );
-    //         }
+            mapped.finish()
+        };
+        let resolution =
+            (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
 
-    //         Ok(index_buffer)
-    //     };
-    //     let resolution =
-    //         (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
-
-    //     Ok((
-    //         make_index_buffer(resolution)?,
-    //         make_index_buffer(resolution / 2)?,
-    //     ))
-    // }
+        (
+            make_index_buffer(resolution),
+            make_index_buffer(resolution / 2),
+        )
+    }
 
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
@@ -550,11 +537,13 @@ impl QuadTree {
     pub fn update(
         &mut self,
         // mvp_mat: Matrix4<f32>,
-        camera: Point3<f32>,
+        camera: mint::Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
         // encoder: &mut gfx::Encoder<R, C>,
         // dt: f32,
     ) {
+        let camera = Point3::new(camera.x, camera.y, camera.z);
+
         let sun_direction = {
             let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
             let distance = distance_au * 149597870700.0;

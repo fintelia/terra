@@ -3,6 +3,19 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
 };
 
+fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
+    let aspect = width as f32 / height as f32;
+    let f = 1.0 / (45.0f32.to_radians() / aspect).tan();
+    let near = 0.1;
+
+    #[cfg_attr(rustfmt, rustfmt_skip)]
+    cgmath::Matrix4::new(
+        f / aspect, 0.0,  0.0,  0.0,
+        0.0,          f,  0.0,  0.0,
+        0.0,        0.0,  0.0, -1.0,
+        0.0,        0.0, near,  0.0)
+}
+
 fn main() {
     env_logger::init();
 
@@ -51,6 +64,8 @@ fn main() {
         },
     );
 
+    let proj = compute_projection_matrix(size.width as f32, size.height as f32);
+
     let mut terrain = terra::Terrain::new(&device, quadtree);
 
     event_loop.run(move |event, _, control_flow| {
@@ -79,7 +94,23 @@ fn main() {
                 let frame = swap_chain
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
-                terrain.render(&device, &mut queue, &frame);
+
+                let eye = mint::Point3::from_slice(&[0.0, 200.0, -500.0]);
+                let view = cgmath::Matrix4::look_at(
+                    cgmath::Point3::new(eye.x, eye.y, eye.z),
+                    cgmath::Point3::new(0.0, 0.0, 0.0),
+                    cgmath::Vector3::new(0.0, 1.0, 0.0),
+                );
+
+                let view_proj = proj * view;
+                let view_proj = mint::ColumnMatrix4 {
+                    x: view_proj.x.into(),
+                    y: view_proj.y.into(),
+                    z: view_proj.z.into(),
+                    w: view_proj.w.into(),
+                };
+
+                terrain.render(&device, &mut queue, &frame, view_proj, eye);
             }
             _ => (),
         }
