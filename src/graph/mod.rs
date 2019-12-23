@@ -1,15 +1,10 @@
 use failure::{bail, format_err, Error};
 use generic_array::GenericArray;
-use gfx_hal::{Device, image::Usage, pso::ShaderStageFlags, Backend};
 use linked_hash_map::LinkedHashMap;
 use memmap::MmapMut;
 use petgraph::visit::Walker;
 use petgraph::{graph::DiGraph, visit::Topo};
 use rendy::command::QueueId;
-use rendy::factory::{ImageState, Factory};
-use rendy::memory;
-use rendy::resource::{self, Handle, Image, ImageInfo, Layout};
-use rendy::shader::{ShaderSet, ShaderSetBuilder, SpirvShader};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};

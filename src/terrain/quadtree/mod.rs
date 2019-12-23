@@ -3,31 +3,14 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use failure::Error;
-// use gfx;
-// use gfx::traits::FactoryExt;
-// use gfx_core;
-use gfx_hal::buffer::{Access, Usage};
-use gfx_hal::Backend;
 use memmap::Mmap;
-use rendy::command::QueueId;
-use rendy::factory::{BufferState, Factory};
-use rendy::memory;
-use rendy::resource::{Buffer, BufferInfo, Escape};
 use vec_map::VecMap;
-
-// use rshader;
-// use runtime_texture::TextureFormat;
 
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-// use cache::AssetLoadContext;
 use crate::coordinates::CoordinateSystem;
-// use terrain::material::MaterialSet;
 use crate::terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader};
-
-// use ocean::Ocean;
-// use sky::{Atmosphere, Skybox};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -438,50 +421,50 @@ impl QuadTree {
         })
     }
 
-    pub(crate) fn create_index_buffers<B: Backend>(
-        &self,
-        factory: &mut Factory<B>,
-        queue: QueueId,
-    ) -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
-        let make_index_buffer = |resolution: u16| -> Result<Escape<Buffer<B>>, Error> {
-            let width = resolution + 1;
-            let mut indices: Vec<u16> = Vec::new();
-            for y in 0..resolution {
-                for x in 0..resolution {
-                    for offset in [0, 1, width, 1, width + 1, width].into_iter() {
-                        indices.push(offset + (x + y * width));
-                    }
-                }
-            }
+    // pub(crate) fn create_index_buffers<B: Backend>(
+    //     &self,
+    //     factory: &mut Factory<B>,
+    //     queue: QueueId,
+    // ) -> Result<(Escape<Buffer<B>>, Escape<Buffer<B>>), Error> {
+    //     let make_index_buffer = |resolution: u16| -> Result<Escape<Buffer<B>>, Error> {
+    //         let width = resolution + 1;
+    //         let mut indices: Vec<u16> = Vec::new();
+    //         for y in 0..resolution {
+    //             for x in 0..resolution {
+    //                 for offset in [0, 1, width, 1, width + 1, width].into_iter() {
+    //                     indices.push(offset + (x + y * width));
+    //                 }
+    //             }
+    //         }
 
-            let index_buffer = factory.create_buffer(
-                BufferInfo {
-                    size: (2 * indices.len()) as u64,
-                    usage: Usage::INDEX | Usage::TRANSFER_DST,
-                },
-                memory::Data,
-            )?;
+    //         let index_buffer = factory.create_buffer(
+    //             BufferInfo {
+    //                 size: (2 * indices.len()) as u64,
+    //                 usage: Usage::INDEX | Usage::TRANSFER_DST,
+    //             },
+    //             memory::Data,
+    //         )?;
 
-            unsafe {
-                factory.upload_buffer(
-                    &index_buffer,
-                    0,
-                    &indices,
-                    None,
-                    BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ),
-                );
-            }
+    //         unsafe {
+    //             factory.upload_buffer(
+    //                 &index_buffer,
+    //                 0,
+    //                 &indices,
+    //                 None,
+    //                 BufferState::new(queue).with_access(Access::INDEX_BUFFER_READ),
+    //             );
+    //         }
 
-            Ok(index_buffer)
-        };
-        let resolution =
-            (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
+    //         Ok(index_buffer)
+    //     };
+    //     let resolution =
+    //         (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
 
-        Ok((
-            make_index_buffer(resolution)?,
-            make_index_buffer(resolution / 2)?,
-        ))
-    }
+    //     Ok((
+    //         make_index_buffer(resolution)?,
+    //         make_index_buffer(resolution / 2)?,
+    //     ))
+    // }
 
     fn update_priorities(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {

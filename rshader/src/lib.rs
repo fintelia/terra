@@ -1,13 +1,5 @@
-extern crate failure;
-extern crate notify;
-extern crate rendy;
-extern crate shaderc;
-
 pub mod dynamic_shaders;
 pub mod static_shaders;
-
-use rendy::hal::pso::ShaderStageFlags;
-use rendy::shader::SpirvShader;
 
 #[cfg(feature = "dynamic_shaders")]
 pub use dynamic_shaders::*;
@@ -51,45 +43,42 @@ macro_rules! shader_source {
     };
 }
 
-fn create_vertex_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+fn create_vertex_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    let shader = glsl_compiler
-        .compile_into_spirv(
-            source,
-            shaderc::ShaderKind::Vertex,
-            "[VERTEX]",
-            "main",
-            None,
-        )?
-        .as_binary_u8()
-        .to_vec();
-    Ok(SpirvShader::new(shader, ShaderStageFlags::VERTEX, "main"))
+    Ok(glsl_compiler
+       .compile_into_spirv(
+           source,
+           shaderc::ShaderKind::Vertex,
+           "[VERTEX]",
+           "main",
+           None,
+       )?
+       .as_binary_u8()
+       .to_vec())
 }
-fn create_fragment_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+fn create_fragment_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    let shader = glsl_compiler
-        .compile_into_spirv(
-            source,
-            shaderc::ShaderKind::Fragment,
-            "[FRAGMENT]",
-            "main",
-            None,
-        )?
-        .as_binary_u8()
-        .to_vec();
-    Ok(SpirvShader::new(shader, ShaderStageFlags::FRAGMENT, "main"))
+    Ok(glsl_compiler
+       .compile_into_spirv(
+           source,
+           shaderc::ShaderKind::Fragment,
+           "[FRAGMENT]",
+           "main",
+           None,
+       )?
+       .as_binary_u8()
+       .to_vec())
 }
-fn create_compute_shader(source: &str) -> Result<SpirvShader, failure::Error> {
+fn create_compute_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    let shader = glsl_compiler
-        .compile_into_spirv(
-            source,
-            shaderc::ShaderKind::Compute,
-            "[COMPUTE]",
-            "main",
-            None,
-        )?
-        .as_binary_u8()
-        .to_vec();
-    Ok(SpirvShader::new(shader, ShaderStageFlags::COMPUTE, "main"))
+    Ok(glsl_compiler
+       .compile_into_spirv(
+           source,
+           shaderc::ShaderKind::Compute,
+           "[COMPUTE]",
+           "main",
+           None,
+       )?
+       .as_binary_u8()
+       .to_vec())
 }

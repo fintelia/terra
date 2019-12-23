@@ -52,9 +52,9 @@ fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io
 }
 
 pub struct ShaderSet {
-    vertex: Option<SpirvShader>,
-    fragment: Option<SpirvShader>,
-    compute: Option<SpirvShader>,
+    vertex: Option<Vec<u8>>,
+    fragment: Option<Vec<u8>>,
+    compute: Option<Vec<u8>>,
 
     vertex_filenames: Option<Vec<PathBuf>>,
     fragment_filenames: Option<Vec<PathBuf>>,
@@ -146,13 +146,13 @@ impl ShaderSet {
         false
     }
 
-    pub fn vertex(&self) -> &SpirvShader {
+    pub fn vertex(&self) -> &[u8] {
         self.vertex.as_ref().unwrap()
     }
-    pub fn fragment(&self) -> &SpirvShader {
+    pub fn fragment(&self) -> &[u8] {
         self.fragment.as_ref().unwrap()
     }
-    pub fn compute(&self) -> &SpirvShader {
+    pub fn compute(&self) -> &[u8] {
         self.compute.as_ref().unwrap()
     }
 }
