@@ -62,11 +62,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         context: &mut AssetLoadContext,
         mut writer: W,
     ) -> Result<Self::Header, Error> {
-        let tiles = self
-            .nodes
-            .iter()
-            .filter(|n| n.level <= self.max_texture_level)
-            .count();
+        let tiles = self.nodes.iter().filter(|n| n.level <= self.max_texture_level).count();
 
         let global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
@@ -313,10 +309,7 @@ where
             RasterSource::GlobalRaster { .. } => global_raster.as_ref().unwrap().bands,
             RasterSource::RasterCache { ref cache, .. } => cache.borrow().bands(),
             RasterSource::Hybrid { ref cache, .. } => {
-                assert_eq!(
-                    global_raster.as_ref().unwrap().bands,
-                    cache.borrow().bands()
-                );
+                assert_eq!(global_raster.as_ref().unwrap().bands, cache.borrow().bands());
                 cache.borrow().bands()
             }
         };
@@ -350,11 +343,7 @@ where
                                 .as_ref()
                                 .unwrap()
                                 .interpolate(lat, long, band as usize),
-                            RasterSource::RasterCache {
-                                ref cache,
-                                ref radius2,
-                                default,
-                            } => {
+                            RasterSource::RasterCache { ref cache, ref radius2, default } => {
                                 if radius2.is_none() || world.magnitude2() < radius2.unwrap() {
                                     cache
                                         .borrow_mut()
@@ -394,10 +383,9 @@ where
         let spacing = match self.raster {
             RasterSource::GlobalRaster { .. } => Some(global_raster.unwrap().spacing()),
             RasterSource::RasterCache { ref cache, .. } => cache.borrow().spacing(),
-            RasterSource::Hybrid { ref cache, .. } => cache
-                .borrow()
-                .spacing()
-                .or(Some(global_raster.unwrap().spacing())),
+            RasterSource::Hybrid { ref cache, .. } => {
+                cache.borrow().spacing().or(Some(global_raster.unwrap().spacing()))
+            }
         };
 
         Ok(ReprojectedRasterHeader {

@@ -53,15 +53,14 @@ impl CoordinateSystem {
             -cos_lat * cos_long,
             -cos_lat * sin_long,
             -sin_lat,
-        ).transpose()
+        )
+        .transpose()
     }
 
     pub fn from_lla(center_lla: Vector3<f64>) -> Self {
         let ecef_to_ned_matrix = Self::make_ecef_to_ned_matrix(center_lla);
-        let center_ecef = geo::lla2ecef(
-            &na::Vector3::new(center_lla.x, center_lla.y, center_lla.z),
-            &ELLIPSOID,
-        );
+        let center_ecef =
+            geo::lla2ecef(&na::Vector3::new(center_lla.x, center_lla.y, center_lla.z), &ELLIPSOID);
 
         Self {
             ecef_to_ned_matrix,
@@ -81,11 +80,7 @@ impl CoordinateSystem {
     #[inline]
     pub fn ecef_to_polar(&self, ecef: Vector3<f64>) -> Vector3<f64> {
         let r = f64::sqrt(ecef.x * ecef.x + ecef.y * ecef.y + ecef.z * ecef.z);
-        Vector3::new(
-            f64::asin(ecef.z / r),
-            f64::atan2(ecef.y, ecef.x),
-            r - PLANET_RADIUS,
-        )
+        Vector3::new(f64::asin(ecef.z / r), f64::atan2(ecef.y, ecef.x), r - PLANET_RADIUS)
     }
     #[inline]
     pub fn polar_to_ecef(&self, lla: Vector3<f64>) -> Vector3<f64> {
@@ -209,17 +204,10 @@ mod tests {
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
         assert_eq!(
             system.lla_to_ecef(Vector3::new(0.2345, -0.637, 10.0)),
-            vec3_na2cgmath(geo::lla2ecef(
-                &na::Vector3::new(0.2345, -0.637, 10.0),
-                &ELLIPSOID
-            )),
+            vec3_na2cgmath(geo::lla2ecef(&na::Vector3::new(0.2345, -0.637, 10.0), &ELLIPSOID)),
         );
         assert_relative_eq!(
-            system.lla_to_ecef(Vector3::new(
-                19.0f64.to_radians(),
-                -34.0f64.to_radians(),
-                10.0,
-            )),
+            system.lla_to_ecef(Vector3::new(19.0f64.to_radians(), -34.0f64.to_radians(), 10.0,)),
             Vector3::new(5001415.53283897, -3373497.37316789, 2063352.71871789),
             epsilon = 0.001
         );
@@ -245,10 +233,7 @@ mod tests {
     fn world_to_ned() {
         let system =
             CoordinateSystem::from_lla(Vector3::new(40f64.to_radians(), 70f64.to_radians(), 0.0));
-        assert_eq!(
-            system.world_to_ned(Vector3::new(0.0, 0.0, 0.0)),
-            Vector3::new(0.0, 0.0, 0.0)
-        );
+        assert_eq!(system.world_to_ned(Vector3::new(0.0, 0.0, 0.0)), Vector3::new(0.0, 0.0, 0.0));
         assert_relative_eq!(
             system.world_to_ned(Vector3::new(0.0, 0.0, -10.0)),
             Vector3::new(10.0, 0.0, 0.0)
@@ -265,11 +250,7 @@ mod tests {
         let system = CoordinateSystem::from_lla(vec3_na2cgmath(lla_origin));
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(0.0, 0.0, 7.0))),
-            vec3_na2cgmath(geo::lla2ned(
-                &lla_origin,
-                &na::Vector3::new(0.0, 0.0, 7.0),
-                &ELLIPSOID
-            )),
+            vec3_na2cgmath(geo::lla2ned(&lla_origin, &na::Vector3::new(0.0, 0.0, 7.0), &ELLIPSOID)),
         );
         assert_eq!(
             system.ecef_to_ned(system.lla_to_ecef(Vector3::new(43.0, -450.0, 10.0))),
@@ -364,15 +345,11 @@ mod tests {
         let b = Vector2::new(4469.1, 40999.8);
 
         assert_relative_eq!(
-            system
-                .world_to_lla(Vector3::new(a.x, system.world_height_on_surface(a), a.y))
-                .z,
+            system.world_to_lla(Vector3::new(a.x, system.world_height_on_surface(a), a.y)).z,
             0.0
         );
         assert_relative_eq!(
-            system
-                .world_to_lla(Vector3::new(b.x, system.world_height_on_surface(b), b.y))
-                .z,
+            system.world_to_lla(Vector3::new(b.x, system.world_height_on_surface(b), b.y)).z,
             0.0
         );
     }

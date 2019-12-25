@@ -1,5 +1,5 @@
 use astro::{coords, sun};
-use byteorder::{LittleEndian, NativeEndian, ReadBytesExt, ByteOrder};
+use byteorder::{ByteOrder, LittleEndian, NativeEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use failure::Error;
@@ -56,7 +56,7 @@ pub struct QuadTree {
     // num_planet_mesh_vertices: usize,
     node_states: Vec<NodeState>,
     // _materials: MaterialSet<R>,
-    system: CoordinateSystem,
+    pub(crate) system: CoordinateSystem,
 }
 
 impl std::fmt::Debug for QuadTree {
@@ -189,10 +189,8 @@ impl QuadTree {
         let mut data_view = Arc::new(data_file);
         let mut tile_cache_layers = VecMap::new();
         for layer in header.layers.iter().cloned() {
-            tile_cache_layers.insert(
-                layer.layer_type as usize,
-                TileCache::new(layer, data_view.clone()),
-            );
+            tile_cache_layers
+                .insert(layer.layer_type as usize, TileCache::new(layer, data_view.clone()));
         }
 
         // let noise_data = &data_view[header.noise.offset..][..header.noise.bytes];
@@ -447,10 +445,7 @@ impl QuadTree {
         let resolution =
             (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
 
-        (
-            make_index_buffer(resolution),
-            make_index_buffer(resolution / 2),
-        )
+        (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
     fn update_priorities(&mut self, camera: Point3<f32>) {
@@ -660,12 +655,8 @@ impl QuadTree {
         let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length * resolution;
         let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;
 
-        let get_texel = |x, y| {
-            layer
-                .get_texel(&self.nodes[id], x, y)
-                .read_f32::<LittleEndian>()
-                .unwrap()
-        };
+        let get_texel =
+            |x, y| layer.get_texel(&self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap();
 
         let (mut fx, mut fy) = (x.fract(), y.fract());
         let (mut ix, mut iy) = (x.floor() as usize, y.floor() as usize);

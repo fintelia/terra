@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use memmap::Mmap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use vec_map::VecMap;
 
 use crate::coordinates::CoordinateSystem;
@@ -179,7 +179,6 @@ pub(crate) struct TileCache {
     layer_params: LayerParams,
 
     // payloads: PayloadSet<B>,
-
     /// Section of memory map that holds the data for this layer.
     data_file: Arc<Mmap>,
 }
@@ -219,12 +218,7 @@ impl TileCache {
             *priority = nodes[id].priority();
         }
 
-        self.min_priority = self
-            .slots
-            .iter()
-            .map(|s| s.0)
-            .min()
-            .unwrap_or(Priority::none());
+        self.min_priority = self.slots.iter().map(|s| s.0).min().unwrap_or(Priority::none());
     }
 
     pub fn add_missing(&mut self, element: (Priority, NodeId)) {
@@ -247,12 +241,8 @@ impl TileCache {
         }
 
         if !self.missing.is_empty() {
-            let mut possible: Vec<_> = self
-                .slots
-                .iter()
-                .cloned()
-                .chain(self.missing.iter().cloned())
-                .collect();
+            let mut possible: Vec<_> =
+                self.slots.iter().cloned().chain(self.missing.iter().cloned()).collect();
             possible.sort();
 
             // Anything >= to cutoff should be included.
@@ -404,11 +394,8 @@ impl TileCache {
     }
 
     pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
-        if let PayloadType::Texture {
-            border_size,
-            resolution,
-            format,
-        } = self.layer_params.payload_type
+        if let PayloadType::Texture { border_size, resolution, format } =
+            self.layer_params.payload_type
         {
             let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
             let offset = self.layer_params.tile_locations[tile].offset;

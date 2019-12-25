@@ -9,18 +9,10 @@ use crate::terrain::tile_cache::{Priority, NUM_LAYERS};
 use crate::utils::math::BoundingBox;
 
 lazy_static! {
-    pub static ref OFFSETS: [Vector2<i32>; 4] = [
-        Vector2::new(0, 0),
-        Vector2::new(1, 0),
-        Vector2::new(0, 1),
-        Vector2::new(1, 1),
-    ];
-    pub static ref CENTER_OFFSETS: [Vector2<i32>; 4] = [
-        Vector2::new(-1, -1),
-        Vector2::new(1, -1),
-        Vector2::new(-1, 1),
-        Vector2::new(1, 1),
-    ];
+    pub static ref OFFSETS: [Vector2<i32>; 4] =
+        [Vector2::new(0, 0), Vector2::new(1, 0), Vector2::new(0, 1), Vector2::new(1, 1),];
+    pub static ref CENTER_OFFSETS: [Vector2<i32>; 4] =
+        [Vector2::new(-1, -1), Vector2::new(1, -1), Vector2::new(-1, 1), Vector2::new(1, 1),];
 }
 
 #[derive(Serialize, Deserialize)]

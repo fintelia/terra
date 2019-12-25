@@ -30,17 +30,13 @@ fn main() {
     };
 
     let adapter = wgpu::Adapter::request(
-        &wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::Default,
-        },
+        &wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::Default },
         wgpu::BackendBit::PRIMARY,
     )
     .unwrap();
 
     let (device, mut queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-        extensions: wgpu::Extensions {
-            anisotropic_filtering: false,
-        },
+        extensions: wgpu::Extensions { anisotropic_filtering: false },
         limits: wgpu::Limits::default(),
     });
 
@@ -66,7 +62,7 @@ fn main() {
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
-    let mut terrain = terra::Terrain::new(&device, quadtree);
+    let mut terrain = terra::Terrain::new(&device, &mut queue, quadtree);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {

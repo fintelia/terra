@@ -1,6 +1,6 @@
 // use gfx;
 // use gfx_core::{self, format, handle};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum TextureFormat {

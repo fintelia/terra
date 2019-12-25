@@ -1,5 +1,5 @@
+use rand::distributions::Distribution;
 use rand::{self, Rng};
-use rand::distributions::{Distribution};
 use rand_distr::Normal;
 
 use std::f32::consts::PI;
@@ -20,11 +20,7 @@ impl<T> Heightmap<T> {
     #[allow(unused)]
     pub fn new(heights: Vec<T>, width: u16, height: u16) -> Self {
         assert_eq!(heights.len(), (width as usize) * (height as usize));
-        Heightmap {
-            heights,
-            width,
-            height,
-        }
+        Heightmap { heights, width, height }
     }
 
     pub fn get(&self, x: u16, y: u16) -> Option<T>
@@ -35,9 +31,7 @@ impl<T> Heightmap<T> {
             return None;
         }
 
-        self.heights
-            .get(x as usize + y as usize * self.width as usize)
-            .cloned()
+        self.heights.get(x as usize + y as usize * self.width as usize).cloned()
     }
 
     pub fn at(&self, x: u16, y: u16) -> T
@@ -83,11 +77,7 @@ impl<T: Copy + Add<T, Output = T> + Div<T, Output = T> + From<u8>> Heightmap<T> 
             }
         }
 
-        Heightmap {
-            width,
-            height,
-            heights,
-        }
+        Heightmap { width, height, heights }
     }
 }
 
@@ -124,10 +114,7 @@ pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f3
 
             for k in 0..grid_spacing {
                 for h in 0..grid_spacing {
-                    let v = (
-                        h as f32 / grid_spacing as f32,
-                        k as f32 / grid_spacing as f32,
-                    );
+                    let v = (h as f32 / grid_spacing as f32, k as f32 / grid_spacing as f32);
 
                     let ad = dot(a, v);
                     let bd = dot(b, (v.0, v.1 - 1.0));
@@ -276,10 +263,7 @@ pub fn wavelet_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f
     let mut heights = Vec::new();
     for x in 0..(grid_resolution * grid_spacing) {
         for y in 0..(grid_resolution * grid_spacing) {
-            let p = [
-                x as f32 / grid_spacing as f32,
-                y as f32 / grid_spacing as f32,
-            ];
+            let p = [x as f32 / grid_spacing as f32, y as f32 / grid_spacing as f32];
             heights.push(noise(&noise_tile, grid_resolution, p))
         }
     }

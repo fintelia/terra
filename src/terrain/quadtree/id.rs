@@ -1,5 +1,5 @@
 use crate::terrain::quadtree::Node;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use std::ops::{Index, IndexMut};
 

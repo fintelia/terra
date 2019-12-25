@@ -1,6 +1,6 @@
 use cgmath::*;
 use collision::Aabb3;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
 pub struct BoundingBox {
@@ -23,9 +23,6 @@ impl BoundingBox {
     }
 
     pub fn as_aabb3(&self) -> Aabb3<f32> {
-        Aabb3 {
-            min: self.min,
-            max: self.max,
-        }
+        Aabb3 { min: self.min, max: self.max }
     }
 }

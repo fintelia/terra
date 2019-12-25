@@ -1,4 +1,4 @@
-//! Terra is a large scale terrain generation and rendering library built on top of rendy.
+//! Terra is a large scale terrain generation and rendering library built on top of wgpu.
 #![feature(custom_attribute)]
 #![feature(stmt_expr_attributes)]
 #![feature(float_to_from_bytes)]
@@ -20,11 +20,11 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
-pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
-pub use terrain::quadtree::QuadTree;
-
+use crate::generate::ComputeShader;
 use crate::terrain::quadtree::render::NodeState;
+pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 use std::mem;
+pub use terrain::quadtree::QuadTree;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -35,6 +35,16 @@ struct UniformBlock {
 }
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
+
+pub(crate) struct GpuState {
+    base_heights: wgpu::Texture,
+
+    heights_staging: wgpu::Texture,
+    normals_staging: wgpu::Texture,
+
+    heights: wgpu::Texture,
+    normals: wgpu::Texture,
+}
 
 pub struct Terrain {
     bind_group_layout: wgpu::BindGroupLayout,
@@ -54,12 +64,20 @@ pub struct Terrain {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
-    layers: Vec<wgpu::Texture>,
 
+    // gen: TileGen,
+    gpu_state: GpuState,
+
+    gen_heights: ComputeShader<()>,
+    gen_normals: ComputeShader<()>,
+
+    load_heights: ComputeShader<()>,
+
+    // heightmap: wgpu::Texture,
     quadtree: QuadTree,
 }
 impl Terrain {
-    pub fn new(device: &wgpu::Device, quadtree: QuadTree) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, quadtree: QuadTree) -> Self {
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
             &mut watcher,
@@ -100,6 +118,87 @@ impl Terrain {
                 bind_group_layouts: &[&bind_group_layout],
             });
 
+        let texture_desc = wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width: 0, height: 0, depth: 0 },
+            array_layer_count: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsage::COPY_SRC
+                | wgpu::TextureUsage::COPY_DST
+                | wgpu::TextureUsage::SAMPLED
+                | wgpu::TextureUsage::STORAGE,
+        };
+
+        let gpu_state = GpuState {
+            base_heights: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
+                format: wgpu::TextureFormat::R32Float,
+                ..texture_desc
+            }),
+            heights_staging: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },
+                format: wgpu::TextureFormat::R32Float,
+                ..texture_desc
+            }),
+            normals_staging: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
+                format: wgpu::TextureFormat::Rg8Uint,
+                ..texture_desc
+            }),
+            heights: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 4096, height: 8192, depth: 1 },
+                format: wgpu::TextureFormat::R32Float,
+                ..texture_desc
+            }),
+            normals: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 16384, height: 4096, depth: 1 },
+                format: wgpu::TextureFormat::Rg8Uint,
+                ..texture_desc
+            }),
+        };
+
+        crate::generate::make_base_heights(
+            device,
+            queue,
+            &quadtree.system,
+            &gpu_state.base_heights,
+        );
+
+        let gen_heights = ComputeShader::new(
+            device,
+            queue,
+            &gpu_state,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "gen-heights.comp"),
+            )
+            .unwrap(),
+        );
+
+        let gen_normals = ComputeShader::new(
+            device,
+            queue,
+            &gpu_state,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "gen-normals.comp"),
+            )
+            .unwrap(),
+        );
+
+        let load_heights = ComputeShader::new(
+            device,
+            queue,
+            &gpu_state,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "load-heights.comp"),
+            )
+            .unwrap(),
+        );
+
         Self {
             bind_group_layout,
             bind_group,
@@ -112,7 +211,11 @@ impl Terrain {
             vertex_buffer,
             index_buffer,
             index_buffer_partial,
-            layers: Vec::new(),
+
+            gpu_state,
+            gen_heights,
+            gen_normals,
+            load_heights,
 
             quadtree,
         }
@@ -240,18 +343,13 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
-        self.quadtree
-            .prepare_vertex_buffer(device, &mut encoder, &mut self.vertex_buffer);
+        self.quadtree.prepare_vertex_buffer(device, &mut encoder, &mut self.vertex_buffer);
 
         let mapped = device.create_buffer_mapped(
             mem::size_of::<UniformBlock>(),
             wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
         );
-        bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock {
-            view_proj,
-            camera,
-            padding: 0.0,
-        };
+        bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock { view_proj, camera, padding: 0.0 };
         encoder.copy_buffer_to_buffer(
             &mapped.finish(),
             0,

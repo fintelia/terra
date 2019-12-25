@@ -32,6 +32,9 @@ use crate::terrain::tile_cache::{
 use crate::utils::math::BoundingBox;
 // use TREE_BILLBOARDS;
 
+mod gpu;
+pub(crate) use gpu::*;
+
 /// The radius of the earth in meters.
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
@@ -326,9 +329,8 @@ impl MMappedAsset for QuadTreeBuilder {
         let mut state = State {
             random: {
                 let normal = Normal::new(0.0, 1.0).unwrap();
-                let v = (0..(15 * 15))
-                    .map(|_| normal.sample(&mut rand::thread_rng()) as f32)
-                    .collect();
+                let v =
+                    (0..(15 * 15)).map(|_| normal.sample(&mut rand::thread_rng()) as f32).collect();
                 Heightmap::new(v, 15, 15)
             },
             dem_source: self.source,
@@ -374,23 +376,11 @@ impl MMappedAsset for QuadTreeBuilder {
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
         context.set_progress(7);
         let noise = state.generate_noise(context)?;
-        let State {
-            layers,
-            nodes,
-            system,
-            ..
-        } = state;
+        let State { layers, nodes, system, .. } = state;
 
         context.set_progress(8);
 
-        Ok(TileHeader {
-            system,
-            planet_mesh,
-            planet_mesh_texture,
-            layers,
-            noise,
-            nodes,
-        })
+        Ok(TileHeader { system, planet_mesh, planet_mesh_texture, layers, noise, nodes })
     }
 }
 
@@ -467,10 +457,7 @@ impl<W: Write> State<W> {
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         let tile_bytes = 4 * self.heights_resolution as usize * self.heights_resolution as usize;
         let tile_locations = (0..self.nodes.len())
-            .map(|i| ByteRange {
-                offset: i * tile_bytes,
-                length: tile_bytes,
-            })
+            .map(|i| ByteRange { offset: i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
@@ -484,10 +471,7 @@ impl<W: Write> State<W> {
 
         let reproject = ReprojectedDemDef {
             name: format!("{}dem", self.directory_name),
-            dem_cache: Rc::new(RefCell::new(RasterCache::new(
-                Box::new(self.dem_source),
-                128,
-            ))),
+            dem_cache: Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128))),
             system: &self.system,
             nodes: &self.nodes,
             random: &self.random,
@@ -561,10 +545,7 @@ impl<W: Write> State<W> {
         let tile_count = self.heightmaps.as_ref().unwrap().len();
         let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
         let tile_locations = (0..tile_count)
-            .map(|i| ByteRange {
-                offset: self.bytes_written + i * tile_bytes,
-                length: tile_bytes,
-            })
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
 
         self.layers.push(LayerParams {
@@ -576,10 +557,8 @@ impl<W: Write> State<W> {
                 format: TextureFormat::SRGBA,
             },
         });
-        context.increment_level(
-            "Generating colormaps... ",
-            self.heightmaps.as_ref().unwrap().len(),
-        );
+        context
+            .increment_level("Generating colormaps... ", self.heightmaps.as_ref().unwrap().len());
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
@@ -590,10 +569,7 @@ impl<W: Write> State<W> {
             datatype: DataType::U8,
             raster: RasterSource::Hybrid {
                 global: Box::new(BlueMarble),
-                cache: Rc::new(RefCell::new(RasterCache::new(
-                    Box::new(BlueMarbleTileSource),
-                    8,
-                ))),
+                cache: Rc::new(RefCell::new(RasterCache::new(Box::new(BlueMarbleTileSource), 8))),
             },
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
@@ -779,10 +755,7 @@ impl<W: Write> State<W> {
         let tile_count = self.heightmaps.as_ref().unwrap().len();
         let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
-            .map(|i| ByteRange {
-                offset: self.bytes_written + i * tile_bytes,
-                length: tile_bytes,
-            })
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Normals,
@@ -835,10 +808,7 @@ impl<W: Write> State<W> {
         let tile_count = splatmap_nodes.len();
         let tile_bytes = splatmap_resolution as usize * splatmap_resolution as usize;
         let tile_locations = (0..tile_count)
-            .map(|i| ByteRange {
-                offset: self.bytes_written + i * tile_bytes,
-                length: tile_bytes,
-            })
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Splats,
@@ -1178,10 +1148,8 @@ impl<W: Write> State<W> {
         let offset = self.bytes_written;
         let mut num_vertices = 0;
 
-        let resolution = Vector2::new(
-            self.heights_resolution / 8,
-            (self.heights_resolution - 1) / 2 + 1,
-        );
+        let resolution =
+            Vector2::new(self.heights_resolution / 8, (self.heights_resolution - 1) / 2 + 1);
         for i in 0..4 {
             let mut vertices = Vec::new();
             for y in 0..resolution.y {
@@ -1227,11 +1195,7 @@ impl<W: Write> State<W> {
                         world3 = self.system.lla_to_world(lla);
                     }
 
-                    vertices.push(Vector3::new(
-                        world.x as f32,
-                        world3.y as f32,
-                        world.y as f32,
-                    ));
+                    vertices.push(Vector3::new(world.x as f32, world3.y as f32, world.y as f32));
                 }
             }
 
@@ -1270,10 +1234,8 @@ impl<W: Write> State<W> {
 
         let mut vertices = Vec::new();
         let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
-        let resolution = Vector2::new(
-            self.heights_resolution / 4,
-            ((self.heights_resolution - 1) / 2) * 4,
-        );
+        let resolution =
+            Vector2::new(self.heights_resolution / 4, ((self.heights_resolution - 1) / 2) * 4);
 
         for y in 0..resolution.y {
             let fy = y as f64 / resolution.y as f64;
@@ -1327,11 +1289,7 @@ impl<W: Write> State<W> {
             }
         }
 
-        Ok(MeshDescriptor {
-            bytes: self.bytes_written - offset,
-            offset,
-            num_vertices,
-        })
+        Ok(MeshDescriptor { bytes: self.bytes_written - offset, offset, num_vertices })
     }
 
     fn generate_planet_mesh_texture(

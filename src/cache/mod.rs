@@ -14,11 +14,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 lazy_static! {
-    static ref TERRA_DIRECTORY: PathBuf = {
-        dirs::cache_dir()
-            .unwrap_or(PathBuf::from("."))
-            .join("terra")
-    };
+    static ref TERRA_DIRECTORY: PathBuf =
+        { dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra") };
 }
 
 pub(crate) struct AssetLoadContext {
@@ -64,11 +61,7 @@ impl AssetLoadContext {
     }
 
     pub fn bytes_display_enabled(&mut self, enabled: bool) {
-        self.bars[self.level - 1].set_units(if enabled {
-            Units::Bytes
-        } else {
-            Units::Default
-        });
+        self.bars[self.level - 1].set_units(if enabled { Units::Bytes } else { Units::Default });
     }
 
     pub fn increment_level<N: ToPrimitive>(&mut self, message: &str, total: N) {

@@ -2,7 +2,7 @@ use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use failure::{bail, ensure, Error, Fail};
 use image::tiff::TiffDecoder;
-use image::{ImageDecoder};
+use image::ImageDecoder;
 use safe_transmute;
 use std::io::{Cursor, Read};
 use std::mem;
@@ -18,9 +18,9 @@ pub struct DemParseError;
 #[derive(Copy, Clone)]
 pub enum DemSource {
     /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
-    /// only available for the United States.
+    /// only available for North America.
     Usgs30m,
-    /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
+    /// Use DEMs from the USGS National Map at approximately 10 meters. Data from this source is
     /// only available for the United States.
     Usgs10m,
     /// Use DEMs Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global data source. Data is
@@ -31,10 +31,10 @@ impl DemSource {
     pub(crate) fn url_str(&self) -> &str {
         match *self {
             DemSource::Usgs30m => {
-                "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/1/GridFloat/"
+                "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/GridFloat/USGS_NED_1_"
             }
             DemSource::Usgs10m => {
-                "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/GridFloat/"
+                "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/GridFloat/USGS_NED_13_"
             }
             DemSource::Srtm30m => {
                 "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/SRTM_GL1/SRTM_GL1_srtm/"
@@ -74,13 +74,7 @@ impl RasterSource for DemSource {
         latitude: i16,
         longitude: i16,
     ) -> Option<Raster<f32>> {
-        DigitalElevationModelParams {
-            latitude,
-            longitude,
-            source: *self,
-        }
-        .load(context)
-        .ok()
+        DigitalElevationModelParams { latitude, longitude, source: *self }.load(context).ok()
     }
     fn bands(&self) -> usize {
         1
@@ -286,10 +280,7 @@ impl WebAsset for GlobalDem {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         ensure!(zip.len() == 1, "Unexpected zip file contents");
         let mut file = zip.by_index(0)?;
-        ensure!(
-            file.name() == "ETOPO1_Ice_c_geotiff.tif",
-            "Unexpected zip file contents"
-        );
+        ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
 
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)?;
@@ -298,14 +289,7 @@ impl WebAsset for GlobalDem {
         let (width, height) = tiff_decoder.dimensions();
 
         let mut values: Vec<i16> = vec![0; width as usize * height as usize];
-        tiff_decoder
-            .into_reader()?
-            .read_exact(values.as_bytes_mut())?;
-        Ok(GlobalRaster {
-            bands: 1,
-            width: width as usize,
-            height: height as usize,
-            values,
-        })
+        tiff_decoder.into_reader()?.read_exact(values.as_bytes_mut())?;
+        Ok(GlobalRaster { bands: 1, width: width as usize, height: height as usize, values })
     }
 }

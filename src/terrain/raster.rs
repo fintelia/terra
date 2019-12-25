@@ -85,9 +85,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
     /// Returns the horizontal spacing between cells, in meters.
     pub fn horizontal_spacing(&self, y: usize) -> f64 {
         self.vertical_spacing()
-            * (self.latitude_llcorner + self.cell_size * y as f64)
-                .to_radians()
-                .cos()
+            * (self.latitude_llcorner + self.cell_size * y as f64).to_radians().cos()
     }
 
     pub fn interpolate(&self, latitude: f64, longitude: f64, band: usize) -> Option<f64> {
@@ -225,11 +223,7 @@ impl BlurredSource {
     pub fn new(cache: Rc<RefCell<RasterCache<u8, Vec<u8>>>>, sigma: f64) -> Self {
         Self {
             cache: Rc::new(RefCell::new(RasterCache::new(
-                Box::new(Self {
-                    cache,
-                    axis: Axis::X,
-                    sigma,
-                }),
+                Box::new(Self { cache, axis: Axis::X, sigma }),
                 512,
             ))),
             axis: Axis::Y,
@@ -342,11 +336,7 @@ pub(crate) struct RasterCache<T: Into<f64> + Copy, C: Deref<Target = [T]>> {
 }
 impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
     pub fn new(source: Box<dyn RasterSource<Type = T, Container = C>>, size: usize) -> Self {
-        Self {
-            source,
-            holes: HashSet::new(),
-            rasters: LruCache::new(size),
-        }
+        Self { source, holes: HashSet::new(), rasters: LruCache::new(size) }
     }
     pub fn get(
         &mut self,
@@ -355,10 +345,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
         longitude: i16,
     ) -> Option<&mut Raster<T, C>> {
         let rs = self.source.raster_size();
-        let key = (
-            latitude - (latitude % rs + rs) % rs,
-            longitude - (longitude % rs + rs) % rs,
-        );
+        let key = (latitude - (latitude % rs + rs) % rs, longitude - (longitude % rs + rs) % rs);
         if self.holes.contains(&key) {
             return None;
         }
@@ -391,10 +378,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
     }
     /// Returns the approximate spacing of the rasters in meters, if known.
     pub fn spacing(&self) -> Option<f64> {
-        self.rasters
-            .iter()
-            .next()
-            .map(|r| r.1.cell_size.to_radians() * coordinates::PLANET_RADIUS)
+        self.rasters.iter().next().map(|r| r.1.cell_size.to_radians() * coordinates::PLANET_RADIUS)
     }
 }
 

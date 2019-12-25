@@ -10,7 +10,9 @@ use memmap::Mmap;
 use zip::ZipArchive;
 
 use crate::cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use crate::terrain::raster::{BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource};
+use crate::terrain::raster::{
+    BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LandCoverKind {
@@ -29,15 +31,7 @@ impl RasterSource for LandCoverKind {
         latitude: i16,
         longitude: i16,
     ) -> Option<Raster<u8>> {
-        Some(
-            LandCoverParams {
-                latitude,
-                longitude,
-                kind: *self,
-                raw: None,
-            }.load(context)
-            .unwrap(),
-        )
+        Some(LandCoverParams { latitude, longitude, kind: *self, raw: None }.load(context).unwrap())
     }
 }
 
@@ -155,7 +149,8 @@ impl LandCoverParams {
                     (h / 10) * (9 - ((self.latitude % 10 + 10) % 10) as u32),
                     w / 10 + 1,
                     h / 10 + 1,
-                ).clone();
+                )
+                .clone();
             (w, h, image)
         };
         // let image = image.rotate90().flipv();
@@ -176,7 +171,8 @@ impl LandCoverParams {
                     } else {
                         unreachable!()
                     }
-                }).collect(),
+                })
+                .collect(),
         };
 
         Ok(Raster {
@@ -222,7 +218,8 @@ impl GeneratedAsset for LandCoverParams {
             longitude: self.longitude,
             kind: self.kind,
             raw: Some(self.raw_params().load(context)?),
-        }.generate_from_raw()
+        }
+        .generate_from_raw()
     }
 }
 
@@ -255,12 +252,7 @@ impl WebAsset for BlueMarble {
             }
         }
 
-        Ok(GlobalRaster {
-            width,
-            height,
-            bands: 3,
-            values,
-        })
+        Ok(GlobalRaster { width, height, bands: 3, values })
     }
 }
 
@@ -289,10 +281,7 @@ impl WebAsset for BlueMarbleTile {
     type Type = (MMappedRasterHeader, Vec<u8>);
 
     fn url(&self) -> String {
-        format!(
-            "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/{}",
-            self.name()
-        )
+        format!("https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/{}", self.name())
     }
     fn filename(&self) -> String {
         format!("bluemarble/{}", self.name())
@@ -346,12 +335,10 @@ impl RasterSource for BlueMarbleTileSource {
     ) -> Option<Raster<Self::Type, Self::Container>> {
         Some(
             Raster::from_mmapped_raster(
-                BlueMarbleTile {
-                    latitude_llcorner: latitude,
-                    longitude_llcorner: longitude,
-                },
+                BlueMarbleTile { latitude_llcorner: latitude, longitude_llcorner: longitude },
                 context,
-            ).unwrap(),
+            )
+            .unwrap(),
         )
     }
 }
@@ -403,12 +390,9 @@ mod tests {
                 longitude: 31,
                 kind: LandCoverKind::TreeCover,
                 raw: None,
-            }.raw_params(),
-            RawLandCoverParams {
-                latitude: 160,
-                longitude: 30,
-                kind: LandCoverKind::TreeCover,
             }
+            .raw_params(),
+            RawLandCoverParams { latitude: 160, longitude: 30, kind: LandCoverKind::TreeCover }
         );
 
         assert_eq!(
@@ -417,12 +401,9 @@ mod tests {
                 longitude: 20,
                 kind: LandCoverKind::TreeCover,
                 raw: None,
-            }.raw_params(),
-            RawLandCoverParams {
-                latitude: 20,
-                longitude: 20,
-                kind: LandCoverKind::TreeCover,
             }
+            .raw_params(),
+            RawLandCoverParams { latitude: 20, longitude: 20, kind: LandCoverKind::TreeCover }
         );
 
         assert_eq!(
@@ -431,12 +412,9 @@ mod tests {
                 longitude: -18,
                 kind: LandCoverKind::TreeCover,
                 raw: None,
-            }.raw_params(),
-            RawLandCoverParams {
-                latitude: -20,
-                longitude: -20,
-                kind: LandCoverKind::TreeCover,
             }
+            .raw_params(),
+            RawLandCoverParams { latitude: -20, longitude: -20, kind: LandCoverKind::TreeCover }
         );
 
         assert_eq!(
@@ -445,12 +423,9 @@ mod tests {
                 longitude: -30,
                 kind: LandCoverKind::TreeCover,
                 raw: None,
-            }.raw_params(),
-            RawLandCoverParams {
-                latitude: -30,
-                longitude: -30,
-                kind: LandCoverKind::TreeCover,
             }
+            .raw_params(),
+            RawLandCoverParams { latitude: -30, longitude: -30, kind: LandCoverKind::TreeCover }
         );
     }
 }
