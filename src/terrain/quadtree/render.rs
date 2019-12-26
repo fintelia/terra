@@ -321,9 +321,8 @@ impl QuadTree {
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
-            let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
-                .get_slot(id)
-                .unwrap() as f32;
+            let heights_slot =
+                self.tile_cache_layers[LayerType::Heights.index()].get_slot(id).unwrap() as f32;
             let (colors_layer, normals_layer, splats_layer, texture_offset, tex_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             let (pcolors_layer, pnormals_layer, psplats_layer, ptexture_offset, ptex_step_scale) =

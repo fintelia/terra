@@ -152,7 +152,6 @@ impl Terrain {
             }),
         };
 
-
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
                 wgpu::BindGroupLayoutBinding {

@@ -658,7 +658,7 @@ impl<W: Write> State<W> {
                         let albedo = [0, 0, 0, 0]; //self.materials.get_average_albedo(splat);
                         if self.nodes[i].level <= self.max_tree_density_level as u8 {
                             let tree_density = 0.0;
-                                // (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
+                            // (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
                             [
                                 mix(albedo[0], LINEAR_TO_SRGB[13], tree_density),
                                 mix(albedo[1], LINEAR_TO_SRGB[31], tree_density),
