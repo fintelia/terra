@@ -454,13 +454,28 @@ impl<W: Write> State<W> {
         }
     }
 
+    fn page_pad(&mut self) -> Result<(), Error> {
+        if self.bytes_written % 4096 != 0 {
+            let data = vec![0; 4096 - (self.bytes_written % 4096)];
+            self.writer.write_all(&data)?;
+            self.bytes_written += data.len();
+        }
+        return Ok(());
+    }
+
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: self.nodes.len() };
+        self.writer.write_all(&vec![1u8; self.nodes.len()])?;
+        self.bytes_written += self.nodes.len();
+        self.page_pad()?;
+
         let tile_bytes = 4 * self.heights_resolution as usize * self.heights_resolution as usize;
         let tile_locations = (0..self.nodes.len())
-            .map(|i| ByteRange { offset: i * tile_bytes, length: tile_bytes })
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Heights,
+            tile_valid_bitmap,
             tile_locations,
             payload_type: PayloadType::Texture {
                 resolution: self.heights_resolution as u32,
@@ -543,6 +558,12 @@ impl<W: Write> State<W> {
         let colormap_skirt = self.skirt - 2;
         let colormap_resolution = self.heightmap_resolution - 5;
         let tile_count = self.heightmaps.as_ref().unwrap().len();
+
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&vec![1u8; tile_count])?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
         let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
@@ -550,6 +571,7 @@ impl<W: Write> State<W> {
 
         self.layers.push(LayerParams {
             layer_type: LayerType::Colors,
+            tile_valid_bitmap,
             tile_locations,
             payload_type: PayloadType::Texture {
                 resolution: colormap_resolution as u32,
@@ -635,8 +657,8 @@ impl<W: Write> State<W> {
                         let _splat = Self::compute_splat(normal.y);
                         let albedo = [0, 0, 0, 0]; //self.materials.get_average_albedo(splat);
                         if self.nodes[i].level <= self.max_tree_density_level as u8 {
-                            let tree_density =
-                                (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
+                            let tree_density = 0.0;
+                                // (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
                             [
                                 mix(albedo[0], LINEAR_TO_SRGB[13], tree_density),
                                 mix(albedo[1], LINEAR_TO_SRGB[31], tree_density),
@@ -753,12 +775,19 @@ impl<W: Write> State<W> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
         let tile_count = self.heightmaps.as_ref().unwrap().len();
+
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&vec![1u8; tile_count])?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
         let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Normals,
+            tile_valid_bitmap,
             tile_locations,
             payload_type: PayloadType::Texture {
                 resolution: normalmap_resolution as u32,
@@ -806,12 +835,19 @@ impl<W: Write> State<W> {
             .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
             .collect();
         let tile_count = splatmap_nodes.len();
+
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&vec![1u8; tile_count])?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
         let tile_bytes = splatmap_resolution as usize * splatmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
             layer_type: LayerType::Splats,
+            tile_valid_bitmap,
             tile_locations,
             payload_type: PayloadType::Texture {
                 resolution: splatmap_resolution as u32,

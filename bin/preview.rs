@@ -91,11 +91,11 @@ fn main() {
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
 
-                let eye = mint::Point3::from_slice(&[0.0, 200.0, -500.0]);
+                let eye = mint::Point3::from_slice(&[0.0, 2000.0, -5000.0]);
                 let view = cgmath::Matrix4::look_at(
                     cgmath::Point3::new(eye.x, eye.y, eye.z),
                     cgmath::Point3::new(0.0, 0.0, 0.0),
-                    cgmath::Vector3::new(0.0, 1.0, 0.0),
+                    cgmath::Vector3::new(0.0, -1.0, 0.0),
                 );
 
                 let view_proj = proj * view;

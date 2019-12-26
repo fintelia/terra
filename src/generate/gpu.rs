@@ -191,52 +191,52 @@ pub fn make_base_heights(
     system: &CoordinateSystem,
     base_heights: &wgpu::Texture,
 ) {
-    let mut context = AssetLoadContext::new();
-    // let global = GlobalDem.load(&mut context);
+    // let mut context = AssetLoadContext::new();
+    // // let global = GlobalDem.load(&mut context);
 
-    let mut dem_cache: RasterCache<f32, Vec<f32>> =
-        RasterCache::new(Box::new(DemSource::Usgs30m), 64);
+    // let mut dem_cache: RasterCache<f32, Vec<f32>> =
+    //     RasterCache::new(Box::new(DemSource::Usgs30m), 64);
 
-    let staging_buffer = device.create_buffer_mapped(
-        (BASE_RESOLUTION * BASE_RESOLUTION * 4) as usize,
-        wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-    );
-    let data = bytemuck::cast_slice_mut(staging_buffer.data);
-    for y in 0..BASE_RESOLUTION {
-        for x in 0..BASE_RESOLUTION {
-            let world = world_position(x, y);
-            let mut world3 = cgmath::Vector3::new(
-                world.x,
-                PLANET_RADIUS * ((1.0 - world.magnitude2() / PLANET_RADIUS).max(0.25).sqrt() - 1.0),
-                world.y,
-            );
-            for i in 0..5 {
-                world3.x = world.x;
-                world3.z = world.y;
-                let mut lla = system.world_to_lla(world3);
-                lla.z = dem_cache
-                    .interpolate(&mut context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                    .unwrap_or(0.0) as f64;
-                world3 = system.lla_to_world(lla);
-            }
-            data[(x + y * BASE_RESOLUTION) as usize] = world3.y as f32;
-        }
-    }
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
-    encoder.copy_buffer_to_texture(
-        wgpu::BufferCopyView {
-            buffer: &staging_buffer.finish(),
-            offset: 0,
-            row_pitch: BASE_RESOLUTION * 4,
-            image_height: BASE_RESOLUTION,
-        },
-        wgpu::TextureCopyView {
-            texture: &base_heights,
-            mip_level: 0,
-            array_layer: 0,
-            origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
-        },
-        wgpu::Extent3d { width: BASE_RESOLUTION, height: BASE_RESOLUTION, depth: 1 },
-    );
-    queue.submit(&[encoder.finish()]);
+    // let staging_buffer = device.create_buffer_mapped(
+    //     (BASE_RESOLUTION * BASE_RESOLUTION * 4) as usize,
+    //     wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+    // );
+    // let data = bytemuck::cast_slice_mut(staging_buffer.data);
+    // for y in 0..BASE_RESOLUTION {
+    //     for x in 0..BASE_RESOLUTION {
+    //         let world = world_position(x, y);
+    //         let mut world3 = cgmath::Vector3::new(
+    //             world.x,
+    //             PLANET_RADIUS * ((1.0 - world.magnitude2() / PLANET_RADIUS).max(0.25).sqrt() - 1.0),
+    //             world.y,
+    //         );
+    //         for i in 0..5 {
+    //             world3.x = world.x;
+    //             world3.z = world.y;
+    //             let mut lla = system.world_to_lla(world3);
+    //             lla.z = dem_cache
+    //                 .interpolate(&mut context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
+    //                 .unwrap_or(0.0) as f64;
+    //             world3 = system.lla_to_world(lla);
+    //         }
+    //         data[(x + y * BASE_RESOLUTION) as usize] = world3.y as f32;
+    //     }
+    // }
+    // let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+    // encoder.copy_buffer_to_texture(
+    //     wgpu::BufferCopyView {
+    //         buffer: &staging_buffer.finish(),
+    //         offset: 0,
+    //         row_pitch: BASE_RESOLUTION * 4,
+    //         image_height: BASE_RESOLUTION,
+    //     },
+    //     wgpu::TextureCopyView {
+    //         texture: &base_heights,
+    //         mip_level: 0,
+    //         array_layer: 0,
+    //         origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+    //     },
+    //     wgpu::Extent3d { width: BASE_RESOLUTION, height: BASE_RESOLUTION, depth: 1 },
+    // );
+    // queue.submit(&[encoder.finish()]);
 }

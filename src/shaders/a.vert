@@ -19,6 +19,17 @@ layout(location = 9) in float texture_step;
 layout(location = 10) in float parent_texture_step;
 layout(location = 11) in int resolution;
 
+layout(set = 0, binding = 1) uniform sampler linear;
+layout(set = 0, binding = 2) uniform texture2DArray heights;
+
+layout(location = 0) out vec3 out_position;
+layout(location = 1) out vec2 out_texcoord;
+layout(location = 2) out vec2 out_parent_texcoord;
+layout(location = 3) out vec2 out_colors_layer;
+layout(location = 4) out vec2 out_normals_layer;
+layout(location = 5) out vec2 out_splats_layer;
+layout(location = 6) out float out_morph;
+
 void main() {
 	vec3 position = vec3(0);
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
@@ -31,15 +42,27 @@ void main() {
 	// if(colors_layer.y < 0)
 	// 	morph = 1;
 
-	// position.y = texture(heights, heightsOrigin + vec3(vec2(iPosition + 0.5) / textureSize(heights, 0).xy, 0)).r;
+	position.y = texture(sampler2DArray(heights, linear),
+						 heights_origin + vec3(vec2(iPosition + 0.5)
+											  / textureSize(heights, 0).xy, 0)).r;
 
 	ivec2 morphTarget = (iPosition / 2) * 2;
-	float morphHeight = 0.0; // texture(heights, heightsOrigin + vec3(vec2(morphTarget + 0.5) / textureSize(heights, 0).xy, 0)).r;
+	float morphHeight = texture(sampler2DArray(heights, linear),
+								heights_origin + vec3(vec2(morphTarget + 0.5)
+													 / textureSize(heights, 0).xy, 0)).r;
 
 	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
 
 	position.y = mix(morphHeight, position.y, morph);
 	position.xz = nPosition * (side_length / (resolution)) + in_position;
+
+	out_position = position;
+	out_texcoord = texture_origin + nPosition * texture_step;
+	out_parent_texcoord = parent_texture_origin + nPosition * parent_texture_step;
+	out_colors_layer = colors_layer;
+	out_normals_layer = normals_layer;
+	out_splats_layer = splats_layer;
+	out_morph = morph;
 
 	gl_Position = uniform_block.view_proj * vec4(position, 1.0);
 }

@@ -102,6 +102,8 @@ pub(crate) enum PayloadType {
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
+    // Array of bytes indicating whether each tile is valid.
+    pub tile_valid_bitmap: ByteRange,
     /// Where each tile is located in the file.
     pub tile_locations: Vec<ByteRange>,
     /// What kind of data is stored in this layer.
@@ -163,50 +165,41 @@ pub(crate) struct TileHeader {
 //     },
 // }
 
+struct Entry {
+    priority: Priority,
+    id: NodeId,
+    valid: bool,
+}
+
 pub(crate) struct TileCache {
-    /// Maximum number of slots in this `TileCache`.
     size: usize,
-    /// Actually contents of the cache.
-    slots: Vec<(Priority, NodeId)>,
-    /// Which index each node is at in the cache (if any).
+    slots: Vec<Entry>,
     reverse: VecMap<usize>,
+
     /// Nodes that should be added to the cache.
     missing: Vec<(Priority, NodeId)>,
     /// Smallest priority among all nodes in the cache.
     min_priority: Priority,
 
+    /// Slots which still need to be loaded
+    pending_uploads: Vec<(usize, ByteRange)>,
+
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
 
-    // payloads: PayloadSet<B>,
     /// Section of memory map that holds the data for this layer.
     data_file: Arc<Mmap>,
 }
 impl TileCache {
-    pub fn new(
-        params: LayerParams,
-        data_file: Arc<Mmap>,
-        // factory: &mut F,
-    ) -> Self {
-        let cache_size = params.layer_type.cache_size();
-        // let payloads = match params.payload_type {
-        //     PayloadType::Texture {
-        //         resolution, format, ..
-        //     } => PayloadSet::Texture {
-        //         texture: TextureArray::new(format, resolution as u16, cache_size, factory),
-        //         resolution: resolution.try_into().unwrap(),
-        //     },
-        //     PayloadType::InstancedMesh { max_instances, .. } => PayloadSet::InstancedMesh {
-        //         buffer: factory.create_constant_buffer(max_instances * cache_size as usize),
-        //         max_elements_per_slot: max_instances,
-        //     },
-        // };
+    pub fn new(params: LayerParams, data_file: Arc<Mmap>) -> Self {
+        let size = params.layer_type.cache_size() as usize;
 
         Self {
-            size: cache_size as usize,
+            size,
             slots: Vec::new(),
             reverse: VecMap::new(),
             missing: Vec::new(),
+            pending_uploads: Vec::new(),
             min_priority: Priority::none(),
             layer_params: params,
             data_file,
@@ -214,11 +207,11 @@ impl TileCache {
     }
 
     pub fn update_priorities(&mut self, nodes: &mut Vec<Node>) {
-        for &mut (ref mut priority, id) in self.slots.iter_mut() {
-            *priority = nodes[id].priority();
+        for entry in &mut self.slots {
+            entry.priority = nodes[entry.id].priority();
         }
 
-        self.min_priority = self.slots.iter().map(|s| s.0).min().unwrap_or(Priority::none());
+        self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
     }
 
     pub fn add_missing(&mut self, element: (Priority, NodeId)) {
@@ -227,22 +220,21 @@ impl TileCache {
         }
     }
 
-    pub fn load_missing(
-        &mut self,
-        nodes: &mut Vec<Node>,
-        // encoder: &mut gfx::Encoder<R, C>,
-    ) {
+    pub fn process_missing(&mut self, nodes: &mut Vec<Node>) {
+        // Find slots for missing entries.
+        self.missing.sort();
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
-            let index = self.slots.len();
-            self.slots.push(m.clone());
-            self.reverse.insert(m.1.index(), index);
-            self.load(&mut nodes[m.1], index);
+            self.reverse.insert(m.1.index(), self.slots.len());
+            self.slots.push(Entry { priority: m.0, id: m.1, valid: false });
         }
-
         if !self.missing.is_empty() {
-            let mut possible: Vec<_> =
-                self.slots.iter().cloned().chain(self.missing.iter().cloned()).collect();
+            let mut possible: Vec<_> = self
+                .slots
+                .iter()
+                .map(|e| e.priority)
+                .chain(self.missing.iter().map(|m| m.0))
+                .collect();
             possible.sort();
 
             // Anything >= to cutoff should be included.
@@ -250,56 +242,97 @@ impl TileCache {
 
             let mut index = 0;
             while let Some(m) = self.missing.pop() {
-                if cutoff >= m {
+                if cutoff >= m.0 {
                     continue;
                 }
 
                 // Find the next element to evict.
-                while self.slots[index] >= cutoff {
+                while self.slots[index].priority >= cutoff {
                     index += 1;
                 }
 
-                self.reverse.remove(self.slots[index].1.index());
+                self.reverse.remove(self.slots[index].id.index());
                 self.reverse.insert(m.1.index(), index);
-                self.slots[index] = m.clone();
-                self.load(&mut nodes[m.1], index);
+                self.slots[index] = Entry { priority: m.0, id: m.1, valid: false };
                 index += 1;
+            }
+        }
+        self.missing.clear();
+
+        // Figure out which entries need to be uploaded
+        self.pending_uploads.clear();
+        for (i, entry) in self.slots.iter_mut().enumerate() {
+            if entry.valid {
+                continue;
+            }
+
+            let tile = nodes[entry.id].tile_indices[self.layer_params.layer_type.index()].unwrap()
+                as usize;
+            let tile_valid = self.data_file[self.layer_params.tile_valid_bitmap.offset + tile] != 0;
+
+            if tile_valid {
+                // Tile is on disk, just needs to be uploaded
+                let offset = self.layer_params.tile_locations[tile].offset;
+                let length = self.layer_params.tile_locations[tile].length;
+                self.pending_uploads.push((i, ByteRange { offset, length }));
+            } else {
+                // Tile needs to be generated.
+                todo!()
             }
         }
     }
 
-    fn load(
+    pub(crate) fn upload_tiles(
         &mut self,
-        node: &mut Node,
-        _slot: usize,
-        // encoder: &mut gfx::Encoder<R, C>,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
     ) {
-        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-        let offset = self.layer_params.tile_locations[tile].offset;
-        let length = self.layer_params.tile_locations[tile].length;
-        let _data = &self.data_file[offset..(offset + length)];
+        if self.pending_uploads.is_empty() {
+            return;
+        }
 
-        // match self.payloads {
-        //     PayloadSet::Texture {
-        //         ref mut texture,
-        //         resolution,
-        //     } => texture.update_layer(
-        //         slot as u16,
-        //         resolution,
-        //         gfx::memory::cast_slice(data),
-        //         encoder,
-        //     ),
-        //     PayloadSet::InstancedMesh {
-        //         ref buffer,
-        //         max_elements_per_slot,
-        //     } => encoder
-        //         .update_buffer(
-        //             buffer,
-        //             gfx::memory::cast_slice(data),
-        //             max_elements_per_slot * slot,
-        //         ).unwrap(),
-        // }
-        unimplemented!()
+        let resolution = self.resolution() as usize;
+        let bytes_per_texel = self.bytes_per_texel();
+        let row_bytes = resolution * bytes_per_texel;
+        let row_pitch = (row_bytes + 255) & !255;
+        let tiles = self.pending_uploads.len();
+
+        let buffer = device.create_buffer_mapped(
+            row_pitch * resolution * tiles * bytes_per_texel,
+            wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+        );
+
+        let mut i = 0;
+        for upload in &self.pending_uploads {
+            let data = &self.data_file[upload.1.offset..][..upload.1.length];
+            for row in 0..resolution {
+                buffer.data[i..][..row_bytes]
+                    .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
+                i += row_pitch;
+            }
+        }
+
+        let buffer = buffer.finish();
+
+        for (index, (slot, _)) in self.pending_uploads.drain(..).enumerate() {
+            encoder.copy_buffer_to_texture(
+                wgpu::BufferCopyView {
+                    buffer: &buffer,
+                    offset: (index * row_pitch * resolution) as u64,
+                    row_pitch: row_pitch as u32,
+                    image_height: resolution as u32,
+                },
+                wgpu::TextureCopyView {
+                    texture,
+                    mip_level: 0,
+                    array_layer: slot as u32,
+                    origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                },
+                wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
+            );
+            self.slots[slot].valid = true;
+        }
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
@@ -309,75 +342,6 @@ impl TileCache {
     pub fn get_slot(&self, id: NodeId) -> Option<usize> {
         self.reverse.get(id.index()).cloned()
     }
-
-    // pub fn get_texture_view_r8(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
-    //     match self.payloads {
-    //         PayloadSet::Texture {
-    //             texture: TextureArray::R8 { ref view, .. },
-    //             ..
-    //         } => Some(view),
-    //         _ => None,
-    //     }
-    // }
-
-    // pub fn get_texture_view_f32(&self) -> Option<&gfx_core::handle::ShaderResourceView<R, f32>> {
-    //     match self.payloads {
-    //         PayloadSet::Texture {
-    //             texture: TextureArray::F32 { ref view, .. },
-    //             ..
-    //         } => Some(view),
-    //         _ => None,
-    //     }
-    // }
-
-    // pub fn get_texture_view_rgba8(
-    //     &self,
-    // ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
-    //     match self.payloads {
-    //         PayloadSet::Texture {
-    //             texture: TextureArray::RGBA8 { ref view, .. },
-    //             ..
-    //         } => Some(view),
-    //         _ => None,
-    //     }
-    // }
-
-    // pub fn get_texture_view_srgba(
-    //     &self,
-    // ) -> Option<&gfx_core::handle::ShaderResourceView<R, [f32; 4]>> {
-    //     match self.payloads {
-    //         PayloadSet::Texture {
-    //             texture: TextureArray::SRGBA { ref view, .. },
-    //             ..
-    //         } => Some(view),
-    //         _ => None,
-    //     }
-    // }
-
-    // pub fn get_buffer(&self) -> Option<&gfx::handle::Buffer<R, MeshInstance>> {
-    //     match self.payloads {
-    //         PayloadSet::InstancedMesh { ref buffer, .. } => Some(buffer),
-    //         _ => None,
-    //     }
-    // }
-
-    // pub fn get_instance_offset(&self, slot: usize) -> usize {
-    //     if let PayloadSet::InstancedMesh {
-    //         max_elements_per_slot,
-    //         ..
-    //     } = self.payloads
-    //     {
-    //         slot * max_elements_per_slot
-    //     } else {
-    //         unreachable!()
-    //     }
-    // }
-
-    // pub fn get_instance_count(&self, node: &Node) -> usize {
-    //     let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-    //     let length = self.layer_params.tile_locations[tile].length;
-    //     (length as usize / ::std::mem::size_of::<MeshInstance>())
-    // }
 
     pub fn resolution(&self) -> u32 {
         match self.layer_params.payload_type {
@@ -389,6 +353,13 @@ impl TileCache {
     pub fn border(&self) -> u32 {
         match self.layer_params.payload_type {
             PayloadType::Texture { border_size, .. } => border_size,
+            _ => unreachable!(),
+        }
+    }
+
+    fn bytes_per_texel(&self) -> usize {
+        match self.layer_params.payload_type {
+            PayloadType::Texture { format, .. } => format.bytes_per_texel(),
             _ => unreachable!(),
         }
     }

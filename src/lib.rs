@@ -68,10 +68,9 @@ pub struct Terrain {
     // gen: TileGen,
     gpu_state: GpuState,
 
-    gen_heights: ComputeShader<()>,
-    gen_normals: ComputeShader<()>,
-
-    load_heights: ComputeShader<()>,
+    // gen_heights: ComputeShader<()>,
+    // gen_normals: ComputeShader<()>,
+    // load_heights: ComputeShader<()>,
 
     // heightmap: wgpu::Texture,
     quadtree: QuadTree,
@@ -96,28 +95,6 @@ impl Terrain {
         });
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[wgpu::BindGroupLayoutBinding {
-                binding: 0,
-                visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                ty: wgpu::BindingType::UniformBuffer { dynamic: false },
-            }],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
-            bindings: &[wgpu::Binding {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer {
-                    buffer: &uniform_buffer,
-                    range: 0..mem::size_of::<UniformBlock>() as u64,
-                },
-            }],
-        });
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout],
-            });
-
         let texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 0, height: 0, depth: 0 },
             array_layer_count: 1,
@@ -130,6 +107,12 @@ impl Terrain {
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE,
         };
+
+        use crate::terrain::tile_cache::LayerType;
+        let heights_resolution =
+            quadtree.tile_cache_layers[LayerType::Heights.index()].resolution();
+        let normals_resolution =
+            quadtree.tile_cache_layers[LayerType::Normals.index()].resolution();
 
         let gpu_state = GpuState {
             base_heights: device.create_texture(&wgpu::TextureDescriptor {
@@ -148,16 +131,102 @@ impl Terrain {
                 ..texture_desc
             }),
             heights: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 4096, height: 8192, depth: 1 },
+                size: wgpu::Extent3d {
+                    width: heights_resolution,
+                    height: heights_resolution,
+                    depth: 1,
+                },
                 format: wgpu::TextureFormat::R32Float,
+                array_layer_count: 512,
                 ..texture_desc
             }),
             normals: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 16384, height: 4096, depth: 1 },
-                format: wgpu::TextureFormat::Rg8Uint,
+                size: wgpu::Extent3d {
+                    width: normals_resolution,
+                    height: normals_resolution,
+                    depth: 1,
+                },
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                array_layer_count: 256,
                 ..texture_desc
             }),
         };
+
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            bindings: &[
+                wgpu::BindGroupLayoutBinding {
+                    binding: 0,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::UniformBuffer { dynamic: false },
+                },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 1,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler,
+                },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 2,
+                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 3,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                },
+            ],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            bindings: &[
+                wgpu::Binding {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer {
+                        buffer: &uniform_buffer,
+                        range: 0..mem::size_of::<UniformBlock>() as u64,
+                    },
+                },
+                wgpu::Binding {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
+                        &wgpu::SamplerDescriptor {
+                            address_mode_u: wgpu::AddressMode::ClampToEdge,
+                            address_mode_v: wgpu::AddressMode::ClampToEdge,
+                            address_mode_w: wgpu::AddressMode::ClampToEdge,
+                            mag_filter: wgpu::FilterMode::Linear,
+                            min_filter: wgpu::FilterMode::Linear,
+                            mipmap_filter: wgpu::FilterMode::Nearest,
+                            lod_min_clamp: -100.0,
+                            lod_max_clamp: 100.0,
+                            compare_function: wgpu::CompareFunction::Always,
+                        },
+                    )),
+                },
+                wgpu::Binding {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(
+                        &gpu_state.heights.create_default_view(),
+                    ),
+                },
+                wgpu::Binding {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(
+                        &gpu_state.normals.create_default_view(),
+                    ),
+                },
+            ],
+        });
+        let render_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                bind_group_layouts: &[&bind_group_layout],
+            });
 
         crate::generate::make_base_heights(
             device,
@@ -166,38 +235,38 @@ impl Terrain {
             &gpu_state.base_heights,
         );
 
-        let gen_heights = ComputeShader::new(
-            device,
-            queue,
-            &gpu_state,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-heights.comp"),
-            )
-            .unwrap(),
-        );
+        // let gen_heights = ComputeShader::new(
+        //     device,
+        //     queue,
+        //     &gpu_state,
+        //     rshader::ShaderSet::compute_only(
+        //         &mut watcher,
+        //         rshader::shader_source!("shaders", "version", "gen-heights.comp"),
+        //     )
+        //     .unwrap(),
+        // );
 
-        let gen_normals = ComputeShader::new(
-            device,
-            queue,
-            &gpu_state,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-normals.comp"),
-            )
-            .unwrap(),
-        );
+        // let gen_normals = ComputeShader::new(
+        //     device,
+        //     queue,
+        //     &gpu_state,
+        //     rshader::ShaderSet::compute_only(
+        //         &mut watcher,
+        //         rshader::shader_source!("shaders", "version", "gen-normals.comp"),
+        //     )
+        //     .unwrap(),
+        // );
 
-        let load_heights = ComputeShader::new(
-            device,
-            queue,
-            &gpu_state,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "load-heights.comp"),
-            )
-            .unwrap(),
-        );
+        // let load_heights = ComputeShader::new(
+        //     device,
+        //     queue,
+        //     &gpu_state,
+        //     rshader::ShaderSet::compute_only(
+        //         &mut watcher,
+        //         rshader::shader_source!("shaders", "version", "load-heights.comp"),
+        //     )
+        //     .unwrap(),
+        // );
 
         Self {
             bind_group_layout,
@@ -213,10 +282,9 @@ impl Terrain {
             index_buffer_partial,
 
             gpu_state,
-            gen_heights,
-            gen_normals,
-            load_heights,
-
+            // gen_heights,
+            // gen_normals,
+            // load_heights,
             quadtree,
         }
     }
@@ -343,6 +411,7 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
+        self.quadtree.upload_tiles(device, &mut encoder, &self.gpu_state);
         self.quadtree.prepare_vertex_buffer(device, &mut encoder, &mut self.vertex_buffer);
 
         let mapped = device.create_buffer_mapped(

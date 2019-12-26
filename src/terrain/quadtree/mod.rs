@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::coordinates::CoordinateSystem;
-use crate::terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader};
+use crate::terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -34,7 +34,7 @@ pub struct QuadTree {
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
     /// Cache holding nearby tiles for each layer.
-    tile_cache_layers: VecMap<TileCache>,
+    pub(crate) tile_cache_layers: VecMap<TileCache>,
 
     // index_buffer: Escape<Buffer<B>>,
     // index_buffer_partial: Escape<Buffer<B>>,
@@ -448,7 +448,7 @@ impl QuadTree {
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
-    fn update_priorities(&mut self, camera: Point3<f32>) {
+    fn update_cache(&mut self, camera: Point3<f32>) {
         for node in self.nodes.iter_mut() {
             node.priority = Priority::from_f32(
                 (node.min_distance * node.min_distance)
@@ -458,27 +458,25 @@ impl QuadTree {
         for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
             cache_layer.update_priorities(&mut self.nodes);
         }
+
+        self.breadth_first(|qt, id| {
+            if qt.nodes[id].priority < Priority::cutoff() {
+                return false;
+            }
+
+            for layer in 0..NUM_LAYERS {
+                if qt.nodes[id].tile_indices[layer].is_some()
+                    && !qt.tile_cache_layers[layer].contains(id)
+                {
+                    qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
+                }
+            }
+            true
+        });
+        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
+            cache_layer.process_missing(&mut self.nodes);
+        }
     }
-
-    // fn update_cache<C: gfx_core::command::Buffer<R>>(&mut self, encoder: &mut gfx::Encoder<R, C>) {
-    //     self.breadth_first(|qt, id| {
-    //         if qt.nodes[id].priority < Priority::cutoff() {
-    //             return false;
-    //         }
-
-    //         for layer in 0..NUM_LAYERS {
-    //             if qt.nodes[id].tile_indices[layer].is_some()
-    //                 && !qt.tile_cache_layers[layer].contains(id)
-    //             {
-    //                 qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
-    //             }
-    //         }
-    //         true
-    //     });
-    //     for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
-    //         cache_layer.load_missing(&mut self.nodes, encoder);
-    //     }
-    // }
 
     fn update_visibility(&mut self, cull_frustum: Option<Frustum<f32>>) {
         self.visible_nodes.clear();
@@ -570,8 +568,7 @@ impl QuadTree {
         //     to_array(mvp_mat.w),
         // ];
 
-        self.update_priorities(camera);
-        // self.update_cache(encoder);
+        self.update_cache(camera);
         self.update_visibility(cull_frustum);
         // self.update_shaders();
 
@@ -604,6 +601,24 @@ impl QuadTree {
         // self.instanced_mesh_pipeline_data.model_view_projection = mvp_mat;
         // self.instanced_mesh_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
         // self.instanced_mesh_pipeline_data.sun_direction = sun_direction;
+    }
+
+    pub(crate) fn upload_tiles(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &crate::GpuState,
+    ) {
+        self.tile_cache_layers[LayerType::Heights.index()].upload_tiles(
+            device,
+            encoder,
+            &state.heights,
+        );
+        self.tile_cache_layers[LayerType::Normals.index()].upload_tiles(
+            device,
+            encoder,
+            &state.normals,
+        );
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)
