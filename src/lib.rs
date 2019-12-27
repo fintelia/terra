@@ -323,7 +323,9 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f32>,
     ) {
-        self.quadtree.update(camera, None);
+        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
+
+        self.quadtree.update(camera, camera_frustum);
         if self.shader.refresh(&mut self.watcher) {
             self.render_pipeline = None;
         }

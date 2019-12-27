@@ -77,59 +77,59 @@ impl QuadTree {
         // depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
         // mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
-        eprintln!("sizeof(Node) = {}", std::mem::size_of::<Node>());
-        eprintln!("nodes.len() = {}", header.nodes.len());
-        eprintln!("layers.len() = {}", header.layers.len());
-        eprintln!(
-            "heights = {} ({:?})",
-            header.layers[0].tile_locations.len(),
-            header.layers[0].payload_type
-        );
-        eprintln!(
-            "colors = {} ({:?})",
-            header.layers[1].tile_locations.len(),
-            header.layers[1].payload_type
-        );
-        eprintln!(
-            "normals = {} ({:?})",
-            header.layers[2].tile_locations.len(),
-            header.layers[2].payload_type
-        );
-        eprintln!(
-            "splats = {} ({:?})",
-            header.layers[3].tile_locations.len(),
-            header.layers[3].payload_type
-        );
+        // eprintln!("sizeof(Node) = {}", std::mem::size_of::<Node>());
+        // eprintln!("nodes.len() = {}", header.nodes.len());
+        // eprintln!("layers.len() = {}", header.layers.len());
+        // eprintln!(
+        //     "heights = {} ({:?})",
+        //     header.layers[0].tile_locations.len(),
+        //     header.layers[0].payload_type
+        // );
+        // eprintln!(
+        //     "colors = {} ({:?})",
+        //     header.layers[1].tile_locations.len(),
+        //     header.layers[1].payload_type
+        // );
+        // eprintln!(
+        //     "normals = {} ({:?})",
+        //     header.layers[2].tile_locations.len(),
+        //     header.layers[2].payload_type
+        // );
+        // eprintln!(
+        //     "splats = {} ({:?})",
+        //     header.layers[3].tile_locations.len(),
+        //     header.layers[3].payload_type
+        // );
 
-        let mut min_side_length = 1.0e9f32;
-        for n in header.nodes.iter() {
-            min_side_length = min_side_length.min(n.side_length);
-        }
-        eprintln!("min_side_length = {}", min_side_length);
+        // let mut min_side_length = 1.0e9f32;
+        // for n in header.nodes.iter() {
+        //     min_side_length = min_side_length.min(n.side_length);
+        // }
+        // eprintln!("min_side_length = {}", min_side_length);
 
-        eprintln!();
+        // eprintln!();
 
-        let world_size = 4194304.0;
-        for spacing in -4..=0 {
-            for radius in 2..10 {
-                let max_level = (22i32 - (129u32 - 1).trailing_zeros() as i32 - spacing) as u8;
-                let nodes = Node::make_nodes(world_size, radius as f32 * 1000.0, max_level);
-                let hn = nodes.len();
-                let dn = nodes.iter().filter(|n| n.level <= max_level - 2).count();
-                let hmemory = (hn * (129 * 129 * 4)) as f32 / 2.0f32.powi(20);
-                let memory = (hn * (129 * 129 * 4) + dn * (512 * 512 * 2)) as f32 / 2.0f32.powi(20);
-                eprintln!(
-                    "spacing={}m, radius={}km, hn={}, dn={} hmemory={}MiB, memory={}MiB",
-                    2.0f32.powi(spacing),
-                    radius,
-                    hn,
-                    dn,
-                    hmemory,
-                    memory
-                );
-            }
-            eprintln!();
-        }
+        // let world_size = 4194304.0;
+        // for spacing in -4..=0 {
+        //     for radius in 2..10 {
+        //         let max_level = (22i32 - (129u32 - 1).trailing_zeros() as i32 - spacing) as u8;
+        //         let nodes = Node::make_nodes(world_size, radius as f32 * 1000.0, max_level);
+        //         let hn = nodes.len();
+        //         let dn = nodes.iter().filter(|n| n.level <= max_level - 2).count();
+        //         let hmemory = (hn * (129 * 129 * 4)) as f32 / 2.0f32.powi(20);
+        //         let memory = (hn * (129 * 129 * 4) + dn * (512 * 512 * 2)) as f32 / 2.0f32.powi(20);
+        //         eprintln!(
+        //             "spacing={}m, radius={}km, hn={}, dn={} hmemory={}MiB, memory={}MiB",
+        //             2.0f32.powi(spacing),
+        //             radius,
+        //             hn,
+        //             dn,
+        //             hmemory,
+        //             memory
+        //         );
+        //     }
+        //     eprintln!();
+        // }
 
         // let mut shaders_watcher = rshader::ShaderDirectoryWatcher::new(
         //     env::var("TERRA_SHADER_DIRECTORY").unwrap_or("src/shaders/glsl".to_string()),
