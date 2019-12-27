@@ -648,10 +648,9 @@ impl<W: Write> State<W> {
 
                     let water = 0; //watermasks.get(i, x, y, 0) as u8;
                     let color = if use_blue_marble {
-                        let brighten = |x: f32| (255.0 * (x / 255.0).powf(0.6)) as u8;
-                        let r = brighten(bluemarble.get(i, x, y, 0));
-                        let g = brighten(bluemarble.get(i, x, y, 1));
-                        let b = brighten(bluemarble.get(i, x, y, 2));
+                        let r = bluemarble.get(i, x, y, 0) as u8;
+                        let g = bluemarble.get(i, x, y, 1) as u8;
+                        let b = bluemarble.get(i, x, y, 2) as u8;
                         [r, g, b, water]
                     } else {
                         let _splat = Self::compute_splat(normal.y);
@@ -660,8 +659,8 @@ impl<W: Write> State<W> {
                             let tree_density = 0.0;
                             // (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
                             [
-                                mix(albedo[0], LINEAR_TO_SRGB[13], tree_density),
-                                mix(albedo[1], LINEAR_TO_SRGB[31], tree_density),
+                                mix(albedo[0], 13, tree_density),
+                                mix(albedo[1], 31, tree_density),
                                 mix(albedo[2], 0, tree_density),
                                 water,
                             ]

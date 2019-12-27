@@ -32,16 +32,15 @@ pub(crate) struct Node {
 
     /// Index of this node in the tile list.
     pub tile_indices: [Option<u32>; NUM_LAYERS],
-
-    /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
-    /// not be rendered (they are too detailed).
-    pub priority: Priority,
-
-    pub visible: bool,
 }
 impl Node {
-    pub fn priority(&self) -> Priority {
-        self.priority
+    /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
+    /// not be rendered (they are too detailed).
+    pub fn priority(&self, camera: Point3<f32>) -> Priority {
+        Priority::from_f32(
+            (self.min_distance * self.min_distance)
+                / self.bounds.square_distance(camera).max(0.001),
+        )
     }
 
     pub fn make_nodes(side_length: f32, playable_radius: f32, max_level: u8) -> Vec<Node> {
@@ -57,9 +56,7 @@ impl Node {
             min_distance: side_length * 2.,
             center: Point2::origin(),
             size: 1 << 30,
-            priority: Priority::none(),
             tile_indices: [None; NUM_LAYERS],
-            visible: false,
         };
 
         let mut nodes = vec![node];
@@ -109,9 +106,7 @@ impl Node {
                             nodes[parent].center.to_vec()
                                 + CENTER_OFFSETS[i] * (nodes[parent].size / 4),
                         ),
-                        priority: Priority::none(),
                         tile_indices: [None; NUM_LAYERS],
-                        visible: false,
                     };
 
                     nodes.push(child_node);

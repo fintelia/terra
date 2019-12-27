@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use failure::Error;
 use image::png::PngDecoder;
 use image::{
-    self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat, ImageLuma8,
+    self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat,
 };
 use memmap::Mmap;
 use zip::ZipArchive;
@@ -154,7 +154,7 @@ impl LandCoverParams {
             (w, h, image)
         };
         // let image = image.rotate90().flipv();
-        let values = if let ImageLuma8(image) = image {
+        let values = if let DynamicImage::ImageLuma8(image) = image {
             image.into_raw().into_iter()
         } else {
             unreachable!()

@@ -44,6 +44,7 @@ pub(crate) struct GpuState {
 
     heights: wgpu::Texture,
     normals: wgpu::Texture,
+    albedo: wgpu::Texture,
 }
 
 pub struct Terrain {
@@ -113,6 +114,8 @@ impl Terrain {
             quadtree.tile_cache_layers[LayerType::Heights.index()].resolution();
         let normals_resolution =
             quadtree.tile_cache_layers[LayerType::Normals.index()].resolution();
+        let albedo_resolution =
+            quadtree.tile_cache_layers[LayerType::Colors.index()].resolution();
 
         let gpu_state = GpuState {
             base_heights: device.create_texture(&wgpu::TextureDescriptor {
@@ -150,6 +153,16 @@ impl Terrain {
                 array_layer_count: 256,
                 ..texture_desc
             }),
+            albedo: device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: albedo_resolution,
+                    height: albedo_resolution,
+                    depth: 1,
+                },
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                array_layer_count: 256,
+                ..texture_desc
+            }),
         };
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -180,6 +193,14 @@ impl Terrain {
                         dimension: wgpu::TextureViewDimension::D2Array,
                     },
                 },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 4,
+                    visibility: wgpu::ShaderStage::FRAGMENT,
+                    ty: wgpu::BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: wgpu::TextureViewDimension::D2Array,
+                    },
+                },
             ],
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -199,7 +220,7 @@ impl Terrain {
                             address_mode_u: wgpu::AddressMode::ClampToEdge,
                             address_mode_v: wgpu::AddressMode::ClampToEdge,
                             address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
+                            mag_filter: wgpu::FilterMode::Nearest,
                             min_filter: wgpu::FilterMode::Linear,
                             mipmap_filter: wgpu::FilterMode::Nearest,
                             lod_min_clamp: -100.0,
@@ -216,6 +237,12 @@ impl Terrain {
                 },
                 wgpu::Binding {
                     binding: 3,
+                    resource: wgpu::BindingResource::TextureView(
+                        &gpu_state.normals.create_default_view(),
+                    ),
+                },
+                wgpu::Binding {
+                    binding: 4,
                     resource: wgpu::BindingResource::TextureView(
                         &gpu_state.normals.create_default_view(),
                     ),
@@ -433,7 +460,7 @@ impl Terrain {
                     resolve_target: None,
                     load_op: wgpu::LoadOp::Clear,
                     store_op: wgpu::StoreOp::Store,
-                    clear_color: wgpu::Color::GREEN,
+                    clear_color: wgpu::Color::BLACK,
                 }],
                 depth_stencil_attachment: None,
             });

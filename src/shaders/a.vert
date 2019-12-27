@@ -29,6 +29,10 @@ layout(location = 3) out vec2 out_colors_layer;
 layout(location = 4) out vec2 out_normals_layer;
 layout(location = 5) out vec2 out_splats_layer;
 layout(location = 6) out float out_morph;
+layout(location = 7) out vec2 out_i_position;
+layout(location = 8) out float out_side_length;
+layout(location = 9) out float out_min_distance;
+layout(location = 10) out vec3 out_camera;
 
 void main() {
 	vec3 position = vec3(0);
@@ -39,8 +43,8 @@ void main() {
 	    * (side_length / (resolution)) + in_position;
 	float morph = 1 - smoothstep(0.7, 0.95, distance(position, uniform_block.camera) / min_distance);
 	morph = min(morph * 2, 1);
-	// if(colors_layer.y < 0)
-	// 	morph = 1;
+	if(colors_layer.y < 0)
+		morph = 1;
 
 	position.y = texture(sampler2DArray(heights, linear),
 						 heights_origin + vec3(vec2(iPosition + 0.5)
@@ -63,6 +67,10 @@ void main() {
 	out_normals_layer = normals_layer;
 	out_splats_layer = splats_layer;
 	out_morph = morph;
+	out_i_position = vec2(iPosition);
+	out_side_length = side_length;
+	out_min_distance = min_distance;
+	out_camera = uniform_block.camera;
 
 	gl_Position = uniform_block.view_proj * vec4(position, 1.0);
 }

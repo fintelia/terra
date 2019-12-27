@@ -281,7 +281,7 @@ impl QuadTree {
             let colors_slot = tile_cache_layers[LayerType::Colors.index()]
                 .get_slot(ancestor)
                 .map(|s| s as f32)
-                .unwrap();
+                .unwrap_or(-1.0);
             let normals_slot = tile_cache_layers[LayerType::Normals.index()]
                 .get_slot(ancestor)
                 .map(|s| s as f32)

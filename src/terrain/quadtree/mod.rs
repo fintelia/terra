@@ -4,10 +4,9 @@ use cgmath::*;
 use collision::{Frustum, Relation};
 use failure::Error;
 use memmap::Mmap;
-use vec_map::VecMap;
-
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
+use vec_map::VecMap;
 
 use crate::coordinates::CoordinateSystem;
 use crate::terrain::tile_cache::{LayerType, Priority, TileCache, TileHeader, NUM_LAYERS};
@@ -78,6 +77,7 @@ impl QuadTree {
         // depth_buffer: &gfx::handle::DepthStencilView<R, gfx::format::Depth32F>,
         // mut context: AssetLoadContext,
     ) -> Result<Self, Error> {
+        eprintln!("sizeof(Node) = {}", std::mem::size_of::<Node>());
         eprintln!("nodes.len() = {}", header.nodes.len());
         eprintln!("layers.len() = {}", header.layers.len());
         eprintln!(
@@ -101,10 +101,16 @@ impl QuadTree {
             header.layers[3].payload_type
         );
 
+        let mut min_side_length = 1.0e9f32;
+        for n in header.nodes.iter() {
+            min_side_length = min_side_length.min(n.side_length);
+        }
+        eprintln!("min_side_length = {}", min_side_length);
+
         eprintln!();
 
         let world_size = 4194304.0;
-        for spacing in -2..=1 {
+        for spacing in -4..=0 {
             for radius in 2..10 {
                 let max_level = (22i32 - (129u32 - 1).trailing_zeros() as i32 - spacing) as u8;
                 let nodes = Node::make_nodes(world_size, radius as f32 * 1000.0, max_level);
@@ -449,18 +455,13 @@ impl QuadTree {
     }
 
     fn update_cache(&mut self, camera: Point3<f32>) {
-        for node in self.nodes.iter_mut() {
-            node.priority = Priority::from_f32(
-                (node.min_distance * node.min_distance)
-                    / node.bounds.square_distance(camera).max(0.001),
-            );
-        }
         for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
-            cache_layer.update_priorities(&mut self.nodes);
+            cache_layer.update_priorities(&mut self.nodes, camera);
         }
 
         self.breadth_first(|qt, id| {
-            if qt.nodes[id].priority < Priority::cutoff() {
+            let priority = qt.nodes[id].priority(camera);
+            if priority < Priority::cutoff() {
                 return false;
             }
 
@@ -468,7 +469,7 @@ impl QuadTree {
                 if qt.nodes[id].tile_indices[layer].is_some()
                     && !qt.tile_cache_layers[layer].contains(id)
                 {
-                    qt.tile_cache_layers[layer].add_missing((qt.nodes[id].priority, id));
+                    qt.tile_cache_layers[layer].add_missing((priority, id));
                 }
             }
             true
@@ -478,29 +479,30 @@ impl QuadTree {
         }
     }
 
-    fn update_visibility(&mut self, cull_frustum: Option<Frustum<f32>>) {
+    fn update_visibility(&mut self, camera: Point3<f32>, cull_frustum: Option<Frustum<f32>>) {
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
-        for node in self.nodes.iter_mut() {
-            node.visible = false;
-        }
+
+        let mut node_visibilities: HashMap<NodeId, bool> = HashMap::new();
+
         // Any node with all needed layers in cache is visible...
         self.breadth_first(|qt, id| {
-            qt.nodes[id].visible =
-                id == NodeId::root() || qt.nodes[id].priority >= Priority::cutoff();
-            qt.nodes[id].visible
+            let visible =
+                id == NodeId::root() || qt.nodes[id].priority(camera) >= Priority::cutoff();
+            node_visibilities.insert(id, visible);
+            visible
         });
         // ...Except if all its children are visible instead.
         self.breadth_first(|qt, id| {
-            if qt.nodes[id].visible {
+            if node_visibilities[&id] {
                 let mut mask = 0;
                 let mut has_visible_children = false;
                 for (i, c) in qt.nodes[id].children.iter().enumerate() {
-                    if c.is_none() || !qt.nodes[c.unwrap()].visible {
+                    if c.is_none() || !node_visibilities[&c.unwrap()] {
                         mask = mask | (1 << i);
                     }
 
-                    if c.is_some() && qt.nodes[c.unwrap()].visible {
+                    if c.is_some() && node_visibilities[&c.unwrap()] {
                         has_visible_children = true;
                     }
                 }
@@ -513,7 +515,7 @@ impl QuadTree {
                 }
 
                 if mask == 0 {
-                    qt.nodes[id].visible = false;
+                    node_visibilities.insert(id, false);
                 } else if has_visible_children {
                     qt.partially_visible_nodes.push((id, mask));
                 } else {
@@ -567,9 +569,10 @@ impl QuadTree {
         //     to_array(mvp_mat.z),
         //     to_array(mvp_mat.w),
         // ];
-
+        let start = std::time::Instant::now();
         self.update_cache(camera);
-        self.update_visibility(cull_frustum);
+        self.update_visibility(camera, cull_frustum);
+
         // self.update_shaders();
 
         // self.ocean.update(encoder, dt);
@@ -618,6 +621,11 @@ impl QuadTree {
             device,
             encoder,
             &state.normals,
+        );
+        self.tile_cache_layers[LayerType::Colors.index()].upload_tiles(
+            device,
+            encoder,
+            &state.albedo,
         );
     }
 

@@ -5,7 +5,7 @@ use winit::{
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     let aspect = width as f32 / height as f32;
-    let f = 1.0 / (45.0f32.to_radians() / aspect).tan();
+    let f = 1.0 / (55.0f32.to_radians() / aspect).tan();
     let near = 0.1;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
@@ -21,8 +21,16 @@ fn main() {
 
     let event_loop = EventLoop::new();
 
-    let (_window, size, surface) = {
+    let (window, mut size, surface) = {
         let window = winit::window::Window::new(&event_loop).unwrap();
+
+        for monitor in window.available_monitors() {
+            if monitor.video_modes().any(|mode| mode.size().width == 1920.0) {
+                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+                break;
+            }
+        }
+
         let size = window.inner_size().to_physical(window.hidpi_factor());
 
         let surface = wgpu::Surface::create(&window);
@@ -45,7 +53,7 @@ fn main() {
         .longitude(-73)
         .vertex_quality(terra::VertexQuality::High)
         .texture_quality(terra::TextureQuality::High)
-        .grid_spacing(terra::GridSpacing::TwoMeters)
+        .grid_spacing(terra::GridSpacing::OneMeter)
         .build()
         .unwrap();
 
@@ -64,6 +72,8 @@ fn main() {
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, quadtree);
 
+    let mut eye = mint::Point3::from_slice(&[0.0, 2000.0, 0.0]);
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
             ControlFlow::Exit
@@ -72,17 +82,35 @@ fn main() {
         };
         match event {
             event::Event::WindowEvent { event, .. } => match event {
+                 event::WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
                 event::WindowEvent::KeyboardInput {
                     input:
                         event::KeyboardInput {
-                            virtual_keycode: Some(event::VirtualKeyCode::Escape),
+                            virtual_keycode: Some(keycode),
                             state: event::ElementState::Pressed,
                             ..
                         },
                     ..
-                }
-                | event::WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
+                } => match keycode {
+                    event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
+                    event::VirtualKeyCode::Space => eye.y += 0.01 * eye.y,
+                    event::VirtualKeyCode::Semicolon => eye.y -= 0.01 * eye.y,
+                    _ => {}
+                },
+                event::WindowEvent::Resized(new_size) => {
+                    size = new_size.to_physical(window.hidpi_factor());
+                    swap_chain = device.create_swap_chain(
+                        &surface,
+                        &wgpu::SwapChainDescriptor {
+                            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                            width: size.width.round() as u32,
+                            height: size.height.round() as u32,
+                            present_mode: wgpu::PresentMode::Vsync,
+                        },
+                    );
                 }
                 _ => {}
             },
@@ -91,10 +119,9 @@ fn main() {
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
 
-                let eye = mint::Point3::from_slice(&[0.0, 2000.0, -5000.0]);
-                let view = cgmath::Matrix4::look_at(
+                let view = cgmath::Matrix4::look_at_dir(
                     cgmath::Point3::new(eye.x, eye.y, eye.z),
-                    cgmath::Point3::new(0.0, 0.0, 0.0),
+                    cgmath::Vector3::new(0.0, 0.0, 1.0),
                     cgmath::Vector3::new(0.0, -1.0, 0.0),
                 );
 

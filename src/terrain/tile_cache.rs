@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use cgmath::Point3;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
 use vec_map::VecMap;
@@ -206,9 +207,9 @@ impl TileCache {
         }
     }
 
-    pub fn update_priorities(&mut self, nodes: &mut Vec<Node>) {
+    pub fn update_priorities(&mut self, nodes: &mut Vec<Node>, camera: Point3<f32>) {
         for entry in &mut self.slots {
-            entry.priority = nodes[entry.id].priority();
+            entry.priority = nodes[entry.id].priority(camera);
         }
 
         self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
@@ -241,7 +242,7 @@ impl TileCache {
             let cutoff = possible[possible.len() - self.size];
 
             let mut index = 0;
-            while let Some(m) = self.missing.pop() {
+            'outer: while let Some(m) = self.missing.pop() {
                 if cutoff >= m.0 {
                     continue;
                 }
@@ -249,6 +250,9 @@ impl TileCache {
                 // Find the next element to evict.
                 while self.slots[index].priority >= cutoff {
                     index += 1;
+                    if index == self.slots.len() {
+                        break 'outer;
+                    }
                 }
 
                 self.reverse.remove(self.slots[index].id.index());
@@ -298,8 +302,10 @@ impl TileCache {
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = self.pending_uploads.len();
 
+        println!("tiles = {}, Buffer size = {} MiB", tiles, (row_pitch * resolution * tiles) >> 20);
+
         let buffer = device.create_buffer_mapped(
-            row_pitch * resolution * tiles * bytes_per_texel,
+            row_pitch * resolution * tiles,
             wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
         );
 

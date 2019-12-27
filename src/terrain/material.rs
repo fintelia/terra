@@ -1,9 +1,6 @@
 use std::io::{Cursor, Read};
 
 use failure::Error;
-use gfx;
-use gfx::format::*;
-use gfx_core;
 use image::{self, GenericImage, GenericImageView};
 use zip::ZipArchive;
 
