@@ -18,7 +18,6 @@ lazy_static! {
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Node {
     pub level: u8,
-    #[allow(unused)]
     /// Tuple of this node's parent id, and the index of this node in its parents child list.
     pub parent: Option<(NodeId, u8)>,
     pub children: [Option<NodeId>; 4],
