@@ -369,18 +369,8 @@ impl Terrain {
                         attributes: &[
                             wgpu::VertexAttributeDescriptor {
                                 offset: 0,
-                                format: wgpu::VertexFormat::Float2,
+                                format: wgpu::VertexFormat::Float4,
                                 shader_location: 0,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 8,
-                                format: wgpu::VertexFormat::Float,
-                                shader_location: 1,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 12,
-                                format: wgpu::VertexFormat::Float,
-                                shader_location: 2,
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 16,
