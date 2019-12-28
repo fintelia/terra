@@ -302,8 +302,6 @@ impl TileCache {
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = self.pending_uploads.len();
 
-        println!("tiles = {}, Buffer size = {} MiB", tiles, (row_pitch * resolution * tiles) >> 20);
-
         let buffer = device.create_buffer_mapped(
             row_pitch * resolution * tiles,
             wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,

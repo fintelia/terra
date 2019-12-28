@@ -22,6 +22,12 @@ impl BoundingBox {
         dx * dx + dy * dy + dz * dz
     }
 
+    pub fn square_distance_xz(&self, p: Point3<f32>) -> f32 {
+        let dx = (self.min.x - p.x).max(0.0).max(p.x - self.max.x);
+        let dz = (self.min.z - p.z).max(0.0).max(p.z - self.max.z);
+        dx * dx + dz * dz
+    }
+
     pub fn as_aabb3(&self) -> Aabb3<f32> {
         Aabb3 { min: self.min, max: self.max }
     }

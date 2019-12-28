@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
@@ -39,29 +40,37 @@ pub(crate) use gpu::*;
 const EARTH_RADIUS: f64 = 6371000.0;
 const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-// // Mapping from side length to level number.
-// const LEVEL_4194_KM: i32 = 0;
-// const LEVEL_2097_KM: i32 = 1;
-// const LEVEL_1049_KM: i32 = 2;
-// const LEVEL_524_KM: i32 = 3;
-// const LEVEL_262_KM: i32 = 4;
-// const LEVEL_131_KM: i32 = 5;
-// const LEVEL_66_KM: i32 = 6;
-// const LEVEL_33_KM: i32 = 7;
-// const LEVEL_16_KM: i32 = 8;
-const LEVEL_8_KM: i32 = 9;
-// const LEVEL_4_KM: i32 = 10;
-// const LEVEL_2_KM: i32 = 11;
-// const LEVEL_1_KM: i32 = 12;
-// const LEVEL_256_M: i32 = 13;
-// const LEVEL_128_M: i32 = 14;
-// const LEVEL_64_M: i32 = 15;
-// const LEVEL_32_M: i32 = 16;
-// const LEVEL_16_M: i32 = 17;
-// const LEVEL_8_M: i32 = 18;
-// const LEVEL_4_M: i32 = 19;
-// const LEVEL_2_M: i32 = 20;
-// const LEVEL_1_M: i32 = 21;
+// Mapping from side length to level number.
+#[allow(unused)]
+mod levels {
+    pub const LEVEL_4194_KM: i32 = 0;
+    pub const LEVEL_2097_KM: i32 = 1;
+    pub const LEVEL_1049_KM: i32 = 2;
+    pub const LEVEL_524_KM: i32 = 3;
+    pub const LEVEL_262_KM: i32 = 4;
+    pub const LEVEL_131_KM: i32 = 5;
+    pub const LEVEL_66_KM: i32 = 6;
+    pub const LEVEL_33_KM: i32 = 7;
+    pub const LEVEL_16_KM: i32 = 8;
+    pub const LEVEL_8_KM: i32 = 9;
+    pub const LEVEL_4_KM: i32 = 10;
+    pub const LEVEL_2_KM: i32 = 11;
+    pub const LEVEL_1_KM: i32 = 12;
+    pub const LEVEL_256_M: i32 = 13;
+    pub const LEVEL_128_M: i32 = 14;
+    pub const LEVEL_64_M: i32 = 15;
+    pub const LEVEL_32_M: i32 = 16;
+    pub const LEVEL_16_M: i32 = 17;
+    pub const LEVEL_8_M: i32 = 18;
+    pub const LEVEL_4_M: i32 = 19;
+    pub const LEVEL_2_M: i32 = 20;
+    pub const LEVEL_1_M: i32 = 21;
+    pub const LEVEL_50_CM: i32 = 22;
+    pub const LEVEL_25_CM: i32 = 23;
+    pub const LEVEL_13_CM: i32 = 24;
+    pub const LEVEL_6_CM: i32 = 25;
+}
+use levels::*;
 
 #[derive(Clone, Copy)]
 pub enum MaterialType {
@@ -179,8 +188,6 @@ pub struct QuadTreeBuilder {
     grid_spacing: GridSpacing,
     // materials: MaterialSet<R>,
     // sky: Skybox<R>,
-    // factory: F,
-    // encoder: &'a mut gfx::Encoder<R, C>,
     context: Option<AssetLoadContext>,
 }
 impl QuadTreeBuilder {
@@ -251,17 +258,7 @@ impl QuadTreeBuilder {
         let mut context = self.context.take().unwrap();
         let (header, data) = self.load(&mut context)?;
 
-        QuadTree::new(
-            header,
-            data,
-            // self.materials,
-            // self.sky,
-            // self.factory,
-            // self.encoder,
-            // color_buffer,
-            // depth_buffer,
-            // context,
-        )
+        QuadTree::new(header, data)
     }
 
     fn name(&self) -> String {
@@ -306,13 +303,15 @@ impl MMappedAsset for QuadTreeBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_level =
-            22i32 - self.vertex_quality.resolution_log2() as i32 - self.grid_spacing.log2_spacing();
-        let max_texture_level = max_level - (resolution_ratio as f32).log2() as i32;
+        let max_level = LEVEL_6_CM - self.vertex_quality.resolution_log2() as i32;
+        let max_heights_level = LEVEL_1_M
+            - self.vertex_quality.resolution_log2() as i32
+            - (self.grid_spacing.log2_spacing() - 1);
+        let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
         let max_tree_density_level = LEVEL_8_KM;
 
-        let cell_size =
-            world_size / ((self.vertex_quality.resolution() - 1) as f32) * (0.5f32).powi(max_level);
+        let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
+            * (0.5f32).powi(max_heights_level);
         let num_fractal_levels = (dem_cell_size_y / cell_size).log2().ceil().max(0.0) as i32;
         let max_dem_level = max_texture_level - num_fractal_levels.max(0).min(max_texture_level);
 
@@ -336,6 +335,7 @@ impl MMappedAsset for QuadTreeBuilder {
             dem_source: self.source,
             heightmap_resolution,
             heights_resolution: self.vertex_quality.resolution(),
+            max_heights_level,
             max_texture_level,
             max_tree_density_level,
             resolution_ratio,
@@ -400,6 +400,7 @@ struct State<W: Write> {
 
     skirt: u16,
 
+    max_heights_level: i32,
     max_texture_level: i32,
     max_dem_level: i32,
     max_tree_density_level: i32,
@@ -464,13 +465,16 @@ impl<W: Write> State<W> {
     }
 
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: self.nodes.len() };
-        self.writer.write_all(&vec![1u8; self.nodes.len()])?;
-        self.bytes_written += self.nodes.len();
+        let tile_count =
+            self.nodes.iter().filter(|n| n.level <= self.max_heights_level as u8).count();
+
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&vec![1u8; tile_count])?;
+        self.bytes_written += tile_count;
         self.page_pad()?;
 
         let tile_bytes = 4 * self.heights_resolution as usize * self.heights_resolution as usize;
-        let tile_locations = (0..self.nodes.len())
+        let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.push(LayerParams {
@@ -497,8 +501,8 @@ impl<W: Write> State<W> {
         };
         self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
 
-        context.increment_level("Writing heightmaps... ", self.nodes.len());
-        for i in 0..self.nodes.len() {
+        context.increment_level("Writing heightmaps... ", tile_count);
+        for i in 0..tile_count {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
@@ -546,8 +550,26 @@ impl<W: Write> State<W> {
                     self.bytes_written += 4;
                 }
             }
-            self.nodes[i].bounds.min.y = miny.unwrap();
-            self.nodes[i].bounds.max.y = maxy.unwrap();
+            let (miny, maxy) = (miny.unwrap(), maxy.unwrap());
+            self.nodes[i].bounds.min.y = miny;
+            self.nodes[i].bounds.max.y = maxy;
+
+            // TODO: child nodes should theoretically have min and max Y values only based on the
+            // heights inside their own bounds. This approximation shouldn't have much impact in
+            // practice.
+            if self.nodes[i].level == self.max_heights_level as u8 {
+                let mut pending = VecDeque::new();
+                pending.push_back(NodeId::new(i as u32));
+                while let Some(id) = pending.pop_front() {
+                    for i in 0..4 {
+                        if let Some(child) = self.nodes[id].children[i] {
+                            self.nodes[child].bounds.min.y = miny;
+                            self.nodes[child].bounds.max.y = maxy;
+                            pending.push_back(child);
+                        }
+                    }
+                }
+            }
         }
 
         context.decrement_level();

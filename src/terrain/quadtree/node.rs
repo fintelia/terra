@@ -38,7 +38,7 @@ impl Node {
     pub fn priority(&self, camera: Point3<f32>) -> Priority {
         Priority::from_f32(
             (self.min_distance * self.min_distance)
-                / self.bounds.square_distance(camera).max(0.001),
+                / self.bounds.square_distance_xz(camera).max(0.001),
         )
     }
 

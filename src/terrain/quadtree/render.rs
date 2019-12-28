@@ -9,7 +9,7 @@ pub(crate) struct NodeState {
     position: glsl_layout::vec2,
     side_length: f32,
     min_distance: f32,
-    heights_origin: glsl_layout::vec3,
+    heights_desc: [f32; 4],
     texture_origin: glsl_layout::vec2,
     parent_texture_origin: glsl_layout::vec2,
     colors_layer: glsl_layout::vec2,
@@ -123,116 +123,6 @@ unsafe impl bytemuck::Zeroable for NodeState {}
 // });
 
 impl QuadTree {
-    // pub(crate) fn make_pso(
-    //     factory: &mut F,
-    //     shader: &gfx::ShaderSet<R>,
-    // ) -> Result<gfx::PipelineState<R, pipe::Meta>, Error> {
-    //     Ok(factory.create_pipeline_state(
-    //         shader,
-    //         gfx::Primitive::TriangleList,
-    //         gfx::state::Rasterizer {
-    //             front_face: gfx::state::FrontFace::Clockwise,
-    //             cull_face: gfx::state::CullFace::Back,
-    //             method: gfx::state::RasterMethod::Fill,
-    //             offset: None,
-    //             samples: None,
-    //         },
-    //         pipe::new(),
-    //     )?)
-    // }
-
-    // pub(crate) fn make_sky_pso(
-    //     factory: &mut F,
-    //     shader: &gfx::ShaderSet<R>,
-    // ) -> Result<gfx::PipelineState<R, sky_pipe::Meta>, Error> {
-    //     Ok(factory.create_pipeline_state(
-    //         shader,
-    //         gfx::Primitive::TriangleList,
-    //         gfx::state::Rasterizer {
-    //             front_face: gfx::state::FrontFace::Clockwise,
-    //             cull_face: gfx::state::CullFace::Nothing,
-    //             method: gfx::state::RasterMethod::Fill,
-    //             offset: None,
-    //             samples: None,
-    //         },
-    //         sky_pipe::new(),
-    //     )?)
-    // }
-
-    // pub(crate) fn make_planet_mesh_pso(
-    //     factory: &mut F,
-    //     shader: &gfx::ShaderSet<R>,
-    // ) -> Result<gfx::PipelineState<R, planet_mesh_pipe::Meta>, Error> {
-    //     Ok(factory.create_pipeline_state(
-    //         shader,
-    //         gfx::Primitive::TriangleList,
-    //         gfx::state::Rasterizer {
-    //             front_face: gfx::state::FrontFace::Clockwise,
-    //             cull_face: gfx::state::CullFace::Back,
-    //             method: gfx::state::RasterMethod::Fill,
-    //             offset: None,
-    //             samples: None,
-    //         },
-    //         planet_mesh_pipe::new(),
-    //     )?)
-    // }
-
-    // pub(crate) fn make_instanced_mesh_pso(
-    //     factory: &mut F,
-    //     shader: &gfx::ShaderSet<R>,
-    // ) -> Result<gfx::PipelineState<R, instanced_mesh_pipe::Meta>, Error> {
-    //     Ok(factory.create_pipeline_state(
-    //         shader,
-    //         gfx::Primitive::TriangleList,
-    //         gfx::state::Rasterizer {
-    //             front_face: gfx::state::FrontFace::Clockwise,
-    //             cull_face: gfx::state::CullFace::Nothing,
-    //             method: gfx::state::RasterMethod::Fill,
-    //             offset: None,
-    //             samples: None,
-    //         },
-    //         instanced_mesh_pipe::new(),
-    //     )?)
-    // }
-
-    // pub(super) fn update_shaders(&mut self) -> Result<(), Error> {
-    //     if self
-    //         .shader
-    //         .refresh(&mut self.factory, &mut self.shaders_watcher)
-    //     {
-    //         self.pso = Self::make_pso(&mut self.factory, self.shader.as_shader_set())?;
-    //     }
-
-    //     if self
-    //         .sky_shader
-    //         .refresh(&mut self.factory, &mut self.shaders_watcher)
-    //     {
-    //         self.sky_pso = Self::make_sky_pso(&mut self.factory, self.sky_shader.as_shader_set())?;
-    //     }
-
-    //     if self
-    //         .planet_mesh_shader
-    //         .refresh(&mut self.factory, &mut self.shaders_watcher)
-    //     {
-    //         self.planet_mesh_pso = Self::make_planet_mesh_pso(
-    //             &mut self.factory,
-    //             self.planet_mesh_shader.as_shader_set(),
-    //         )?;
-    //     }
-
-    //     if self
-    //         .instanced_mesh_shader
-    //         .refresh(&mut self.factory, &mut self.shaders_watcher)
-    //     {
-    //         self.instanced_mesh_pso = Self::make_instanced_mesh_pso(
-    //             &mut self.factory,
-    //             self.instanced_mesh_shader.as_shader_set(),
-    //         )?;
-    //     }
-
-    //     Ok(())
-    // }
-
     pub fn prepare_vertex_buffer(
         &mut self,
         device: &wgpu::Device,
@@ -267,6 +157,23 @@ impl QuadTree {
             (texture_resolution - 2 * texture_border) as f32 / texture_resolution as f32;
         let texture_step = texture_ratio / resolution as f32;
         let texture_origin = texture_border as f32 / texture_resolution as f32;
+
+        fn find_slot(
+            nodes: &Vec<Node>,
+            tile_cache: &TileCache,
+            id: NodeId,
+            texture_ratio: f32,
+        ) -> [f32; 4] {
+            let (ancestor, generations, offset) =
+                Node::find_ancestor(&nodes, id, |id| tile_cache.contains(id)).unwrap();
+            let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).unwrap();
+            let scale = (0.5f32).powi(generations as i32);
+            let offset = Vector2::new(
+                offset.x as f32 * texture_ratio * scale,
+                offset.y as f32 * texture_ratio * scale,
+            );
+            [offset.x, offset.y, slot, scale]
+        }
 
         fn find_texture_slots(
             nodes: &Vec<Node>,
@@ -321,8 +228,12 @@ impl QuadTree {
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
-            let heights_slot =
-                self.tile_cache_layers[LayerType::Heights.index()].get_slot(id).unwrap() as f32;
+            let heights_desc = find_slot(
+                &self.nodes,
+                &self.tile_cache_layers[LayerType::Heights.index()],
+                id,
+                1.0,
+            );
             let (colors_layer, normals_layer, splats_layer, texture_offset, tex_step_scale) =
                 find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
             let (pcolors_layer, pnormals_layer, psplats_layer, ptexture_offset, ptex_step_scale) =
@@ -331,7 +242,7 @@ impl QuadTree {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z].into(),
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
-                heights_origin: [0.0, 0.0, heights_slot].into(),
+                heights_desc,
                 texture_origin: [
                     texture_origin + texture_offset.x,
                     texture_origin + texture_offset.y,
@@ -356,9 +267,12 @@ impl QuadTree {
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let heights_slot = self.tile_cache_layers[LayerType::Heights.index()]
-                        .get_slot(id)
-                        .unwrap() as f32;
+                    let heights_desc = find_slot(
+                        &self.nodes,
+                        &self.tile_cache_layers[LayerType::Heights.index()],
+                        id,
+                        1.0,
+                    );
                     let (
                         colors_layer,
                         normals_layer,
@@ -386,10 +300,17 @@ impl QuadTree {
                         .into(),
                         side_length,
                         min_distance: self.nodes[id].min_distance,
-                        heights_origin: [
-                            offset.0 * (0.5 - 0.5 / (resolution + 1) as f32),
-                            offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
-                            heights_slot,
+                        heights_desc: [
+                            heights_desc[0]
+                                + heights_desc[3]
+                                    * offset.0
+                                    * (0.5 - 0.5 / (resolution + 1) as f32),
+                            heights_desc[1]
+                                + heights_desc[3]
+                                    * offset.1
+                                    * (0.5 - 0.5 / (resolution + 1) as f32),
+                            heights_desc[2],
+                            heights_desc[3],
                         ]
                         .into(),
                         texture_origin: [

@@ -38,23 +38,23 @@ vec3 debug_overlay(vec3 color) {
 
 	ml = mipmap_level(position.xz / side_length * 512);
 
-	if (ml < 0.0 && side_length == 128.0)
-		color = vec3(0.4);
-	else if (ml < -1.0)
-		color = vec3(1,0,0);
-	else if (ml < 0.0) // 1024
-		color = vec3(0.5,0,0);
-	else if (ml < 1.0) // 512
-		color = vec3(0,0.2,0);
-	else if (ml < 2.0) // 256
-		color = vec3(0,0.4,0);
-	else if (ml < 3.0) // 128
-		color = vec3(0,0,.7);
-	else               // 64
-		color = vec3(0,0,.3);
+	// if (ml < 0.0 && side_length == 128.0)
+	// 	color = vec3(0.4);
+	// else if (ml < -1.0)
+	// 	color = vec3(1,0,0);
+	// else if (ml < 0.0) // 1024
+	// 	color = vec3(0.5,0,0);
+	// else if (ml < 1.0) // 512
+	// 	color = vec3(0,0.2,0);
+	// else if (ml < 2.0) // 256
+	// 	color = vec3(0,0.4,0);
+	// else if (ml < 3.0) // 128
+	// 	color = vec3(0,0,.7);
+	// else               // 64
+	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	// if((fract(0.5*position.x/8) < 0.5) != (fract(0.5*position.z/8) < 0.5))
+	// if((fract(0.5*position.x/2) < 0.5) != (fract(0.5*position.z/2) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.3);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
@@ -62,12 +62,12 @@ vec3 debug_overlay(vec3 color) {
 
 	if(abs(length(position.xz) - 10000.0) < 100)
 		color = vec3(1);
-	if(abs(length(position-camera) - 16.0) < .1)
+	if(abs(length(position.xz-camera.xz) - 4.0) < .125)
 		color = vec3(1);
 
-	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.1), smoothstep(1, 0, line));
+	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	float line = min(grid.x, grid.y);
+	color = mix(color, vec3(0.1), smoothstep(1, 0, line));
 
 	// if((fract(texcoord.x*ts.x/2) < 0.5) != (fract(texcoord.y*ts.y/2) < 0.5))
 	// 	color *= 0.4;
@@ -88,7 +88,7 @@ void main() {
 
 	vec3 color = vec3(0.7);
 	if (albedo_texcoord.z >= 0) {
-		color = texture(sampler2DArray(albedo, linear), albedo_texcoord).xyz;
+		color = texture(sampler2DArray(albedo, linear), albedo_texcoord).xyz * 0.7;
 	}
 
 	float nDotL = dot(normal, light_direction);
