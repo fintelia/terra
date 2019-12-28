@@ -16,6 +16,37 @@ fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
         0.0,        0.0, near,  0.0)
 }
 
+fn make_swapchain(
+    device: &wgpu::Device,
+    surface: &wgpu::Surface,
+    width: u32,
+    height: u32,
+) -> wgpu::SwapChain {
+    device.create_swap_chain(
+        &surface,
+        &wgpu::SwapChainDescriptor {
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            width,
+            height,
+            present_mode: wgpu::PresentMode::Vsync,
+        },
+    )
+}
+fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width, height, depth: 1 },
+            array_layer_count: 1,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+        })
+        .create_default_view()
+}
+
 fn main() {
     env_logger::init();
 
@@ -51,22 +82,14 @@ fn main() {
     let quadtree = terra::QuadTreeBuilder::new()
         .latitude(42)
         .longitude(-73)
-        .vertex_quality(terra::VertexQuality::High)
+        .vertex_quality(terra::VertexQuality::Medium)
         .texture_quality(terra::TextureQuality::High)
         .grid_spacing(terra::GridSpacing::OneMeter)
         .build()
         .unwrap();
 
-    let mut swap_chain = device.create_swap_chain(
-        &surface,
-        &wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-            width: size.width.round() as u32,
-            height: size.height.round() as u32,
-            present_mode: wgpu::PresentMode::Vsync,
-        },
-    );
+    let mut swap_chain = make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
+    let mut depth_buffer = make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
@@ -82,7 +105,7 @@ fn main() {
         };
         match event {
             event::Event::WindowEvent { event, .. } => match event {
-                 event::WindowEvent::CloseRequested => {
+                event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
                 event::WindowEvent::KeyboardInput {
@@ -101,16 +124,10 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size.to_physical(window.hidpi_factor());
-                    swap_chain = device.create_swap_chain(
-                        &surface,
-                        &wgpu::SwapChainDescriptor {
-                            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
-                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                            width: size.width.round() as u32,
-                            height: size.height.round() as u32,
-                            present_mode: wgpu::PresentMode::Vsync,
-                        },
-                    );
+                    swap_chain =
+                        make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
+                    depth_buffer =
+                        make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
                 }
                 _ => {}
             },
@@ -133,7 +150,7 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                terrain.render(&device, &mut queue, &frame, view_proj, eye);
+                terrain.render(&device, &mut queue, &frame, &depth_buffer, view_proj, eye);
             }
             _ => (),
         }

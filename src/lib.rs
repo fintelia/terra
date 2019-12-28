@@ -320,6 +320,7 @@ impl Terrain {
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
         frame: &wgpu::SwapChainOutput,
+        depth_buffer: &wgpu::TextureView,
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f32>,
     ) {
@@ -361,7 +362,15 @@ impl Terrain {
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
                     }],
-                    depth_stencil_state: None,
+                    depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: true,
+                        depth_compare: wgpu::CompareFunction::Greater,
+                        stencil_front: Default::default(),
+                        stencil_back: Default::default(),
+                        stencil_read_mask: 0,
+                        stencil_write_mask: 0,
+                    }),
                     index_format: wgpu::IndexFormat::Uint16,
                     vertex_buffers: &[wgpu::VertexBufferDescriptor {
                         stride: std::mem::size_of::<NodeState>() as u64,
@@ -454,7 +463,15 @@ impl Terrain {
                     store_op: wgpu::StoreOp::Store,
                     clear_color: wgpu::Color::BLACK,
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: depth_buffer,
+                    depth_load_op: wgpu::LoadOp::Clear,
+                    depth_store_op: wgpu::StoreOp::Store,
+                    clear_depth: 0.0,
+                    stencil_load_op: wgpu::LoadOp::Clear,
+                    stencil_store_op: wgpu::StoreOp::Store,
+                    clear_stencil: 0,
+                }),
             });
             rpass.set_pipeline(self.render_pipeline.as_ref().unwrap());
             rpass.set_bind_group(0, &self.bind_group, &[]);
