@@ -84,8 +84,6 @@ pub enum MaterialType {
 /// How much detail the terrain mesh should have. Higher values require more resources to render,
 /// but produce nicer results.
 pub enum VertexQuality {
-    /// Probably overkill. Uses 4x as many triangles as high does.
-    Ultra,
     /// Use up to about 4M triangles per frame.
     High,
     /// About 1M triangles per frame.
@@ -99,7 +97,6 @@ impl VertexQuality {
             VertexQuality::Low => 33,
             VertexQuality::Medium => 65,
             VertexQuality::High => 129,
-            VertexQuality::Ultra => 257,
         }
     }
     fn resolution_log2(&self) -> u32 {
@@ -112,7 +109,6 @@ impl VertexQuality {
             VertexQuality::Low => "vl",
             VertexQuality::Medium => "vm",
             VertexQuality::High => "vh",
-            VertexQuality::Ultra => "vu",
         }
     }
 }
