@@ -10,13 +10,8 @@ pub(crate) struct NodeState {
     side_length: f32,
     min_distance: f32,
     heights_desc: [f32; 4],
-    texture_origin: glsl_layout::vec2,
-    parent_texture_origin: glsl_layout::vec2,
-    colors_layer: glsl_layout::vec2,
-    normals_layer: glsl_layout::vec2,
-    splats_layer: glsl_layout::vec2,
-    texture_step: f32,
-    parent_texture_step: f32,
+    albedo_desc: [[f32; 4]; 2],
+    normals_desc: [[f32; 4]; 2],
     resolution: i32,
 }
 unsafe impl bytemuck::Pod for NodeState {}
@@ -158,106 +153,82 @@ impl QuadTree {
         let texture_step = texture_ratio / resolution as f32;
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
-        fn find_slot(
+        fn find_descs(
             nodes: &Vec<Node>,
             tile_cache: &TileCache,
             id: NodeId,
+            texture_origin: Vector2<f32>,
+            base_origin: Vector2<f32>,
             texture_ratio: f32,
-        ) -> [f32; 4] {
-            let (ancestor, generations, offset) =
-                Node::find_ancestor(&nodes, id, |id| tile_cache.contains(id)).unwrap();
-            let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).unwrap();
-            let scale = (0.5f32).powi(generations as i32);
-            let offset = Vector2::new(
-                offset.x as f32 * texture_ratio * scale,
-                offset.y as f32 * texture_ratio * scale,
-            );
-            [offset.x, offset.y, slot, scale]
-        }
+            texture_step: f32,
+        ) -> [[f32; 4]; 2] {
+            if tile_cache.contains(id) {
+                let child_slot = tile_cache.get_slot(id).unwrap() as f32;
+                let child_offset = texture_origin + texture_ratio * base_origin;
 
-        fn find_texture_slots(
-            nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache>,
-            id: NodeId,
-            texture_ratio: f32,
-        ) -> (f32, f32, f32, Vector2<f32>, f32) {
-            let (ancestor, generations, offset) = Node::find_ancestor(&nodes, id, |id| {
-                tile_cache_layers[LayerType::Normals.index()].contains(id)
-            })
-            .unwrap();
-            let colors_slot = tile_cache_layers[LayerType::Colors.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap_or(-1.0);
-            let normals_slot = tile_cache_layers[LayerType::Normals.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap();
-            let splats_slot = tile_cache_layers[LayerType::Splats.index()]
-                .get_slot(ancestor)
-                .map(|s| s as f32)
-                .unwrap_or(-1.0);
-            let scale = (0.5f32).powi(generations as i32);
-            let offset = Vector2::new(
-                offset.x as f32 * texture_ratio * scale,
-                offset.y as f32 * texture_ratio * scale,
-            );
-            (colors_slot, normals_slot, splats_slot, offset, scale)
-            // (0.0, 0.0, 0.0, Vector2::new(0.0, 0.0), 0.0)
-        };
-        fn find_parent_texture_slots(
-            nodes: &Vec<Node>,
-            tile_cache_layers: &VecMap<TileCache>,
-            id: NodeId,
-            texture_ratio: f32,
-        ) -> (f32, f32, f32, Vector2<f32>, f32) {
-            if let Some((parent, child_index)) = nodes[id].parent {
-                let (c, n, s, offset, scale) =
-                    find_texture_slots(nodes, tile_cache_layers, parent, texture_ratio);
-                let child_offset = node::OFFSETS[child_index as usize];
-                let offset = offset
-                    + Vector2::new(child_offset.x as f32, child_offset.y as f32)
-                        * scale
-                        * texture_ratio
-                        * 0.5;
-                (c, n, s, offset, scale * 0.5)
+                if let Some((parent, child_index)) = nodes[id].parent {
+                    if tile_cache.contains(parent) {
+                        let parent_slot = tile_cache.get_slot(parent).unwrap() as f32;
+                        let parent_offset = node::OFFSETS[child_index as usize].cast().unwrap();
+                        let parent_offset =
+                            texture_origin + 0.5 * texture_ratio * (base_origin + parent_offset);
+
+                        return [
+                            [child_offset.x, child_offset.y, child_slot, texture_step],
+                            [parent_offset.x, parent_offset.y, parent_slot, texture_step * 0.5],
+                        ];
+                    }
+                }
+
+                [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]]
             } else {
-                (-1.0, -1.0, -1.0, Vector2::new(0.0, 0.0), 0.0)
+                let (ancestor, generations, offset) =
+                    Node::find_ancestor(&nodes, id, |id| tile_cache.contains(id)).unwrap();
+                let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).unwrap();
+                let scale = (0.5f32).powi(generations as i32);
+                let offset = Vector2::new(offset.x as f32, offset.y as f32);
+                let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
+
+                [[offset.x, offset.y, slot, scale * texture_step], [0.0, 0.0, -1.0, 0.0]]
             }
         }
 
         self.node_states.clear();
         for &id in self.visible_nodes.iter() {
-            let heights_desc = find_slot(
+            let heights_desc = find_descs(
                 &self.nodes,
                 &self.tile_cache_layers[LayerType::Heights.index()],
                 id,
+                Vector2::new(0.0, 0.0),
+                Vector2::new(0.0, 0.0),
                 1.0,
+                1.0,
+            )[0];
+            let albedo_desc = find_descs(
+                &self.nodes,
+                &self.tile_cache_layers[LayerType::Colors.index()],
+                id,
+                Vector2::new(texture_origin, texture_origin),
+                Vector2::new(0.0, 0.0),
+                texture_ratio,
+                texture_step,
             );
-            let (colors_layer, normals_layer, splats_layer, texture_offset, tex_step_scale) =
-                find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-            let (pcolors_layer, pnormals_layer, psplats_layer, ptexture_offset, ptex_step_scale) =
-                find_parent_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
+            let normals_desc = find_descs(
+                &self.nodes,
+                &self.tile_cache_layers[LayerType::Normals.index()],
+                id,
+                Vector2::new(texture_origin, texture_origin),
+                Vector2::new(0.0, 0.0),
+                texture_ratio,
+                texture_step,
+            );
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z].into(),
                 side_length: self.nodes[id].side_length,
                 min_distance: self.nodes[id].min_distance,
                 heights_desc,
-                texture_origin: [
-                    texture_origin + texture_offset.x,
-                    texture_origin + texture_offset.y,
-                ]
-                .into(),
-                parent_texture_origin: [
-                    texture_origin + ptexture_offset.x,
-                    texture_origin + ptexture_offset.y,
-                ]
-                .into(),
-                colors_layer: [colors_layer, pcolors_layer].into(),
-                normals_layer: [normals_layer, pnormals_layer].into(),
-                splats_layer: [splats_layer, psplats_layer].into(),
-                texture_step: texture_step * tex_step_scale,
-                parent_texture_step: texture_step * ptex_step_scale,
+                albedo_desc,
+                normals_desc,
                 resolution: resolution as i32,
             });
         }
@@ -267,30 +238,36 @@ impl QuadTree {
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let heights_desc = find_slot(
+                    let base_origin = Vector2::new(
+                        offset.0 * (0.5 - 0.5 / (resolution + 1) as f32),
+                        offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
+                    );
+                    let heights_desc = find_descs(
                         &self.nodes,
                         &self.tile_cache_layers[LayerType::Heights.index()],
                         id,
+                        Vector2::new(0.0, 0.0),
+                        Vector2::new(offset.0, offset.1) * (0.5 - 0.5 / (resolution + 1) as f32),
                         1.0,
-                    );
-                    let (
-                        colors_layer,
-                        normals_layer,
-                        splats_layer,
-                        texture_offset,
-                        texture_step_scale,
-                    ) = find_texture_slots(&self.nodes, &self.tile_cache_layers, id, texture_ratio);
-                    let (
-                        pcolors_layer,
-                        pnormals_layer,
-                        psplats_layer,
-                        ptexture_offset,
-                        ptexture_step_scale,
-                    ) = find_parent_texture_slots(
+                        1.0,
+                    )[0];
+                    let albedo_desc = find_descs(
                         &self.nodes,
-                        &self.tile_cache_layers,
+                        &self.tile_cache_layers[LayerType::Colors.index()],
                         id,
+                        Vector2::new(texture_origin, texture_origin),
+                        base_origin,
                         texture_ratio,
+                        texture_step,
+                    );
+                    let normals_desc = find_descs(
+                        &self.nodes,
+                        &self.tile_cache_layers[LayerType::Normals.index()],
+                        id,
+                        Vector2::new(texture_origin, texture_origin),
+                        base_origin,
+                        texture_ratio,
+                        texture_step,
                     );
                     self.node_states.push(NodeState {
                         position: [
@@ -300,42 +277,9 @@ impl QuadTree {
                         .into(),
                         side_length,
                         min_distance: self.nodes[id].min_distance,
-                        heights_desc: [
-                            heights_desc[0]
-                                + heights_desc[3]
-                                    * offset.0
-                                    * (0.5 - 0.5 / (resolution + 1) as f32),
-                            heights_desc[1]
-                                + heights_desc[3]
-                                    * offset.1
-                                    * (0.5 - 0.5 / (resolution + 1) as f32),
-                            heights_desc[2],
-                            heights_desc[3],
-                        ]
-                        .into(),
-                        texture_origin: [
-                            texture_origin
-                                + texture_offset.x
-                                + offset.0 * (0.5 - texture_origin) * texture_step_scale,
-                            texture_origin
-                                + texture_offset.y
-                                + offset.1 * (0.5 - texture_origin) * texture_step_scale,
-                        ]
-                        .into(),
-                        parent_texture_origin: [
-                            texture_origin
-                                + ptexture_offset.x
-                                + offset.0 * (0.5 - texture_origin) * ptexture_step_scale,
-                            texture_origin
-                                + ptexture_offset.y
-                                + offset.1 * (0.5 - texture_origin) * ptexture_step_scale,
-                        ]
-                        .into(),
-                        colors_layer: [colors_layer, pcolors_layer].into(),
-                        normals_layer: [normals_layer, pnormals_layer].into(),
-                        splats_layer: [splats_layer, psplats_layer].into(),
-                        texture_step: texture_step * texture_step_scale,
-                        parent_texture_step: texture_step * ptexture_step_scale,
+                        heights_desc,
+                        normals_desc,
+                        albedo_desc,
                         resolution: resolution as i32 / 2,
                     });
                 }

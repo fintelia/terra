@@ -88,8 +88,10 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut swap_chain = make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
-    let mut depth_buffer = make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
+    let mut swap_chain =
+        make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
+    let mut depth_buffer =
+        make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
@@ -124,10 +126,17 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size.to_physical(window.hidpi_factor());
-                    swap_chain =
-                        make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
-                    depth_buffer =
-                        make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
+                    swap_chain = make_swapchain(
+                        &device,
+                        &surface,
+                        size.width.round() as u32,
+                        size.height.round() as u32,
+                    );
+                    depth_buffer = make_depth_buffer(
+                        &device,
+                        size.width.round() as u32,
+                        size.height.round() as u32,
+                    );
                 }
                 _ => {}
             },
@@ -136,9 +145,9 @@ fn main() {
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
 
-                let view = cgmath::Matrix4::look_at_dir(
+                let view = cgmath::Matrix4::look_at(
                     cgmath::Point3::new(eye.x, eye.y, eye.z),
-                    cgmath::Vector3::new(0.0, 0.0, 1.0),
+                    cgmath::Point3::new(0.0, 0.0, -20000.0),
                     cgmath::Vector3::new(0.0, -1.0, 0.0),
                 );
 
@@ -150,7 +159,15 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                terrain.render(&device, &mut queue, &frame, &depth_buffer, view_proj, eye);
+                terrain.render(
+                    &device,
+                    &mut queue,
+                    &frame,
+                    &depth_buffer,
+                    (size.width.round() as u32, size.height.round() as u32),
+                    view_proj,
+                    eye,
+                );
             }
             _ => (),
         }

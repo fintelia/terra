@@ -86,25 +86,31 @@ vec3 debug_overlay(vec3 color) {
  	return color;
 }
 
+vec3 extract_normal(vec2 n) {
+	n = n * 2.0 - vec2(1.0);
+	float y = sqrt(1.0 - dot(n, n));
+	return normalize(vec3(n.x, y, n.y));
+}
+
 void main() {
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
-	vec3 normal = normalize(texture(sampler2DArray(normals, linear), normals_texcoord).xyz);
+	vec3 normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
 	if (normals_parent_texcoord.z >= 0) {
-		normal = mix(texture(sampler2DArray(normals, linear), normals_parent_texcoord).xyz,
-					 normal,
-					 morph);
+		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear),
+										 normals_parent_texcoord).xy);
+		normal = mix(pn, normal, morph);
 	}
 
-	vec3 base_color = texture(sampler2DArray(albedo, linear), albedo_texcoord).xyz;
+	vec4 albedo_roughness = texture(sampler2DArray(albedo, linear), albedo_texcoord);
 	if (albedo_parent_texcoord.z >= 0) {
-		base_color = mix(texture(sampler2DArray(albedo, linear), albedo_parent_texcoord).xyz,
-						 base_color,
-						 morph);
+		albedo_roughness = mix(texture(sampler2DArray(albedo, linear), albedo_parent_texcoord),
+							   albedo_roughness,
+							   morph);
 	}
 
 	out_color = vec4(1);
-	out_color.rgb = pbr(base_color,
-						0.5,
+	out_color.rgb = pbr(albedo_roughness.rgb,
+						albedo_roughness.a,
 						position,
 						normal,
 						uniform_block.camera,

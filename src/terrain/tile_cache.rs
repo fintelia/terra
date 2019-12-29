@@ -12,6 +12,7 @@ use crate::terrain::quadtree::{Node, NodeId};
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
     R8,
+    RG8,
     F32,
     RGBA8,
     SRGBA,
@@ -20,6 +21,7 @@ impl TextureFormat {
     pub fn bytes_per_texel(&self) -> usize {
         match *self {
             TextureFormat::R8 => 1,
+            TextureFormat::RG8 => 2,
             TextureFormat::F32 => 4,
             TextureFormat::RGBA8 => 4,
             TextureFormat::SRGBA => 4,
@@ -62,8 +64,8 @@ impl LayerType {
     pub fn cache_size(&self) -> u16 {
         match *self {
             LayerType::Heights => 512,
-            LayerType::Colors => 256,
-            LayerType::Normals => 256,
+            LayerType::Colors => 384,
+            LayerType::Normals => 384,
             LayerType::Splats => 32,
             LayerType::Foliage => 64,
         }
@@ -280,8 +282,7 @@ impl TileCache {
                 let length = self.layer_params.tile_locations[tile].length;
                 self.pending_uploads.push((i, ByteRange { offset, length }));
             } else {
-                // Tile needs to be generated.
-                todo!()
+                // TODO: Tile needs to be generated.
             }
         }
     }
@@ -340,7 +341,10 @@ impl TileCache {
     }
 
     pub fn contains(&self, id: NodeId) -> bool {
-        self.reverse.contains_key(id.index())
+        self.reverse.get(id.index())
+            .and_then(|&slot| self.slots.get(slot))
+            .map(|entry| entry.valid)
+            .unwrap_or(false)
     }
 
     pub fn get_slot(&self, id: NodeId) -> Option<usize> {
@@ -383,6 +387,13 @@ impl TileCache {
         } else {
             unreachable!()
         }
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.size
+    }
+    pub fn utilization(&self) -> usize {
+        self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid).count()
     }
 }
 

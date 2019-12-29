@@ -60,6 +60,7 @@ xdg = "2.2.0"
 zerocopy = "0.2.8"
 zip = "0.5.3"
 bytemuck = "1.1.0"
+wgpu_glyph = { git = "https://github.com/fintelia/wgpu_glyph", branch = "wgpu-git" }
 
 [profile]
 [profile.dev]

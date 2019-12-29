@@ -20,6 +20,8 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
+
+use wgpu_glyph::{GlyphBrushBuilder, GlyphBrush, Section};
 use crate::generate::ComputeShader;
 use crate::terrain::quadtree::render::NodeState;
 pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
@@ -75,6 +77,8 @@ pub struct Terrain {
 
     // heightmap: wgpu::Texture,
     quadtree: QuadTree,
+
+    glyph_brush: GlyphBrush<'static, ()>,
 }
 impl Terrain {
     pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, quadtree: QuadTree) -> Self {
@@ -140,7 +144,7 @@ impl Terrain {
                     depth: 1,
                 },
                 format: wgpu::TextureFormat::R32Float,
-                array_layer_count: 512,
+                array_layer_count: 384,
                 ..texture_desc
             }),
             normals: device.create_texture(&wgpu::TextureDescriptor {
@@ -149,8 +153,8 @@ impl Terrain {
                     height: normals_resolution,
                     depth: 1,
                 },
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                array_layer_count: 256,
+                format: wgpu::TextureFormat::Rg8Unorm,
+                array_layer_count: 384,
                 ..texture_desc
             }),
             albedo: device.create_texture(&wgpu::TextureDescriptor {
@@ -160,7 +164,7 @@ impl Terrain {
                     depth: 1,
                 },
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                array_layer_count: 256,
+                array_layer_count: 512,
                 ..texture_desc
             }),
         };
@@ -294,6 +298,10 @@ impl Terrain {
         //     .unwrap(),
         // );
 
+        let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
+        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
+            .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
+
         Self {
             bind_group_layout,
             bind_group,
@@ -312,6 +320,7 @@ impl Terrain {
             // gen_normals,
             // load_heights,
             quadtree,
+            glyph_brush,
         }
     }
 
@@ -321,6 +330,7 @@ impl Terrain {
         queue: &mut wgpu::Queue,
         frame: &wgpu::SwapChainOutput,
         depth_buffer: &wgpu::TextureView,
+        frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f32>,
     ) {
@@ -388,43 +398,28 @@ impl Terrain {
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 32,
-                                format: wgpu::VertexFormat::Float2,
-                                shader_location: 4,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 40,
-                                format: wgpu::VertexFormat::Float2,
-                                shader_location: 5,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 2,
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 48,
-                                format: wgpu::VertexFormat::Float2,
-                                shader_location: 6,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 56,
-                                format: wgpu::VertexFormat::Float2,
-                                shader_location: 7,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 3,
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 64,
-                                format: wgpu::VertexFormat::Float2,
-                                shader_location: 8,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 72,
-                                format: wgpu::VertexFormat::Float,
-                                shader_location: 9,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 76,
-                                format: wgpu::VertexFormat::Float,
-                                shader_location: 10,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 4,
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 80,
+                                format: wgpu::VertexFormat::Float4,
+                                shader_location: 5,
+                            },
+                            wgpu::VertexAttributeDescriptor {
+                                offset: 96,
                                 format: wgpu::VertexFormat::Int,
-                                shader_location: 11,
+                                shader_location: 6,
                             },
                         ],
                     }],
@@ -484,6 +479,37 @@ impl Terrain {
             );
         }
 
+        {
+            use std::fmt::Write;
+            use crate::terrain::tile_cache::LayerType;
+            let mut text = String::new();
+            let heights = &self.quadtree.tile_cache_layers[LayerType::Heights.index()];
+            writeln!(&mut text, "tile_cache[heights] = {} / {}",
+                     heights.utilization(), heights.capacity()).unwrap();
+
+            let normals = &self.quadtree.tile_cache_layers[LayerType::Normals.index()];
+            writeln!(&mut text, "tile_cache[normals] = {} / {}",
+                     normals.utilization(), normals.capacity()).unwrap();
+
+            let albedo = &self.quadtree.tile_cache_layers[LayerType::Colors.index()];
+            writeln!(&mut text, "tile_cache[albedo] = {} / {}",
+                     albedo.utilization(), albedo.capacity()).unwrap();
+
+            self.glyph_brush.queue(Section{
+                text: &text,
+                screen_position: (10.0, 10.0),
+                ..Default::default()
+            });
+        }
+
+        self.glyph_brush.draw_queued(
+            device,
+            &mut encoder,
+            &frame.view,
+            frame_size.0,
+            frame_size.1,
+        ).unwrap();
         queue.submit(&[encoder.finish()]);
+
     }
 }

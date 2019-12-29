@@ -575,30 +575,11 @@ impl<W: Write> State<W> {
         assert!(self.skirt >= 2);
         let colormap_skirt = self.skirt - 2;
         let colormap_resolution = self.heightmap_resolution - 5;
+
         let tile_count = self.heightmaps.as_ref().unwrap().len();
 
-        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
-        self.writer.write_all(&vec![1u8; tile_count])?;
-        self.bytes_written += tile_count;
-        self.page_pad()?;
-
-        let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
-        let tile_locations = (0..tile_count)
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
-
-        self.layers.push(LayerParams {
-            layer_type: LayerType::Colors,
-            tile_valid_bitmap,
-            tile_locations,
-            payload_type: PayloadType::Texture {
-                resolution: colormap_resolution as u32,
-                border_size: colormap_skirt as u32,
-                format: TextureFormat::SRGBA,
-            },
-        });
         context
-            .increment_level("Generating colormaps... ", self.heightmaps.as_ref().unwrap().len());
+            .increment_level("Generating colormaps... ", tile_count);
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
@@ -640,7 +621,7 @@ impl<W: Write> State<W> {
         let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
-        for i in 0..self.heightmaps.as_ref().unwrap().len() {
+        for i in 0..tile_count {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
@@ -649,142 +630,52 @@ impl<W: Write> State<W> {
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-            let use_blue_marble = spacing * 2.0 >= bluemarble.spacing().unwrap() as f32;
+
+            if spacing <= bluemarble.spacing().unwrap() as f32 {
+                continue;
+            }
+
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    let h00 = heights.get(i, x, y, 0);
-                    let h01 = heights.get(i, x, y + 1, 0);
-                    let h10 = heights.get(i, x + 1, y, 0);
-                    let h11 = heights.get(i, x + 1, y + 1, 0);
+                    let r = bluemarble.get(i, x, y, 0) as u8;
+                    let g = bluemarble.get(i, x, y, 1) as u8;
+                    let b = bluemarble.get(i, x, y, 2) as u8;
+                    let roughness = (0.7 * 255.0) as u8;
 
-                    let normal = Vector3::new(
-                        h10 + h11 - h00 - h01,
-                        2.0 * spacing,
-                        -1.0 * (h01 + h11 - h00 - h10),
-                    )
-                    .normalize();
-
-                    let water = 0; //watermasks.get(i, x, y, 0) as u8;
-                    let color = if use_blue_marble {
-                        let r = bluemarble.get(i, x, y, 0) as u8;
-                        let g = bluemarble.get(i, x, y, 1) as u8;
-                        let b = bluemarble.get(i, x, y, 2) as u8;
-                        [r, g, b, water]
-                    } else {
-                        let _splat = Self::compute_splat(normal.y);
-                        let albedo = [0, 0, 0, 0]; //self.materials.get_average_albedo(splat);
-                        if self.nodes[i].level <= self.max_tree_density_level as u8 {
-                            let tree_density = 0.0;
-                            // (self.treecover.as_ref().unwrap().get(i, x, y, 0) / 100.0).min(1.0);
-                            [
-                                mix(albedo[0], 13, tree_density),
-                                mix(albedo[1], 31, tree_density),
-                                mix(albedo[2], 0, tree_density),
-                                water,
-                            ]
-                        } else {
-                            [albedo[0], albedo[1], albedo[2], water]
-                        }
-                    };
-                    colormap.extend_from_slice(&color);
+                    colormap.extend_from_slice(&[r, g, b, roughness]);
                 }
             }
-
-            if let (Some(parent), false) = (self.nodes[i].parent.as_ref(), use_blue_marble) {
-                let resolution = colormap_resolution as usize;
-                let skirt = self.skirt as usize - 2;
-                let offset = node::OFFSETS[parent.1 as usize];
-                let offset = Point2::new(
-                    skirt / 2 + offset.x as usize * (resolution / 2 - skirt),
-                    skirt / 2 + offset.y as usize * (resolution / 2 - skirt),
-                );
-
-                let stl = |srgb| SRGB_TO_LINEAR[srgb] as i16;
-                let lts = |linear: i16| LINEAR_TO_SRGB[linear.max(0).min(255) as u8];
-
-                let pc = &colormaps[parent.0.index()];
-                for y in (0..resolution).step_by(2) {
-                    for x in (0..resolution).step_by(2) {
-                        for i in 0..3 {
-                            let p =
-                                stl(pc[i
-                                    + ((x / 2 + offset.x) + (y / 2 + offset.y) * resolution) * 4]);
-                            let c00 = stl(colormap[i + (x + y * resolution) * 4]);
-                            let c10 = stl(colormap[i + ((x + 1) + y * resolution) * 4]);
-                            let c01 = stl(colormap[i + (x + (y + 1) * resolution) * 4]);
-                            let c11 = stl(colormap[i + ((x + 1) + (y + 1) * resolution) * 4]);
-
-                            let shift = (p - (c00 + c01 + c10 + c11) / 4) / 2;
-
-                            colormap[i + (x + y * resolution) * 4] = lts(c00 + shift);
-                            colormap[i + ((x + 1) + y * resolution) * 4] = lts(c10 + shift);
-                            colormap[i + (x + (y + 1) * resolution) * 4] = lts(c01 + shift);
-                            colormap[i + ((x + 1) + (y + 1) * resolution) * 4] = lts(c11 + shift);
-                        }
-                    }
-                }
-            }
-
-            // let mut tree_placements = None;
-            // if self.tree_placements.contains_key(&i) {
-            //     tree_placements = Some(i);
-            // } else if let Some((parent, _)) = self.nodes[i].parent {
-            //     if self.tree_placements.contains_key(&parent.index()) {
-            //         tree_placements = Some(parent.index());
-            //     }
-            // }
-            // if let Some(ancestor) = tree_placements {
-            //     let bounds = &self.nodes[i].bounds;
-            //     let side_length = self.nodes[i].side_length;
-            //     let resolution = self.heightmap_resolution - self.skirt * 2 - 1;
-
-            //     let cell_size = side_length / resolution as f32;
-            //     let radius = (7.5 / cell_size).round() as isize;
-            //     // let border = cell_size * colormap_skirt as f32 + radius as f32;
-
-            //     for placement in self.tree_placements[&ancestor].iter() {
-            //         if placement.position[0] > bounds.min.x
-            //             && placement.position[2] > bounds.min.z
-            //             && placement.position[0] < bounds.max.x
-            //             && placement.position[2] < bounds.max.z
-            //         {
-            //             let x = (resolution as f32 * (placement.position[0] - bounds.min.x)
-            //                 / side_length)
-            //                 .round()
-            //                 .max(0.0) as isize
-            //                 + colormap_skirt as isize;
-            //             let z = (resolution as f32 * (placement.position[2] - bounds.min.z)
-            //                 / side_length)
-            //                 .round()
-            //                 .max(0.0) as isize
-            //                 + colormap_skirt as isize;
-
-            //             for h in -radius..=radius {
-            //                 for k in -radius..=radius {
-            //                     let x =
-            //                         (x + h).max(0).min(colormap_resolution as isize - 1) as usize;
-            //                     let z =
-            //                         (z + k).max(0).min(colormap_resolution as isize - 1) as usize;
-            //                     let color = &mut colormap
-            //                         [4 * (x + z * colormap_resolution as usize)..][..4];
-
-            //                     for i in 0..3 {
-            //                         color[i] =
-            //                             LINEAR_TO_SRGB[(255.0 * placement.color[i]).round() as u8];
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
 
             colormaps.push(colormap);
         }
+
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&vec![1u8; colormaps.len()])?;
+        self.writer.write_all(&vec![0u8; tile_count - colormaps.len()])?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
+        let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
+        let tile_locations = (0..colormaps.len())
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
+            .collect();
+
+        self.layers.push(LayerParams {
+            layer_type: LayerType::Colors,
+            tile_valid_bitmap,
+            tile_locations,
+            payload_type: PayloadType::Texture {
+                resolution: colormap_resolution as u32,
+                border_size: colormap_skirt as u32,
+                format: TextureFormat::SRGBA,
+            },
+        });
 
         for colormap in colormaps {
             self.writer.write_all(&colormap[..])?;
             self.bytes_written += colormap.len();
         }
+
         context.decrement_level();
         Ok(())
     }
@@ -798,7 +689,7 @@ impl<W: Write> State<W> {
         self.bytes_written += tile_count;
         self.page_pad()?;
 
-        let tile_bytes = 4 * normalmap_resolution as usize * normalmap_resolution as usize;
+        let tile_bytes = 2 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
@@ -809,7 +700,7 @@ impl<W: Write> State<W> {
             payload_type: PayloadType::Texture {
                 resolution: normalmap_resolution as u32,
                 border_size: self.skirt as u32 - 2,
-                format: TextureFormat::RGBA8,
+                format: TextureFormat::RG8,
             },
         });
         context.increment_level("Generating normalmaps... ", tile_count);
@@ -835,10 +726,8 @@ impl<W: Write> State<W> {
                     .normalize();
 
                     self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
-                    self.writer.write_u8((normal.y * 127.5 + 127.5) as u8)?;
                     self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    self.writer.write_u8(0)?;
-                    self.bytes_written += 4;
+                    self.bytes_written += 2;
                 }
             }
         }
