@@ -2,8 +2,11 @@
 
 layout(early_fragment_tests) in;
 
-layout(location = 0) out vec4 out_color;
-
+layout(binding = 0) uniform UniformBlock {
+    mat4 view_proj;
+	vec3 camera;
+	float padding;
+} uniform_block;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
@@ -18,7 +21,8 @@ layout(location = 5) in float morph;
 layout(location = 6) in vec2 i_position;
 layout(location = 7) in float side_length;
 layout(location = 8) in float min_distance;
-layout(location = 9) in vec3 camera;
+
+layout(location = 0) out vec4 out_color;
 
 float mipmap_level(in vec2 texture_coordinate)
 {
@@ -54,16 +58,16 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	// if((fract(0.5*position.x/2) < 0.5) != (fract(0.5*position.z/2) < 0.5))
+	// if((fract(0.5*position.x/1) < 0.5) != (fract(0.5*position.z/1) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.3);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	if(abs(length(position.xz) - 10000.0) < 100)
-		color = vec3(1);
-	if(abs(length(position.xz-camera.xz) - 4.0) < .125)
-		color = vec3(1);
+	// if(abs(length(position.xz) - 10000.0) < 100)
+	// 	color = vec3(1);
+	// if(abs(length(position.xz-camera.xz) - 4.0) < .125)
+	// 	color = vec3(1);
 
 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
 	float line = min(grid.x, grid.y);
@@ -85,17 +89,31 @@ vec3 debug_overlay(vec3 color) {
 void main() {
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 normal = normalize(texture(sampler2DArray(normals, linear), normals_texcoord).xyz);
-
-	vec3 color = vec3(0.7);
-	if (albedo_texcoord.z >= 0) {
-		color = texture(sampler2DArray(albedo, linear), albedo_texcoord).xyz * 0.7;
+	if (normals_parent_texcoord.z >= 0) {
+		normal = mix(texture(sampler2DArray(normals, linear), normals_parent_texcoord).xyz,
+					 normal,
+					 morph);
 	}
 
-	float nDotL = dot(normal, light_direction);
-	out_color = vec4(vec3(nDotL) * pow(color, vec3(2.2)), 1.0f);
+	vec3 base_color = texture(sampler2DArray(albedo, linear), albedo_texcoord).xyz;
+	if (albedo_parent_texcoord.z >= 0) {
+		base_color = mix(texture(sampler2DArray(albedo, linear), albedo_parent_texcoord).xyz,
+						 base_color,
+						 morph);
+	}
 
-	out_color.rgb = debug_overlay(out_color.rgb);
+	out_color = vec4(1);
+	out_color.rgb = pbr(base_color,
+						0.5,
+						position,
+						normal,
+						uniform_block.camera,
+						vec3(0.4, 0.7,0.2),
+						vec3(100000.0));
 
-	// Gamma correct output color
-	out_color.rgb = pow(out_color.rgb, vec3(2.2));
+	float ev100 = 14.0;
+	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
+	out_color = tonemap(out_color, exposure, 2.2);
+
+	// out_color.rgb = debug_overlay(out_color.rgb);
 }

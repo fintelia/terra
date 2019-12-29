@@ -34,7 +34,6 @@ layout(location = 5) out float out_morph;
 layout(location = 6) out vec2 out_i_position;
 layout(location = 7) out float out_side_length;
 layout(location = 8) out float out_min_distance;
-layout(location = 9) out vec3 out_camera;
 
 void main() {
 	vec3 position = vec3(0);
@@ -73,7 +72,6 @@ void main() {
 	out_i_position = vec2(iPosition);
 	out_side_length = side_length;
 	out_min_distance = min_distance;
-	out_camera = uniform_block.camera;
 
 	gl_Position = uniform_block.view_proj * vec4(position, 1.0);
 }

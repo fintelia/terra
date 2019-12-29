@@ -82,7 +82,7 @@ impl Terrain {
         let shader = rshader::ShaderSet::simple(
             &mut watcher,
             rshader::shader_source!("shaders", "version", "a.vert"),
-            rshader::shader_source!("shaders", "version", "a.frag"),
+            rshader::shader_source!("shaders", "version", "pbr", "a.frag"),
         )
         .unwrap();
 
@@ -244,7 +244,7 @@ impl Terrain {
                 wgpu::Binding {
                     binding: 4,
                     resource: wgpu::BindingResource::TextureView(
-                        &gpu_state.normals.create_default_view(),
+                        &gpu_state.albedo.create_default_view(),
                     ),
                 },
             ],
@@ -461,7 +461,7 @@ impl Terrain {
                     resolve_target: None,
                     load_op: wgpu::LoadOp::Clear,
                     store_op: wgpu::StoreOp::Store,
-                    clear_color: wgpu::Color::BLACK,
+                    clear_color: wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 },
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
