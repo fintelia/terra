@@ -1,6 +1,6 @@
 use crate::coordinates::CoordinateSystem;
 use crate::terrain::quadtree::{Node, NodeId};
-use crate::terrain::tile_cache::{LayerType, TextureDescriptor, TextureFormat, TileHeader};
+use crate::terrain::tile_cache::{LayerType, TextureDescriptor, LayerParams, TextureFormat, TileHeader};
 use memmap::Mmap;
 use std::sync::Arc;
 
@@ -100,5 +100,11 @@ impl MapFile {
 
 	pub fn system(&self) -> CoordinateSystem {
 		self.header.system.clone()
+	}
+	pub fn layers(&self) -> &[LayerParams] {
+		&self.header.layers
+	}
+	pub fn data_file(&self) -> Arc<Mmap> {
+		self.file.clone()
 	}
 }

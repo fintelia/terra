@@ -21,41 +21,15 @@ pub(crate) use crate::terrain::quadtree::render::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
-pub struct QuadTree {
+pub(crate) struct QuadTree {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
     nodes: Vec<Node>,
     // ocean: Ocean<R>,
-
-    // #[allow(unused)]
-    // atmosphere: Atmosphere<R>,
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
-    /// Cache holding nearby tiles for each layer.
-    pub(crate) tile_cache_layers: VecMap<TileCache>,
-
-    // index_buffer: Escape<Buffer<B>>,
-    // index_buffer_partial: Escape<Buffer<B>>,
-
-    // factory: F,
-    // pso: gfx::PipelineState<R, pipe::Meta>,
-    // pipeline_data: pipe::Data<R>,
-    // sky_pso: gfx::PipelineState<R, sky_pipe::Meta>,
-    // sky_pipeline_data: sky_pipe::Data<R>,
-    // planet_mesh_pso: gfx::PipelineState<R, planet_mesh_pipe::Meta>,
-    // planet_mesh_pipeline_data: planet_mesh_pipe::Data<R>,
-    // instanced_mesh_pso: gfx::PipelineState<R, instanced_mesh_pipe::Meta>,
-    // instanced_mesh_pipeline_data: instanced_mesh_pipe::Data<R>,
-    // shaders_watcher: rshader::ShaderDirectoryWatcher,
-    // shader: rshader::Shader<R>,
-    // sky_shader: rshader::Shader<R>,
-    // planet_mesh_shader: rshader::Shader<R>,
-    // instanced_mesh_shader: rshader::Shader<R>,
-    // num_planet_mesh_vertices: usize,
     node_states: Vec<NodeState>,
-    // _materials: MaterialSet<R>,
-    // pub(crate) system: CoordinateSystem,
 }
 
 impl std::fmt::Debug for QuadTree {
@@ -66,31 +40,19 @@ impl std::fmt::Debug for QuadTree {
 
 #[allow(unused)]
 impl QuadTree {
-    pub(crate) fn new(
-        data_file: Arc<Mmap>,
-        cache_layers: Vec<LayerParams>,
-        // materials: MaterialSet<R>,
-        // sky: Skybox<R>,
-        nodes: Vec<Node>,
-    ) -> Result<Self, Error> {
-        let mut tile_cache_layers = VecMap::new();
-        for layer in cache_layers {
-            tile_cache_layers
-                .insert(layer.layer_type as usize, TileCache::new(layer, data_file.clone()));
-        }
-
-        Ok(Self {
+    pub(crate) fn new(nodes: Vec<Node>) -> Self {
+        Self {
+            nodes,
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
-            nodes,
             node_states: Vec::new(),
-            tile_cache_layers,
-        })
+        }
     }
 
     pub(crate) fn create_index_buffers(
         &self,
         device: &wgpu::Device,
+        tile_cache: &VecMap<TileCache>,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
         let make_index_buffer = |resolution: u16| -> wgpu::Buffer {
             let mapped = device.create_buffer_mapped(
@@ -111,14 +73,13 @@ impl QuadTree {
 
             mapped.finish()
         };
-        let resolution =
-            (self.tile_cache_layers[LayerType::Heights.index()].resolution() - 1) as u16;
+        let resolution = (tile_cache[LayerType::Heights.index()].resolution() - 1) as u16;
 
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
-    fn update_cache(&mut self, camera: Point3<f32>) {
-        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
+    fn update_cache(&mut self, tile_cache: &mut VecMap<TileCache>, camera: Point3<f32>) {
+        for (_, ref mut cache_layer) in tile_cache.iter_mut() {
             cache_layer.update_priorities(&mut self.nodes, camera);
         }
 
@@ -129,15 +90,13 @@ impl QuadTree {
             }
 
             for layer in 0..NUM_LAYERS {
-                if qt.nodes[id].tile_indices[layer].is_some()
-                    && !qt.tile_cache_layers[layer].contains(id)
-                {
-                    qt.tile_cache_layers[layer].add_missing((priority, id));
+                if qt.nodes[id].tile_indices[layer].is_some() && !tile_cache[layer].contains(id) {
+                    tile_cache[layer].add_missing((priority, id));
                 }
             }
             true
         });
-        for (_, ref mut cache_layer) in self.tile_cache_layers.iter_mut() {
+        for (_, ref mut cache_layer) in tile_cache.iter_mut() {
             cache_layer.process_missing(&mut self.nodes);
         }
     }
@@ -194,6 +153,7 @@ impl QuadTree {
 
     pub fn update(
         &mut self,
+        tile_cache: &mut VecMap<TileCache>,
         camera: mint::Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
         // dt: f32,
@@ -209,7 +169,7 @@ impl QuadTree {
         //     to_array(mvp_mat.w),
         // ];
         let start = std::time::Instant::now();
-        self.update_cache(camera);
+        self.update_cache(tile_cache, camera);
         self.update_visibility(camera, cull_frustum);
 
         // let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
@@ -227,29 +187,6 @@ impl QuadTree {
         // self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
         // self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
         // self.sky_pipeline_data.sun_direction = sun_direction;
-    }
-
-    pub(crate) fn upload_tiles(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        state: &crate::GpuState,
-    ) {
-        self.tile_cache_layers[LayerType::Heights.index()].upload_tiles(
-            device,
-            encoder,
-            &state.heights,
-        );
-        self.tile_cache_layers[LayerType::Normals.index()].upload_tiles(
-            device,
-            encoder,
-            &state.normals,
-        );
-        self.tile_cache_layers[LayerType::Colors.index()].upload_tiles(
-            device,
-            encoder,
-            &state.albedo,
-        );
     }
 
     fn breadth_first<Visit>(&mut self, mut visit: Visit)
@@ -271,7 +208,7 @@ impl QuadTree {
         }
     }
 
-    pub fn get_height(&self, p: Point2<f32>) -> Option<f32> {
+    pub fn get_height(&self, tile_cache: &VecMap<TileCache>, p: Point2<f32>) -> Option<f32> {
         if self.nodes[0].bounds.min.x > p.x
             || self.nodes[0].bounds.max.x < p.x
             || self.nodes[0].bounds.min.z > p.y
@@ -296,7 +233,7 @@ impl QuadTree {
             }
         }
 
-        let layer = &self.tile_cache_layers[LayerType::Heights.index()];
+        let layer = &tile_cache[LayerType::Heights.index()];
         let resolution = (layer.resolution() - 1) as f32;
         let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length * resolution;
         let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;

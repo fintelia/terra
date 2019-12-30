@@ -4,7 +4,6 @@
 
 #[macro_use]
 extern crate lazy_static;
-#[macro_use]
 extern crate rshader;
 
 mod coordinates;
@@ -24,10 +23,13 @@ use crate::coordinates::CoordinateSystem;
 use crate::generate::ComputeShader;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::render::NodeState;
-pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
+use crate::terrain::tile_cache::{LayerType, TileCache};
 use std::mem;
-pub use terrain::quadtree::QuadTree;
+use terrain::quadtree::QuadTree;
+use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder, Section};
+
+pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -72,17 +74,14 @@ pub struct Terrain {
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
 
-    // gen: TileGen,
     gpu_state: GpuState,
 
     // gen_heights: ComputeShader<()>,
     // gen_normals: ComputeShader<()>,
     // load_heights: ComputeShader<()>,
-
-    // heightmap: wgpu::Texture,
     quadtree: QuadTree,
-
     mapfile: MapFile,
+    tile_cache: VecMap<TileCache>,
 
     glyph_brush: GlyphBrush<'static, ()>,
 }
@@ -93,6 +92,12 @@ impl Terrain {
         quadtree: QuadTree,
         mapfile: MapFile,
     ) -> Self {
+        let mut tile_cache = VecMap::new();
+        for layer in mapfile.layers().iter().cloned() {
+            tile_cache
+                .insert(layer.layer_type as usize, TileCache::new(layer, mapfile.data_file()));
+        }
+
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
             &mut watcher,
@@ -109,7 +114,8 @@ impl Terrain {
             size: (std::mem::size_of::<NodeState>() * quadtree.total_nodes()) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
         });
-        let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
+        let (index_buffer, index_buffer_partial) =
+            quadtree.create_index_buffers(device, &tile_cache);
 
         let texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 0, height: 0, depth: 0 },
@@ -124,12 +130,9 @@ impl Terrain {
                 | wgpu::TextureUsage::STORAGE,
         };
 
-        use crate::terrain::tile_cache::LayerType;
-        let heights_resolution =
-            quadtree.tile_cache_layers[LayerType::Heights.index()].resolution();
-        let normals_resolution =
-            quadtree.tile_cache_layers[LayerType::Normals.index()].resolution();
-        let albedo_resolution = quadtree.tile_cache_layers[LayerType::Colors.index()].resolution();
+        let heights_resolution = tile_cache[LayerType::Heights.index()].resolution();
+        let normals_resolution = tile_cache[LayerType::Normals.index()].resolution();
+        let albedo_resolution = tile_cache[LayerType::Colors.index()].resolution();
 
         let (noise, planet_mesh_texture) = {
             let mut encoder =
@@ -342,6 +345,7 @@ impl Terrain {
             // load_heights,
             quadtree,
             mapfile,
+            tile_cache,
             glyph_brush,
         }
     }
@@ -358,7 +362,7 @@ impl Terrain {
     ) {
         let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
 
-        self.quadtree.update(camera, camera_frustum);
+        self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
         if self.shader.refresh(&mut self.watcher) {
             self.render_pipeline = None;
         }
@@ -455,8 +459,28 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
-        self.quadtree.upload_tiles(device, &mut encoder, &self.gpu_state);
-        self.quadtree.prepare_vertex_buffer(device, &mut encoder, &mut self.vertex_buffer);
+        self.tile_cache[LayerType::Heights.index()].upload_tiles(
+            device,
+            &mut encoder,
+            &self.gpu_state.heights,
+        );
+        self.tile_cache[LayerType::Normals.index()].upload_tiles(
+            device,
+            &mut encoder,
+            &self.gpu_state.normals,
+        );
+        self.tile_cache[LayerType::Colors.index()].upload_tiles(
+            device,
+            &mut encoder,
+            &self.gpu_state.albedo,
+        );
+
+        self.quadtree.prepare_vertex_buffer(
+            device,
+            &mut encoder,
+            &mut self.vertex_buffer,
+            &self.tile_cache,
+        );
 
         let mapped = device.create_buffer_mapped(
             mem::size_of::<UniformBlock>(),
@@ -498,14 +522,14 @@ impl Terrain {
                 &self.vertex_buffer,
                 &self.index_buffer,
                 &self.index_buffer_partial,
+                &self.tile_cache,
             );
         }
 
         {
-            use crate::terrain::tile_cache::LayerType;
             use std::fmt::Write;
             let mut text = String::new();
-            let heights = &self.quadtree.tile_cache_layers[LayerType::Heights.index()];
+            let heights = &self.tile_cache[LayerType::Heights.index()];
             writeln!(
                 &mut text,
                 "tile_cache[heights] = {} / {}",
@@ -514,7 +538,7 @@ impl Terrain {
             )
             .unwrap();
 
-            let normals = &self.quadtree.tile_cache_layers[LayerType::Normals.index()];
+            let normals = &self.tile_cache[LayerType::Normals.index()];
             writeln!(
                 &mut text,
                 "tile_cache[normals] = {} / {}",
@@ -523,7 +547,7 @@ impl Terrain {
             )
             .unwrap();
 
-            let albedo = &self.quadtree.tile_cache_layers[LayerType::Colors.index()];
+            let albedo = &self.tile_cache[LayerType::Colors.index()];
             writeln!(
                 &mut text,
                 "tile_cache[albedo] = {} / {}",

@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::io::Write;
+use std::mem;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::mem;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
@@ -263,11 +263,7 @@ impl QuadTreeBuilder {
         let (mut header, data) = self.load(&mut context)?;
         let data = Arc::new(data);
 
-        let quadtree = QuadTree::new(
-            data.clone(),
-            header.layers.clone(),
-            mem::replace(&mut header.nodes, Vec::new()),
-        )?;
+        let quadtree = QuadTree::new(mem::replace(&mut header.nodes, Vec::new()));
         let mapfile = MapFile::new(header, data);
 
         Ok(Terrain::new(device, queue, quadtree, mapfile))
