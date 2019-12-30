@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
+use std::sync::Arc;
+use std::mem;
 
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
@@ -15,6 +17,8 @@ use rand_distr::Normal;
 
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
+use crate::mapfile::MapFile;
+use crate::Terrain;
 // use sky::Skybox;
 use crate::srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use crate::terrain::dem::DemSource;
@@ -250,11 +254,23 @@ impl QuadTreeBuilder {
     /// of CPU resources. You can expect it to run at full load continiously for several full
     /// minutes, even in release builds (you *really* don't want to wait for generation in debug
     /// mode...).
-    pub fn build(mut self) -> Result<QuadTree, Error> {
+    pub fn build(
+        mut self,
+        device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
+    ) -> Result<Terrain, Error> {
         let mut context = self.context.take().unwrap();
-        let (header, data) = self.load(&mut context)?;
+        let (mut header, data) = self.load(&mut context)?;
+        let data = Arc::new(data);
 
-        QuadTree::new(header, data)
+        let quadtree = QuadTree::new(
+            data.clone(),
+            header.layers.clone(),
+            mem::replace(&mut header.nodes, Vec::new()),
+        )?;
+        let mapfile = MapFile::new(header, data);
+
+        Ok(Terrain::new(device, queue, quadtree, mapfile))
     }
 
     fn name(&self) -> String {
@@ -539,7 +555,11 @@ impl<W: Write> State<W> {
                         _ => height,
                     });
 
-                    let world2 = self.world_position(position.x as i32, position.y as i32, self.nodes[i].bounds);
+                    let world2 = self.world_position(
+                        position.x as i32,
+                        position.y as i32,
+                        self.nodes[i].bounds,
+                    );
                     let altitude =
                         self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
 
@@ -596,18 +616,18 @@ impl<W: Write> State<W> {
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
 
-        let reproject = ReprojectedRasterDef {
-            name: format!("{}watermasks", self.directory_name),
-            heights: self.heightmaps.as_ref().unwrap(),
-            system: &self.system,
-            nodes: &self.nodes,
-            skirt: self.skirt,
-            datatype: DataType::U8,
-            raster: RasterSource::GlobalRaster::<_, BitContainer> {
-                global: Box::new(GlobalWaterMask),
-            },
-        };
-        let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
+        // let reproject = ReprojectedRasterDef {
+        //     name: format!("{}watermasks", self.directory_name),
+        //     heights: self.heightmaps.as_ref().unwrap(),
+        //     system: &self.system,
+        //     nodes: &self.nodes,
+        //     skirt: self.skirt,
+        //     datatype: DataType::U8,
+        //     raster: RasterSource::GlobalRaster::<_, BitContainer> {
+        //         global: Box::new(GlobalWaterMask),
+        //     },
+        // };
+        // let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
 
         let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
@@ -633,7 +653,9 @@ impl<W: Write> State<W> {
                     let b = bluemarble.get(i, x, y, 2) as u8;
                     let mut roughness = (0.7 * 255.0) as u8;
 
-                    let color = if watermasks.get(i, x, y, 0) > 0.01 {
+                    let color = if false
+                    /*watermasks.get(i, x, y, 0) > 0.01*/
+                    {
                         [0, 6, 13, 77]
                     } else {
                         let r = bluemarble.get(i, x, y, 0) as u8;
@@ -795,10 +817,12 @@ impl<W: Write> State<W> {
 
     fn generate_noise(&mut self, _context: &mut AssetLoadContext) -> Result<NoiseParams, Error> {
         let noise = NoiseParams {
-            offset: self.bytes_written,
-            resolution: 2048,
-            format: TextureFormat::RGBA8,
-            bytes: 4 * 2048 * 2048,
+            texture: TextureDescriptor {
+                offset: self.bytes_written,
+                resolution: 2048,
+                format: TextureFormat::RGBA8,
+                bytes: 4 * 2048 * 2048,
+            },
             wavelength: 1.0 / 256.0,
         };
 
@@ -830,7 +854,7 @@ impl<W: Write> State<W> {
                 self.bytes_written += 1;
             }
         }
-        assert_eq!(self.bytes_written, noise.offset + noise.bytes);
+        assert_eq!(self.bytes_written, noise.texture.offset + noise.texture.bytes);
         Ok(noise)
     }
     // fn place_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {

@@ -1,5 +1,4 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
-#![feature(custom_attribute)]
 #![feature(stmt_expr_attributes)]
 #![feature(float_to_from_bytes)]
 
@@ -12,6 +11,7 @@ mod coordinates;
 mod generate;
 // mod graph;
 mod cache;
+mod mapfile;
 mod runtime_texture;
 mod srgb;
 mod terrain;
@@ -20,13 +20,14 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
-
-use wgpu_glyph::{GlyphBrushBuilder, GlyphBrush, Section};
+use crate::coordinates::CoordinateSystem;
 use crate::generate::ComputeShader;
+use crate::mapfile::MapFile;
 use crate::terrain::quadtree::render::NodeState;
 pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 use std::mem;
 pub use terrain::quadtree::QuadTree;
+use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder, Section};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -43,6 +44,9 @@ pub(crate) struct GpuState {
 
     heights_staging: wgpu::Texture,
     normals_staging: wgpu::Texture,
+
+    noise: wgpu::Texture,
+    planet_mesh_texture: wgpu::Texture,
 
     heights: wgpu::Texture,
     normals: wgpu::Texture,
@@ -78,10 +82,17 @@ pub struct Terrain {
     // heightmap: wgpu::Texture,
     quadtree: QuadTree,
 
+    mapfile: MapFile,
+
     glyph_brush: GlyphBrush<'static, ()>,
 }
 impl Terrain {
-    pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, quadtree: QuadTree) -> Self {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
+        quadtree: QuadTree,
+        mapfile: MapFile,
+    ) -> Self {
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
             &mut watcher,
@@ -118,10 +129,20 @@ impl Terrain {
             quadtree.tile_cache_layers[LayerType::Heights.index()].resolution();
         let normals_resolution =
             quadtree.tile_cache_layers[LayerType::Normals.index()].resolution();
-        let albedo_resolution =
-            quadtree.tile_cache_layers[LayerType::Colors.index()].resolution();
+        let albedo_resolution = quadtree.tile_cache_layers[LayerType::Colors.index()].resolution();
+
+        let (noise, planet_mesh_texture) = {
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+            let noise = mapfile.noise_texture(device, &mut encoder);
+            let planet_mesh_texture = mapfile.planet_mesh_texture(device, &mut encoder);
+            queue.submit(&[encoder.finish()]);
+            (noise, planet_mesh_texture)
+        };
 
         let gpu_state = GpuState {
+            noise,
+            planet_mesh_texture,
             base_heights: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
                 format: wgpu::TextureFormat::R32Float,
@@ -261,7 +282,7 @@ impl Terrain {
         crate::generate::make_base_heights(
             device,
             queue,
-            &quadtree.system,
+            &mapfile.system(),
             &gpu_state.base_heights,
         );
 
@@ -320,6 +341,7 @@ impl Terrain {
             // gen_normals,
             // load_heights,
             quadtree,
+            mapfile,
             glyph_brush,
         }
     }
@@ -480,39 +502,48 @@ impl Terrain {
         }
 
         {
-            use std::fmt::Write;
             use crate::terrain::tile_cache::LayerType;
+            use std::fmt::Write;
             let mut text = String::new();
             let heights = &self.quadtree.tile_cache_layers[LayerType::Heights.index()];
-            writeln!(&mut text, "tile_cache[heights] = {} / {}",
-                     heights.utilization(), heights.capacity()).unwrap();
+            writeln!(
+                &mut text,
+                "tile_cache[heights] = {} / {}",
+                heights.utilization(),
+                heights.capacity()
+            )
+            .unwrap();
 
             let normals = &self.quadtree.tile_cache_layers[LayerType::Normals.index()];
-            writeln!(&mut text, "tile_cache[normals] = {} / {}",
-                     normals.utilization(), normals.capacity()).unwrap();
+            writeln!(
+                &mut text,
+                "tile_cache[normals] = {} / {}",
+                normals.utilization(),
+                normals.capacity()
+            )
+            .unwrap();
 
             let albedo = &self.quadtree.tile_cache_layers[LayerType::Colors.index()];
-            writeln!(&mut text, "tile_cache[albedo] = {} / {}",
-                     albedo.utilization(), albedo.capacity()).unwrap();
+            writeln!(
+                &mut text,
+                "tile_cache[albedo] = {} / {}",
+                albedo.utilization(),
+                albedo.capacity()
+            )
+            .unwrap();
 
-            writeln!(&mut text, "x = {}\ny = {}\nz = {}",
-                     camera.x, camera.y, camera.z).unwrap();
+            writeln!(&mut text, "x = {}\ny = {}\nz = {}", camera.x, camera.y, camera.z).unwrap();
 
-            self.glyph_brush.queue(Section{
+            self.glyph_brush.queue(Section {
                 text: &text,
                 screen_position: (10.0, 10.0),
                 ..Default::default()
             });
         }
 
-        self.glyph_brush.draw_queued(
-            device,
-            &mut encoder,
-            &frame.view,
-            frame_size.0,
-            frame_size.1,
-        ).unwrap();
+        self.glyph_brush
+            .draw_queued(device, &mut encoder, &frame.view, frame_size.0, frame_size.1)
+            .unwrap();
         queue.submit(&[encoder.finish()]);
-
     }
 }

@@ -1,4 +1,4 @@
-use cgmath::{Matrix, Matrix3, Matrix4, Vector2, Vector3};
+use cgmath::{InnerSpace, Matrix, Matrix3, Matrix4, Vector2, Vector3};
 use coord_transforms::geo;
 use coord_transforms::structs::geo_ellipsoid::geo_ellipsoid as GeoEllipsoid;
 use coord_transforms::structs::geo_ellipsoid::*;
@@ -30,7 +30,7 @@ pub const PLANET_RADIUS: f64 = 6371000.0;
 ///
 /// *polar* - Same as lla, but assumes a perfectly spherical planet which makes conversions
 /// considerably faster.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CoordinateSystem {
     center_ecef: Vector3<f64>,
     ecef_to_ned_matrix: Matrix3<f64>,
@@ -186,6 +186,29 @@ impl CoordinateSystem {
             world3 = self.lla_to_world(lla);
         }
         world3.y
+    }
+
+    pub fn sun_direction(&self) -> Vector3<f64> {
+        use astro::{coords, sun};
+
+        let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
+        let distance = distance_au * 149597870700.0;
+
+        let e = 0.40905;
+        let declination = coords::dec_frm_ecl(ecl.long, ecl.lat, e);
+        let right_ascension = coords::asc_frm_ecl(ecl.long, ecl.lat, e);
+
+        let eq_rect = Vector3::new(
+            distance * declination.cos() * right_ascension.cos(),
+            distance * declination.cos() * right_ascension.sin(),
+            distance * declination.sin(),
+        );
+
+        // TODO: Is this conversion from equatorial coordinates to ECEF actually valid?
+        let ecef = Vector3::new(eq_rect.x, -eq_rect.y, eq_rect.z);
+
+        let world = self.ecef_to_world(ecef);
+        world.normalize()
     }
 }
 

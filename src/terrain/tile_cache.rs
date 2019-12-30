@@ -29,6 +29,16 @@ impl TextureFormat {
             TextureFormat::SRGBA => 4,
         }
     }
+	pub fn to_wgpu(&self) -> wgpu::TextureFormat {
+		match *self {
+            TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
+            TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
+            TextureFormat::R32F => wgpu::TextureFormat::R32Float,
+            TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
+            TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::SRGBA => wgpu::TextureFormat::Rgba8UnormSrgb,
+		}
+	}
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -117,10 +127,7 @@ pub(crate) struct LayerParams {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct NoiseParams {
-    pub offset: usize,
-    pub resolution: u32,
-    pub format: TextureFormat,
-    pub bytes: usize,
+	pub texture: TextureDescriptor,
     pub wavelength: f32,
 }
 

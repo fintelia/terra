@@ -79,13 +79,13 @@ fn main() {
         limits: wgpu::Limits::default(),
     });
 
-    let quadtree = terra::QuadTreeBuilder::new()
+    let mut terrain = terra::QuadTreeBuilder::new()
         .latitude(42)
         .longitude(-73)
         .vertex_quality(terra::VertexQuality::Medium)
         .texture_quality(terra::TextureQuality::High)
         .grid_spacing(terra::GridSpacing::OneMeter)
-        .build()
+        .build(&device, &mut queue)
         .unwrap();
 
     let mut swap_chain =
@@ -94,8 +94,6 @@ fn main() {
         make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
-
-    let mut terrain = terra::Terrain::new(&device, &mut queue, quadtree);
 
     let mut eye = mint::Point3::from_slice(&[0.0, 2000.0, 0.0]);
 

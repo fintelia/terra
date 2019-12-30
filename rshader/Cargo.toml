@@ -12,7 +12,7 @@ edition = "2018"
 [dependencies]
 failure = "0.1.6"
 notify = "4.0.13"
-shaderc = "0.5.0"
+shaderc = "0.6.1"
 
 [features]
 default = []
