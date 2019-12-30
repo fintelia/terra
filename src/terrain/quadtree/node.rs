@@ -52,7 +52,7 @@ impl Node {
                 max: Point3::new(side_length * 0.5, 0.0, side_length * 0.5),
             },
             side_length,
-            min_distance: side_length * 2.,
+            min_distance: side_length * 1.95,
             center: Point2::origin(),
             size: 1 << 30,
             tile_indices: [None; NUM_LAYERS],

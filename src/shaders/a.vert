@@ -33,6 +33,7 @@ layout(location = 5) out float out_morph;
 layout(location = 6) out vec2 out_i_position;
 layout(location = 7) out float out_side_length;
 layout(location = 8) out float out_min_distance;
+layout(location = 9) out vec3 out_heights_origin;
 
 void main() {
 	vec3 position = vec3(0);
@@ -44,16 +45,15 @@ void main() {
 	float morph = 1 - smoothstep(0.7, 0.95, distance(position.xz, uniform_block.camera.xz) / min_distance);
 	morph = min(morph * 2, 1);
 	// if(is_top_level)
-	// 	morph = 1;
+	//	morph = 1;
+
 
 	position.y = texture(sampler2DArray(heights, linear),
-						 heights_origin + vec3(vec2(iPosition * heights_step + 0.5)
-											  / textureSize(heights, 0).xy, 0)).r;
+						 heights_origin + vec3(vec2(iPosition) * heights_step, 0)).r;
 
 	ivec2 morphTarget = (iPosition / 2) * 2;
 	float morphHeight = texture(sampler2DArray(heights, linear),
-								heights_origin + vec3(vec2(morphTarget * heights_step + 0.5)
-													 / textureSize(heights, 0).xy, 0)).r;
+								heights_origin + vec3(vec2(morphTarget) * heights_step, 0)).r;
 
 	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
 
@@ -69,6 +69,7 @@ void main() {
 	out_i_position = vec2(iPosition);
 	out_side_length = side_length;
 	out_min_distance = min_distance;
+	out_heights_origin = heights_origin;
 
 	gl_Position = uniform_block.view_proj * vec4(position, 1.0);
 

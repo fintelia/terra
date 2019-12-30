@@ -144,7 +144,7 @@ impl Terrain {
                     depth: 1,
                 },
                 format: wgpu::TextureFormat::R32Float,
-                array_layer_count: 384,
+                array_layer_count: 512,
                 ..texture_desc
             }),
             normals: device.create_texture(&wgpu::TextureDescriptor {
@@ -164,7 +164,7 @@ impl Terrain {
                     depth: 1,
                 },
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                array_layer_count: 512,
+                array_layer_count: 384,
                 ..texture_desc
             }),
         };
@@ -494,6 +494,9 @@ impl Terrain {
             let albedo = &self.quadtree.tile_cache_layers[LayerType::Colors.index()];
             writeln!(&mut text, "tile_cache[albedo] = {} / {}",
                      albedo.utilization(), albedo.capacity()).unwrap();
+
+            writeln!(&mut text, "x = {}\ny = {}\nz = {}",
+                     camera.x, camera.y, camera.z).unwrap();
 
             self.glyph_brush.queue(Section{
                 text: &text,

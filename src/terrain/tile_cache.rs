@@ -261,6 +261,9 @@ impl TileCache {
                 self.reverse.insert(m.1.index(), index);
                 self.slots[index] = Entry { priority: m.0, id: m.1, valid: false };
                 index += 1;
+                if index == self.slots.len() {
+                    break;
+                }
             }
         }
         self.missing.clear();

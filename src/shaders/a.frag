@@ -21,6 +21,7 @@ layout(location = 5) in float morph;
 layout(location = 6) in vec2 i_position;
 layout(location = 7) in float side_length;
 layout(location = 8) in float min_distance;
+layout(location = 9) in vec3 heights_origin;
 
 layout(location = 0) out vec4 out_color;
 
@@ -58,20 +59,26 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	// if((fract(0.5*position.x/1) < 0.5) != (fract(0.5*position.z/1) < 0.5))
+	// if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.3);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	// if(abs(length(position.xz) - 10000.0) < 100)
+	// if(abs(length(position.xz) - 16 * 1024.0) < 100)
 	// 	color = vec3(1);
 	// if(abs(length(position.xz-camera.xz) - 4.0) < .125)
 	// 	color = vec3(1);
 
 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
 	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.1), smoothstep(1, 0, line));
+	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.3);
+
+	// if (side_length / 512.0 <= 16.0)
+	// 	color = mix(color, vec3(1,0,0), 0.4);
+
+	if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
+		color = mix(color, vec3(0.1), 0.3);
 
 	// if((fract(texcoord.x*ts.x/2) < 0.5) != (fract(texcoord.y*ts.y/2) < 0.5))
 	// 	color *= 0.4;
@@ -82,6 +89,8 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = mix(color, vec3(0,0,0), .5+.0*sin(texcoord.y*100));
 	// if(min_distance == 1024.0)
 	// 	color = mix(color, vec3(0,0,1), .5+.0*sin(texcoord.y*100));
+
+	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 
  	return color;
 }

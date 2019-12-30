@@ -199,10 +199,10 @@ impl QuadTree {
                 &self.nodes,
                 &self.tile_cache_layers[LayerType::Heights.index()],
                 id,
+                Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
                 Vector2::new(0.0, 0.0),
-                Vector2::new(0.0, 0.0),
-                1.0,
-                1.0,
+                resolution as f32 / (resolution + 1) as f32,
+                1.0 / (resolution + 1) as f32,
             )[0];
             let albedo_desc = find_descs(
                 &self.nodes,
@@ -246,10 +246,10 @@ impl QuadTree {
                         &self.nodes,
                         &self.tile_cache_layers[LayerType::Heights.index()],
                         id,
-                        Vector2::new(0.0, 0.0),
-                        Vector2::new(offset.0, offset.1) * (0.5 - 0.5 / (resolution + 1) as f32),
-                        1.0,
-                        1.0,
+                        Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
+                        Vector2::new(offset.0, offset.1) * 0.5,
+                        resolution as f32 / (resolution + 1) as f32,
+                        1.0 / (resolution + 1) as f32,
                     )[0];
                     let albedo_desc = find_descs(
                         &self.nodes,

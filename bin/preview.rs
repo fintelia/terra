@@ -122,6 +122,10 @@ fn main() {
                     event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
                     event::VirtualKeyCode::Space => eye.y += 0.01 * eye.y,
                     event::VirtualKeyCode::Semicolon => eye.y -= 0.01 * eye.y,
+                    event::VirtualKeyCode::Left => eye.x -= 50.0,
+                    event::VirtualKeyCode::Right => eye.x += 50.0,
+                    event::VirtualKeyCode::Up => eye.z -= 50.0,
+                    event::VirtualKeyCode::Down => eye.z += 50.0,
                     _ => {}
                 },
                 event::WindowEvent::Resized(new_size) => {
@@ -147,7 +151,7 @@ fn main() {
 
                 let view = cgmath::Matrix4::look_at(
                     cgmath::Point3::new(eye.x, eye.y, eye.z),
-                    cgmath::Point3::new(0.0, 0.0, -20000.0),
+                    cgmath::Point3::new(eye.x, 0.0, eye.z - 20000.0),
                     cgmath::Vector3::new(0.0, -1.0, 0.0),
                 );
 
