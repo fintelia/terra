@@ -19,10 +19,10 @@ use crate::coordinates::CoordinateSystem;
 use crate::srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use crate::terrain::dem::DemSource;
 use crate::terrain::heightmap::{self, Heightmap};
-use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
+use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource, GlobalWaterMask};
 // use terrain::material::{MaterialSet, MaterialType};
 use crate::terrain::quadtree::{node, Node, NodeId, QuadTree};
-use crate::terrain::raster::RasterCache;
+use crate::terrain::raster::{BitContainer, RasterCache};
 use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
@@ -469,7 +469,7 @@ impl<W: Write> State<W> {
         self.bytes_written += tile_count;
         self.page_pad()?;
 
-        let tile_bytes = 4 * self.heights_resolution as usize * self.heights_resolution as usize;
+        let tile_bytes = 8 * self.heights_resolution as usize * self.heights_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
@@ -480,7 +480,7 @@ impl<W: Write> State<W> {
             payload_type: PayloadType::Texture {
                 resolution: self.heights_resolution as u32,
                 border_size: 0,
-                format: TextureFormat::F32,
+                format: TextureFormat::RG32F,
             },
         });
 
@@ -526,24 +526,26 @@ impl<W: Write> State<W> {
             let mut maxy = None;
             for y in 0..self.heights_resolution {
                 for x in 0..self.heights_resolution {
-                    let height = self.heightmaps.as_ref().unwrap().get(
-                        heightmap,
+                    let position = Vector2::new(
                         x * step + offset.x + self.skirt,
                         y * step + offset.y + self.skirt,
-                        0,
                     );
+                    let height =
+                        self.heightmaps.as_ref().unwrap().get(heightmap, position.x, position.y, 0);
 
-                    miny = Some(match miny {
-                        Some(y) if y < height => y,
-                        _ => height,
-                    });
+                    miny = Some(height.min(miny.unwrap_or(height)));
                     maxy = Some(match maxy {
                         Some(y) if y > height => y,
                         _ => height,
                     });
 
+                    let world2 = self.world_position(position.x as i32, position.y as i32, self.nodes[i].bounds);
+                    let altitude =
+                        self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
+
                     self.writer.write_f32::<LittleEndian>(height)?;
-                    self.bytes_written += 4;
+                    self.writer.write_f32::<LittleEndian>(altitude as f32)?;
+                    self.bytes_written += 8;
                 }
             }
             let (miny, maxy) = (miny.unwrap(), maxy.unwrap());
@@ -578,8 +580,7 @@ impl<W: Write> State<W> {
 
         let tile_count = self.heightmaps.as_ref().unwrap().len();
 
-        context
-            .increment_level("Generating colormaps... ", tile_count);
+        context.increment_level("Generating colormaps... ", tile_count);
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
@@ -595,28 +596,18 @@ impl<W: Write> State<W> {
         };
         let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
 
-        // let reproject = ReprojectedRasterDef {
-        //     name: format!("{}watermasks", self.directory_name),
-        //     heights: self.heightmaps.as_ref().unwrap(),
-        //     system: &self.system,
-        //     nodes: &self.nodes,
-        //     skirt: self.skirt,
-        //     datatype: DataType::U8,
-        //     raster: RasterSource::Hybrid {
-        //         global: Box::new(GlobalWaterMask),
-        //         cache: Rc::new(RefCell::new(RasterCache::new(
-        //             Box::new(BlurredSource::new(
-        //                 Rc::new(RefCell::new(RasterCache::new(
-        //                     Box::new(LandCoverKind::WaterMask),
-        //                     128,
-        //                 ))),
-        //                 0.0,
-        //             )),
-        //             64,
-        //         ))),
-        //     },
-        // };
-        // let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
+        let reproject = ReprojectedRasterDef {
+            name: format!("{}watermasks", self.directory_name),
+            heights: self.heightmaps.as_ref().unwrap(),
+            system: &self.system,
+            nodes: &self.nodes,
+            skirt: self.skirt,
+            datatype: DataType::U8,
+            raster: RasterSource::GlobalRaster::<_, BitContainer> {
+                global: Box::new(GlobalWaterMask),
+            },
+        };
+        let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
 
         let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
@@ -640,9 +631,19 @@ impl<W: Write> State<W> {
                     let r = bluemarble.get(i, x, y, 0) as u8;
                     let g = bluemarble.get(i, x, y, 1) as u8;
                     let b = bluemarble.get(i, x, y, 2) as u8;
-                    let roughness = (0.7 * 255.0) as u8;
+                    let mut roughness = (0.7 * 255.0) as u8;
 
-                    colormap.extend_from_slice(&[r, g, b, roughness]);
+                    let color = if watermasks.get(i, x, y, 0) > 0.01 {
+                        [0, 6, 13, 77]
+                    } else {
+                        let r = bluemarble.get(i, x, y, 0) as u8;
+                        let g = bluemarble.get(i, x, y, 1) as u8;
+                        let b = bluemarble.get(i, x, y, 2) as u8;
+                        let roughness = (0.7 * 255.0) as u8;
+                        [r, g, b, roughness]
+                    };
+
+                    colormap.extend_from_slice(&color);
                 }
             }
 
@@ -1262,7 +1263,6 @@ impl<W: Write> State<W> {
                 mut writer: W,
             ) -> Result<Self::Header, Error> {
                 let bluemarble = BlueMarble.load(context)?;
-                // let watermask = GlobalWaterMask.load(context)?;
 
                 let mut bytes_written = 0;
                 for y in 0..self.resolution {

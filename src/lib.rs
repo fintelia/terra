@@ -143,7 +143,7 @@ impl Terrain {
                     height: heights_resolution,
                     depth: 1,
                 },
-                format: wgpu::TextureFormat::R32Float,
+                format: wgpu::TextureFormat::Rg32Float,
                 array_layer_count: 512,
                 ..texture_desc
             }),

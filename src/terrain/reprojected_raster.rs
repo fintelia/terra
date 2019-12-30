@@ -154,7 +154,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                             let slope =
                                 (slope_x * slope_x + slope_y * slope_y).sqrt() * slope_scale;
 
-                            let bias = 0.0; //noise_scale * 0.3 * (slope - 0.5).max(0.0);
+                            let bias = noise_scale * 0.3 * (slope - 0.5).max(0.0);
 
                             let noise_strength = ((slope - 0.2).max(0.0) + 0.05).min(1.0);
                             let wx = layer_origin.x + (x as i32 - self.skirt as i32);

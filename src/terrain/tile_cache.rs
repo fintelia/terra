@@ -13,7 +13,8 @@ use crate::terrain::quadtree::{Node, NodeId};
 pub enum TextureFormat {
     R8,
     RG8,
-    F32,
+    R32F,
+    RG32F,
     RGBA8,
     SRGBA,
 }
@@ -22,7 +23,8 @@ impl TextureFormat {
         match *self {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
-            TextureFormat::F32 => 4,
+            TextureFormat::R32F => 4,
+            TextureFormat::RG32F => 8,
             TextureFormat::RGBA8 => 4,
             TextureFormat::SRGBA => 4,
         }

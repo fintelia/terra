@@ -21,7 +21,7 @@ layout(location = 5) in float morph;
 layout(location = 6) in vec2 i_position;
 layout(location = 7) in float side_length;
 layout(location = 8) in float min_distance;
-layout(location = 9) in vec3 heights_origin;
+layout(location = 9) in float elevation;
 
 layout(location = 0) out vec4 out_color;
 
