@@ -123,7 +123,7 @@ impl QuadTree {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         vertex_buffer: &wgpu::Buffer,
-		tile_cache: &VecMap<TileCache>,
+        tile_cache: &VecMap<TileCache>,
     ) {
         //     encoder.draw(
         //         &gfx::Slice {
@@ -362,10 +362,8 @@ impl QuadTree {
         vertex_buffer: &wgpu::Buffer,
         index_buffer: &wgpu::Buffer,
         index_buffer_partial: &wgpu::Buffer,
-		tile_cache: &VecMap<TileCache>,
     ) {
-        let resolution =
-            (tile_cache[LayerType::Heights.index()].resolution() - 1) as u32;
+        let resolution = self.heights_resolution;
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 

@@ -36,29 +36,25 @@ layout(location = 8) out float out_min_distance;
 layout(location = 9) out float out_elevation;
 
 void main() {
-	vec3 position = vec3(0);
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
 							(gl_VertexIndex) / (resolution+1));
 
-	position.xz = vec2(iPosition)
-	    * (side_length / (resolution)) + in_position;
-	float morph = 1 - smoothstep(0.7, 0.95, distance(position.xz, uniform_block.camera.xz) / min_distance);
+	vec2 basePosition = vec2(iPosition) * (side_length / (resolution)) + in_position;
+	float morph = 1 - smoothstep(0.7, 0.95, distance(basePosition, uniform_block.camera.xz) / min_distance);
 	morph = min(morph * 2, 1);
 	// if(is_top_level)
 	//	morph = 1;
-
-
-	position.y = texture(sampler2DArray(heights, linear),
-						 heights_origin + vec3(vec2(iPosition) * heights_step, 0)).r;
-
 	ivec2 morphTarget = (iPosition / 2) * 2;
-	float morphHeight = texture(sampler2DArray(heights, linear),
-								heights_origin + vec3(vec2(morphTarget) * heights_step, 0)).r;
-
 	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
 
-	position.y = mix(morphHeight, position.y, morph);
+	vec3 offset = texture(sampler2DArray(heights, linear),
+						  heights_origin + vec3(vec2(iPosition) * heights_step, 0)).xyz;
+	vec3 morphOffset = texture(sampler2DArray(heights, linear),
+							   heights_origin + vec3(vec2(morphTarget) * heights_step, 0)).xyz;
+
+	vec3 position = vec3(0);
 	position.xz = nPosition * (side_length / (resolution)) + in_position;
+	position += mix(morphOffset, offset, morph);
 
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);

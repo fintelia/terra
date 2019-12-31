@@ -1,6 +1,5 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
 #![feature(stmt_expr_attributes)]
-#![feature(float_to_from_bytes)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -19,7 +18,6 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
-use crate::coordinates::CoordinateSystem;
 use crate::generate::ComputeShader;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::render::NodeState;
@@ -27,7 +25,7 @@ use crate::terrain::tile_cache::{LayerType, TileCache};
 use std::mem;
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
-use wgpu_glyph::{GlyphBrush, GlyphBrushBuilder, Section};
+use wgpu_glyph::{GlyphBrush, Section};
 
 pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
 
@@ -62,10 +60,6 @@ pub struct Terrain {
     render_pipeline_layout: wgpu::PipelineLayout,
     render_pipeline: Option<wgpu::RenderPipeline>,
 
-    // set_layouts: Vec<Handle<DescriptorSetLayout<B>>>,
-    // descriptor_sets: Vec<Escape<DescriptorSet<B>>>,
-    // pipeline_layout: B::PipelineLayout,
-    // graphics_pipeline: B::GraphicsPipeline,
     watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::ShaderSet,
 
@@ -74,11 +68,10 @@ pub struct Terrain {
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
 
-    gpu_state: GpuState,
-
     // gen_heights: ComputeShader<()>,
     // gen_normals: ComputeShader<()>,
     // load_heights: ComputeShader<()>,
+    gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: MapFile,
     tile_cache: VecMap<TileCache>,
@@ -89,14 +82,18 @@ impl Terrain {
     pub(crate) fn new(
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
-        quadtree: QuadTree,
-        mapfile: MapFile,
+        mut mapfile: MapFile,
     ) -> Self {
         let mut tile_cache = VecMap::new();
         for layer in mapfile.layers().iter().cloned() {
             tile_cache
                 .insert(layer.layer_type as usize, TileCache::new(layer, mapfile.data_file()));
         }
+
+        let quadtree = QuadTree::new(
+            mapfile.take_nodes(),
+            tile_cache[LayerType::Heights.index()].resolution() - 1,
+        );
 
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
@@ -114,8 +111,7 @@ impl Terrain {
             size: (std::mem::size_of::<NodeState>() * quadtree.total_nodes()) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
         });
-        let (index_buffer, index_buffer_partial) =
-            quadtree.create_index_buffers(device, &tile_cache);
+        let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
         let texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 0, height: 0, depth: 0 },
@@ -161,36 +157,9 @@ impl Terrain {
                 format: wgpu::TextureFormat::Rg8Uint,
                 ..texture_desc
             }),
-            heights: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d {
-                    width: heights_resolution,
-                    height: heights_resolution,
-                    depth: 1,
-                },
-                format: wgpu::TextureFormat::Rg32Float,
-                array_layer_count: 512,
-                ..texture_desc
-            }),
-            normals: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d {
-                    width: normals_resolution,
-                    height: normals_resolution,
-                    depth: 1,
-                },
-                format: wgpu::TextureFormat::Rg8Unorm,
-                array_layer_count: 384,
-                ..texture_desc
-            }),
-            albedo: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d {
-                    width: albedo_resolution,
-                    height: albedo_resolution,
-                    depth: 1,
-                },
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                array_layer_count: 384,
-                ..texture_desc
-            }),
+            heights: tile_cache[LayerType::Heights].make_cache_texture(device),
+            normals: tile_cache[LayerType::Normals].make_cache_texture(device),
+            albedo: tile_cache[LayerType::Colors].make_cache_texture(device),
         };
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -386,7 +355,7 @@ impl Terrain {
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                         front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: wgpu::CullMode::None,
+                        cull_mode: wgpu::CullMode::Front,
                         depth_bias: 0,
                         depth_bias_slope_scale: 0.0,
                         depth_bias_clamp: 0.0,
@@ -522,7 +491,6 @@ impl Terrain {
                 &self.vertex_buffer,
                 &self.index_buffer,
                 &self.index_buffer_partial,
-                &self.tile_cache,
             );
         }
 

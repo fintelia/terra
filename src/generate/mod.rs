@@ -31,7 +31,7 @@ use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
 use crate::terrain::tile_cache::{
-    ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams, PayloadType, TextureDescriptor,
+    ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
     TextureFormat, TileHeader,
 };
 use crate::utils::math::BoundingBox;
@@ -263,10 +263,9 @@ impl QuadTreeBuilder {
         let (mut header, data) = self.load(&mut context)?;
         let data = Arc::new(data);
 
-        let quadtree = QuadTree::new(mem::replace(&mut header.nodes, Vec::new()));
         let mapfile = MapFile::new(header, data);
 
-        Ok(Terrain::new(device, queue, quadtree, mapfile))
+        Ok(Terrain::new(device, queue, mapfile))
     }
 
     fn name(&self) -> String {
@@ -481,7 +480,7 @@ impl<W: Write> State<W> {
         self.bytes_written += tile_count;
         self.page_pad()?;
 
-        let tile_bytes = 8 * self.heights_resolution as usize * self.heights_resolution as usize;
+        let tile_bytes = 16 * self.heights_resolution as usize * self.heights_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
@@ -489,11 +488,9 @@ impl<W: Write> State<W> {
             layer_type: LayerType::Heights,
             tile_valid_bitmap,
             tile_locations,
-            payload_type: PayloadType::Texture {
-                resolution: self.heights_resolution as u32,
-                border_size: 0,
-                format: TextureFormat::RG32F,
-            },
+            texture_resolution: self.heights_resolution as u32,
+            texture_border_size: 0,
+            texture_format: TextureFormat::RGBA32F,
         });
 
         let reproject = ReprojectedDemDef {
@@ -559,9 +556,11 @@ impl<W: Write> State<W> {
                     let altitude =
                         self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
 
+                    self.writer.write_f32::<LittleEndian>(0.0)?;
                     self.writer.write_f32::<LittleEndian>(height)?;
+                    self.writer.write_f32::<LittleEndian>(0.0)?;
                     self.writer.write_f32::<LittleEndian>(altitude as f32)?;
-                    self.bytes_written += 8;
+                    self.bytes_written += 16;
                 }
             }
             let (miny, maxy) = (miny.unwrap(), maxy.unwrap());
@@ -683,11 +682,9 @@ impl<W: Write> State<W> {
             layer_type: LayerType::Colors,
             tile_valid_bitmap,
             tile_locations,
-            payload_type: PayloadType::Texture {
-                resolution: colormap_resolution as u32,
-                border_size: colormap_skirt as u32,
-                format: TextureFormat::SRGBA,
-            },
+            texture_resolution: colormap_resolution as u32,
+            texture_border_size: colormap_skirt as u32,
+            texture_format: TextureFormat::SRGBA,
         });
 
         for colormap in colormaps {
@@ -716,11 +713,9 @@ impl<W: Write> State<W> {
             layer_type: LayerType::Normals,
             tile_valid_bitmap,
             tile_locations,
-            payload_type: PayloadType::Texture {
-                resolution: normalmap_resolution as u32,
-                border_size: self.skirt as u32 - 2,
-                format: TextureFormat::RG8,
-            },
+            texture_resolution: normalmap_resolution as u32,
+            texture_border_size: self.skirt as u32 - 2,
+            texture_format: TextureFormat::RG8,
         });
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
@@ -774,11 +769,9 @@ impl<W: Write> State<W> {
             layer_type: LayerType::Splats,
             tile_valid_bitmap,
             tile_locations,
-            payload_type: PayloadType::Texture {
-                resolution: splatmap_resolution as u32,
-                border_size: self.skirt as u32 - 2,
-                format: TextureFormat::R8,
-            },
+            texture_resolution: splatmap_resolution as u32,
+            texture_border_size: self.skirt as u32 - 2,
+            texture_format: TextureFormat::R8,
         });
         context.increment_level("Generating splats... ", splatmap_nodes.len());
         for (i, id) in splatmap_nodes.into_iter().enumerate() {

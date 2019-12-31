@@ -3,9 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use failure::Error;
 use image::png::PngDecoder;
-use image::{
-    self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat,
-};
+use image::{self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat};
 use memmap::Mmap;
 use zip::ZipArchive;
 

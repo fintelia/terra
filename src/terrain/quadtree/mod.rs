@@ -1,15 +1,10 @@
 use byteorder::{ByteOrder, LittleEndian, NativeEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
-use failure::Error;
-use memmap::Mmap;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 use vec_map::VecMap;
 
-use crate::terrain::tile_cache::{
-    LayerParams, LayerType, Priority, TileCache, TileHeader, NUM_LAYERS,
-};
+use crate::terrain::tile_cache::{LayerType, Priority, TileCache, NUM_LAYERS};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -29,6 +24,8 @@ pub(crate) struct QuadTree {
     visible_nodes: Vec<NodeId>,
     partially_visible_nodes: Vec<(NodeId, u8)>,
 
+    heights_resolution: u32,
+
     node_states: Vec<NodeState>,
 }
 
@@ -40,19 +37,19 @@ impl std::fmt::Debug for QuadTree {
 
 #[allow(unused)]
 impl QuadTree {
-    pub(crate) fn new(nodes: Vec<Node>) -> Self {
+    pub(crate) fn new(nodes: Vec<Node>, heights_resolution: u32) -> Self {
         Self {
             nodes,
             visible_nodes: Vec::new(),
             partially_visible_nodes: Vec::new(),
             node_states: Vec::new(),
+            heights_resolution,
         }
     }
 
     pub(crate) fn create_index_buffers(
         &self,
         device: &wgpu::Device,
-        tile_cache: &VecMap<TileCache>,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
         let make_index_buffer = |resolution: u16| -> wgpu::Buffer {
             let mapped = device.create_buffer_mapped(
@@ -64,7 +61,7 @@ impl QuadTree {
             let width = resolution + 1;
             for y in 0..resolution {
                 for x in 0..resolution {
-                    for offset in [0, 1, width, 1, width + 1, width].into_iter() {
+                    for offset in [0, 1, width, 1, width + 1, width].iter() {
                         NativeEndian::write_u16(&mut mapped.data[i..], offset + (x + y * width));
                         i += 2;
                     }
@@ -73,7 +70,7 @@ impl QuadTree {
 
             mapped.finish()
         };
-        let resolution = (tile_cache[LayerType::Heights.index()].resolution() - 1) as u16;
+        let resolution = self.heights_resolution as u16;
 
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }

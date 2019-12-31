@@ -1,21 +1,20 @@
-use std::sync::Arc;
-
+use crate::coordinates::CoordinateSystem;
+use crate::terrain::quadtree::{Node, NodeId};
 use cgmath::Point3;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
+use std::ops::{Index, IndexMut};
+use std::sync::Arc;
 use vec_map::VecMap;
-
-use crate::coordinates::CoordinateSystem;
-// use runtime_texture::{TextureArray, TextureFormat};
-use crate::terrain::quadtree::{Node, NodeId};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
     R8,
     RG8,
+    RGBA8,
     R32F,
     RG32F,
-    RGBA8,
+    RGBA32F,
     SRGBA,
 }
 impl TextureFormat {
@@ -23,22 +22,24 @@ impl TextureFormat {
         match *self {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
+            TextureFormat::RGBA8 => 4,
             TextureFormat::R32F => 4,
             TextureFormat::RG32F => 8,
-            TextureFormat::RGBA8 => 4,
+            TextureFormat::RGBA32F => 16,
             TextureFormat::SRGBA => 4,
         }
     }
-	pub fn to_wgpu(&self) -> wgpu::TextureFormat {
-		match *self {
+    pub fn to_wgpu(&self) -> wgpu::TextureFormat {
+        match *self {
             TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
+            TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
             TextureFormat::R32F => wgpu::TextureFormat::R32Float,
             TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
-            TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
             TextureFormat::SRGBA => wgpu::TextureFormat::Rgba8UnormSrgb,
-		}
-	}
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -86,31 +87,22 @@ impl LayerType {
         *self as usize
     }
 }
+impl Index<LayerType> for VecMap<TileCache> {
+    type Output = TileCache;
+    fn index(&self, i: LayerType) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+impl IndexMut<LayerType> for VecMap<TileCache> {
+    fn index_mut(&mut self, i: LayerType) -> &mut Self::Output {
+        &mut self[i as usize]
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ByteRange {
     pub offset: usize,
     pub length: usize,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) enum PayloadType {
-    Texture {
-        /// Number of samples in each dimension, per tile.
-        resolution: u32,
-        /// Number of samples outside the tile on each side.
-        border_size: u32,
-        /// Format used by this layer.
-        format: TextureFormat,
-    },
-    InstancedMesh {
-        /// Actual mesh that is being instanced.
-        mesh: MeshDescriptor,
-        /// Texture map for the mesh.
-        texture: TextureDescriptor,
-        /// Maximum number of instances in any tile.
-        max_instances: usize,
-    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -121,13 +113,17 @@ pub(crate) struct LayerParams {
     pub tile_valid_bitmap: ByteRange,
     /// Where each tile is located in the file.
     pub tile_locations: Vec<ByteRange>,
-    /// What kind of data is stored in this layer.
-    pub payload_type: PayloadType,
+    /// Number of samples in each dimension, per tile.
+    pub texture_resolution: u32,
+    /// Number of samples outside the tile on each side.
+    pub texture_border_size: u32,
+    /// Format used by this layer.
+    pub texture_format: TextureFormat,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct NoiseParams {
-	pub texture: TextureDescriptor,
+    pub texture: TextureDescriptor,
     pub wavelength: f32,
 }
 
@@ -155,27 +151,6 @@ pub(crate) struct TileHeader {
     pub planet_mesh_texture: TextureDescriptor,
     pub system: CoordinateSystem,
 }
-
-// gfx_vertex_struct!(MeshInstance {
-//     position: [f32; 3] = "vPosition",
-//     color: [f32; 3] = "vColor",
-//     rotation: f32 = "vRotation",
-//     scale: f32 = "vScale",
-//     normal: [f32; 3] = "vNormal",
-//     padding1: f32 = "vPadding1",
-//     padding2: [f32; 4] = "vPadding2",
-// });
-
-// enum PayloadSet<B: Backend> {
-//     Texture {
-//         texture: Texture<B>,
-//         resolution: u16,
-//     },
-//     InstancedMesh {
-//         buffer: gfx::handle::Buffer<R, MeshInstance>,
-//         max_elements_per_slot: usize,
-//     },
-// }
 
 struct Entry {
     priority: Priority,
@@ -310,7 +285,7 @@ impl TileCache {
         }
 
         let resolution = self.resolution() as usize;
-        let bytes_per_texel = self.bytes_per_texel();
+        let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
         let row_bytes = resolution * bytes_per_texel;
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = self.pending_uploads.len();
@@ -352,8 +327,28 @@ impl TileCache {
         }
     }
 
+    pub fn make_cache_texture(&self, device: &wgpu::Device) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: self.layer_params.texture_resolution,
+                height: self.layer_params.texture_resolution,
+                depth: 1,
+            },
+            format: self.layer_params.texture_format.to_wgpu(),
+            array_layer_count: self.size as u32,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            usage: wgpu::TextureUsage::COPY_SRC
+                | wgpu::TextureUsage::COPY_DST
+                | wgpu::TextureUsage::SAMPLED
+                | wgpu::TextureUsage::STORAGE,
+        })
+    }
+
     pub fn contains(&self, id: NodeId) -> bool {
-        self.reverse.get(id.index())
+        self.reverse
+            .get(id.index())
             .and_then(|&slot| self.slots.get(slot))
             .map(|entry| entry.valid)
             .unwrap_or(false)
@@ -364,41 +359,23 @@ impl TileCache {
     }
 
     pub fn resolution(&self) -> u32 {
-        match self.layer_params.payload_type {
-            PayloadType::Texture { resolution, .. } => resolution,
-            _ => unreachable!(),
-        }
+        self.layer_params.texture_resolution
     }
 
     pub fn border(&self) -> u32 {
-        match self.layer_params.payload_type {
-            PayloadType::Texture { border_size, .. } => border_size,
-            _ => unreachable!(),
-        }
-    }
-
-    fn bytes_per_texel(&self) -> usize {
-        match self.layer_params.payload_type {
-            PayloadType::Texture { format, .. } => format.bytes_per_texel(),
-            _ => unreachable!(),
-        }
+        self.layer_params.texture_border_size
     }
 
     pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
-        if let PayloadType::Texture { border_size, resolution, format } =
-            self.layer_params.payload_type
-        {
-            let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-            let offset = self.layer_params.tile_locations[tile].offset;
-            let length = self.layer_params.tile_locations[tile].length;
-            let tile_data = &self.data_file[offset..(offset + length)];
-            let bytes_per_texel = format.bytes_per_texel();
-            let border = border_size as usize;
-            let index = ((x + border) + (y + border) * resolution as usize) * bytes_per_texel;
-            &tile_data[index..(index + bytes_per_texel)]
-        } else {
-            unreachable!()
-        }
+        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
+        let offset = self.layer_params.tile_locations[tile].offset;
+        let length = self.layer_params.tile_locations[tile].length;
+        let tile_data = &self.data_file[offset..(offset + length)];
+        let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
+        let border = self.layer_params.texture_border_size as usize;
+        let index = ((x + border) + (y + border) * self.layer_params.texture_resolution as usize)
+            * bytes_per_texel;
+        &tile_data[index..(index + bytes_per_texel)]
     }
 
     pub fn capacity(&self) -> usize {
@@ -408,14 +385,3 @@ impl TileCache {
         self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid).count()
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use std::mem;
-
-//     #[test]
-//     fn mesh_instance_size() {
-//         assert_eq!(mem::size_of::<MeshInstance>(), 64);
-//     }
-// }

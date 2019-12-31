@@ -1,6 +1,8 @@
 use crate::coordinates::CoordinateSystem;
 use crate::terrain::quadtree::{Node, NodeId};
-use crate::terrain::tile_cache::{LayerType, TextureDescriptor, LayerParams, TextureFormat, TileHeader};
+use crate::terrain::tile_cache::{
+    LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
+};
 use memmap::Mmap;
 use std::sync::Arc;
 
@@ -39,7 +41,7 @@ impl MapFile {
             size: wgpu::Extent3d { width: desc.resolution, height: desc.resolution, depth: 1 },
             format: desc.format.to_wgpu(),
             mip_level_count: 1,
-			array_layer_count: 1,
+            array_layer_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             usage: wgpu::TextureUsage::COPY_SRC
@@ -79,7 +81,7 @@ impl MapFile {
             wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
         );
 
-		texture
+        texture
     }
 
     pub fn noise_texture(
@@ -87,24 +89,27 @@ impl MapFile {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::Texture {
-		self.load_texture(device, encoder, &self.header.noise.texture)
-	}
+        self.load_texture(device, encoder, &self.header.noise.texture)
+    }
 
     pub fn planet_mesh_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::Texture {
-		self.load_texture(device, encoder, &self.header.planet_mesh_texture)
-	}
+        self.load_texture(device, encoder, &self.header.planet_mesh_texture)
+    }
 
-	pub fn system(&self) -> CoordinateSystem {
-		self.header.system.clone()
-	}
-	pub fn layers(&self) -> &[LayerParams] {
-		&self.header.layers
-	}
-	pub fn data_file(&self) -> Arc<Mmap> {
-		self.file.clone()
-	}
+    pub fn system(&self) -> CoordinateSystem {
+        self.header.system.clone()
+    }
+    pub fn layers(&self) -> &[LayerParams] {
+        &self.header.layers
+    }
+    pub fn data_file(&self) -> Arc<Mmap> {
+        self.file.clone()
+    }
+    pub fn take_nodes(&mut self) -> Vec<Node> {
+        std::mem::replace(&mut self.header.nodes, Vec::new())
+    }
 }
