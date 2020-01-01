@@ -1,30 +1,11 @@
-use std::cell::RefCell;
-use std::collections::VecDeque;
-use std::f64::consts::PI;
-use std::io::Write;
-use std::mem;
-use std::rc::Rc;
-use std::sync::Arc;
-
-use byteorder::{LittleEndian, WriteBytesExt};
-use cgmath::*;
-use failure::Error;
-// use gfx;
-// use gfx_core;
-use rand;
-use rand::distributions::Distribution;
-use rand_distr::Normal;
-
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
-use crate::Terrain;
-// use sky::Skybox;
 use crate::srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use crate::terrain::dem::DemSource;
+use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::{self, Heightmap};
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource, GlobalWaterMask};
-// use terrain::material::{MaterialSet, MaterialType};
 use crate::terrain::quadtree::{node, Node, NodeId, QuadTree};
 use crate::terrain::raster::{BitContainer, RasterCache};
 use crate::terrain::reprojected_raster::{
@@ -35,7 +16,21 @@ use crate::terrain::tile_cache::{
     TextureFormat, TileHeader,
 };
 use crate::utils::math::BoundingBox;
-// use TREE_BILLBOARDS;
+use crate::Terrain;
+use byteorder::{LittleEndian, WriteBytesExt};
+use cgmath::*;
+use failure::Error;
+use rand;
+use rand::distributions::Distribution;
+use rand_distr::Normal;
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::f64::consts::PI;
+use std::io::Write;
+use std::mem;
+use std::rc::Rc;
+use std::sync::Arc;
+use vec_map::VecMap;
 
 mod gpu;
 pub(crate) use gpu::*;
@@ -260,8 +255,7 @@ impl QuadTreeBuilder {
         queue: &mut wgpu::Queue,
     ) -> Result<Terrain, Error> {
         let mut context = self.context.take().unwrap();
-        let (mut header, data) = self.load(&mut context)?;
-        let data = Arc::new(data);
+        let (header, data) = self.load(&mut context)?;
 
         let mapfile = MapFile::new(header, data);
 
@@ -359,13 +353,13 @@ impl MMappedAsset for QuadTreeBuilder {
                 0.0,
             )),
             nodes: Node::make_nodes(world_size, 3000.0, max_level as u8),
-            layers: Vec::new(),
+            layers: VecMap::new(),
             bytes_written: 0,
             directory_name: format!("maps/t.{}/", self.name()),
         };
 
         context.set_progress_and_total(0, 8);
-        state.generate_heightmaps(context)?;
+        let base_heights = state.generate_heightmaps(context)?;
         context.set_progress(1);
         state.generate_normalmaps(context)?;
         context.set_progress(2);
@@ -387,7 +381,15 @@ impl MMappedAsset for QuadTreeBuilder {
 
         context.set_progress(8);
 
-        Ok(TileHeader { system, planet_mesh, planet_mesh_texture, layers, noise, nodes })
+        Ok(TileHeader {
+            system,
+            base_heights,
+            planet_mesh,
+            planet_mesh_texture,
+            layers,
+            noise,
+            nodes,
+        })
     }
 }
 
@@ -417,7 +419,7 @@ struct State<W: Write> {
     // materials: &'a MaterialSet<R>,
     system: CoordinateSystem,
 
-    layers: Vec<LayerParams>,
+    layers: VecMap<LayerParams>,
     nodes: Vec<Node>,
     bytes_written: usize,
 
@@ -471,31 +473,93 @@ impl<W: Write> State<W> {
         return Ok(());
     }
 
-    fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        let tile_count =
-            self.nodes.iter().filter(|n| n.level <= self.max_heights_level as u8).count();
+    fn generate_heightmaps(
+        &mut self,
+        context: &mut AssetLoadContext,
+    ) -> Result<TextureDescriptor, Error> {
+        let present_tile_count = self.nodes.iter().filter(|n| n.level <= LEVEL_32_M as u8).count();
+        let vacant_tile_count = self
+            .nodes
+            .iter()
+            .filter(|n| n.level > LEVEL_32_M as u8 && n.level <= self.max_heights_level as u8)
+            .count();
 
-        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
-        self.writer.write_all(&vec![1u8; tile_count])?;
-        self.bytes_written += tile_count;
+        let tile_valid_bitmap = ByteRange {
+            offset: self.bytes_written,
+            length: present_tile_count + vacant_tile_count,
+        };
+        self.writer.write_all(&vec![1u8; present_tile_count])?;
+        self.writer.write_all(&vec![0u8; vacant_tile_count])?;
+        self.bytes_written += present_tile_count + vacant_tile_count;
         self.page_pad()?;
 
+        let mut dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
+
+        let global_dem = GlobalDem.load(context)?;
+        let base_heights = TextureDescriptor {
+            offset: self.bytes_written,
+            resolution: 2049,
+            format: TextureFormat::R32F,
+            bytes: 2049 * 2049 * 4,
+        };
+        context.increment_level("Writing base_heights... ", base_heights.resolution);
+        for y in 0..base_heights.resolution {
+            context.set_progress(y as u64);
+            for x in 0..base_heights.resolution {
+                let world = Vector2::new(
+                    x as f64 - 32.0 * (base_heights.resolution / 2) as f64,
+                    y as f64 - 32.0 * (base_heights.resolution / 2) as f64,
+                );
+                let mut world3 = Vector3::new(
+                    world.x,
+                    EARTH_RADIUS
+                        * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+                    world.y,
+                );
+                for i in 0..5 {
+                    world3.x = world.x;
+                    world3.z = world.y;
+                    let mut lla = self.system.world_to_lla(world3);
+                    lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
+                        if world.magnitude2() < 250000.0 * 250000.0 {
+                            dem_cache
+                                .borrow_mut()
+                                .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
+                                .unwrap_or(0.0) as f64
+                        } else {
+                            global_dem
+                                .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
+                                .max(0.0)
+                        }
+                    } else {
+                        0.0
+                    };
+                    world3 = self.system.lla_to_world(lla);
+                }
+                self.writer.write_f32::<LittleEndian>(world3.y as f32)?;
+                self.bytes_written += 4;
+            }
+        }
+        context.decrement_level();
+
         let tile_bytes = 16 * self.heights_resolution as usize * self.heights_resolution as usize;
-        let tile_locations = (0..tile_count)
+        let tile_locations = (0..(present_tile_count + vacant_tile_count))
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
-        self.layers.push(LayerParams {
-            layer_type: LayerType::Heights,
-            tile_valid_bitmap,
-            tile_locations,
-            texture_resolution: self.heights_resolution as u32,
-            texture_border_size: 0,
-            texture_format: TextureFormat::RGBA32F,
-        });
-
+        self.layers.insert(
+            LayerType::Heights.index(),
+            LayerParams {
+                layer_type: LayerType::Heights,
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: self.heights_resolution as u32,
+                texture_border_size: 0,
+                texture_format: TextureFormat::RGBA32F,
+            },
+        );
         let reproject = ReprojectedDemDef {
             name: format!("{}dem", self.directory_name),
-            dem_cache: Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128))),
+            dem_cache,
             system: &self.system,
             nodes: &self.nodes,
             random: &self.random,
@@ -503,11 +567,12 @@ impl<W: Write> State<W> {
             max_dem_level: self.max_dem_level as u8,
             max_texture_level: self.max_texture_level as u8,
             resolution: self.heightmap_resolution,
+            global_dem,
         };
         self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
 
-        context.increment_level("Writing heightmaps... ", tile_count);
-        for i in 0..tile_count {
+        context.increment_level("Writing heightmaps... ", present_tile_count);
+        for i in 0..present_tile_count {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
@@ -585,8 +650,16 @@ impl<W: Write> State<W> {
             }
         }
 
+        let vacant_bytes = vacant_tile_count
+            * self.heights_resolution as usize
+            * self.heights_resolution as usize
+            * 16;
+        self.writer.write_all(&vec![0; vacant_bytes])?;
+        self.bytes_written += vacant_bytes;
+
         context.decrement_level();
-        Ok(())
+
+        Ok(base_heights)
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
@@ -678,14 +751,17 @@ impl<W: Write> State<W> {
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
 
-        self.layers.push(LayerParams {
-            layer_type: LayerType::Colors,
-            tile_valid_bitmap,
-            tile_locations,
-            texture_resolution: colormap_resolution as u32,
-            texture_border_size: colormap_skirt as u32,
-            texture_format: TextureFormat::SRGBA,
-        });
+        self.layers.insert(
+            LayerType::Colors.index(),
+            LayerParams {
+                layer_type: LayerType::Colors,
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: colormap_resolution as u32,
+                texture_border_size: colormap_skirt as u32,
+                texture_format: TextureFormat::SRGBA,
+            },
+        );
 
         for colormap in colormaps {
             self.writer.write_all(&colormap[..])?;
@@ -709,14 +785,17 @@ impl<W: Write> State<W> {
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
-        self.layers.push(LayerParams {
-            layer_type: LayerType::Normals,
-            tile_valid_bitmap,
-            tile_locations,
-            texture_resolution: normalmap_resolution as u32,
-            texture_border_size: self.skirt as u32 - 2,
-            texture_format: TextureFormat::RG8,
-        });
+        self.layers.insert(
+            LayerType::Normals.index(),
+            LayerParams {
+                layer_type: LayerType::Normals,
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: normalmap_resolution as u32,
+                texture_border_size: self.skirt as u32 - 2,
+                texture_format: TextureFormat::RG8,
+            },
+        );
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
             context.set_progress(i as u64);
@@ -765,14 +844,17 @@ impl<W: Write> State<W> {
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
-        self.layers.push(LayerParams {
-            layer_type: LayerType::Splats,
-            tile_valid_bitmap,
-            tile_locations,
-            texture_resolution: splatmap_resolution as u32,
-            texture_border_size: self.skirt as u32 - 2,
-            texture_format: TextureFormat::R8,
-        });
+        self.layers.insert(
+            LayerType::Splats.index(),
+            LayerParams {
+                layer_type: LayerType::Splats,
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: splatmap_resolution as u32,
+                texture_border_size: self.skirt as u32 - 2,
+                texture_format: TextureFormat::R8,
+            },
+        );
         context.increment_level("Generating splats... ", splatmap_nodes.len());
         for (i, id) in splatmap_nodes.into_iter().enumerate() {
             context.set_progress(i as u64);

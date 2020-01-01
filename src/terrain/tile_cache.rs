@@ -1,5 +1,6 @@
 use crate::coordinates::CoordinateSystem;
 use crate::terrain::quadtree::{Node, NodeId};
+use crate::mapfile::{MapFile, TileState};
 use cgmath::Point3;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
@@ -144,11 +145,12 @@ pub(crate) struct TextureDescriptor {
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct TileHeader {
-    pub layers: Vec<LayerParams>,
+    pub layers: VecMap<LayerParams>,
     pub noise: NoiseParams,
     pub nodes: Vec<Node>,
     pub planet_mesh: MeshDescriptor,
     pub planet_mesh_texture: TextureDescriptor,
+    pub base_heights: TextureDescriptor,
     pub system: CoordinateSystem,
 }
 
@@ -168,17 +170,11 @@ pub(crate) struct TileCache {
     /// Smallest priority among all nodes in the cache.
     min_priority: Priority,
 
-    /// Slots which still need to be loaded
-    pending_uploads: Vec<(usize, ByteRange)>,
-
     /// Resolution of each tile in this cache.
     layer_params: LayerParams,
-
-    /// Section of memory map that holds the data for this layer.
-    data_file: Arc<Mmap>,
 }
 impl TileCache {
-    pub fn new(params: LayerParams, data_file: Arc<Mmap>) -> Self {
+    pub fn new(params: LayerParams) -> Self {
         let size = params.layer_type.cache_size() as usize;
 
         Self {
@@ -186,10 +182,8 @@ impl TileCache {
             slots: Vec::new(),
             reverse: VecMap::new(),
             missing: Vec::new(),
-            pending_uploads: Vec::new(),
             min_priority: Priority::none(),
             layer_params: params,
-            data_file,
         }
     }
 
@@ -251,27 +245,6 @@ impl TileCache {
             }
         }
         self.missing.clear();
-
-        // Figure out which entries need to be uploaded
-        self.pending_uploads.clear();
-        for (i, entry) in self.slots.iter_mut().enumerate() {
-            if entry.valid {
-                continue;
-            }
-
-            let tile = nodes[entry.id].tile_indices[self.layer_params.layer_type.index()].unwrap()
-                as usize;
-            let tile_valid = self.data_file[self.layer_params.tile_valid_bitmap.offset + tile] != 0;
-
-            if tile_valid {
-                // Tile is on disk, just needs to be uploaded
-                let offset = self.layer_params.tile_locations[tile].offset;
-                let length = self.layer_params.tile_locations[tile].length;
-                self.pending_uploads.push((i, ByteRange { offset, length }));
-            } else {
-                // TODO: Tile needs to be generated.
-            }
-        }
     }
 
     pub(crate) fn upload_tiles(
@@ -279,8 +252,27 @@ impl TileCache {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
+        nodes: &Vec<Node>,
+        mapfile: &mut MapFile,
     ) {
-        if self.pending_uploads.is_empty() {
+		let ty = self.layer_params.layer_type;
+
+        // Figure out which entries need to be uploaded
+        let mut pending_uploads = Vec::new();
+        for (i, entry) in self.slots.iter_mut().enumerate() {
+            if entry.valid {
+                continue;
+            }
+
+            let tile = nodes[entry.id].tile_indices[ty.index()].unwrap()
+                as usize;
+
+			match mapfile.tile_state(ty, tile) {
+				TileState::OnDisk => continue,
+				TileState::Missing => pending_uploads.push((i, tile)),
+			}
+		}
+        if pending_uploads.is_empty() {
             return;
         }
 
@@ -288,7 +280,7 @@ impl TileCache {
         let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
         let row_bytes = resolution * bytes_per_texel;
         let row_pitch = (row_bytes + 255) & !255;
-        let tiles = self.pending_uploads.len();
+        let tiles = pending_uploads.len();
 
         let buffer = device.create_buffer_mapped(
             row_pitch * resolution * tiles,
@@ -296,8 +288,8 @@ impl TileCache {
         );
 
         let mut i = 0;
-        for upload in &self.pending_uploads {
-            let data = &self.data_file[upload.1.offset..][..upload.1.length];
+        for upload in &pending_uploads {
+            let data = mapfile.read_tile(ty, upload.1).unwrap();
             for row in 0..resolution {
                 buffer.data[i..][..row_bytes]
                     .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
@@ -307,7 +299,7 @@ impl TileCache {
 
         let buffer = buffer.finish();
 
-        for (index, (slot, _)) in self.pending_uploads.drain(..).enumerate() {
+        for (index, (slot, _)) in pending_uploads.drain(..).enumerate() {
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
                     buffer: &buffer,
@@ -366,11 +358,10 @@ impl TileCache {
         self.layer_params.texture_border_size
     }
 
-    pub fn get_texel(&self, node: &Node, x: usize, y: usize) -> &[u8] {
-        let tile = node.tile_indices[self.layer_params.layer_type.index()].unwrap() as usize;
-        let offset = self.layer_params.tile_locations[tile].offset;
-        let length = self.layer_params.tile_locations[tile].length;
-        let tile_data = &self.data_file[offset..(offset + length)];
+    pub fn get_texel<'a>(&self, mapfile: &'a MapFile, node: &Node, x: usize, y: usize) -> &'a [u8] {
+		let ty = self.layer_params.layer_type;
+        let tile = node.tile_indices[ty.index()].unwrap() as usize;
+        let tile_data = &mapfile.read_tile(ty, tile).unwrap();
         let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
         let border = self.layer_params.texture_border_size as usize;
         let index = ((x + border) + (y + border) * self.layer_params.texture_resolution as usize)

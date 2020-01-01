@@ -52,7 +52,7 @@ serde_json = "1.0.41"
 sha2 = "0.8.0"
 shred = { version = "0.9.3", features = ["nightly"] }
 toml = "0.5.3"
-vec_map = "0.8.1"
+vec_map = { version = "0.8.1", features = ["serde"] }
 vecmath = "1.0.0"
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "4e77cb3aa5b32cf1bdf6bbdf003538e54a1f110d" }
 winit = "0.20.0-alpha5"

@@ -45,6 +45,7 @@ pub(crate) struct ReprojectedDemDef<'a> {
     pub system: &'a CoordinateSystem,
     pub nodes: &'a Vec<Node>,
     pub random: &'a Heightmap<f32>,
+	pub global_dem: GlobalRaster<i16>,
 
     pub skirt: u16,
     pub max_dem_level: u8,
@@ -417,7 +418,7 @@ impl ReprojectedRaster {
         context: &mut AssetLoadContext,
     ) -> Result<Self, Error> {
         let (header, data) = def.load(context)?;
-        Ok(Self { data, header })
+        Ok(Self { data: data.make_read_only()?, header })
     }
 
     pub fn from_raster<'a, T, C, C2>(
@@ -430,7 +431,7 @@ impl ReprojectedRaster {
         C2: Deref<Target = [T]>,
     {
         let (header, data) = def.load(context)?;
-        Ok(Self { data, header })
+        Ok(Self { data: data.make_read_only()?, header })
     }
 
     pub fn get(&self, tile: usize, x: u16, y: u16, band: u16) -> f32 {

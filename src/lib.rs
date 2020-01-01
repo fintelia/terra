@@ -1,5 +1,6 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
 #![feature(stmt_expr_attributes)]
+#![feature(with_options)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -18,7 +19,7 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
-use crate::generate::ComputeShader;
+use crate::generate::{ComputeShader, GenHeightsUniforms};
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
@@ -68,7 +69,7 @@ pub struct Terrain {
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
 
-    // gen_heights: ComputeShader<()>,
+    gen_heights: ComputeShader<GenHeightsUniforms>,
     // gen_normals: ComputeShader<()>,
     // load_heights: ComputeShader<()>,
     gpu_state: GpuState,
@@ -85,9 +86,9 @@ impl Terrain {
         mut mapfile: MapFile,
     ) -> Self {
         let mut tile_cache = VecMap::new();
-        for layer in mapfile.layers().iter().cloned() {
+        for layer in mapfile.layers().values().cloned() {
             tile_cache
-                .insert(layer.layer_type as usize, TileCache::new(layer, mapfile.data_file()));
+                .insert(layer.layer_type as usize, TileCache::new(layer));
         }
 
         let quadtree = QuadTree::new(
@@ -130,23 +131,20 @@ impl Terrain {
         let normals_resolution = tile_cache[LayerType::Normals.index()].resolution();
         let albedo_resolution = tile_cache[LayerType::Colors.index()].resolution();
 
-        let (noise, planet_mesh_texture) = {
+        let (noise, planet_mesh_texture, base_heights) = {
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
             let noise = mapfile.noise_texture(device, &mut encoder);
             let planet_mesh_texture = mapfile.planet_mesh_texture(device, &mut encoder);
+			let base_heights = mapfile.base_heights_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
-            (noise, planet_mesh_texture)
+            (noise, planet_mesh_texture, base_heights)
         };
 
         let gpu_state = GpuState {
             noise,
             planet_mesh_texture,
-            base_heights: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
-                format: wgpu::TextureFormat::R32Float,
-                ..texture_desc
-            }),
+            base_heights,
             heights_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },
                 format: wgpu::TextureFormat::R32Float,
@@ -251,23 +249,16 @@ impl Terrain {
                 bind_group_layouts: &[&bind_group_layout],
             });
 
-        crate::generate::make_base_heights(
+        let gen_heights = ComputeShader::new(
             device,
             queue,
-            &mapfile.system(),
-            &gpu_state.base_heights,
+            &gpu_state,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "gen-heights.comp"),
+            )
+            .unwrap(),
         );
-
-        // let gen_heights = ComputeShader::new(
-        //     device,
-        //     queue,
-        //     &gpu_state,
-        //     rshader::ShaderSet::compute_only(
-        //         &mut watcher,
-        //         rshader::shader_source!("shaders", "version", "gen-heights.comp"),
-        //     )
-        //     .unwrap(),
-        // );
 
         // let gen_normals = ComputeShader::new(
         //     device,
@@ -307,6 +298,8 @@ impl Terrain {
             vertex_buffer,
             index_buffer,
             index_buffer_partial,
+
+			gen_heights,
 
             gpu_state,
             // gen_heights,
@@ -432,16 +425,22 @@ impl Terrain {
             device,
             &mut encoder,
             &self.gpu_state.heights,
+			&self.quadtree.nodes,
+			&mut self.mapfile,
         );
         self.tile_cache[LayerType::Normals.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.normals,
+			&self.quadtree.nodes,
+			&mut self.mapfile,
         );
         self.tile_cache[LayerType::Colors.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.albedo,
+			&self.quadtree.nodes,
+			&mut self.mapfile,
         );
 
         self.quadtree.prepare_vertex_buffer(

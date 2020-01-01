@@ -3,7 +3,7 @@ use cgmath::*;
 use collision::{Frustum, Relation};
 use std::collections::{HashMap, VecDeque};
 use vec_map::VecMap;
-
+use crate::mapfile::MapFile;
 use crate::terrain::tile_cache::{LayerType, Priority, TileCache, NUM_LAYERS};
 
 pub(crate) mod id;
@@ -18,7 +18,7 @@ pub(crate) use crate::terrain::quadtree::render::*;
 /// render the terrain.
 pub(crate) struct QuadTree {
     /// List of nodes in the `QuadTree`. The root is always at index 0.
-    nodes: Vec<Node>,
+    pub(crate) nodes: Vec<Node>,
     // ocean: Ocean<R>,
     /// List of nodes that will be rendered.
     visible_nodes: Vec<NodeId>,
@@ -205,7 +205,7 @@ impl QuadTree {
         }
     }
 
-    pub fn get_height(&self, tile_cache: &VecMap<TileCache>, p: Point2<f32>) -> Option<f32> {
+    pub fn get_height(&self, mapfile: &MapFile, tile_cache: &VecMap<TileCache>, p: Point2<f32>) -> Option<f32> {
         if self.nodes[0].bounds.min.x > p.x
             || self.nodes[0].bounds.max.x < p.x
             || self.nodes[0].bounds.min.z > p.y
@@ -236,7 +236,7 @@ impl QuadTree {
         let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;
 
         let get_texel =
-            |x, y| layer.get_texel(&self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap();
+            |x, y| layer.get_texel(mapfile, &self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap();
 
         let (mut fx, mut fy) = (x.fract(), y.fract());
         let (mut ix, mut iy) = (x.floor() as usize, y.floor() as usize);

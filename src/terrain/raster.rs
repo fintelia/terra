@@ -71,7 +71,7 @@ impl Raster<u8, Mmap> {
             cell_size: header.cell_size,
             latitude_llcorner: header.latitude_llcorner,
             longitude_llcorner: header.longitude_llcorner,
-            values: mmap,
+            values: mmap.make_read_only()?,
         })
     }
 }

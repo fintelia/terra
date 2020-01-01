@@ -1,0 +1,19 @@
+#line 2
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+layout(binding = 0) uniform UniformBlock {
+    vec2 position;
+} uniform_block;
+
+layout(r32f, binding = 1) uniform image2D base_heights;
+layout(rgba32f, binding = 2) uniform image2D heights_staging;
+
+layout(set = 0, binding = 3) uniform sampler linear;
+layout(set = 0, binding = 4) uniform texture2D noise;
+
+void main() {
+	vec4 out_height = vec4(0.0);
+
+	imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
+}

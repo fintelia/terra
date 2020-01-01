@@ -3,29 +3,38 @@ use crate::terrain::quadtree::{Node, NodeId};
 use crate::terrain::tile_cache::{
     LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
 };
-use memmap::Mmap;
-use std::sync::Arc;
+use memmap::MmapMut;
+use vec_map::VecMap;
 
 pub enum TileState {
-    Present,
+	OnDisk,
     Missing,
 }
 
 pub(crate) struct MapFile {
     header: TileHeader,
-    file: Arc<Mmap>,
+    file: MmapMut,
 }
 impl MapFile {
-    pub fn new(header: TileHeader, file: Arc<Mmap>) -> Self {
+    pub fn new(header: TileHeader, file: MmapMut) -> Self {
         Self { header, file }
     }
 
-    pub fn tile_state(&self, layer: LayerType, node: NodeId) -> TileState {
-        todo!()
+    pub fn tile_state(&self, layer: LayerType, tile: usize) -> TileState {
+        let offset = self.header.layers[layer.index()].tile_valid_bitmap.offset;
+        match self.file[offset + tile] {
+            0 => TileState::OnDisk,
+            1 => TileState::Missing,
+            _ => unreachable!(),
+        }
     }
 
-    pub fn read_tile(&self, layer: LayerType, node: NodeId) -> Option<&[u8]> {
-        todo!()
+    pub fn read_tile(&self, layer: LayerType, tile: usize) -> Option<&[u8]> {
+        let params = &self.header.layers[layer.index()];
+        let offset = params.tile_locations[tile].offset;
+        let length = params.tile_locations[tile].length;
+
+		Some(&self.file[offset..][..length])
     }
     pub fn write_tile(&mut self, layer: LayerType, node: NodeId, data: &[u8]) {
         todo!()
@@ -100,14 +109,19 @@ impl MapFile {
         self.load_texture(device, encoder, &self.header.planet_mesh_texture)
     }
 
+    pub fn base_heights_texture(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::Texture {
+        self.load_texture(device, encoder, &self.header.base_heights)
+    }
+
     pub fn system(&self) -> CoordinateSystem {
         self.header.system.clone()
     }
-    pub fn layers(&self) -> &[LayerParams] {
+    pub fn layers(&self) -> &VecMap<LayerParams> {
         &self.header.layers
-    }
-    pub fn data_file(&self) -> Arc<Mmap> {
-        self.file.clone()
     }
     pub fn take_nodes(&mut self) -> Vec<Node> {
         std::mem::replace(&mut self.header.nodes, Vec::new())

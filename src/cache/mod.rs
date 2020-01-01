@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use bincode;
 use dirs;
 use failure::Error;
-use memmap::Mmap;
+use memmap::MmapMut;
 use num::ToPrimitive;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use serde::de::DeserializeOwned;
@@ -221,19 +221,19 @@ pub(crate) trait MMappedAsset {
         w: W,
     ) -> Result<Self::Header, Error>;
 
-    fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, Mmap), Error> {
+    fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, MmapMut), Error> {
         context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
         let ret = (|| {
             let header_filename = TERRA_DIRECTORY.join(self.filename() + ".hdr");
             let data_filename = TERRA_DIRECTORY.join(self.filename() + ".data");
 
             if let (Ok(mut header), Ok(data)) =
-                (File::open(&header_filename), File::open(&data_filename))
+                (File::open(&header_filename), File::with_options().read(true).write(true).open(&data_filename))
             {
                 let mut contents = Vec::new();
                 header.read_to_end(&mut contents)?;
                 let header = bincode::deserialize(&contents)?;
-                let mapping = unsafe { Mmap::map(&data)? };
+                let mapping = unsafe { MmapMut::map_mut(&data)? };
                 Ok((header, mapping))
             } else {
                 context.reset(&format!("Generating {}... ", &self.filename()), 100);
@@ -254,8 +254,8 @@ pub(crate) trait MMappedAsset {
 
                 // Open for reading this time
                 context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
-                let data_file = File::open(&data_filename)?;
-                let mapping = unsafe { Mmap::map(&data_file)? };
+                let data_file = File::with_options().read(true).write(true).open(&data_filename)?;
+                let mapping = unsafe { MmapMut::map_mut(&data_file)? };
                 Ok((header, mapping))
             }
         })();

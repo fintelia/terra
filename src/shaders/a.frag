@@ -130,5 +130,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// out_color.rgb = debug_overlay(out_color.rgb);
+	out_color.rgb = debug_overlay(out_color.rgb);
 }
