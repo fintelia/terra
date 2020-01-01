@@ -1,43 +1,56 @@
 use crate::coordinates::CoordinateSystem;
-use crate::terrain::quadtree::{Node, NodeId};
-use crate::terrain::tile_cache::{
-    LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
-};
+use crate::terrain::quadtree::Node;
+use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TileHeader};
+use failure::Error;
 use memmap::MmapMut;
 use vec_map::VecMap;
 
-pub enum TileState {
-	OnDisk,
+pub(crate) enum TileState {
+    OnDisk,
     Missing,
 }
 
-pub(crate) struct MapFile {
+pub struct MapFile {
     header: TileHeader,
     file: MmapMut,
 }
 impl MapFile {
-    pub fn new(header: TileHeader, file: MmapMut) -> Self {
+    pub(crate) fn new(header: TileHeader, file: MmapMut) -> Self {
         Self { header, file }
     }
 
-    pub fn tile_state(&self, layer: LayerType, tile: usize) -> TileState {
+    pub(crate) fn tile_state(&self, layer: LayerType, tile: usize) -> TileState {
         let offset = self.header.layers[layer.index()].tile_valid_bitmap.offset;
         match self.file[offset + tile] {
-            0 => TileState::OnDisk,
-            1 => TileState::Missing,
+            1 => TileState::OnDisk,
+            0 => TileState::Missing,
             _ => unreachable!(),
         }
     }
-
-    pub fn read_tile(&self, layer: LayerType, tile: usize) -> Option<&[u8]> {
+    pub(crate) fn read_tile(&self, layer: LayerType, tile: usize) -> Option<&[u8]> {
         let params = &self.header.layers[layer.index()];
         let offset = params.tile_locations[tile].offset;
         let length = params.tile_locations[tile].length;
 
-		Some(&self.file[offset..][..length])
+        Some(&self.file[offset..][..length])
     }
-    pub fn write_tile(&mut self, layer: LayerType, node: NodeId, data: &[u8]) {
-        todo!()
+    pub(crate) fn write_tile(
+        &mut self,
+        layer: LayerType,
+        tile: usize,
+        data: &[u8],
+    ) -> Result<(), Error> {
+        let params = &self.header.layers[layer.index()];
+        let offset = params.tile_locations[tile].offset;
+        let length = params.tile_locations[tile].length;
+
+        assert_eq!(length, data.len());
+
+        self.file[offset..][..length].copy_from_slice(data);
+        self.file.flush_range(offset, length)?;
+        self.file[params.tile_valid_bitmap.offset + tile] = 1;
+        self.file.flush_async_range(params.tile_valid_bitmap.offset + tile, 1)?;
+        Ok(())
     }
 
     fn load_texture(
@@ -93,23 +106,21 @@ impl MapFile {
         texture
     }
 
-    pub fn noise_texture(
+    pub(crate) fn noise_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::Texture {
         self.load_texture(device, encoder, &self.header.noise.texture)
     }
-
-    pub fn planet_mesh_texture(
+    pub(crate) fn planet_mesh_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::Texture {
         self.load_texture(device, encoder, &self.header.planet_mesh_texture)
     }
-
-    pub fn base_heights_texture(
+    pub(crate) fn base_heights_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -117,13 +128,13 @@ impl MapFile {
         self.load_texture(device, encoder, &self.header.base_heights)
     }
 
-    pub fn system(&self) -> CoordinateSystem {
+    pub(crate) fn system(&self) -> CoordinateSystem {
         self.header.system.clone()
     }
-    pub fn layers(&self) -> &VecMap<LayerParams> {
+    pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
         &self.header.layers
     }
-    pub fn take_nodes(&mut self) -> Vec<Node> {
+    pub(crate) fn take_nodes(&mut self) -> Vec<Node> {
         std::mem::replace(&mut self.header.nodes, Vec::new())
     }
 }

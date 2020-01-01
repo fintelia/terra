@@ -11,7 +11,7 @@ const BASE_RESOLUTION: u32 = 1024;
 
 #[derive(Copy, Clone)]
 pub(crate) struct GenHeightsUniforms {
-	position: [f32; 2],
+    pub position: [f32; 2],
 }
 unsafe impl bytemuck::Zeroable for GenHeightsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightsUniforms {}

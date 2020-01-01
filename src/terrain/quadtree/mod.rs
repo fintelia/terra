@@ -1,10 +1,10 @@
+use crate::mapfile::MapFile;
+use crate::terrain::tile_cache::{LayerType, Priority, TileCache, NUM_LAYERS};
 use byteorder::{ByteOrder, LittleEndian, NativeEndian, ReadBytesExt};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use std::collections::{HashMap, VecDeque};
 use vec_map::VecMap;
-use crate::mapfile::MapFile;
-use crate::terrain::tile_cache::{LayerType, Priority, TileCache, NUM_LAYERS};
 
 pub(crate) mod id;
 pub(crate) mod node;
@@ -93,9 +93,6 @@ impl QuadTree {
             }
             true
         });
-        for (_, ref mut cache_layer) in tile_cache.iter_mut() {
-            cache_layer.process_missing(&mut self.nodes);
-        }
     }
 
     fn update_visibility(&mut self, camera: Point3<f32>, cull_frustum: Option<Frustum<f32>>) {
@@ -205,7 +202,12 @@ impl QuadTree {
         }
     }
 
-    pub fn get_height(&self, mapfile: &MapFile, tile_cache: &VecMap<TileCache>, p: Point2<f32>) -> Option<f32> {
+    pub fn get_height(
+        &self,
+        mapfile: &MapFile,
+        tile_cache: &VecMap<TileCache>,
+        p: Point2<f32>,
+    ) -> Option<f32> {
         if self.nodes[0].bounds.min.x > p.x
             || self.nodes[0].bounds.max.x < p.x
             || self.nodes[0].bounds.min.z > p.y
@@ -235,8 +237,9 @@ impl QuadTree {
         let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length * resolution;
         let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;
 
-        let get_texel =
-            |x, y| layer.get_texel(mapfile, &self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap();
+        let get_texel = |x, y| {
+            layer.get_texel(mapfile, &self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap()
+        };
 
         let (mut fx, mut fy) = (x.fract(), y.fract());
         let (mut ix, mut iy) = (x.floor() as usize, y.floor() as usize);

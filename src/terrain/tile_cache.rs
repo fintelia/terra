@@ -1,6 +1,6 @@
 use crate::coordinates::CoordinateSystem;
-use crate::terrain::quadtree::{Node, NodeId};
 use crate::mapfile::{MapFile, TileState};
+use crate::terrain::quadtree::{Node, NodeId};
 use cgmath::Point3;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
@@ -201,7 +201,7 @@ impl TileCache {
         }
     }
 
-    pub fn process_missing(&mut self, nodes: &mut Vec<Node>) {
+    fn process_missing(&mut self) {
         // Find slots for missing entries.
         self.missing.sort();
         while !self.missing.is_empty() && self.slots.len() < self.size {
@@ -254,26 +254,29 @@ impl TileCache {
         texture: &wgpu::Texture,
         nodes: &Vec<Node>,
         mapfile: &mut MapFile,
-    ) {
-		let ty = self.layer_params.layer_type;
+    ) -> Vec<NodeId> {
+        self.process_missing();
+
+        let ty = self.layer_params.layer_type;
 
         // Figure out which entries need to be uploaded
         let mut pending_uploads = Vec::new();
+        let mut pending_generate = Vec::new();
+
         for (i, entry) in self.slots.iter_mut().enumerate() {
             if entry.valid {
                 continue;
             }
 
-            let tile = nodes[entry.id].tile_indices[ty.index()].unwrap()
-                as usize;
+            let tile = nodes[entry.id].tile_indices[ty.index()].unwrap() as usize;
 
-			match mapfile.tile_state(ty, tile) {
-				TileState::OnDisk => continue,
-				TileState::Missing => pending_uploads.push((i, tile)),
-			}
-		}
+            match mapfile.tile_state(ty, tile) {
+                TileState::OnDisk => pending_uploads.push((i, tile)),
+                TileState::Missing => pending_generate.push(entry.id),
+            }
+        }
         if pending_uploads.is_empty() {
-            return;
+            return pending_generate;
         }
 
         let resolution = self.resolution() as usize;
@@ -317,6 +320,8 @@ impl TileCache {
             );
             self.slots[slot].valid = true;
         }
+
+        pending_generate
     }
 
     pub fn make_cache_texture(&self, device: &wgpu::Device) -> wgpu::Texture {
@@ -353,13 +358,21 @@ impl TileCache {
     pub fn resolution(&self) -> u32 {
         self.layer_params.texture_resolution
     }
+    pub fn bytes_per_texel(&self) -> usize {
+        self.layer_params.texture_format.bytes_per_texel()
+    }
+    pub fn row_pitch(&self) -> usize {
+        let row_bytes = self.resolution() as usize * self.bytes_per_texel();
+        let row_pitch = (row_bytes + 255) & !255;
+        row_pitch
+    }
 
     pub fn border(&self) -> u32 {
         self.layer_params.texture_border_size
     }
 
     pub fn get_texel<'a>(&self, mapfile: &'a MapFile, node: &Node, x: usize, y: usize) -> &'a [u8] {
-		let ty = self.layer_params.layer_type;
+        let ty = self.layer_params.layer_type;
         let tile = node.tile_indices[ty.index()].unwrap() as usize;
         let tile_data = &mapfile.read_tile(ty, tile).unwrap();
         let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();

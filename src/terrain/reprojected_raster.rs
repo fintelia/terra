@@ -45,7 +45,7 @@ pub(crate) struct ReprojectedDemDef<'a> {
     pub system: &'a CoordinateSystem,
     pub nodes: &'a Vec<Node>,
     pub random: &'a Heightmap<f32>,
-	pub global_dem: GlobalRaster<i16>,
+    pub global_dem: GlobalRaster<i16>,
 
     pub skirt: u16,
     pub max_dem_level: u8,

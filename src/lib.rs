@@ -1,4 +1,5 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
+#![feature(async_closure)]
 #![feature(stmt_expr_attributes)]
 #![feature(with_options)]
 
@@ -20,15 +21,21 @@ mod utils;
 // pub mod compute;
 
 use crate::generate::{ComputeShader, GenHeightsUniforms};
-use crate::mapfile::MapFile;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
+use futures::{
+    executor::{self, LocalPool},
+    future::FutureExt,
+    task::{LocalFutureObj, LocalSpawn, LocalSpawnExt, SpawnExt},
+};
 use std::mem;
+use std::sync::mpsc::{self, Receiver, Sender};
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, Section};
 
-pub use generate::{GridSpacing, QuadTreeBuilder, TextureQuality, VertexQuality};
+pub use crate::mapfile::MapFile;
+pub use generate::{GridSpacing, MapFileBuilder, TextureQuality, VertexQuality};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -77,18 +84,15 @@ pub struct Terrain {
     mapfile: MapFile,
     tile_cache: VecMap<TileCache>,
 
+    pending_tiles: Vec<(LayerType, usize, wgpu::Buffer)>,
+
     glyph_brush: GlyphBrush<'static, ()>,
 }
 impl Terrain {
-    pub(crate) fn new(
-        device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
-        mut mapfile: MapFile,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue, mut mapfile: MapFile) -> Self {
         let mut tile_cache = VecMap::new();
         for layer in mapfile.layers().values().cloned() {
-            tile_cache
-                .insert(layer.layer_type as usize, TileCache::new(layer));
+            tile_cache.insert(layer.layer_type as usize, TileCache::new(layer));
         }
 
         let quadtree = QuadTree::new(
@@ -136,7 +140,7 @@ impl Terrain {
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
             let noise = mapfile.noise_texture(device, &mut encoder);
             let planet_mesh_texture = mapfile.planet_mesh_texture(device, &mut encoder);
-			let base_heights = mapfile.base_heights_texture(device, &mut encoder);
+            let base_heights = mapfile.base_heights_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
             (noise, planet_mesh_texture, base_heights)
         };
@@ -299,7 +303,7 @@ impl Terrain {
             index_buffer,
             index_buffer_partial,
 
-			gen_heights,
+            gen_heights,
 
             gpu_state,
             // gen_heights,
@@ -309,6 +313,8 @@ impl Terrain {
             mapfile,
             tile_cache,
             glyph_brush,
+
+            pending_tiles: Vec::new(),
         }
     }
 
@@ -322,8 +328,29 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f32>,
     ) {
-        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
+        for (layer, tile, buffer) in self.pending_tiles.drain(..) {
+            let resolution = self.tile_cache[layer.index()].resolution() as usize;
+            let bytes_per_texel = self.tile_cache[layer.index()].bytes_per_texel();
+            let row_pitch = self.tile_cache[layer.index()].row_pitch();
+            let row_bytes = resolution * bytes_per_texel;
+            let size = row_pitch * resolution;
 
+            let future = buffer.map_read(0, size as u64);
+
+            device.poll(false);
+
+            if let Ok(mapping) = executor::block_on(future) {
+                let mut tile_data = vec![0; resolution * resolution * bytes_per_texel];
+                let buffer_data = mapping.as_slice();
+                for row in 0..resolution {
+                    tile_data[row * row_bytes..][..row_bytes]
+                        .copy_from_slice(&buffer_data[row * row_pitch..][..row_bytes]);
+                }
+                self.mapfile.write_tile(layer, tile, &tile_data).unwrap();
+            }
+        }
+
+        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
         self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
         if self.shader.refresh(&mut self.watcher) {
             self.render_pipeline = None;
@@ -421,27 +448,69 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
-        self.tile_cache[LayerType::Heights.index()].upload_tiles(
+        let missing_heights = self.tile_cache[LayerType::Heights.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.heights,
-			&self.quadtree.nodes,
-			&mut self.mapfile,
+            &self.quadtree.nodes,
+            &mut self.mapfile,
         );
         self.tile_cache[LayerType::Normals.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.normals,
-			&self.quadtree.nodes,
-			&mut self.mapfile,
+            &self.quadtree.nodes,
+            &mut self.mapfile,
         );
         self.tile_cache[LayerType::Colors.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.albedo,
-			&self.quadtree.nodes,
-			&mut self.mapfile,
+            &self.quadtree.nodes,
+            &mut self.mapfile,
         );
+
+        let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
+        let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
+        for node in missing_heights.into_iter().take(4) {
+            self.gen_heights.run(
+                device,
+                &mut encoder,
+                (heights_resolution, heights_resolution, 1),
+                &GenHeightsUniforms { position: [0.0, 0.0] },
+            );
+
+            let row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
+            let size = heights_resolution as u64 * row_pitch as u64;
+            let download = device.create_buffer(&wgpu::BufferDescriptor {
+                size,
+                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+            });
+            let tile = self.quadtree.nodes[node].tile_indices[LayerType::Heights.index()].unwrap()
+                as usize;
+
+            encoder.copy_texture_to_buffer(
+                wgpu::TextureCopyView {
+                    texture: &self.gpu_state.heights_staging,
+                    mip_level: 0,
+                    array_layer: 0,
+                    origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                },
+                wgpu::BufferCopyView {
+                    buffer: &download,
+                    offset: 0,
+                    row_pitch: heights_row_pitch as u32,
+                    image_height: heights_resolution as u32,
+                },
+                wgpu::Extent3d {
+                    width: heights_resolution as u32,
+                    height: heights_resolution as u32,
+                    depth: 1,
+                },
+            );
+
+            self.pending_tiles.push((LayerType::Heights, tile, download));
+        }
 
         self.quadtree.prepare_vertex_buffer(
             device,

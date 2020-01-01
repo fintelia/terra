@@ -79,14 +79,16 @@ fn main() {
         limits: wgpu::Limits::default(),
     });
 
-    let mut terrain = terra::QuadTreeBuilder::new()
+    let mapfile = terra::MapFileBuilder::new()
         .latitude(42)
         .longitude(-73)
         .vertex_quality(terra::VertexQuality::Medium)
         .texture_quality(terra::TextureQuality::High)
         .grid_spacing(terra::GridSpacing::OneMeter)
-        .build(&device, &mut queue)
+        .build()
         .unwrap();
+
+    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile);
 
     let mut swap_chain =
         make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);

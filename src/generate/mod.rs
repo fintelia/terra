@@ -6,8 +6,8 @@ use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::{self, Heightmap};
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource, GlobalWaterMask};
-use crate::terrain::quadtree::{node, Node, NodeId, QuadTree};
-use crate::terrain::raster::{BitContainer, RasterCache};
+use crate::terrain::quadtree::{Node, NodeId};
+use crate::terrain::raster::RasterCache;
 use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
@@ -16,7 +16,6 @@ use crate::terrain::tile_cache::{
     TextureFormat, TileHeader,
 };
 use crate::utils::math::BoundingBox;
-use crate::Terrain;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use failure::Error;
@@ -27,9 +26,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::io::Write;
-use std::mem;
 use std::rc::Rc;
-use std::sync::Arc;
 use vec_map::VecMap;
 
 mod gpu;
@@ -174,7 +171,7 @@ impl GridSpacing {
 }
 
 /// Used to construct a `QuadTree`.
-pub struct QuadTreeBuilder {
+pub struct MapFileBuilder {
     latitude: i16,
     longitude: i16,
     source: DemSource,
@@ -185,7 +182,7 @@ pub struct QuadTreeBuilder {
     // sky: Skybox<R>,
     context: Option<AssetLoadContext>,
 }
-impl QuadTreeBuilder {
+impl MapFileBuilder {
     /// Create a new `QuadTreeBuilder` with default arguments.
     ///
     /// At very least, the latitude and longitude should probably be set to their desired values
@@ -249,17 +246,11 @@ impl QuadTreeBuilder {
     /// of CPU resources. You can expect it to run at full load continiously for several full
     /// minutes, even in release builds (you *really* don't want to wait for generation in debug
     /// mode...).
-    pub fn build(
-        mut self,
-        device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
-    ) -> Result<Terrain, Error> {
+    pub fn build(mut self) -> Result<MapFile, Error> {
         let mut context = self.context.take().unwrap();
         let (header, data) = self.load(&mut context)?;
 
-        let mapfile = MapFile::new(header, data);
-
-        Ok(Terrain::new(device, queue, mapfile))
+        Ok(MapFile::new(header, data))
     }
 
     fn name(&self) -> String {
@@ -279,7 +270,7 @@ impl QuadTreeBuilder {
     }
 }
 
-impl MMappedAsset for QuadTreeBuilder {
+impl MMappedAsset for MapFileBuilder {
     type Header = TileHeader;
 
     fn filename(&self) -> String {
@@ -304,10 +295,12 @@ impl MMappedAsset for QuadTreeBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_level = LEVEL_6_CM - self.vertex_quality.resolution_log2() as i32;
+        let max_level = LEVEL_13_CM - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_heights_level = LEVEL_1_M
             - self.vertex_quality.resolution_log2() as i32
             - (self.grid_spacing.log2_spacing() - 1);
+        let max_heights_present_level =
+            LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
         let max_tree_density_level = LEVEL_8_KM;
 
@@ -337,6 +330,7 @@ impl MMappedAsset for QuadTreeBuilder {
             heightmap_resolution,
             heights_resolution: self.vertex_quality.resolution(),
             max_heights_level,
+            max_heights_present_level,
             max_texture_level,
             max_tree_density_level,
             resolution_ratio,
@@ -410,6 +404,7 @@ struct State<W: Write> {
     skirt: u16,
 
     max_heights_level: i32,
+    max_heights_present_level: i32,
     max_texture_level: i32,
     max_dem_level: i32,
     max_tree_density_level: i32,
@@ -477,11 +472,15 @@ impl<W: Write> State<W> {
         &mut self,
         context: &mut AssetLoadContext,
     ) -> Result<TextureDescriptor, Error> {
-        let present_tile_count = self.nodes.iter().filter(|n| n.level <= LEVEL_32_M as u8).count();
+        let present_tile_count =
+            self.nodes.iter().filter(|n| n.level <= self.max_heights_present_level as u8).count();
         let vacant_tile_count = self
             .nodes
             .iter()
-            .filter(|n| n.level > LEVEL_32_M as u8 && n.level <= self.max_heights_level as u8)
+            .filter(|n| {
+                n.level > self.max_heights_present_level as u8
+                    && n.level <= self.max_heights_level as u8
+            })
             .count();
 
         let tile_valid_bitmap = ByteRange {
@@ -492,8 +491,9 @@ impl<W: Write> State<W> {
         self.writer.write_all(&vec![0u8; vacant_tile_count])?;
         self.bytes_written += present_tile_count + vacant_tile_count;
         self.page_pad()?;
+        eprintln!("present = {}, vacant = {}", present_tile_count, vacant_tile_count);
 
-        let mut dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
+        let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
 
         let global_dem = GlobalDem.load(context)?;
         let base_heights = TextureDescriptor {
@@ -648,6 +648,10 @@ impl<W: Write> State<W> {
                     }
                 }
             }
+        }
+
+        for i in present_tile_count..(present_tile_count + vacant_tile_count) {
+            self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
         }
 
         let vacant_bytes = vacant_tile_count

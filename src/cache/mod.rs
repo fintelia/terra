@@ -227,9 +227,10 @@ pub(crate) trait MMappedAsset {
             let header_filename = TERRA_DIRECTORY.join(self.filename() + ".hdr");
             let data_filename = TERRA_DIRECTORY.join(self.filename() + ".data");
 
-            if let (Ok(mut header), Ok(data)) =
-                (File::open(&header_filename), File::with_options().read(true).write(true).open(&data_filename))
-            {
+            if let (Ok(mut header), Ok(data)) = (
+                File::open(&header_filename),
+                File::with_options().read(true).write(true).open(&data_filename),
+            ) {
                 let mut contents = Vec::new();
                 header.read_to_end(&mut contents)?;
                 let header = bincode::deserialize(&contents)?;
