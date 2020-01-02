@@ -1,11 +1,10 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
-use crate::srgb::{LINEAR_TO_SRGB, SRGB_TO_LINEAR};
 use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::{self, Heightmap};
-use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource, GlobalWaterMask};
+use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
 use crate::terrain::quadtree::{Node, NodeId};
 use crate::terrain::raster::RasterCache;
 use crate::terrain::reprojected_raster::{
@@ -507,8 +506,8 @@ impl<W: Write> State<W> {
             context.set_progress(y as u64);
             for x in 0..base_heights.resolution {
                 let world = Vector2::new(
-                    x as f64 - 32.0 * (base_heights.resolution / 2) as f64,
-                    y as f64 - 32.0 * (base_heights.resolution / 2) as f64,
+                    32.0 * (x as f64 - (base_heights.resolution / 2) as f64),
+                    32.0 * (y as f64 - (base_heights.resolution / 2) as f64),
                 );
                 let mut world3 = Vector3::new(
                     world.x,
@@ -536,6 +535,7 @@ impl<W: Write> State<W> {
                     };
                     world3 = self.system.lla_to_world(lla);
                 }
+
                 self.writer.write_f32::<LittleEndian>(world3.y as f32)?;
                 self.bytes_written += 4;
             }
@@ -635,14 +635,14 @@ impl<W: Write> State<W> {
             // TODO: child nodes should theoretically have min and max Y values only based on the
             // heights inside their own bounds. This approximation shouldn't have much impact in
             // practice.
-            if self.nodes[i].level == self.max_heights_level as u8 {
+            if self.nodes[i].level == self.max_heights_present_level as u8 {
                 let mut pending = VecDeque::new();
                 pending.push_back(NodeId::new(i as u32));
                 while let Some(id) = pending.pop_front() {
                     for i in 0..4 {
                         if let Some(child) = self.nodes[id].children[i] {
-                            self.nodes[child].bounds.min.y = miny;
-                            self.nodes[child].bounds.max.y = maxy;
+                            self.nodes[child].bounds.min.y = miny - 200.0;
+                            self.nodes[child].bounds.max.y = maxy + 200.0;
                             pending.push_back(child);
                         }
                     }
@@ -701,7 +701,7 @@ impl<W: Write> State<W> {
         // };
         // let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
 
-        let mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
+        let _mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
 
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..tile_count {
@@ -710,7 +710,7 @@ impl<W: Write> State<W> {
 
             let mut colormap =
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
-            let heights = self.heightmaps.as_ref().unwrap();
+            let _heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
@@ -720,11 +720,6 @@ impl<W: Write> State<W> {
 
             for y in 2..(2 + colormap_resolution) {
                 for x in 2..(2 + colormap_resolution) {
-                    let r = bluemarble.get(i, x, y, 0) as u8;
-                    let g = bluemarble.get(i, x, y, 1) as u8;
-                    let b = bluemarble.get(i, x, y, 2) as u8;
-                    let mut roughness = (0.7 * 255.0) as u8;
-
                     let color = if false
                     /*watermasks.get(i, x, y, 0) > 0.01*/
                     {
@@ -780,26 +775,12 @@ impl<W: Write> State<W> {
         let normalmap_resolution = self.heightmap_resolution - 5;
         let tile_count = self.heightmaps.as_ref().unwrap().len();
 
-        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
-        self.writer.write_all(&vec![1u8; tile_count])?;
-        self.bytes_written += tile_count;
-        self.page_pad()?;
-
         let tile_bytes = 2 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
-        self.layers.insert(
-            LayerType::Normals.index(),
-            LayerParams {
-                layer_type: LayerType::Normals,
-                tile_valid_bitmap,
-                tile_locations,
-                texture_resolution: normalmap_resolution as u32,
-                texture_border_size: self.skirt as u32 - 2,
-                texture_format: TextureFormat::RG8,
-            },
-        );
+
+		let mut bitmap = vec![1u8; tile_count];
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
             context.set_progress(i as u64);
@@ -808,6 +789,11 @@ impl<W: Write> State<W> {
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+
+			if spacing < 32.0 {
+				bitmap[i] = 0;
+			}
+
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {
                     let h00 = heights.get(i, x, y, 0);
@@ -829,6 +815,25 @@ impl<W: Write> State<W> {
             }
         }
         context.decrement_level();
+
+        self.page_pad()?;
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
+        self.writer.write_all(&bitmap)?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
+        self.layers.insert(
+            LayerType::Normals.index(),
+            LayerParams {
+                layer_type: LayerType::Normals,
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: normalmap_resolution as u32,
+                texture_border_size: self.skirt as u32 - 2,
+                texture_format: TextureFormat::RG8,
+            },
+        );
+
         Ok(())
     }
     fn generate_splats(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {

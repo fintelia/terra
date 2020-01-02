@@ -6,8 +6,9 @@ use memmap::MmapMut;
 use vec_map::VecMap;
 
 pub(crate) enum TileState {
-    OnDisk,
     Missing,
+    Base,
+	Generated,
 }
 
 pub struct MapFile {
@@ -22,8 +23,9 @@ impl MapFile {
     pub(crate) fn tile_state(&self, layer: LayerType, tile: usize) -> TileState {
         let offset = self.header.layers[layer.index()].tile_valid_bitmap.offset;
         match self.file[offset + tile] {
-            1 => TileState::OnDisk,
             0 => TileState::Missing,
+            1 => TileState::Base,
+			2 => TileState::Generated,
             _ => unreachable!(),
         }
     }
@@ -48,10 +50,19 @@ impl MapFile {
 
         self.file[offset..][..length].copy_from_slice(data);
         self.file.flush_range(offset, length)?;
-        self.file[params.tile_valid_bitmap.offset + tile] = 1;
+        self.file[params.tile_valid_bitmap.offset + tile] = 2;
         self.file.flush_async_range(params.tile_valid_bitmap.offset + tile, 1)?;
         Ok(())
     }
+
+	pub(crate) fn clear_generated(&mut self, layer: LayerType) {
+		let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
+		for i in 0..bitmap.length {
+			if self.file[bitmap.offset + i] == 2 {
+				self.file[bitmap.offset + i] = 0;
+			}
+		}
+	}
 
     fn load_texture(
         &self,

@@ -1,0 +1,32 @@
+#line 2
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+layout(binding = 0) uniform UniformBlock {
+    vec2 position;
+	float spacing;
+} uniform_block;
+
+layout(set = 0, binding = 1) uniform texture2D base_heights;
+layout(rgba32f, binding = 2) uniform image2D heights_staging;
+layout(rg8, binding = 3) uniform image2D normals_staging;
+
+layout(set = 0, binding = 4) uniform sampler linear;
+layout(set = 0, binding = 5) uniform sampler linear_wrap;
+layout(set = 0, binding = 6) uniform texture2D noise;
+
+void main() {
+	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+	float h00 = imageLoad(heights_staging, pos).y;
+	float h10 = imageLoad(heights_staging, pos + ivec2(1,0)).y;
+	float h01 = imageLoad(heights_staging, pos + ivec2(0,1)).y;
+	float h11 = imageLoad(heights_staging, pos + ivec2(1,1)).y;
+
+	vec3 normal = vec3(h10 + h11 - h00 - h01,
+					   2.0 * uniform_block.spacing,
+					   -1.0 * (h01 + h11 - h00 - h10));
+
+	normal = normalize(normal);
+
+	imageStore(normals_staging, ivec2(pos), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+}

@@ -1,20 +1,22 @@
-use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
-use crate::coordinates::{CoordinateSystem, PLANET_RADIUS};
-use crate::terrain::dem::{DemSource, GlobalDem};
-use crate::terrain::raster::{RasterCache, RasterSource};
 use crate::GpuState;
-use cgmath::InnerSpace;
 use std::mem;
-use std::rc::Rc;
-
-const BASE_RESOLUTION: u32 = 1024;
 
 #[derive(Copy, Clone)]
 pub(crate) struct GenHeightsUniforms {
     pub position: [f32; 2],
+	pub base_heights_step: f32,
+	pub step: f32,
 }
 unsafe impl bytemuck::Zeroable for GenHeightsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightsUniforms {}
+
+#[derive(Copy, Clone)]
+pub(crate) struct GenNormalsUniforms {
+    pub position: [f32; 2],
+	pub spacing: f32,
+}
+unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
+unsafe impl bytemuck::Pod for GenNormalsUniforms {}
 
 pub(crate) struct ComputeShader<U> {
     shader: rshader::ShaderSet,
@@ -55,12 +57,18 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 },
                 wgpu::BindGroupLayoutBinding { binding: 1, ..texture_binding },
                 wgpu::BindGroupLayoutBinding { binding: 2, ..texture_binding },
+                wgpu::BindGroupLayoutBinding { binding: 3, ..texture_binding },
                 wgpu::BindGroupLayoutBinding {
-                    binding: 3,
+                    binding: 4,
                     visibility: wgpu::ShaderStage::COMPUTE,
                     ty: wgpu::BindingType::Sampler,
                 },
-                wgpu::BindGroupLayoutBinding { binding: 4, ..texture_binding },
+                wgpu::BindGroupLayoutBinding {
+                    binding: 5,
+                    visibility: wgpu::ShaderStage::COMPUTE,
+                    ty: wgpu::BindingType::Sampler,
+                },
+                wgpu::BindGroupLayoutBinding { binding: 6, ..texture_binding },
             ],
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -87,6 +95,12 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 },
                 wgpu::Binding {
                     binding: 3,
+                    resource: wgpu::BindingResource::TextureView(
+                        &state.normals_staging.create_default_view(),
+                    ),
+                },
+                wgpu::Binding {
+                    binding: 4,
                     resource: wgpu::BindingResource::Sampler(&device.create_sampler(
                         &wgpu::SamplerDescriptor {
                             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -102,7 +116,23 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     )),
                 },
                 wgpu::Binding {
-                    binding: 4,
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
+                        &wgpu::SamplerDescriptor {
+                            address_mode_u: wgpu::AddressMode::Repeat,
+                            address_mode_v: wgpu::AddressMode::Repeat,
+                            address_mode_w: wgpu::AddressMode::Repeat,
+                            mag_filter: wgpu::FilterMode::Linear,
+                            min_filter: wgpu::FilterMode::Linear,
+                            mipmap_filter: wgpu::FilterMode::Nearest,
+                            lod_min_clamp: -100.0,
+                            lod_max_clamp: 100.0,
+                            compare_function: wgpu::CompareFunction::Always,
+                        },
+                    )),
+                },
+                wgpu::Binding {
+                    binding: 6,
                     resource: wgpu::BindingResource::TextureView(
                         &state.noise.create_default_view(),
                     ),
@@ -124,10 +154,13 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         }
     }
 
-    pub fn refresh(&mut self, watcher: &mut rshader::ShaderDirectoryWatcher) {
+    pub fn refresh(&mut self, watcher: &mut rshader::ShaderDirectoryWatcher) -> bool {
         if self.shader.refresh(watcher) {
             self.compute_pipeline = None;
-        }
+			true
+        } else {
+			false
+		}
     }
 
     pub fn run(

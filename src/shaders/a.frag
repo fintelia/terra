@@ -59,20 +59,20 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	// if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
+	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.3);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	// if(abs(length(position.xz) - 16 * 1024.0) < 100)
+	// if(abs(max(abs(position.x),abs(position.z)) - 32*1024.0) < 100)
 	// 	color = vec3(1);
-	// if(abs(length(position.xz-camera.xz) - 4.0) < .125)
+	// if(abs(length(position.xz-uniform_block.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
-	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.3);
+	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.3);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -130,5 +130,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	out_color.rgb = debug_overlay(out_color.rgb);
+	// out_color.rgb = debug_overlay(out_color.rgb);
 }

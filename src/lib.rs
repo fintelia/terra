@@ -20,7 +20,7 @@ mod utils;
 // pub mod plugin;
 // pub mod compute;
 
-use crate::generate::{ComputeShader, GenHeightsUniforms};
+use crate::generate::{ComputeShader, GenHeightsUniforms, GenNormalsUniforms};
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use futures::{
@@ -77,8 +77,7 @@ pub struct Terrain {
     index_buffer_partial: wgpu::Buffer,
 
     gen_heights: ComputeShader<GenHeightsUniforms>,
-    // gen_normals: ComputeShader<()>,
-    // load_heights: ComputeShader<()>,
+    gen_normals: ComputeShader<GenNormalsUniforms>,
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: MapFile,
@@ -131,10 +130,6 @@ impl Terrain {
                 | wgpu::TextureUsage::STORAGE,
         };
 
-        let heights_resolution = tile_cache[LayerType::Heights.index()].resolution();
-        let normals_resolution = tile_cache[LayerType::Normals.index()].resolution();
-        let albedo_resolution = tile_cache[LayerType::Colors.index()].resolution();
-
         let (noise, planet_mesh_texture, base_heights) = {
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
@@ -151,7 +146,7 @@ impl Terrain {
             base_heights,
             heights_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },
-                format: wgpu::TextureFormat::R32Float,
+                format: wgpu::TextureFormat::Rgba32Float,
                 ..texture_desc
             }),
             normals_staging: device.create_texture(&wgpu::TextureDescriptor {
@@ -263,28 +258,20 @@ impl Terrain {
             )
             .unwrap(),
         );
+        let gen_normals = ComputeShader::new(
+            device,
+            queue,
+            &gpu_state,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "gen-normals.comp"),
+            )
+            .unwrap(),
+        );
 
-        // let gen_normals = ComputeShader::new(
-        //     device,
-        //     queue,
-        //     &gpu_state,
-        //     rshader::ShaderSet::compute_only(
-        //         &mut watcher,
-        //         rshader::shader_source!("shaders", "version", "gen-normals.comp"),
-        //     )
-        //     .unwrap(),
-        // );
-
-        // let load_heights = ComputeShader::new(
-        //     device,
-        //     queue,
-        //     &gpu_state,
-        //     rshader::ShaderSet::compute_only(
-        //         &mut watcher,
-        //         rshader::shader_source!("shaders", "version", "load-heights.comp"),
-        //     )
-        //     .unwrap(),
-        // );
+		// TODO: only clear if shader has changed?
+		mapfile.clear_generated(LayerType::Heights);
+		mapfile.clear_generated(LayerType::Normals);
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
         let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
@@ -304,6 +291,7 @@ impl Terrain {
             index_buffer_partial,
 
             gen_heights,
+			gen_normals,
 
             gpu_state,
             // gen_heights,
@@ -349,6 +337,17 @@ impl Terrain {
                 self.mapfile.write_tile(layer, tile, &tile_data).unwrap();
             }
         }
+
+		if self.gen_heights.refresh(&mut self.watcher) {
+			self.mapfile.clear_generated(LayerType::Heights);
+			self.mapfile.clear_generated(LayerType::Normals);
+			self.tile_cache[LayerType::Heights.index()].clear_generated();
+			self.tile_cache[LayerType::Normals.index()].clear_generated();
+		}
+		if self.gen_normals.refresh(&mut self.watcher) {
+			self.mapfile.clear_generated(LayerType::Normals);
+			self.tile_cache[LayerType::Normals.index()].clear_generated();
+		}
 
         let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
         self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
@@ -455,7 +454,7 @@ impl Terrain {
             &self.quadtree.nodes,
             &mut self.mapfile,
         );
-        self.tile_cache[LayerType::Normals.index()].upload_tiles(
+        let missing_normals = self.tile_cache[LayerType::Normals.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.normals,
@@ -470,18 +469,78 @@ impl Terrain {
             &mut self.mapfile,
         );
 
+        let normals_resolution = self.tile_cache[LayerType::Normals.index()].resolution();
+        let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
+        for node in missing_normals.into_iter().take(1) {
+			let spacing = self.quadtree.nodes[node].side_length / normals_resolution as f32;
+			let position = self.quadtree.nodes[node].bounds.min;
+            self.gen_heights.run(
+                device,
+                &mut encoder,
+                (normals_resolution+1, normals_resolution+1, 1),
+                &GenHeightsUniforms {
+					position: [position.x, position.z],
+					base_heights_step: 32.0,
+					step: spacing,
+				},
+            );
+            self.gen_normals.run(
+                device,
+                &mut encoder,
+                (normals_resolution, normals_resolution, 1),
+                &GenNormalsUniforms {
+					position: [position.x, position.z],
+					spacing,
+				},
+            );
+
+            let size = normals_resolution as u64 * normals_row_pitch as u64;
+            let download = device.create_buffer(&wgpu::BufferDescriptor {
+                size,
+                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+            });
+            let tile = self.quadtree.nodes[node].tile_indices[LayerType::Normals.index()].unwrap()
+                as usize;
+
+            encoder.copy_texture_to_buffer(
+                wgpu::TextureCopyView {
+                    texture: &self.gpu_state.normals_staging,
+                    mip_level: 0,
+                    array_layer: 0,
+                    origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                },
+                wgpu::BufferCopyView {
+                    buffer: &download,
+                    offset: 0,
+                    row_pitch: normals_row_pitch as u32,
+                    image_height: normals_resolution as u32,
+                },
+                wgpu::Extent3d {
+                    width: normals_resolution as u32,
+                    height: normals_resolution as u32,
+                    depth: 1,
+                },
+            );
+
+            self.pending_tiles.push((LayerType::Normals, tile, download));
+        }
         let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
         let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
         for node in missing_heights.into_iter().take(4) {
+			let step = self.quadtree.nodes[node].side_length / (heights_resolution - 1) as f32;
+			let position = self.quadtree.nodes[node].bounds.min;
             self.gen_heights.run(
                 device,
                 &mut encoder,
                 (heights_resolution, heights_resolution, 1),
-                &GenHeightsUniforms { position: [0.0, 0.0] },
+                &GenHeightsUniforms {
+					position: [position.x, position.z],
+					base_heights_step: 32.0,
+					step,
+				},
             );
 
-            let row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
-            let size = heights_resolution as u64 * row_pitch as u64;
+            let size = heights_resolution as u64 * heights_row_pitch as u64;
             let download = device.create_buffer(&wgpu::BufferDescriptor {
                 size,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,

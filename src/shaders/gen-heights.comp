@@ -4,16 +4,31 @@ layout(local_size_x = 1, local_size_y = 1) in;
 
 layout(binding = 0) uniform UniformBlock {
     vec2 position;
+	float base_heights_step;
+	float step;
 } uniform_block;
 
-layout(r32f, binding = 1) uniform image2D base_heights;
+layout(set = 0, binding = 1) uniform texture2D base_heights;
 layout(rgba32f, binding = 2) uniform image2D heights_staging;
+layout(rg8, binding = 3) uniform image2D normals_staging;
 
-layout(set = 0, binding = 3) uniform sampler linear;
-layout(set = 0, binding = 4) uniform texture2D noise;
+layout(set = 0, binding = 4) uniform sampler linear;
+layout(set = 0, binding = 5) uniform sampler linear_wrap;
+layout(set = 0, binding = 6) uniform texture2D noise;
 
 void main() {
-	vec4 out_height = vec4(0.0);
+	vec2 position = uniform_block.position
+		+ vec2(gl_GlobalInvocationID.xy) * uniform_block.step;
+
+	vec2 bh_size = vec2(textureSize(base_heights, 0).xy) * uniform_block.base_heights_step;
+
+	float bh = texture(sampler2D(base_heights, linear), vec2(0.5) + position / bh_size).x;
+
+	vec4 n = textureLod(sampler2D(noise, linear_wrap), (position/10000), 0.0).xyzw;
+	vec4 n2 = textureLod(sampler2D(noise, linear_wrap), (position/20000), 0.0).xyzw;
+	vec4 n3 = textureLod(sampler2D(noise, linear_wrap), (position/40000), 0.0).xyzw;
+
+	vec4 out_height = vec4(0.0, bh + n.x*10 + n2.x*20 + n3.x*40, 0.0, 0.0);
 
 	imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
 }

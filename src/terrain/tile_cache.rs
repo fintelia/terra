@@ -100,7 +100,7 @@ impl IndexMut<LayerType> for VecMap<TileCache> {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct ByteRange {
     pub offset: usize,
     pub length: usize,
@@ -158,6 +158,7 @@ struct Entry {
     priority: Priority,
     id: NodeId,
     valid: bool,
+	generated: bool,
 }
 
 pub(crate) struct TileCache {
@@ -207,7 +208,7 @@ impl TileCache {
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
             self.reverse.insert(m.1.index(), self.slots.len());
-            self.slots.push(Entry { priority: m.0, id: m.1, valid: false });
+            self.slots.push(Entry { priority: m.0, id: m.1, valid: false, generated: false });
         }
         if !self.missing.is_empty() {
             let mut possible: Vec<_> = self
@@ -237,7 +238,7 @@ impl TileCache {
 
                 self.reverse.remove(self.slots[index].id.index());
                 self.reverse.insert(m.1.index(), index);
-                self.slots[index] = Entry { priority: m.0, id: m.1, valid: false };
+                self.slots[index] = Entry { priority: m.0, id: m.1, valid: false, generated: false };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -263,7 +264,7 @@ impl TileCache {
         let mut pending_uploads = Vec::new();
         let mut pending_generate = Vec::new();
 
-        for (i, entry) in self.slots.iter_mut().enumerate() {
+        for (i, ref mut entry) in self.slots.iter_mut().enumerate() {
             if entry.valid {
                 continue;
             }
@@ -271,7 +272,14 @@ impl TileCache {
             let tile = nodes[entry.id].tile_indices[ty.index()].unwrap() as usize;
 
             match mapfile.tile_state(ty, tile) {
-                TileState::OnDisk => pending_uploads.push((i, tile)),
+                TileState::Base => {
+					entry.generated = false;
+					pending_uploads.push((i, tile));
+				}
+				TileState::Generated => {
+					entry.generated = true;
+					pending_uploads.push((i, tile));
+				}
                 TileState::Missing => pending_generate.push(entry.id),
             }
         }
@@ -342,6 +350,14 @@ impl TileCache {
                 | wgpu::TextureUsage::STORAGE,
         })
     }
+
+	pub fn clear_generated(&mut self) {
+		for i in 0..self.slots.len() {
+			if self.slots[i].generated {
+				self.slots[i].valid = false;
+			}
+		}
+	}
 
     pub fn contains(&self, id: NodeId) -> bool {
         self.reverse
