@@ -780,7 +780,7 @@ impl<W: Write> State<W> {
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
 
-		let mut bitmap = vec![1u8; tile_count];
+        let mut bitmap = vec![1u8; tile_count];
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
             context.set_progress(i as u64);
@@ -790,9 +790,9 @@ impl<W: Write> State<W> {
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
-			if spacing < 32.0 {
-				bitmap[i] = 0;
-			}
+            if spacing < 32.0 {
+                bitmap[i] = 0;
+            }
 
             for y in 2..(2 + normalmap_resolution) {
                 for x in 2..(2 + normalmap_resolution) {

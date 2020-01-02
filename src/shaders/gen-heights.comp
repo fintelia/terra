@@ -28,7 +28,7 @@ void main() {
 	vec4 n2 = textureLod(sampler2D(noise, linear_wrap), (position/20000), 0.0).xyzw;
 	vec4 n3 = textureLod(sampler2D(noise, linear_wrap), (position/40000), 0.0).xyzw;
 
-	vec4 out_height = vec4(0.0, bh + n.x*10 + n2.x*20 + n3.x*40, 0.0, 0.0);
+	vec4 out_height = vec4(0.0, bh + n.x*10 + n2.x*10 + n3.x*10, 0.0, 0.0);
 
 	imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
 }

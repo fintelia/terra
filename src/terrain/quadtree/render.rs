@@ -1,6 +1,5 @@
 use super::*;
 use crate::terrain::tile_cache::LayerType;
-use std::iter;
 use std::mem;
 
 #[derive(Copy, Clone)]
@@ -239,10 +238,7 @@ impl QuadTree {
                 if mask & (1 << i) != 0 {
                     let side_length = self.nodes[id].side_length * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let base_origin = Vector2::new(
-                        offset.0 * (0.5 - 0.5 / (resolution + 1) as f32),
-                        offset.1 * (0.5 - 0.5 / (resolution + 1) as f32),
-                    );
+                    let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let heights_desc = find_descs(
                         &self.nodes,
                         &tile_cache[LayerType::Heights.index()],
@@ -367,35 +363,16 @@ impl QuadTree {
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 
-        unsafe {
-            rpass.set_vertex_buffers(0, &[(vertex_buffer, 0)]);
+        rpass.set_vertex_buffers(0, &[(vertex_buffer, 0)]);
 
-            rpass.set_index_buffer(index_buffer, 0);
-            rpass.draw_indexed(0..(resolution * resolution * 6), 0, 0..visible_nodes);
+        rpass.set_index_buffer(index_buffer, 0);
+        rpass.draw_indexed(0..(resolution * resolution * 6), 0, 0..visible_nodes);
 
-            rpass.set_index_buffer(index_buffer_partial, 0);
-            rpass.draw_indexed(
-                0..((resolution / 2) * (resolution / 2) * 6),
-                0,
-                visible_nodes..total_nodes,
-            );
-        }
+        rpass.set_index_buffer(index_buffer_partial, 0);
+        rpass.draw_indexed(
+            0..((resolution / 2) * (resolution / 2) * 6),
+            0,
+            visible_nodes..total_nodes,
+        );
     }
-
-    // pub fn render_sky<C: gfx_core::command::Buffer<R>>(
-    //     &mut self,
-    //     encoder: &mut gfx::Encoder<R, C>,
-    // ) {
-    //     encoder.draw(
-    //         &gfx::Slice {
-    //             start: 0,
-    //             end: 3,
-    //             base_vertex: 0,
-    //             instances: None,
-    //             buffer: gfx::IndexBuffer::Auto,
-    //         },
-    //         &self.sky_pso,
-    //         &self.sky_pipeline_data,
-    //     );
-    // }
 }

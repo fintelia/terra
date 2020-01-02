@@ -4,8 +4,8 @@ use std::mem;
 #[derive(Copy, Clone)]
 pub(crate) struct GenHeightsUniforms {
     pub position: [f32; 2],
-	pub base_heights_step: f32,
-	pub step: f32,
+    pub base_heights_step: f32,
+    pub step: f32,
 }
 unsafe impl bytemuck::Zeroable for GenHeightsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightsUniforms {}
@@ -13,7 +13,7 @@ unsafe impl bytemuck::Pod for GenHeightsUniforms {}
 #[derive(Copy, Clone)]
 pub(crate) struct GenNormalsUniforms {
     pub position: [f32; 2],
-	pub spacing: f32,
+    pub spacing: f32,
 }
 unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
 unsafe impl bytemuck::Pod for GenNormalsUniforms {}
@@ -157,10 +157,10 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
     pub fn refresh(&mut self, watcher: &mut rshader::ShaderDirectoryWatcher) -> bool {
         if self.shader.refresh(watcher) {
             self.compute_pipeline = None;
-			true
+            true
         } else {
-			false
-		}
+            false
+        }
     }
 
     pub fn run(

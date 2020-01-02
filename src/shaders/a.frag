@@ -77,8 +77,8 @@ vec3 debug_overlay(vec3 color) {
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
 
-	if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
-		color = mix(color, vec3(0.1), 0.3);
+	// if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
+	// 	color = mix(color, vec3(0.1), 0.3);
 
 	// if((fract(texcoord.x*ts.x/2) < 0.5) != (fract(texcoord.y*ts.y/2) < 0.5))
 	// 	color *= 0.4;
@@ -130,5 +130,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// out_color.rgb = debug_overlay(out_color.rgb);
+	out_color.rgb = debug_overlay(out_color.rgb);
 }

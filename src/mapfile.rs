@@ -8,7 +8,7 @@ use vec_map::VecMap;
 pub(crate) enum TileState {
     Missing,
     Base,
-	Generated,
+    Generated,
 }
 
 pub struct MapFile {
@@ -25,7 +25,7 @@ impl MapFile {
         match self.file[offset + tile] {
             0 => TileState::Missing,
             1 => TileState::Base,
-			2 => TileState::Generated,
+            2 => TileState::Generated,
             _ => unreachable!(),
         }
     }
@@ -55,14 +55,14 @@ impl MapFile {
         Ok(())
     }
 
-	pub(crate) fn clear_generated(&mut self, layer: LayerType) {
-		let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
-		for i in 0..bitmap.length {
-			if self.file[bitmap.offset + i] == 2 {
-				self.file[bitmap.offset + i] = 0;
-			}
-		}
-	}
+    pub(crate) fn clear_generated(&mut self, layer: LayerType) {
+        let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
+        for i in 0..bitmap.length {
+            if self.file[bitmap.offset + i] == 2 {
+                self.file[bitmap.offset + i] = 0;
+            }
+        }
+    }
 
     fn load_texture(
         &self,

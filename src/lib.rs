@@ -7,29 +7,20 @@
 extern crate lazy_static;
 extern crate rshader;
 
+mod cache;
 mod coordinates;
 mod generate;
-// mod graph;
-mod cache;
 mod mapfile;
 mod runtime_texture;
 mod srgb;
 mod terrain;
 mod utils;
 
-// pub mod plugin;
-// pub mod compute;
-
 use crate::generate::{ComputeShader, GenHeightsUniforms, GenNormalsUniforms};
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
-use futures::{
-    executor::{self, LocalPool},
-    future::FutureExt,
-    task::{LocalFutureObj, LocalSpawn, LocalSpawnExt, SpawnExt},
-};
+use futures::executor;
 use std::mem;
-use std::sync::mpsc::{self, Receiver, Sender};
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, Section};
@@ -62,7 +53,7 @@ pub(crate) struct GpuState {
 }
 
 pub struct Terrain {
-    bind_group_layout: wgpu::BindGroupLayout,
+    _bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
 
     render_pipeline_layout: wgpu::PipelineLayout,
@@ -269,16 +260,16 @@ impl Terrain {
             .unwrap(),
         );
 
-		// TODO: only clear if shader has changed?
-		mapfile.clear_generated(LayerType::Heights);
-		mapfile.clear_generated(LayerType::Normals);
+        // TODO: only clear if shader has changed?
+        mapfile.clear_generated(LayerType::Heights);
+        mapfile.clear_generated(LayerType::Normals);
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
         let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
             .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Self {
-            bind_group_layout,
+            _bind_group_layout: bind_group_layout,
             bind_group,
             render_pipeline_layout,
             render_pipeline: None,
@@ -291,7 +282,7 @@ impl Terrain {
             index_buffer_partial,
 
             gen_heights,
-			gen_normals,
+            gen_normals,
 
             gpu_state,
             // gen_heights,
@@ -338,16 +329,16 @@ impl Terrain {
             }
         }
 
-		if self.gen_heights.refresh(&mut self.watcher) {
-			self.mapfile.clear_generated(LayerType::Heights);
-			self.mapfile.clear_generated(LayerType::Normals);
-			self.tile_cache[LayerType::Heights.index()].clear_generated();
-			self.tile_cache[LayerType::Normals.index()].clear_generated();
-		}
-		if self.gen_normals.refresh(&mut self.watcher) {
-			self.mapfile.clear_generated(LayerType::Normals);
-			self.tile_cache[LayerType::Normals.index()].clear_generated();
-		}
+        if self.gen_heights.refresh(&mut self.watcher) {
+            self.mapfile.clear_generated(LayerType::Heights);
+            self.mapfile.clear_generated(LayerType::Normals);
+            self.tile_cache[LayerType::Heights.index()].clear_generated();
+            self.tile_cache[LayerType::Normals.index()].clear_generated();
+        }
+        if self.gen_normals.refresh(&mut self.watcher) {
+            self.mapfile.clear_generated(LayerType::Normals);
+            self.tile_cache[LayerType::Normals.index()].clear_generated();
+        }
 
         let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
         self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
@@ -470,28 +461,28 @@ impl Terrain {
         );
 
         let normals_resolution = self.tile_cache[LayerType::Normals.index()].resolution();
+        let normals_border = self.tile_cache[LayerType::Normals.index()].border();
         let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
         for node in missing_normals.into_iter().take(1) {
-			let spacing = self.quadtree.nodes[node].side_length / normals_resolution as f32;
-			let position = self.quadtree.nodes[node].bounds.min;
+            let spacing = self.quadtree.nodes[node].side_length
+                / (normals_resolution - normals_border * 2) as f32;
+            let position = self.quadtree.nodes[node].bounds.min
+                - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
             self.gen_heights.run(
                 device,
                 &mut encoder,
-                (normals_resolution+1, normals_resolution+1, 1),
+                (normals_resolution + 1, normals_resolution + 1, 1),
                 &GenHeightsUniforms {
-					position: [position.x, position.z],
-					base_heights_step: 32.0,
-					step: spacing,
-				},
+                    position: [position.x, position.z],
+                    base_heights_step: 32.0,
+                    step: spacing,
+                },
             );
             self.gen_normals.run(
                 device,
                 &mut encoder,
                 (normals_resolution, normals_resolution, 1),
-                &GenNormalsUniforms {
-					position: [position.x, position.z],
-					spacing,
-				},
+                &GenNormalsUniforms { position: [position.x, position.z], spacing },
             );
 
             let size = normals_resolution as u64 * normals_row_pitch as u64;
@@ -526,18 +517,18 @@ impl Terrain {
         }
         let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
         let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
-        for node in missing_heights.into_iter().take(4) {
-			let step = self.quadtree.nodes[node].side_length / (heights_resolution - 1) as f32;
-			let position = self.quadtree.nodes[node].bounds.min;
+        for node in missing_heights.into_iter().take(32) {
+            let step = self.quadtree.nodes[node].side_length / (heights_resolution - 1) as f32;
+            let position = self.quadtree.nodes[node].bounds.min;
             self.gen_heights.run(
                 device,
                 &mut encoder,
                 (heights_resolution, heights_resolution, 1),
                 &GenHeightsUniforms {
-					position: [position.x, position.z],
-					base_heights_step: 32.0,
-					step,
-				},
+                    position: [position.x, position.z],
+                    base_heights_step: 32.0,
+                    step,
+                },
             );
 
             let size = heights_resolution as u64 * heights_row_pitch as u64;

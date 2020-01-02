@@ -2,10 +2,8 @@ use crate::coordinates::CoordinateSystem;
 use crate::mapfile::{MapFile, TileState};
 use crate::terrain::quadtree::{Node, NodeId};
 use cgmath::Point3;
-use memmap::Mmap;
 use serde::{Deserialize, Serialize};
 use std::ops::{Index, IndexMut};
-use std::sync::Arc;
 use vec_map::VecMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -158,7 +156,7 @@ struct Entry {
     priority: Priority,
     id: NodeId,
     valid: bool,
-	generated: bool,
+    generated: bool,
 }
 
 pub(crate) struct TileCache {
@@ -238,7 +236,8 @@ impl TileCache {
 
                 self.reverse.remove(self.slots[index].id.index());
                 self.reverse.insert(m.1.index(), index);
-                self.slots[index] = Entry { priority: m.0, id: m.1, valid: false, generated: false };
+                self.slots[index] =
+                    Entry { priority: m.0, id: m.1, valid: false, generated: false };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -273,13 +272,13 @@ impl TileCache {
 
             match mapfile.tile_state(ty, tile) {
                 TileState::Base => {
-					entry.generated = false;
-					pending_uploads.push((i, tile));
-				}
-				TileState::Generated => {
-					entry.generated = true;
-					pending_uploads.push((i, tile));
-				}
+                    entry.generated = false;
+                    pending_uploads.push((i, tile));
+                }
+                TileState::Generated => {
+                    entry.generated = true;
+                    pending_uploads.push((i, tile));
+                }
                 TileState::Missing => pending_generate.push(entry.id),
             }
         }
@@ -351,13 +350,13 @@ impl TileCache {
         })
     }
 
-	pub fn clear_generated(&mut self) {
-		for i in 0..self.slots.len() {
-			if self.slots[i].generated {
-				self.slots[i].valid = false;
-			}
-		}
-	}
+    pub fn clear_generated(&mut self) {
+        for i in 0..self.slots.len() {
+            if self.slots[i].generated {
+                self.slots[i].valid = false;
+            }
+        }
+    }
 
     pub fn contains(&self, id: NodeId) -> bool {
         self.reverse
