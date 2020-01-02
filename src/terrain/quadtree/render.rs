@@ -8,7 +8,7 @@ pub(crate) struct NodeState {
     position: glsl_layout::vec2,
     side_length: f32,
     min_distance: f32,
-    heights_desc: [f32; 4],
+    heights_desc: [[f32; 4]; 2],
     albedo_desc: [[f32; 4]; 2],
     normals_desc: [[f32; 4]; 2],
     resolution: i32,
@@ -203,7 +203,7 @@ impl QuadTree {
                 Vector2::new(0.0, 0.0),
                 resolution as f32 / (resolution + 1) as f32,
                 1.0 / (resolution + 1) as f32,
-            )[0];
+            );
             let albedo_desc = find_descs(
                 &self.nodes,
                 &tile_cache[LayerType::Colors.index()],
@@ -247,7 +247,7 @@ impl QuadTree {
                         Vector2::new(offset.0, offset.1) * 0.5,
                         resolution as f32 / (resolution + 1) as f32,
                         1.0 / (resolution + 1) as f32,
-                    )[0];
+                    );
                     let albedo_desc = find_descs(
                         &self.nodes,
                         &tile_cache[LayerType::Colors.index()],

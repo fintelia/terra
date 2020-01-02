@@ -285,9 +285,6 @@ impl Terrain {
             gen_normals,
 
             gpu_state,
-            // gen_heights,
-            // gen_normals,
-            // load_heights,
             quadtree,
             mapfile,
             tile_cache,
@@ -423,8 +420,13 @@ impl Terrain {
                             },
                             wgpu::VertexAttributeDescriptor {
                                 offset: 96,
-                                format: wgpu::VertexFormat::Int,
+                                format: wgpu::VertexFormat::Float4,
                                 shader_location: 6,
+                            },
+                            wgpu::VertexAttributeDescriptor {
+                                offset: 112,
+                                format: wgpu::VertexFormat::Int,
+                                shader_location: 7,
                             },
                         ],
                     }],

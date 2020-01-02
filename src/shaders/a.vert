@@ -11,15 +11,17 @@ layout(location = 0, component=2) in float side_length;
 layout(location = 0, component=3) in float min_distance;
 layout(location = 1, component=0) in vec3 heights_origin;
 layout(location = 1, component=3) in float heights_step;
-layout(location = 2, component=0) in vec3 albedo_origin;
-layout(location = 2, component=3) in float albedo_step;
-layout(location = 3, component=0) in vec3 palbedo_origin;
-layout(location = 3, component=3) in float palbedo_step;
-layout(location = 4, component=0) in vec3 normals_origin;
-layout(location = 4, component=3) in float normals_step;
-layout(location = 5, component=0) in vec3 pnormals_origin;
-layout(location = 5, component=3) in float pnormals_step;
-layout(location = 6) in int resolution;
+layout(location = 2, component=0) in vec3 pheights_origin;
+layout(location = 2, component=3) in float pheights_step;
+layout(location = 3, component=0) in vec3 albedo_origin;
+layout(location = 3, component=3) in float albedo_step;
+layout(location = 4, component=0) in vec3 palbedo_origin;
+layout(location = 4, component=3) in float palbedo_step;
+layout(location = 5, component=0) in vec3 normals_origin;
+layout(location = 5, component=3) in float normals_step;
+layout(location = 6, component=0) in vec3 pnormals_origin;
+layout(location = 6, component=3) in float pnormals_step;
+layout(location = 7) in int resolution;
 
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;
@@ -39,22 +41,24 @@ void main() {
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
 							(gl_VertexIndex) / (resolution+1));
 
-	vec2 basePosition = vec2(iPosition) * (side_length / (resolution)) + in_position;
-	float morph = 1 - smoothstep(0.7, 0.95, distance(basePosition, uniform_block.camera.xz) / min_distance);
+	vec2 gridPosition = vec2(iPosition) * (side_length / (resolution)) + in_position;
+	float morph = 1 - smoothstep(0.7, 0.95, distance(gridPosition, uniform_block.camera.xz) / min_distance);
 	morph = min(morph * 2, 1);
 	// if(is_top_level)
 	//	morph = 1;
-	ivec2 morphTarget = (iPosition / 2) * 2;
-	vec2 nPosition = mix(vec2(morphTarget), vec2(iPosition), morph);
+	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
+
 
 	vec3 offset = texture(sampler2DArray(heights, linear),
-						  heights_origin + vec3(vec2(iPosition) * heights_step, 0)).xyz;
-	vec3 morphOffset = texture(sampler2DArray(heights, linear),
-							   heights_origin + vec3(vec2(morphTarget) * heights_step, 0)).xyz;
+						  heights_origin + vec3(vec2(nPosition) * heights_step, 0)).xyz;
+	if (pheights_origin.z >= 0) {
+		offset = mix(texture(sampler2DArray(heights, linear),
+							 pheights_origin + vec3(vec2(nPosition) * pheights_step, 0)).xyz,
+					 offset,
+					 morph);
+	}
 
-	vec3 position = vec3(0);
-	position.xz = nPosition * (side_length / (resolution)) + in_position;
-	position += mix(morphOffset, offset, morph);
+	vec3 position = vec3(nPosition * (side_length / resolution) + in_position, 0).xzy + offset;
 
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);

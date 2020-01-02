@@ -34,7 +34,7 @@ float mipmap_level(in vec2 texture_coordinate)
 }
 
 vec3 debug_overlay(vec3 color) {
-	// if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
+	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,1), 0.3);
 
 	vec2 ts = vec2(textureSize(normals, 0).xy);
