@@ -241,7 +241,6 @@ impl Terrain {
 
         let gen_heights = ComputeShader::new(
             device,
-            queue,
             &gpu_state,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
@@ -251,7 +250,6 @@ impl Terrain {
         );
         let gen_normals = ComputeShader::new(
             device,
-            queue,
             &gpu_state,
             rshader::ShaderSet::compute_only(
                 &mut watcher,

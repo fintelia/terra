@@ -30,7 +30,6 @@ pub(crate) struct ComputeShader<U> {
 impl<U: bytemuck::Pod> ComputeShader<U> {
     pub fn new(
         device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
         state: &GpuState,
         shader: rshader::ShaderSet,
     ) -> Self {
