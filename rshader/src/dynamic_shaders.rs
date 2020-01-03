@@ -1,4 +1,5 @@
-use std::fs::File;
+use std::collections::HashMap;
+use std::fs::{self, File};
 use std::io::{self, Read};
 use std::iter::Iterator;
 use std::path::PathBuf;
@@ -14,7 +15,7 @@ pub struct ShaderDirectoryWatcher {
     _watcher: RecommendedWatcher,
     watcher_rx: Receiver<DebouncedEvent>,
 
-    last_modification: Instant,
+    last_modifications: HashMap<PathBuf, Instant>,
 }
 impl ShaderDirectoryWatcher {
     pub fn new<P>(directory: P) -> Result<Self, notify::Error>
@@ -26,18 +27,13 @@ impl ShaderDirectoryWatcher {
         let mut watcher = notify::watcher(tx, Duration::from_millis(50))?;
         watcher.watch(&directory, RecursiveMode::Recursive)?;
 
-        Ok(Self {
-            directory,
-            _watcher: watcher,
-            watcher_rx,
-            last_modification: Instant::now(),
-        })
+        Ok(Self { directory, _watcher: watcher, watcher_rx, last_modifications: HashMap::new() })
     }
 
     fn detect_changes(&mut self) {
         while let Ok(event) = self.watcher_rx.try_recv() {
-            if let DebouncedEvent::Write(_) = event {
-                self.last_modification = Instant::now();
+            if let DebouncedEvent::Write(p) = event {
+                self.last_modifications.insert(p, Instant::now());
             }
         }
     }
@@ -56,9 +52,9 @@ pub struct ShaderSet {
     fragment: Option<Vec<u8>>,
     compute: Option<Vec<u8>>,
 
-    vertex_filenames: Option<Vec<PathBuf>>,
-    fragment_filenames: Option<Vec<PathBuf>>,
-    compute_filenames: Option<Vec<PathBuf>>,
+    vertex_filenames: Vec<PathBuf>,
+    fragment_filenames: Vec<PathBuf>,
+    compute_filenames: Vec<PathBuf>,
     last_update: Instant,
 }
 impl ShaderSet {
@@ -71,13 +67,13 @@ impl ShaderSet {
             .filenames
             .unwrap()
             .into_iter()
-            .map(|f| watcher.directory.join(f))
+            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
             .collect::<Vec<_>>();
         let fragment_filenames = fragment_source
             .filenames
             .unwrap()
             .into_iter()
-            .map(|f| watcher.directory.join(f))
+            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
             .collect::<Vec<_>>();
         let vertex = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
         let fragment = create_fragment_shader(&concat_file_contents(fragment_filenames.iter())?)?;
@@ -87,9 +83,9 @@ impl ShaderSet {
             fragment: Some(fragment),
             compute: None,
             last_update: Instant::now(),
-            vertex_filenames: Some(vertex_filenames),
-            fragment_filenames: Some(fragment_filenames),
-            compute_filenames: None,
+            vertex_filenames: vertex_filenames,
+            fragment_filenames: fragment_filenames,
+            compute_filenames: Vec::new(),
         })
     }
 
@@ -101,7 +97,7 @@ impl ShaderSet {
             .filenames
             .unwrap()
             .into_iter()
-            .map(|f| watcher.directory.join(f))
+            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
             .collect::<Vec<_>>();
         let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
 
@@ -110,31 +106,46 @@ impl ShaderSet {
             fragment: None,
             compute: Some(compute),
             last_update: Instant::now(),
-            vertex_filenames: None,
-            fragment_filenames: None,
-            compute_filenames: Some(compute_filenames),
+            vertex_filenames: Vec::new(),
+            fragment_filenames: Vec::new(),
+            compute_filenames: compute_filenames,
         })
     }
 
     /// Refreshes the shader if necessary. Returns whether a refresh happened.
     pub fn refresh(&mut self, directory_watcher: &mut ShaderDirectoryWatcher) -> bool {
         directory_watcher.detect_changes();
-        if directory_watcher.last_modification > self.last_update {
+
+        let needs_update = self
+            .vertex_filenames
+            .iter()
+            .chain(self.fragment_filenames.iter())
+            .chain(self.compute_filenames.iter())
+            .filter_map(|n| directory_watcher.last_modifications.get(n))
+            .any(|&t| t > self.last_update);
+
+        if needs_update {
             self.last_update = Instant::now();
 
-            let new_shaders  = || -> Result<_, failure::Error> {
+            let new_shaders = || -> Result<_, failure::Error> {
                 let (mut vs, mut fs, mut cs) = (None, None, None);
-                if let Some(ref s) = self.vertex_filenames {
-                    vs = Some(create_vertex_shader(&concat_file_contents(s.iter())?)?);
+                if !self.vertex_filenames.is_empty() {
+                    vs = Some(create_vertex_shader(&concat_file_contents(
+                        self.vertex_filenames.iter(),
+                    )?)?);
                 }
-                if let Some(ref s) = self.fragment_filenames {
-                    fs = Some(create_fragment_shader(&concat_file_contents(s.iter())?)?);
+                if !self.fragment_filenames.is_empty() {
+                    fs = Some(create_fragment_shader(&concat_file_contents(
+                        self.fragment_filenames.iter(),
+                    )?)?);
                 }
-                if let Some(ref s) = self.compute_filenames {
-                    cs = Some(create_compute_shader(&concat_file_contents(s.iter())?)?);
+                if !self.compute_filenames.is_empty() {
+                    cs = Some(create_compute_shader(&concat_file_contents(
+                        self.compute_filenames.iter(),
+                    )?)?);
                 }
                 Ok((vs, fs, cs))
-            } ();
+            }();
 
             if let Ok((vs, fs, cs)) = new_shaders {
                 self.vertex = vs;
