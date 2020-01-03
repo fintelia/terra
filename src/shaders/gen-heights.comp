@@ -16,12 +16,21 @@ layout(set = 0, binding = 4) uniform sampler linear;
 layout(set = 0, binding = 5) uniform sampler linear_wrap;
 layout(set = 0, binding = 6) uniform texture2D noise;
 
-float cubic(vec4 f, float t)
+vec2 cubic(vec4 f, float t)
 {
-	return dot(f, vec4(-0.5, 1.5, -1.5, 0.5)) * t*t*t
-		+ dot(f, vec4(1.0, -2.5, 2.0, -0.5)) * t*t
-		+ dot(f, vec4(-0.5, 0.0, 0.5, 0.0)) * t
-		+ f.y;
+	vec4 a = vec4(dot(f, vec4(-0.5, 1.5, -1.5, 0.5)),
+				  dot(f, vec4(1.0, -2.5, 2.0, -0.5)),
+				  dot(f, vec4(-0.5, 0.0, 0.5, 0.0)),
+				  f.y);
+
+	float v = a.x * t*t*t
+		+ a.y * t*t
+		+ a.z * t
+		+ a.w;
+
+	float dv = 3.0*a.x*t*t + 2.0*a.y*t + a.z;
+
+	return vec2(v, dv);
 }
 
 void main() {
@@ -47,34 +56,42 @@ void main() {
 	vec4 t01 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(-1,1));
 	vec4 t11 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(1,1));
 
-	// float f00 = t00.y;
-	// float f10 = t10.x;
-	// float f01 = t01.z;
-	// float f11 = t11.w;
-	// float dx00 = (t10.x - t00.x) * 0.5;
-	// float dx10 = (t10.y - t00.y) * 0.5;
-	// float dx01 = (t11.w - t01.w) * 0.5;
-	// float dx11 = (t11.z - t01.z) * 0.5;
-	// float dy00 = (t01.z - t00.z) * 0.5;
-	// float dy10 = (t11.w - t10.w) * 0.5;
-	// float dy01 = (t10.y - t00.y) * 0.5;
-	// float dy11 = (t11.x - t10.x) * 0.5;
-	// float dxdy00 = ((t11.w - t10.w) - (t01.w - t00.w)) * 0.25;
-	// float dxdy10 = ((t11.z - t10.z) - (t01.z - t00.z)) * 0.25;
-	// float dxdy01 = ((t11.x - t10.x) - (t01.x - t00.x)) * 0.25;
-	// float dxdy11 = ((t11.y - t10.y) - (t01.y - t00.y)) * 0.25;
+	// See: https://www.ece.mcmaster.ca/~xwu/interp_1.pdf
+	mat4 Binv = mat4(-1.0/6, 0.5, -1.0/3, 0,
+					 0.5,     -1,   -0.5, 1,
+					 -0.5,   0.5,      1, 0,
+					 1.0/6,  0.0, -1.0/6, 0);
+	mat4 F = mat4(t00.w, t00.z, t10.w, t10.z,
+				  t00.x, t00.y, t10.x, t10.y,
+				  t01.w, t01.z, t11.w, t11.z,
+				  t01.x, t01.y, t11.x, t11.y);
+	mat4 M = Binv * F * transpose(Binv);
 
-	float bh = cubic(vec4(cubic(vec4(t00.w, t00.z, t10.w, t10.z), t.x),
-						  cubic(vec4(t00.x, t00.y, t10.x, t10.y), t.x),
-						  cubic(vec4(t01.w, t01.z, t11.w, t11.z), t.x),
-						  cubic(vec4(t01.x, t01.y, t11.x, t11.y), t.x)), t.y);
+	vec4 vx = vec4(t.x*t.x*t.x, t.x*t.x, t.x, 1.0);
+	vec4 vy = vec4(t.y*t.y*t.y, t.y*t.y, t.y, 1.0);
+	float f = dot(vx * M, vy);
 
-	float n = texture(sampler2D(noise, linear_wrap), position/256).x;
-	float n2 = texture(sampler2D(noise, linear_wrap), position/1024).x;
-	float n3 = texture(sampler2D(noise, linear_wrap), position/4096).x;
-	float n4 = texture(sampler2D(noise, linear_wrap), position/16384).x;
+	vec4 dx_vx = vec4(t.x*t.x, t.x, 1, 1) * vec4(3,2,1,0);
+	vec4 dy_vy = vec4(3.0*t.y*t.y, 2.0*t.y, 1.0, 0.0);
+	float dx = dot(dx_vx * M, vy) / ubo.base_heights_spacing;
+	float dy = dot(vx * M, dy_vy) / ubo.base_heights_spacing;
+	float dxdy = dot(dx_vx * M, dy_vy); // TODO: what scaling goes here?
 
-	vec4 out_height = vec4(0.0, bh + n + n2*2 + n3*20, 0.0, 0.0);
+	float slope = length(vec2(dx, dy));
 
+	float n = 0;
+	for(int i = 0; i < 8; i++) {
+		float weight = exp2(i) * 0.5;
+		float scale = exp2(i) * 256.0;
+		n += weight * (texture(sampler2D(noise, linear_wrap), position/scale).x - .5);
+	}
+	// float n1 = texture(sampler2D(noise, linear_wrap), position/5000).x-0.5;
+	// float n2 = texture(sampler2D(noise, linear_wrap), position/10000).x-0.5;
+	// float n3 = texture(sampler2D(noise, linear_wrap), position/20000).x-0.5;
+	// float n4 = texture(sampler2D(noise, linear_wrap), position/40000).x-0.5;
+	// float n =  n4 * 40 + n3*20 + n2*10;
+	vec4 out_height = vec4(0.0, f + n * mix(.3, 1, smoothstep(0.2, 0.5, slope)), 0.0, 0.0);
+
+	// out_height.y = dx * 200;
 	imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
 }
