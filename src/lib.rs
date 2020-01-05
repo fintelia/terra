@@ -108,7 +108,7 @@ impl Terrain {
         });
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
-        let texture_desc = wgpu::TextureDescriptor {
+        let staging_texture_desc = wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 0, height: 0, depth: 0 },
             array_layer_count: 1,
             mip_level_count: 1,
@@ -138,12 +138,12 @@ impl Terrain {
             heights_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },
                 format: wgpu::TextureFormat::Rgba32Float,
-                ..texture_desc
+                ..staging_texture_desc
             }),
             normals_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
                 format: wgpu::TextureFormat::Rg8Uint,
-                ..texture_desc
+                ..staging_texture_desc
             }),
             heights: tile_cache[LayerType::Heights].make_cache_texture(device),
             normals: tile_cache[LayerType::Normals].make_cache_texture(device),
@@ -264,7 +264,7 @@ impl Terrain {
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
         let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
-            .build(&device, wgpu::TextureFormat::Bgra8UnormSrgb);
+            .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Self {
             _bind_group_layout: bind_group_layout,
@@ -498,7 +498,7 @@ impl Terrain {
                     texture: &self.gpu_state.normals_staging,
                     mip_level: 0,
                     array_layer: 0,
-                    origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 },
                 wgpu::BufferCopyView {
                     buffer: &download,
@@ -544,7 +544,7 @@ impl Terrain {
                     texture: &self.gpu_state.heights_staging,
                     mip_level: 0,
                     array_layer: 0,
-                    origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                 },
                 wgpu::BufferCopyView {
                     buffer: &download,

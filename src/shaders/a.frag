@@ -97,7 +97,7 @@ vec3 debug_overlay(vec3 color) {
 
 vec3 extract_normal(vec2 n) {
 	n = n * 2.0 - vec2(1.0);
-	float y = sqrt(1.0 - dot(n, n));
+	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
 }
 

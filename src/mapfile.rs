@@ -109,7 +109,7 @@ impl MapFile {
                 texture: &texture,
                 mip_level: 0,
                 array_layer: 0,
-                origin: wgpu::Origin3d { x: 0.0, y: 0.0, z: 0.0 },
+                origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
             },
             wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
         );
