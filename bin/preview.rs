@@ -97,7 +97,7 @@ fn main() {
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
-    let mut eye = mint::Point3::from_slice(&[0.0, 2000.0, 0.0]);
+    let mut eye = mint::Point3::from_slice(&[0.0, 20000.0, 0.0]);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
