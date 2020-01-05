@@ -291,11 +291,11 @@ impl WebAsset for BlueMarbleTile {
         assert_eq!(decoder.color_type(), ColorType::Rgb8);
 
         context.set_progress_and_total(0, height / 108);
-        let row_len = width * 3 * 12;
+        let row_len = width * 3;
         let mut values = vec![0; decoder.total_bytes() as usize];
         let mut reader = decoder.into_reader()?;
         for row in 0..height {
-            reader.read_exact(&mut values[(row * row_len)..((row + 1) * row_len)])?;
+            reader.read_exact(&mut values[(row * row_len)..][..row_len])?;
             if (row + 1) % 108 == 0 {
                 context.set_progress((row + 1) / 108);
             }
