@@ -142,7 +142,7 @@ impl Terrain {
             }),
             normals_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
-                format: wgpu::TextureFormat::Rg8Uint,
+                format: wgpu::TextureFormat::Rg8Unorm,
                 ..staging_texture_desc
             }),
             heights: tile_cache[LayerType::Heights].make_cache_texture(device),

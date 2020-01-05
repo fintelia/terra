@@ -46,6 +46,13 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 dimension: wgpu::TextureViewDimension::D2,
             },
         };
+        let storage_texture_binding = wgpu::BindGroupLayoutBinding {
+            binding: 0,
+            visibility: wgpu::ShaderStage::COMPUTE,
+            ty: wgpu::BindingType::StorageTexture {
+                dimension: wgpu::TextureViewDimension::D2,
+            },
+        };
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             bindings: &[
@@ -55,8 +62,8 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     ty: wgpu::BindingType::UniformBuffer { dynamic: false },
                 },
                 wgpu::BindGroupLayoutBinding { binding: 1, ..texture_binding },
-                wgpu::BindGroupLayoutBinding { binding: 2, ..texture_binding },
-                wgpu::BindGroupLayoutBinding { binding: 3, ..texture_binding },
+                wgpu::BindGroupLayoutBinding { binding: 2, ..storage_texture_binding },
+                wgpu::BindGroupLayoutBinding { binding: 3, ..storage_texture_binding },
                 wgpu::BindGroupLayoutBinding {
                     binding: 4,
                     visibility: wgpu::ShaderStage::COMPUTE,
