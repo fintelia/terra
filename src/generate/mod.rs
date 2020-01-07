@@ -561,8 +561,8 @@ impl<W: Write> State<W> {
                         - bh_data[x + bh_resolution * (y - 1)])
                 };
                 self.writer.write_f32::<LittleEndian>(bh_data[x + y * bh_resolution])?;
-                self.writer.write_f32::<LittleEndian>(dx)?;
-                self.writer.write_f32::<LittleEndian>(dy)?;
+                self.writer.write_f32::<LittleEndian>(dx / 32.0)?;
+                self.writer.write_f32::<LittleEndian>(dy / 32.0)?;
                 self.writer.write_f32::<LittleEndian>(0.0)?;
                 self.bytes_written += 16;
             }

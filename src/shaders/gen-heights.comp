@@ -62,61 +62,10 @@ void main() {
 
 	vec2 texsize = vec2(textureSize(base_heights, 0));
 	vec2 texcoord = vec2(0.5) + position / (texsize * ubo.base_heights_spacing);
-	vec2 t = fract(texcoord * texsize + vec2(0.5));
-
-	//            x=0      |      x=1
-	//     +-------+-------+-------+-------+
-	//     | f00.w | f00.z | f10.w | f10.z |
-	// y=0 +-------+-------+-------+-------+
-	//     | f00.x | f00.y | f10.x | f10.y |
-	// --- +-------+-------+-------+-------+
-	//     | f01.w | f01.z | f11.w | f11.z |
-	// y=1 +-------+-------+-------+-------+
-	//     | f01.x | f01.y | f11.x | f11.y |
-	//     +-------+-------+-------+-------+
-	vec4 f00 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(-1,-1));
-	vec4 f10 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(1,-1));
-	vec4 f01 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(-1,1));
-	vec4 f11 = textureGatherOffset(sampler2D(base_heights, linear), texcoord, ivec2(1,1));
-
-	float dx00 = (f10.x - f00.x) * 0.5;
-	float dx10 = (f10.y - f00.y) * 0.5;
-	float dx01 = (f11.w - f01.w) * 0.5;
-	float dx11 = (f11.z - f01.z) * 0.5;
- 	float dy00 = (f01.z - f00.z) * 0.5;
-	float dy10 = (f11.w - f10.w) * 0.5;
-	float dy01 = (f01.y - f00.y) * 0.5;
-	float dy11 = (f11.x - f10.x) * 0.5;
-	float dxy00 = (f11.w - f00.x - f00.z + f00.y) * 0.0;
-	float dxy10 = (f11.z - f00.y - f10.w + f10.x) * 0.0;
-	float dxy01 = (f11.x - f01.w - f00.y + f01.z) * 0.0;
-	float dxy11 = (f11.y - f01.z - f10.x + f11.w) * 0.0;
-
-	// See: https://www.ece.mcmaster.ca/~xwu/interp_1.pdf
-	mat4 Binv = mat4(1, 0, -3, 2,
-					 0, 0, 3, -2,
-					 0, 1, -2, 1,
-					 0, 0, -1, 1);
-	mat4 F = mat4(f00.y, f10.x, dx00,   dx10,
-				  f01.z, f11.w, dx01,   dx11,
-				  dy00,   dy10, dxy00, dxy10,
-				  dy01,   dy11, dxy01, dxy11);
-	mat4 M = Binv * F * transpose(Binv);
-
-	vec4 x = vec4(1, t.x, t.x*t.x, t.x*t.x*t.x);
-	vec4 y = vec4(1, t.y, t.y*t.y, t.y*t.y*t.y);
-	vec4 ddx = vec4(0, 1, 2*t.x, 3*t.x*t.x);
-	vec4 ddy = vec4(0, 1, 2*t.y, 3*t.y*t.y);
-
-	float f = dot(x * M, y);
-	float dx = dot(ddx * M, y) / ubo.base_heights_spacing;
-	float dy = dot(x * M, ddy) / ubo.base_heights_spacing;
-	float dxy = dot(ddx * M, ddy) / (ubo.base_heights_spacing*ubo.base_heights_spacing);
-
 	vec4 bh = bicubic(texcoord * texsize, 1.0 / texsize);
-	f = bh.x;
-	dx = bh.y / ubo.base_heights_spacing;
-	dy = bh.z / ubo.base_heights_spacing;
+	float f = bh.x;
+	float dx = bh.y;
+	float dy = bh.z;
 
 	float slope = length(vec2(dx, dy));
 
