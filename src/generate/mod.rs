@@ -498,13 +498,15 @@ impl<W: Write> State<W> {
         let base_heights = TextureDescriptor {
             offset: self.bytes_written,
             resolution: 2049,
-            format: TextureFormat::R32F,
-            bytes: 2049 * 2049 * 4,
+            format: TextureFormat::RGBA32F,
+            bytes: 2049 * 2049 * 16,
         };
-        context.increment_level("Writing base_heights... ", base_heights.resolution);
-        for y in 0..base_heights.resolution {
+        context.increment_level("Generating base_heights... ", base_heights.resolution);
+        let bh_resolution = 2049;
+        let mut bh_data = vec![0.0; bh_resolution * bh_resolution];
+        for y in 0..bh_resolution {
             context.set_progress(y as u64);
-            for x in 0..base_heights.resolution {
+            for x in 0..bh_resolution {
                 let world = Vector2::new(
                     32.0 * (x as f64 - (base_heights.resolution / 2) as f64),
                     32.0 * (y as f64 - (base_heights.resolution / 2) as f64),
@@ -535,9 +537,34 @@ impl<W: Write> State<W> {
                     };
                     world3 = self.system.lla_to_world(lla);
                 }
+                bh_data[x + y * bh_resolution] = world3.y as f32;
+            }
+        }
+        context.decrement_level();
 
-                self.writer.write_f32::<LittleEndian>(world3.y as f32)?;
-                self.bytes_written += 4;
+        context.increment_level("Writing base_heights... ", 100);
+        for y in 0..bh_resolution {
+            for x in 0..bh_resolution {
+                let dx = if x == 0 {
+                    bh_data[x + 1 + bh_resolution * y] - bh_data[x + bh_resolution * y]
+                } else if x == bh_resolution - 1 {
+                    bh_data[x + bh_resolution * y] - bh_data[x - 1 + bh_resolution * y]
+                } else {
+                    0.5 * (bh_data[x + 1 + bh_resolution * y] - bh_data[x - 1 + bh_resolution * y])
+                };
+                let dy = if y == 0 {
+                    bh_data[x + bh_resolution * (y + 1)] - bh_data[x + bh_resolution * y]
+                } else if y == bh_resolution - 1 {
+                    bh_data[x + bh_resolution * y] - bh_data[x + bh_resolution * (y - 1)]
+                } else {
+                    0.5 * (bh_data[x + bh_resolution * (y + 1)]
+                        - bh_data[x + bh_resolution * (y - 1)])
+                };
+                self.writer.write_f32::<LittleEndian>(bh_data[x + y * bh_resolution])?;
+                self.writer.write_f32::<LittleEndian>(dx)?;
+                self.writer.write_f32::<LittleEndian>(dy)?;
+                self.writer.write_f32::<LittleEndian>(0.0)?;
+                self.bytes_written += 16;
             }
         }
         context.decrement_level();

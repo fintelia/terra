@@ -195,7 +195,9 @@ impl TileCache {
     }
 
     pub fn add_missing(&mut self, element: (Priority, NodeId)) {
-        if element.0 > self.min_priority || self.slots.len() < self.size {
+        if !self.reverse.contains_key(element.1.index())
+            && (element.0 > self.min_priority || self.slots.len() < self.size)
+        {
             self.missing.push(element);
         }
     }

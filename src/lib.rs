@@ -481,7 +481,7 @@ impl Terrain {
             self.gen_normals.run(
                 device,
                 &mut encoder,
-                (normals_resolution, normals_resolution, 1),
+                ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
                 &GenNormalsUniforms { position: [position.x, position.z], spacing },
             );
 

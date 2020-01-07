@@ -28,11 +28,7 @@ pub(crate) struct ComputeShader<U> {
     _phantom: std::marker::PhantomData<U>,
 }
 impl<U: bytemuck::Pod> ComputeShader<U> {
-    pub fn new(
-        device: &wgpu::Device,
-        state: &GpuState,
-        shader: rshader::ShaderSet,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, state: &GpuState, shader: rshader::ShaderSet) -> Self {
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<U>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
@@ -49,9 +45,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         let storage_texture_binding = wgpu::BindGroupLayoutBinding {
             binding: 0,
             visibility: wgpu::ShaderStage::COMPUTE,
-            ty: wgpu::BindingType::StorageTexture {
-                dimension: wgpu::TextureViewDimension::D2,
-            },
+            ty: wgpu::BindingType::StorageTexture { dimension: wgpu::TextureViewDimension::D2 },
         };
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

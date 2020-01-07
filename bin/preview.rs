@@ -1,3 +1,4 @@
+use gilrs::{Axis, Button, Gilrs};
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
@@ -50,6 +51,13 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 fn main() {
     env_logger::init();
 
+    let mut gilrs = Gilrs::new().unwrap();
+    let mut current_gamepad = None;
+    for (_id, gamepad) in gilrs.gamepads() {
+        println!("{} is {:?}", gamepad.name(), gamepad.power_info());
+        current_gamepad = Some(gamepad.id());
+    }
+
     let event_loop = EventLoop::new();
 
     let (window, mut size, surface) = {
@@ -97,7 +105,8 @@ fn main() {
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
-    let mut eye = mint::Point3::from_slice(&[0.0, 20000.0, 0.0]);
+    let mut angle = 3.14159f32;
+    let mut eye = cgmath::Point3::new(0.0, 300.0, 0.0);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
@@ -149,9 +158,34 @@ fn main() {
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
 
+                let forward = cgmath::Vector3::new(angle.sin(), 0.0, angle.cos());
+                let right = cgmath::Vector3::new(angle.cos(), 0.0, -angle.sin());
+
+                while let Some(gilrs::Event { id, .. }) = gilrs.next_event() {
+                    current_gamepad = Some(id);
+                }
+                if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
+                    if gamepad.value(Axis::LeftStickY).abs() > 0.1 {
+                        eye += forward * gamepad.value(Axis::LeftStickY) * 50.0;
+                    }
+                    if gamepad.value(Axis::LeftStickX).abs() > 0.1 {
+                        eye -= right * gamepad.value(Axis::LeftStickX) * 50.0;
+                    }
+                    if gamepad.is_pressed(Button::DPadLeft) {
+                        angle += 0.02;
+                    }
+                    if gamepad.is_pressed(Button::DPadRight) {
+                        angle -= 0.02;
+                    }
+                }
+
                 let view = cgmath::Matrix4::look_at(
                     cgmath::Point3::new(eye.x, eye.y, eye.z),
-                    cgmath::Point3::new(eye.x, 0.0, eye.z - 20000.0),
+                    cgmath::Point3::new(
+                        eye.x + 20000.0 * forward.x,
+                        0.0,
+                        eye.z + 20000.0 * forward.z,
+                    ),
                     cgmath::Vector3::new(0.0, -1.0, 0.0),
                 );
 
@@ -170,7 +204,7 @@ fn main() {
                     &depth_buffer,
                     (size.width.round() as u32, size.height.round() as u32),
                     view_proj,
-                    eye,
+                    eye.into(),
                 );
             }
             _ => (),
