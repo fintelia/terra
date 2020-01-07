@@ -65,8 +65,13 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	// if(abs(max(abs(position.x),abs(position.z)) - 32*1024.0) < 100)
+	// if(abs(length(position.xz) - 10000.0) < 100)
 	// 	color = vec3(1);
+	// if(length(position.xz) < 10000) {
+	// 	if((fract(0.5*position.x/1000) < 0.5) != (fract(0.5*position.z/1000) < 0.5))
+	// 		color = mix(color, vec3(0,0,0), 0.3);
+	// }
+
 	// if(abs(length(position.xz-uniform_block.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 

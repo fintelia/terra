@@ -54,7 +54,6 @@ fn main() {
     let mut gilrs = Gilrs::new().unwrap();
     let mut current_gamepad = None;
     for (_id, gamepad) in gilrs.gamepads() {
-        println!("{} is {:?}", gamepad.name(), gamepad.power_info());
         current_gamepad = Some(gamepad.id());
     }
 

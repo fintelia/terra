@@ -285,14 +285,14 @@ impl MMappedAsset for MapFileBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_level = LEVEL_13_CM - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_heights_level = LEVEL_1_M
             - self.vertex_quality.resolution_log2() as i32
             - (self.grid_spacing.log2_spacing() - 1);
         let max_heights_present_level =
             LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
-        let max_texture_present_level = max_heights_present_level - (resolution_ratio as f32).log2() as i32;
+        let max_texture_present_level =
+            max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
             * (0.5f32).powi(max_heights_level);
@@ -333,7 +333,7 @@ impl MMappedAsset for MapFileBuilder {
                 world_center.x.to_radians() as f64,
                 0.0,
             )),
-            nodes: Node::make_nodes(world_size, 3000.0, max_level as u8),
+            nodes: Node::make_nodes(3000.0, max_heights_level as u8),
             layers: VecMap::new(),
             bytes_written: 0,
             directory_name: format!("maps/t.{}/", self.name()),
@@ -569,7 +569,8 @@ impl<W: Write> State<W> {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
-            let (heightmap, offset, step) = if self.nodes[i].level > self.max_texture_present_level {
+            let (heightmap, offset, step) = if self.nodes[i].level > self.max_texture_present_level
+            {
                 let (ancestor, generations, mut offset) =
                     Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
                         self.nodes[id].level <= self.max_texture_present_level
@@ -706,7 +707,7 @@ impl<W: Write> State<W> {
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
             let _heights = self.heightmaps.as_ref().unwrap();
             let spacing =
-                self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+                self.nodes[i].side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if spacing <= bluemarble.spacing().unwrap() as f32 {
                 continue;
@@ -786,7 +787,7 @@ impl<W: Write> State<W> {
 
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
-                self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
+                self.nodes[i].side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if self.nodes[i].level > self.max_texture_present_level {
                 bitmap[i] = 0;
@@ -891,7 +892,7 @@ impl<W: Write> State<W> {
             Ok(())
         };
 
-        let root_side_length = self.nodes[0].side_length;
+        let root_side_length = self.nodes[0].side_length();
         let offset = self.bytes_written;
         let mut num_vertices = 0;
 

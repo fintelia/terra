@@ -23,6 +23,7 @@ impl<T> Heightmap<T> {
         Heightmap { heights, width, height }
     }
 
+    #[allow(unused)]
     pub fn get(&self, x: u16, y: u16) -> Option<T>
     where
         T: Clone,
@@ -34,6 +35,7 @@ impl<T> Heightmap<T> {
         self.heights.get(x as usize + y as usize * self.width as usize).cloned()
     }
 
+    #[allow(unused)]
     pub fn at(&self, x: u16, y: u16) -> T
     where
         T: Clone,
@@ -41,6 +43,7 @@ impl<T> Heightmap<T> {
         self.get(x, y).unwrap()
     }
 
+    #[allow(unused)]
     pub fn raise(&mut self, x: u16, y: u16, delta: T)
     where
         T: AddAssign,

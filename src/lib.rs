@@ -463,7 +463,7 @@ impl Terrain {
         let normals_border = self.tile_cache[LayerType::Normals.index()].border();
         let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
         for node in missing_normals.into_iter().take(1) {
-            let spacing = self.quadtree.nodes[node].side_length
+            let spacing = self.quadtree.nodes[node].side_length()
                 / (normals_resolution - normals_border * 2) as f32;
             let position = self.quadtree.nodes[node].bounds.min
                 - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
@@ -517,7 +517,7 @@ impl Terrain {
         let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
         let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
         for node in missing_heights.into_iter().take(32) {
-            let step = self.quadtree.nodes[node].side_length / (heights_resolution - 1) as f32;
+            let step = self.quadtree.nodes[node].side_length() / (heights_resolution - 1) as f32;
             let position = self.quadtree.nodes[node].bounds.min;
             self.gen_heights.run(
                 device,

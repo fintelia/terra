@@ -8,6 +8,8 @@ use crate::terrain::tile_cache::{Priority, NUM_LAYERS};
 
 use crate::utils::math::BoundingBox;
 
+const ROOT_SIDE_LENGTH: f32 = 4194304.0;
+
 lazy_static! {
     pub static ref OFFSETS: [Vector2<i32>; 4] =
         [Vector2::new(0, 0), Vector2::new(1, 0), Vector2::new(0, 1), Vector2::new(1, 1),];
@@ -23,38 +25,36 @@ pub(crate) struct Node {
     pub children: [Option<NodeId>; 4],
 
     pub bounds: BoundingBox,
-    pub side_length: f32,
-    pub min_distance: f32,
-
-    pub size: i32,
-    pub center: Point2<i32>,
 
     /// Index of this node in the tile list.
     pub tile_indices: [Option<u32>; NUM_LAYERS],
 }
 impl Node {
+    pub fn side_length(&self) -> f32 {
+        ROOT_SIDE_LENGTH / (1u32 << self.level) as f32
+    }
+    pub fn min_distance(&self) -> f32 {
+        self.side_length() * 1.95
+    }
+
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
     pub fn priority(&self, camera: Point3<f32>) -> Priority {
+        let min_distance = self.min_distance();
         Priority::from_f32(
-            (self.min_distance * self.min_distance)
-                / self.bounds.square_distance_xz(camera).max(0.001),
+            (min_distance * min_distance) / self.bounds.square_distance_xz(camera).max(0.001),
         )
     }
 
-    pub fn make_nodes(side_length: f32, playable_radius: f32, max_level: u8) -> Vec<Node> {
+    pub fn make_nodes(playable_radius: f32, max_level: u8) -> Vec<Node> {
         let node = Node {
             level: 0,
             parent: None,
             children: [None; 4],
             bounds: BoundingBox {
-                min: Point3::new(-side_length * 0.5, 0.0, -side_length * 0.5),
-                max: Point3::new(side_length * 0.5, 0.0, side_length * 0.5),
+                min: Point3::new(-ROOT_SIDE_LENGTH * 0.5, 0.0, -ROOT_SIDE_LENGTH * 0.5),
+                max: Point3::new(ROOT_SIDE_LENGTH * 0.5, 0.0, ROOT_SIDE_LENGTH * 0.5),
             },
-            side_length,
-            min_distance: side_length * 1.95,
-            center: Point2::origin(),
-            size: 1 << 30,
             tile_indices: [None; NUM_LAYERS],
         };
 
@@ -67,7 +67,7 @@ impl Node {
                 continue;
             }
 
-            let min_distance = nodes[parent].min_distance * 0.5;
+            let min_distance = nodes[parent].min_distance() * 0.5;
             let min = nodes[parent].bounds.min;
             let max = nodes[parent].bounds.max;
             let center = Point3::midpoint(min, max);
@@ -98,13 +98,6 @@ impl Node {
                         parent: Some((parent, i as u8)),
                         children: [None; 4],
                         bounds: bounds[i],
-                        side_length: nodes[parent].side_length * 0.5,
-                        min_distance: nodes[parent].min_distance * 0.5,
-                        size: nodes[parent].size / 2,
-                        center: Point2::from_vec(
-                            nodes[parent].center.to_vec()
-                                + CENTER_OFFSETS[i] * (nodes[parent].size / 4),
-                        ),
                         tile_indices: [None; NUM_LAYERS],
                     };
 

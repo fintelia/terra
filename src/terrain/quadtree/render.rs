@@ -224,8 +224,8 @@ impl QuadTree {
             );
             self.node_states.push(NodeState {
                 position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z].into(),
-                side_length: self.nodes[id].side_length,
-                min_distance: self.nodes[id].min_distance,
+                side_length: self.nodes[id].side_length(),
+                min_distance: self.nodes[id].min_distance(),
                 heights_desc,
                 albedo_desc,
                 normals_desc,
@@ -236,7 +236,7 @@ impl QuadTree {
             assert!(mask < 15);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
-                    let side_length = self.nodes[id].side_length * 0.5;
+                    let side_length = self.nodes[id].side_length() * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
                     let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let heights_desc = find_descs(
@@ -273,7 +273,7 @@ impl QuadTree {
                         ]
                         .into(),
                         side_length,
-                        min_distance: self.nodes[id].min_distance,
+                        min_distance: self.nodes[id].min_distance(),
                         heights_desc,
                         normals_desc,
                         albedo_desc,

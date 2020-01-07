@@ -234,8 +234,8 @@ impl QuadTree {
 
         let layer = &tile_cache[LayerType::Heights.index()];
         let resolution = (layer.resolution() - 1) as f32;
-        let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length * resolution;
-        let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length * resolution;
+        let x = (p.x - self.nodes[id].bounds.min.x) / self.nodes[id].side_length() * resolution;
+        let y = (p.y - self.nodes[id].bounds.min.z) / self.nodes[id].side_length() * resolution;
 
         let get_texel = |x, y| {
             layer.get_texel(mapfile, &self.nodes[id], x, y).read_f32::<LittleEndian>().unwrap()
