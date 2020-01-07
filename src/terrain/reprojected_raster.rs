@@ -252,14 +252,9 @@ where
     C: Index<usize, Output = T>,
 {
     #[allow(unused)]
-    GlobalRaster {
-        global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
-    },
-    RasterCache {
-        cache: Rc<RefCell<RasterCache<T, C2>>>,
-        default: f64,
-        radius2: Option<f64>,
-    },
+    GlobalRaster { global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>> },
+    #[allow(unused)]
+    RasterCache { cache: Rc<RefCell<RasterCache<T, C2>>>, default: f64, radius2: Option<f64> },
     Hybrid {
         global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
         cache: Rc<RefCell<RasterCache<T, C2>>>,

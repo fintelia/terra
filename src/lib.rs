@@ -11,7 +11,6 @@ mod cache;
 mod coordinates;
 mod generate;
 mod mapfile;
-mod runtime_texture;
 mod srgb;
 mod terrain;
 mod utils;
@@ -45,7 +44,7 @@ pub(crate) struct GpuState {
     normals_staging: wgpu::Texture,
 
     noise: wgpu::Texture,
-    planet_mesh_texture: wgpu::Texture,
+    _planet_mesh_texture: wgpu::Texture,
 
     heights: wgpu::Texture,
     normals: wgpu::Texture,
@@ -133,7 +132,7 @@ impl Terrain {
 
         let gpu_state = GpuState {
             noise,
-            planet_mesh_texture,
+            _planet_mesh_texture: planet_mesh_texture,
             base_heights,
             heights_staging: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },

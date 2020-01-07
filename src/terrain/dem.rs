@@ -19,6 +19,7 @@ pub struct DemParseError;
 pub enum DemSource {
     /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
     /// only available for North America.
+    #[allow(unused)]
     Usgs30m,
     /// Use DEMs from the USGS National Map at approximately 10 meters. Data from this source is
     /// only available for the United States.

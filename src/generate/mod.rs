@@ -67,15 +67,6 @@ mod levels {
 }
 use levels::*;
 
-#[derive(Clone, Copy)]
-pub enum MaterialType {
-    Dirt = 0,
-    Grass = 1,
-    GrassRocky = 2,
-    Rock = 3,
-    RockSteep = 4,
-}
-
 /// How much detail the terrain mesh should have. Higher values require more resources to render,
 /// but produce nicer results.
 pub enum VertexQuality {
@@ -301,7 +292,6 @@ impl MMappedAsset for MapFileBuilder {
         let max_heights_present_level =
             LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
-        let max_tree_density_level = LEVEL_8_KM;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
             * (0.5f32).powi(max_heights_level);
@@ -331,14 +321,10 @@ impl MMappedAsset for MapFileBuilder {
             max_heights_level,
             max_heights_present_level,
             max_texture_level,
-            max_tree_density_level,
             resolution_ratio,
             writer,
             heightmaps: None,
-            treecover: None,
-            // tree_placements: HashMap::new(),
             max_dem_level,
-            // materials: &self.materials,
             skirt,
             system: CoordinateSystem::from_lla(Vector3::new(
                 world_center.y.to_radians() as f64,
@@ -351,28 +337,20 @@ impl MMappedAsset for MapFileBuilder {
             directory_name: format!("maps/t.{}/", self.name()),
         };
 
-        context.set_progress_and_total(0, 8);
+        context.set_progress_and_total(0, 5);
         let base_heights = state.generate_heightmaps(context)?;
         context.set_progress(1);
         state.generate_normalmaps(context)?;
         context.set_progress(2);
-        state.generate_splats(context)?;
-        context.set_progress(3);
-        // state.place_trees(context)?;
         state.generate_colormaps(context)?;
-        context.set_progress(4);
-
-        // state.write_trees(context)?;
-        context.set_progress(5);
-
+        context.set_progress(3);
         let planet_mesh = state.generate_planet_mesh(context)?;
-        context.set_progress(6);
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
-        context.set_progress(7);
+        context.set_progress(4);
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, system, .. } = state;
 
-        context.set_progress(8);
+        context.set_progress(5);
 
         Ok(TileHeader {
             system,
@@ -392,8 +370,6 @@ struct State<W: Write> {
     random: Heightmap<f32>,
     heightmaps: Option<ReprojectedRaster>,
 
-    treecover: Option<ReprojectedRaster>,
-    // tree_placements: HashMap<usize, Vec<MeshInstance>>,
     /// Resolution of the heightmap for each quadtree node.
     heights_resolution: u16,
     /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
@@ -406,7 +382,6 @@ struct State<W: Write> {
     max_heights_present_level: i32,
     max_texture_level: i32,
     max_dem_level: i32,
-    max_tree_density_level: i32,
 
     resolution_ratio: u16,
     writer: W,
@@ -444,20 +419,6 @@ impl<W: Write> State<W> {
         )
     }
 
-    fn compute_splat(cos_slope: f32) -> MaterialType {
-        if cos_slope > 0.9999 {
-            MaterialType::Dirt
-        } else if cos_slope > 0.965 {
-            MaterialType::Grass
-        // } else if cos_slope > 0.955 {
-        //     MaterialType::GrassRocky
-        } else if cos_slope > 0.95 {
-            MaterialType::Rock
-        } else {
-            MaterialType::RockSteep
-        }
-    }
-
     fn page_pad(&mut self) -> Result<(), Error> {
         if self.bytes_written % 4096 != 0 {
             let data = vec![0; 4096 - (self.bytes_written % 4096)];
@@ -490,7 +451,6 @@ impl<W: Write> State<W> {
         self.writer.write_all(&vec![0u8; vacant_tile_count])?;
         self.bytes_written += present_tile_count + vacant_tile_count;
         self.page_pad()?;
-        eprintln!("present = {}, vacant = {}", present_tile_count, vacant_tile_count);
 
         let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
 
@@ -807,6 +767,9 @@ impl<W: Write> State<W> {
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
 
+        let zero_tile =
+            vec![0u8; normalmap_resolution as usize * normalmap_resolution as usize * 2];
+
         let mut bitmap = vec![1u8; tile_count];
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
@@ -819,25 +782,27 @@ impl<W: Write> State<W> {
 
             if spacing < 32.0 {
                 bitmap[i] = 0;
-            }
+                self.writer.write_all(&zero_tile)?;
+                self.bytes_written += zero_tile.len();
+            } else {
+                for y in 2..(2 + normalmap_resolution) {
+                    for x in 2..(2 + normalmap_resolution) {
+                        let h00 = heights.get(i, x, y, 0);
+                        let h01 = heights.get(i, x, y + 1, 0);
+                        let h10 = heights.get(i, x + 1, y, 0);
+                        let h11 = heights.get(i, x + 1, y + 1, 0);
 
-            for y in 2..(2 + normalmap_resolution) {
-                for x in 2..(2 + normalmap_resolution) {
-                    let h00 = heights.get(i, x, y, 0);
-                    let h01 = heights.get(i, x, y + 1, 0);
-                    let h10 = heights.get(i, x + 1, y, 0);
-                    let h11 = heights.get(i, x + 1, y + 1, 0);
+                        let normal = Vector3::new(
+                            h10 + h11 - h00 - h01,
+                            2.0 * spacing,
+                            -1.0 * (h01 + h11 - h00 - h10),
+                        )
+                        .normalize();
 
-                    let normal = Vector3::new(
-                        h10 + h11 - h00 - h01,
-                        2.0 * spacing,
-                        -1.0 * (h01 + h11 - h00 - h10),
-                    )
-                    .normalize();
-
-                    self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
-                    self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    self.bytes_written += 2;
+                        self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
+                        self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
+                        self.bytes_written += 2;
+                    }
                 }
             }
         }
@@ -861,64 +826,6 @@ impl<W: Write> State<W> {
             },
         );
 
-        Ok(())
-    }
-    fn generate_splats(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        assert!(self.skirt >= 2);
-        let splatmap_resolution = self.heightmap_resolution - 5;
-        let splatmap_nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-            .filter(|&i| self.nodes[i].level as i32 == self.max_texture_level)
-            .collect();
-        let tile_count = splatmap_nodes.len();
-
-        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
-        self.writer.write_all(&vec![1u8; tile_count])?;
-        self.bytes_written += tile_count;
-        self.page_pad()?;
-
-        let tile_bytes = splatmap_resolution as usize * splatmap_resolution as usize;
-        let tile_locations = (0..tile_count)
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
-        self.layers.insert(
-            LayerType::Splats.index(),
-            LayerParams {
-                layer_type: LayerType::Splats,
-                tile_valid_bitmap,
-                tile_locations,
-                texture_resolution: splatmap_resolution as u32,
-                texture_border_size: self.skirt as u32 - 2,
-                texture_format: TextureFormat::R8,
-            },
-        );
-        context.increment_level("Generating splats... ", splatmap_nodes.len());
-        for (i, id) in splatmap_nodes.into_iter().enumerate() {
-            context.set_progress(i as u64);
-            self.nodes[id].tile_indices[LayerType::Splats.index()] = Some(i as u32);
-
-            let heights = self.heightmaps.as_ref().unwrap();
-            let spacing =
-                self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-            for y in 2..(2 + splatmap_resolution) {
-                for x in 2..(2 + splatmap_resolution) {
-                    let h00 = heights.get(id, x, y, 0);
-                    let h01 = heights.get(id, x, y + 1, 0);
-                    let h10 = heights.get(id, x + 1, y, 0);
-                    let h11 = heights.get(id, x + 1, y + 1, 0);
-
-                    let normal = Vector3::new(
-                        h10 + h11 - h00 - h01,
-                        2.0 * spacing,
-                        -1.0 * (h01 + h11 - h00 - h10),
-                    )
-                    .normalize();
-
-                    self.writer.write_u8(Self::compute_splat(normal.y) as u8)?;
-                    self.bytes_written += 1;
-                }
-            }
-        }
-        context.decrement_level();
         Ok(())
     }
 
@@ -964,248 +871,6 @@ impl<W: Write> State<W> {
         assert_eq!(self.bytes_written, noise.texture.offset + noise.texture.bytes);
         Ok(noise)
     }
-    // fn place_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-    //     let step = 1;
-    //     let resolution = (self.heightmap_resolution - 2 * self.skirt - 1) / step;
-    //     let nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-    //         .filter(|&i| self.nodes[i].level as i32 == self.max_tree_density_level + 1)
-    //         .collect();
-
-    //     let reproject_treecover = ReprojectedRasterDef::<u8, Vec<u8>, Vec<u8>> {
-    //         name: format!("{}treecover", self.directory_name),
-    //         heights: self.heightmaps.as_ref().unwrap(),
-    //         system: &self.system,
-    //         nodes: &self.nodes,
-    //         skirt: self.skirt,
-    //         datatype: DataType::U8,
-    //         raster: RasterSource::RasterCache {
-    //             cache: Rc::new(RefCell::new(RasterCache::new(
-    //                 Box::new(LandCoverKind::TreeCover),
-    //                 256,
-    //             ))),
-    //             default: 0.0,
-    //             radius2: Some(1_000_000.0 * 1_000_000.0),
-    //         },
-    //     };
-    //     self.treecover = Some(ReprojectedRaster::from_raster(
-    //         reproject_treecover,
-    //         context,
-    //     )?);
-
-    //     let mut rng = rand::thread_rng();
-    //     let color_dist = Normal::new(1.0, 0.08);
-    //     let rotation_dist = Uniform::new(0.0, 2.0 * PI);
-
-    //     context.increment_level("Placing trees... ", nodes.len());
-    //     for (i, id) in nodes.into_iter().enumerate() {
-    //         context.set_progress(i as u64);
-    //         let heights = self.heightmaps.as_ref().unwrap();
-    //         let spacing =
-    //             self.nodes[id].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
-
-    //         let side_length = self.nodes[id].side_length;
-
-    //         let _cell_size = side_length / resolution as f32; // = 8m
-    //         let rmin = 0.0;
-    //         let rmax = 1.0;
-
-    //         self.tree_placements.insert(id, Vec::new());
-    //         for y in 0..resolution {
-    //             for x in 0..resolution {
-    //                 let t = self.treecover.as_ref().unwrap().get(
-    //                     id,
-    //                     self.skirt + step * x,
-    //                     self.skirt + step * y,
-    //                     0,
-    //                 );
-    //                 if rng.gen_range(0.0, 255.0) > t {
-    //                     continue;
-    //                 }
-
-    //                 let h00 = heights.get(id, self.skirt + step * x, self.skirt + step * y, 0);
-    //                 let h01 = heights.get(id, self.skirt + step * x, self.skirt + step * y + 1, 0);
-    //                 let h10 = heights.get(id, self.skirt + step * x + 1, self.skirt + step * y, 0);
-    //                 let h11 =
-    //                     heights.get(id, self.skirt + step * x + 1, self.skirt + step * y + 1, 0);
-
-    //                 let normal = Vector3::new(
-    //                     h10 + h11 - h00 - h01,
-    //                     2.0 * spacing,
-    //                     -1.0 * (h01 + h11 - h00 - h10),
-    //                 )
-    //                 .normalize();
-
-    //                 if normal.y > 0.965 {
-    //                     let position = Vector3::new(
-    //                         self.nodes[id].bounds.min.x
-    //                             + (x as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
-    //                                 * side_length,
-    //                         (h00 + h01 + h10 + h11) * 0.25,
-    //                         self.nodes[id].bounds.min.z
-    //                             + (y as f32 + rng.gen_range(rmin, rmax)) / resolution as f32
-    //                                 * side_length,
-    //                     );
-    //                     let color = Vector3::new(
-    //                         (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1 + 13.0 / 255.0)
-    //                             .max(0.0)
-    //                             .min(1.0),
-    //                         (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1 + 31.0 / 255.0)
-    //                             .max(0.0)
-    //                             .min(1.0),
-    //                         (color_dist.sample(&mut rng) as f32 * 0.1 - 0.1)
-    //                             .max(0.0)
-    //                             .min(1.0),
-    //                     );
-
-    //                     self.tree_placements
-    //                         .get_mut(&id)
-    //                         .unwrap()
-    //                         .push(MeshInstance {
-    //                             position: [position.x, position.y, position.z],
-    //                             color: [color.x, color.y, color.z],
-    //                             rotation: rotation_dist.sample(&mut rng) as f32,
-    //                             scale: 1.5,
-    //                             normal: [normal.x, normal.y, normal.z],
-    //                             padding1: 0.0,
-    //                             padding2: [0.0, 0.0, 0.0, 0.0],
-    //                         });
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     context.decrement_level();
-    //     Ok(())
-    // }
-    // fn write_trees(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-    //     let nodes: Vec<_> = (0..self.heightmaps.as_ref().unwrap().len())
-    //         .filter(|&i| self.nodes[i].level as i32 == self.max_tree_density_level + 2)
-    //         .collect();
-    //     let mut tile_locations = Vec::new();
-
-    //     let mut max_instances = 0;
-    //     context.increment_level("Placing trees... ", nodes.len());
-    //     for (i, id) in nodes.into_iter().enumerate() {
-    //         context.set_progress(i as u64);
-
-    //         let offset = self.bytes_written;
-    //         let bounds = &self.nodes[id].bounds;
-
-    //         let mut node = id;
-    //         while !self.tree_placements.contains_key(&node) {
-    //             node = self.nodes[node]
-    //                 .parent
-    //                 .expect("No tree placement found for node")
-    //                 .0
-    //                 .index();
-    //         }
-
-    //         let mut instances = 0;
-    //         for placement in &self.tree_placements[&node] {
-    //             if placement.position[0] > bounds.min.x
-    //                 && placement.position[2] > bounds.min.z
-    //                 && placement.position[0] < bounds.max.x
-    //                 && placement.position[2] < bounds.max.z
-    //             {
-    //                 for i in 0..3 {
-    //                     self.writer
-    //                         .write_f32::<LittleEndian>(placement.position[i])?;
-    //                 }
-    //                 for i in 0..3 {
-    //                     self.writer.write_f32::<LittleEndian>(placement.color[i])?;
-    //                 }
-    //                 self.writer.write_f32::<LittleEndian>(placement.rotation)?;
-    //                 self.writer.write_f32::<LittleEndian>(placement.scale)?;
-    //                 for i in 0..3 {
-    //                     self.writer.write_f32::<LittleEndian>(placement.normal[i])?;
-    //                 }
-    //                 for _ in 0..5 {
-    //                     self.writer.write_f32::<LittleEndian>(0.0)?;
-    //                 }
-    //                 self.bytes_written += 64;
-    //                 instances += 1;
-    //             }
-    //         }
-
-    //         max_instances = instances.max(max_instances);
-    //         self.nodes[id].tile_indices[LayerType::Foliage.index()] = Some(i as u32);
-    //         tile_locations.push(ByteRange {
-    //             offset,
-    //             length: self.bytes_written - offset,
-    //         });
-    //     }
-
-    //     #[rustfmt::skip]
-    //     let mesh_data: Vec<f32> = vec![
-    //         -5.0,  0.0,  0.0,    0.0, 0.5,    0.0, 0.0, 0.0,
-    //          5.0,  0.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-    //         -5.0, 10.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
-    //         -5.0, 10.0,  0.0,    0.0, 0.0,    0.0, 0.0, 0.0,
-    //          5.0, 10.0,  0.0,    0.5, 0.0,    0.0, 0.0, 0.0,
-    //          5.0,  0.0,  0.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-
-    //          0.0,  0.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-    //          0.0,  0.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
-    //          0.0, 10.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
-    //          0.0, 10.0, -5.0,    0.5, 0.0,    0.0, 0.0, 0.0,
-    //          0.0, 10.0,  5.0,    1.0, 0.0,    0.0, 0.0, 0.0,
-    //          0.0,  0.0,  5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
-
-    //         -5.0,  5.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-    //          5.0,  5.0, -5.0,    1.0, 0.5,    0.0, 0.0, 0.0,
-    //          5.0,  5.0,  5.0,    1.0, 1.0,    0.0, 0.0, 0.0,
-    //         -5.0,  5.0, -5.0,    0.5, 0.5,    0.0, 0.0, 0.0,
-    //         -5.0,  5.0,  5.0,    0.5, 1.0,    0.0, 0.0, 0.0,
-    //          5.0,  5.0,  5.0,    1.0, 1.0,    0.0, 0.0, 0.0,
-    //     ];
-    //     let mesh = MeshDescriptor {
-    //         offset: self.bytes_written,
-    //         bytes: mesh_data.len() * 4,
-    //         num_vertices: mesh_data.len() / 8,
-    //     };
-    //     for f in mesh_data {
-    //         self.writer.write_f32::<LittleEndian>(f)?;
-    //     }
-    //     self.bytes_written += mesh.bytes;
-
-    //     let tree_billboards = TREE_BILLBOARDS.lock().unwrap();
-    //     let birch = tree_billboards.get(&TreeType::Birch).unwrap();
-    //     let (width, height) = (birch[0].0 as usize, birch[0].1 as usize);
-    //     assert_eq!(width, height);
-
-    //     let mut texture_data = vec![255u8; width * height * 16];
-    //     for y in 0..2 {
-    //         for x in 0..2 {
-    //             if y == 1 && x == 0 {
-    //                 continue;
-    //             }
-
-    //             for k in 0..height {
-    //                 texture_data[((y * height + k) * width * 2 + x * width) * 4..][..width * 4]
-    //                     .copy_from_slice(&birch[x + y].2[k * width * 4..][..width * 4]);
-    //             }
-    //         }
-    //     }
-    //     let texture = TextureDescriptor {
-    //         offset: self.bytes_written,
-    //         resolution: 2 * width as u32,
-    //         format: TextureFormat::SRGBA,
-    //         bytes: texture_data.len(),
-    //     };
-    //     self.writer.write_all(&texture_data[..])?;
-    //     self.bytes_written += texture.bytes;
-
-    //     self.layers.push(LayerParams {
-    //         layer_type: LayerType::Foliage,
-    //         tile_locations,
-    //         payload_type: PayloadType::InstancedMesh {
-    //             mesh,
-    //             texture,
-    //             max_instances,
-    //         },
-    //     });
-    //     context.decrement_level();
-    //     Ok(())
-    // }
 
     fn generate_planet_mesh(
         &mut self,

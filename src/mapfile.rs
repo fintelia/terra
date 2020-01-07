@@ -1,4 +1,3 @@
-use crate::coordinates::CoordinateSystem;
 use crate::terrain::quadtree::Node;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TileHeader};
 use failure::Error;
@@ -139,9 +138,6 @@ impl MapFile {
         self.load_texture(device, encoder, &self.header.base_heights)
     }
 
-    pub(crate) fn system(&self) -> CoordinateSystem {
-        self.header.system.clone()
-    }
     pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
         &self.header.layers
     }
