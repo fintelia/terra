@@ -292,6 +292,7 @@ impl MMappedAsset for MapFileBuilder {
         let max_heights_present_level =
             LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
+        let max_texture_present_level = max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
             * (0.5f32).powi(max_heights_level);
@@ -318,13 +319,14 @@ impl MMappedAsset for MapFileBuilder {
             dem_source: self.source,
             heightmap_resolution,
             heights_resolution: self.vertex_quality.resolution(),
-            max_heights_level,
-            max_heights_present_level,
-            max_texture_level,
+            max_heights_level: max_heights_level as u8,
+            max_heights_present_level: max_heights_present_level as u8,
+            max_texture_level: max_texture_level as u8,
+            max_texture_present_level: max_texture_present_level as u8,
+            max_dem_level: max_dem_level as u8,
             resolution_ratio,
             writer,
             heightmaps: None,
-            max_dem_level,
             skirt,
             system: CoordinateSystem::from_lla(Vector3::new(
                 world_center.y.to_radians() as f64,
@@ -378,10 +380,11 @@ struct State<W: Write> {
 
     skirt: u16,
 
-    max_heights_level: i32,
-    max_heights_present_level: i32,
-    max_texture_level: i32,
-    max_dem_level: i32,
+    max_heights_level: u8,
+    max_heights_present_level: u8,
+    max_texture_level: u8,
+    max_texture_present_level: u8,
+    max_dem_level: u8,
 
     resolution_ratio: u16,
     writer: W,
@@ -464,6 +467,7 @@ impl<W: Write> State<W> {
         context.increment_level("Generating base_heights... ", base_heights.resolution);
         let bh_resolution = 2049;
         let mut bh_data = vec![0.0; bh_resolution * bh_resolution];
+        let mut be_data = vec![0.0; bh_resolution * bh_resolution];
         for y in 0..bh_resolution {
             context.set_progress(y as u64);
             for x in 0..bh_resolution {
@@ -477,10 +481,11 @@ impl<W: Write> State<W> {
                         * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
                     world.y,
                 );
+                let mut lla = Vector3::new(0.0, 0.0, 0.0);
                 for i in 0..5 {
                     world3.x = world.x;
                     world3.z = world.y;
-                    let mut lla = self.system.world_to_lla(world3);
+                    lla = self.system.world_to_lla(world3);
                     lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
                         if world.magnitude2() < 250000.0 * 250000.0 {
                             dem_cache
@@ -498,6 +503,7 @@ impl<W: Write> State<W> {
                     world3 = self.system.lla_to_world(lla);
                 }
                 bh_data[x + y * bh_resolution] = world3.y as f32;
+                be_data[x + y * bh_resolution] = lla.z as f32;
             }
         }
         context.decrement_level();
@@ -523,7 +529,7 @@ impl<W: Write> State<W> {
                 self.writer.write_f32::<LittleEndian>(bh_data[x + y * bh_resolution])?;
                 self.writer.write_f32::<LittleEndian>(dx / 32.0)?;
                 self.writer.write_f32::<LittleEndian>(dy / 32.0)?;
-                self.writer.write_f32::<LittleEndian>(0.0)?;
+                self.writer.write_f32::<LittleEndian>(be_data[x + y * bh_resolution])?;
                 self.bytes_written += 16;
             }
         }
@@ -552,7 +558,7 @@ impl<W: Write> State<W> {
             random: &self.random,
             skirt: self.skirt,
             max_dem_level: self.max_dem_level as u8,
-            max_texture_level: self.max_texture_level as u8,
+            max_texture_present_level: self.max_texture_present_level as u8,
             resolution: self.heightmap_resolution,
             global_dem,
         };
@@ -563,10 +569,10 @@ impl<W: Write> State<W> {
             context.set_progress(i as u64);
             self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
-            let (heightmap, offset, step) = if self.nodes[i].level as i32 > self.max_texture_level {
+            let (heightmap, offset, step) = if self.nodes[i].level > self.max_texture_present_level {
                 let (ancestor, generations, mut offset) =
                     Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
-                        self.nodes[id].level as i32 <= self.max_texture_level
+                        self.nodes[id].level <= self.max_texture_present_level
                     })
                     .unwrap();
 
@@ -657,7 +663,8 @@ impl<W: Write> State<W> {
         let colormap_skirt = self.skirt - 2;
         let colormap_resolution = self.heightmap_resolution - 5;
 
-        let tile_count = self.heightmaps.as_ref().unwrap().len();
+        let tile_count =
+            self.nodes.iter().filter(|n| n.level <= self.max_texture_level as u8).count();
 
         context.increment_level("Generating colormaps... ", tile_count);
 
@@ -760,7 +767,8 @@ impl<W: Write> State<W> {
     fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
-        let tile_count = self.heightmaps.as_ref().unwrap().len();
+        let tile_count =
+            self.nodes.iter().filter(|n| n.level <= self.max_texture_level as u8).count();
 
         let tile_bytes = 2 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
@@ -780,7 +788,7 @@ impl<W: Write> State<W> {
             let spacing =
                 self.nodes[i].side_length / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
-            if spacing < 32.0 {
+            if self.nodes[i].level > self.max_texture_present_level {
                 bitmap[i] = 0;
                 self.writer.write_all(&zero_tile)?;
                 self.bytes_written += zero_tile.len();

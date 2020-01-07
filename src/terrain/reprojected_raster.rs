@@ -49,7 +49,7 @@ pub(crate) struct ReprojectedDemDef<'a> {
 
     pub skirt: u16,
     pub max_dem_level: u8,
-    pub max_texture_level: u8,
+    pub max_texture_present_level: u8,
     pub resolution: u16,
 }
 impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
@@ -63,7 +63,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         context: &mut AssetLoadContext,
         mut writer: W,
     ) -> Result<Self::Header, Error> {
-        let tiles = self.nodes.iter().filter(|n| n.level <= self.max_texture_level).count();
+        let tiles = self.nodes.iter().filter(|n| n.level <= self.max_texture_present_level).count();
 
         let global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
@@ -72,7 +72,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         for i in 0..tiles {
             context.set_progress(i as u64);
 
-            assert!(self.nodes[i].level <= self.max_texture_level);
+            assert!(self.nodes[i].level <= self.max_texture_present_level);
             if self.nodes[i].level > self.max_dem_level {
                 let mut heights =
                     Vec::with_capacity(self.resolution as usize * self.resolution as usize);
@@ -442,28 +442,6 @@ impl ReprojectedRaster {
             DataType::F32 => LittleEndian::read_f32(&self.data[index * 4..]),
             DataType::U8 => f32::from(self.data[index]),
         }
-    }
-
-    // pub fn interpolate(&self, tile: usize, x: f32, y: f32, band: u16) -> f32 {
-    //     assert!(band < self.header.bands);
-    //     assert!(x >= 0.0);
-    //     assert!(y >= 0.0);
-    //     assert!(x <= (self.header.resolution - 1) as f32);
-    //     assert!(y <= (self.header.resolution - 1) as f32);
-
-    //     let ix = x.floor() as u16;
-    //     let iy = y.floor() as u16;
-
-    //     let v00 = self.get(tile, ix, iy, band);
-    //     let v01 = self.get(tile, ix, iy + 1, band);
-    //     let v10 = self.get(tile, ix + 1, iy, band);
-    //     let v11 = self.get(tile, ix + 1, iy + 1, band);
-
-    //     unimplemented!()
-    // }
-
-    pub fn len(&self) -> usize {
-        self.header.tiles
     }
 
     /// Returns the spacing of the source dataset, if known.
