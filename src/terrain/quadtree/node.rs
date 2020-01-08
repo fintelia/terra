@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 use crate::terrain::quadtree::NodeId;
-use crate::terrain::tile_cache::{Priority, NUM_LAYERS};
+use crate::terrain::tile_cache::Priority;
 
 use crate::utils::math::BoundingBox;
 
@@ -25,9 +25,6 @@ pub(crate) struct Node {
     pub children: [Option<NodeId>; 4],
 
     pub bounds: BoundingBox,
-
-    /// Index of this node in the tile list.
-    pub tile_indices: [Option<u32>; NUM_LAYERS],
 }
 impl Node {
     pub fn side_length(&self) -> f32 {
@@ -55,7 +52,6 @@ impl Node {
                 min: Point3::new(-ROOT_SIDE_LENGTH * 0.5, 0.0, -ROOT_SIDE_LENGTH * 0.5),
                 max: Point3::new(ROOT_SIDE_LENGTH * 0.5, 0.0, ROOT_SIDE_LENGTH * 0.5),
             },
-            tile_indices: [None; NUM_LAYERS],
         };
 
         let mut nodes = vec![node];
@@ -98,7 +94,6 @@ impl Node {
                         parent: Some((parent, i as u8)),
                         children: [None; 4],
                         bounds: bounds[i],
-                        tile_indices: [None; NUM_LAYERS],
                     };
 
                     nodes.push(child_node);

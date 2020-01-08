@@ -3,6 +3,7 @@ use crate::mapfile::{MapFile, TileState};
 use crate::terrain::quadtree::{Node, NodeId};
 use cgmath::Point3;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 use vec_map::VecMap;
 
@@ -62,8 +63,6 @@ impl Ord for Priority {
     }
 }
 
-pub const NUM_LAYERS: usize = 5;
-
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Heights = 0,
@@ -108,6 +107,8 @@ pub(crate) struct ByteRange {
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
+    // Mapping from NodeId to tile index.
+    pub tile_indices: HashMap<NodeId, u32>,
     // Array of bytes indicating whether each tile is valid.
     pub tile_valid_bitmap: ByteRange,
     /// Where each tile is located in the file.
@@ -195,7 +196,8 @@ impl TileCache {
     }
 
     pub fn add_missing(&mut self, element: (Priority, NodeId)) {
-        if !self.reverse.contains_key(element.1.index())
+        if self.layer_params.tile_indices.contains_key(&element.1)
+            && !self.reverse.contains_key(element.1.index())
             && (element.0 > self.min_priority || self.slots.len() < self.size)
         {
             self.missing.push(element);
@@ -254,7 +256,6 @@ impl TileCache {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
-        nodes: &Vec<Node>,
         mapfile: &mut MapFile,
     ) -> Vec<NodeId> {
         self.process_missing();
@@ -270,7 +271,7 @@ impl TileCache {
                 continue;
             }
 
-            let tile = nodes[entry.id].tile_indices[ty.index()].unwrap() as usize;
+            let tile = self.layer_params.tile_indices[&entry.id] as usize;
 
             match mapfile.tile_state(ty, tile) {
                 TileState::Base => {
@@ -388,9 +389,15 @@ impl TileCache {
         self.layer_params.texture_border_size
     }
 
-    pub fn get_texel<'a>(&self, mapfile: &'a MapFile, node: &Node, x: usize, y: usize) -> &'a [u8] {
+    pub fn get_texel<'a>(
+        &self,
+        mapfile: &'a MapFile,
+        node: NodeId,
+        x: usize,
+        y: usize,
+    ) -> &'a [u8] {
         let ty = self.layer_params.layer_type;
-        let tile = node.tile_indices[ty.index()].unwrap() as usize;
+        let tile = self.layer_params.tile_indices[&node] as usize;
         let tile_data = &mapfile.read_tile(ty, tile).unwrap();
         let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
         let border = self.layer_params.texture_border_size as usize;
@@ -404,5 +411,9 @@ impl TileCache {
     }
     pub fn utilization(&self) -> usize {
         self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid).count()
+    }
+
+    pub fn tile_for_node(&self, node: NodeId) -> Option<usize> {
+        self.layer_params.tile_indices.get(&node).map(|&i| i as usize)
     }
 }

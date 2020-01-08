@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct NodeId(NonZeroU32);
 impl NodeId {
     pub fn root() -> Self {

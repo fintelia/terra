@@ -441,21 +441,18 @@ impl Terrain {
             device,
             &mut encoder,
             &self.gpu_state.heights,
-            &self.quadtree.nodes,
             &mut self.mapfile,
         );
         let missing_normals = self.tile_cache[LayerType::Normals.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.normals,
-            &self.quadtree.nodes,
             &mut self.mapfile,
         );
         self.tile_cache[LayerType::Colors.index()].upload_tiles(
             device,
             &mut encoder,
             &self.gpu_state.albedo,
-            &self.quadtree.nodes,
             &mut self.mapfile,
         );
 
@@ -489,8 +486,7 @@ impl Terrain {
                 size,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
             });
-            let tile = self.quadtree.nodes[node].tile_indices[LayerType::Normals.index()].unwrap()
-                as usize;
+            let tile = self.tile_cache[LayerType::Normals.index()].tile_for_node(node).unwrap();
 
             encoder.copy_texture_to_buffer(
                 wgpu::TextureCopyView {
@@ -535,8 +531,7 @@ impl Terrain {
                 size,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
             });
-            let tile = self.quadtree.nodes[node].tile_indices[LayerType::Heights.index()].unwrap()
-                as usize;
+            let tile = self.tile_cache[LayerType::Heights.index()].tile_for_node(node).unwrap();
 
             encoder.copy_texture_to_buffer(
                 wgpu::TextureCopyView {

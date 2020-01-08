@@ -543,6 +543,9 @@ impl<W: Write> State<W> {
             LayerType::Heights.index(),
             LayerParams {
                 layer_type: LayerType::Heights,
+                tile_indices: (0..(present_tile_count + vacant_tile_count) as u32)
+                    .map(|i| (NodeId::new(i), i))
+                    .collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: self.heights_resolution as u32,
@@ -567,7 +570,6 @@ impl<W: Write> State<W> {
         context.increment_level("Writing heightmaps... ", present_tile_count);
         for i in 0..present_tile_count {
             context.set_progress(i as u64);
-            self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
 
             let (heightmap, offset, step) = if self.nodes[i].level > self.max_texture_present_level
             {
@@ -644,10 +646,6 @@ impl<W: Write> State<W> {
             }
         }
 
-        for i in present_tile_count..(present_tile_count + vacant_tile_count) {
-            self.nodes[i].tile_indices[LayerType::Heights.index()] = Some(i as u32);
-        }
-
         let vacant_bytes = vacant_tile_count
             * self.heights_resolution as usize
             * self.heights_resolution as usize
@@ -701,7 +699,6 @@ impl<W: Write> State<W> {
         let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..tile_count {
             context.set_progress(i as u64);
-            self.nodes[i].tile_indices[LayerType::Colors.index()] = Some(i as u32);
 
             let mut colormap =
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
@@ -749,6 +746,7 @@ impl<W: Write> State<W> {
             LayerType::Colors.index(),
             LayerParams {
                 layer_type: LayerType::Colors,
+                tile_indices: (0..tile_count as u32).map(|i| (NodeId::new(i), i)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: colormap_resolution as u32,
@@ -783,7 +781,6 @@ impl<W: Write> State<W> {
         context.increment_level("Generating normalmaps... ", tile_count);
         for i in 0..tile_count {
             context.set_progress(i as u64);
-            self.nodes[i].tile_indices[LayerType::Normals.index()] = Some(i as u32);
 
             let heights = self.heightmaps.as_ref().unwrap();
             let spacing =
@@ -827,6 +824,7 @@ impl<W: Write> State<W> {
             LayerType::Normals.index(),
             LayerParams {
                 layer_type: LayerType::Normals,
+                tile_indices: (0..tile_count as u32).map(|i| (NodeId::new(i), i)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: normalmap_resolution as u32,
