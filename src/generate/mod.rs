@@ -22,11 +22,11 @@ use rand;
 use rand::distributions::Distribution;
 use rand_distr::Normal;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
 use vec_map::VecMap;
-use std::collections::HashMap;
 
 mod gpu;
 pub(crate) use gpu::*;
@@ -285,14 +285,17 @@ impl MMappedAsset for MapFileBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_heights_level = LEVEL_1_M
+        let mut max_heights_level = LEVEL_1_M
             - self.vertex_quality.resolution_log2() as i32
             - (self.grid_spacing.log2_spacing() - 1);
         let max_heights_present_level =
             LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
-        let max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
+        let mut max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
+
+        max_heights_level = max_heights_present_level;
+        max_texture_level = max_heights_present_level;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
             * (0.5f32).powi(max_heights_level);
@@ -333,7 +336,7 @@ impl MMappedAsset for MapFileBuilder {
                 world_center.x.to_radians() as f64,
                 0.0,
             )),
-            nodes: VNode::make_nodes(3000.0, max_heights_level as u8),
+            nodes: VNode::make_nodes(30000.0, max_heights_level as u8),
             layers: VecMap::new(),
             bytes_written: 0,
             directory_name: format!("maps/t.{}/", self.name()),
@@ -460,12 +463,12 @@ impl<W: Write> State<W> {
         let global_dem = GlobalDem.load(context)?;
         let base_heights = TextureDescriptor {
             offset: self.bytes_written,
-            resolution: 2049,
+            resolution: 4097,
             format: TextureFormat::RGBA32F,
-            bytes: 2049 * 2049 * 16,
+            bytes: 4097 * 4097 * 16,
         };
         context.increment_level("Generating base_heights... ", base_heights.resolution);
-        let bh_resolution = 2049;
+        let bh_resolution = 4097;
         let mut bh_data = vec![0.0; bh_resolution * bh_resolution];
         let mut be_data = vec![0.0; bh_resolution * bh_resolution];
         for y in 0..bh_resolution {
@@ -567,7 +570,8 @@ impl<W: Write> State<W> {
         };
         self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
 
-        let tile_from_node: HashMap<VNode, usize> = self.nodes.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
+        let tile_from_node: HashMap<VNode, usize> =
+            self.nodes.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
 
         context.increment_level("Writing heightmaps... ", present_tile_count);
         for i in 0..present_tile_count {

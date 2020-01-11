@@ -52,6 +52,9 @@ pub struct ShaderSet {
     fragment: Option<Vec<u8>>,
     compute: Option<Vec<u8>>,
 
+    layout_descriptor: Option<Vec<wgpu::BindGroupLayoutBinding>>,
+    desc_names: Option<Vec<Option<String>>>,
+
     vertex_filenames: Vec<PathBuf>,
     fragment_filenames: Vec<PathBuf>,
     compute_filenames: Vec<PathBuf>,
@@ -86,6 +89,8 @@ impl ShaderSet {
             vertex_filenames: vertex_filenames,
             fragment_filenames: fragment_filenames,
             compute_filenames: Vec::new(),
+            desc_names: None,
+            layout_descriptor: None,
         })
     }
 
@@ -101,6 +106,9 @@ impl ShaderSet {
             .collect::<Vec<_>>();
         let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
 
+
+        let (desc_names, layout_descriptor) = crate::reflect(&compute)?;
+
         Ok(Self {
             vertex: None,
             fragment: None,
@@ -109,6 +117,8 @@ impl ShaderSet {
             vertex_filenames: Vec::new(),
             fragment_filenames: Vec::new(),
             compute_filenames: compute_filenames,
+            desc_names: Some(desc_names),
+            layout_descriptor: Some(layout_descriptor),
         })
     }
 
@@ -143,6 +153,10 @@ impl ShaderSet {
                     cs = Some(create_compute_shader(&concat_file_contents(
                         self.compute_filenames.iter(),
                     )?)?);
+
+                    let (desc_names, layout_descriptor) = crate::reflect(&cs.as_ref().unwrap())?;
+                    self.desc_names = Some(desc_names);
+                    self.layout_descriptor = Some(layout_descriptor);
                 }
                 Ok((vs, fs, cs))
             }();
@@ -155,6 +169,16 @@ impl ShaderSet {
             }
         }
         false
+    }
+
+    pub fn layout_descriptor(&self) -> Option<wgpu::BindGroupLayoutDescriptor> {
+        match self.layout_descriptor {
+            Some(ref descs) => Some(wgpu::BindGroupLayoutDescriptor { bindings: &descs[..] }),
+            None => None,
+        }
+    }
+    pub fn desc_names(&self) -> Option<&[Option<String>]> {
+        self.desc_names.as_ref().map(|v| &v[..])
     }
 
     pub fn vertex(&self) -> &[u8] {

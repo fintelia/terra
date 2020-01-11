@@ -13,6 +13,8 @@ edition = "2018"
 failure = "0.1.6"
 notify = "4.0.13"
 shaderc = "0.6.1"
+spirq = { git = "https://github.com/fintelia/spirq-rs", rev = "92f1425ba742b5f7068d99265a063ab9eea0a955" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "8f083e54c57f7411c60b53fc8366be254bace093" }
 
 [features]
 default = []

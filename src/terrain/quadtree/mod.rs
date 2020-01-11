@@ -2,7 +2,7 @@ use crate::terrain::tile_cache::{Priority, TileCache};
 use byteorder::{ByteOrder, NativeEndian};
 use cgmath::*;
 use collision::{Frustum, Relation};
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use vec_map::VecMap;
 
 pub(crate) mod node;

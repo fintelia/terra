@@ -28,7 +28,6 @@ impl VNode {
     }
     fn y(&self) -> u32 {
         (self.0 >> 24) as u32 & 0xffffff
-
     }
     pub fn level(&self) -> u8 {
         (self.0 >> 56) as u8
@@ -37,7 +36,6 @@ impl VNode {
     pub fn root() -> Self {
         Self::new(0, 0, 0)
     }
-
 
     pub fn side_length(&self) -> f32 {
         ROOT_SIDE_LENGTH / (1u32 << self.level()) as f32
@@ -78,9 +76,9 @@ impl VNode {
         assert!(self.level() < 31);
         [
             VNode::new(self.level() + 1, self.x() * 2, self.y() * 2),
-            VNode::new(self.level() + 1, self.x() * 2+1, self.y() * 2),
-            VNode::new(self.level() + 1, self.x() * 2, self.y() * 2+1),
-            VNode::new(self.level() + 1, self.x() * 2+1, self.y() * 2+1),
+            VNode::new(self.level() + 1, self.x() * 2 + 1, self.y() * 2),
+            VNode::new(self.level() + 1, self.x() * 2, self.y() * 2 + 1),
+            VNode::new(self.level() + 1, self.x() * 2 + 1, self.y() * 2 + 1),
         ]
     }
 
@@ -101,7 +99,6 @@ impl VNode {
         }
         Some((node, generations, offset))
     }
-
 
     pub fn breadth_first<Visit>(mut visit: Visit)
     where

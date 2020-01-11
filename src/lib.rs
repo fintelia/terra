@@ -237,7 +237,6 @@ impl Terrain {
 
         let gen_heights = ComputeShader::new(
             device,
-            &gpu_state,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
                 rshader::shader_source!("shaders", "version", "gen-heights.comp"),
@@ -246,7 +245,6 @@ impl Terrain {
         );
         let gen_normals = ComputeShader::new(
             device,
-            &gpu_state,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
                 rshader::shader_source!("shaders", "version", "gen-normals.comp"),
@@ -463,6 +461,7 @@ impl Terrain {
             self.gen_heights.run(
                 device,
                 &mut encoder,
+                &self.gpu_state,
                 (normals_resolution + 1, normals_resolution + 1, 1),
                 &GenHeightsUniforms {
                     position: [position.x, position.z],
@@ -473,6 +472,7 @@ impl Terrain {
             self.gen_normals.run(
                 device,
                 &mut encoder,
+                &self.gpu_state,
                 ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
                 &GenNormalsUniforms { position: [position.x, position.z], spacing },
             );
@@ -514,6 +514,7 @@ impl Terrain {
             self.gen_heights.run(
                 device,
                 &mut encoder,
+                &self.gpu_state,
                 (heights_resolution, heights_resolution, 1),
                 &GenHeightsUniforms {
                     position: [position.x, position.z],
