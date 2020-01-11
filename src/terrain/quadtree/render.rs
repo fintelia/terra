@@ -154,19 +154,18 @@ impl QuadTree {
         let texture_origin = texture_border as f32 / texture_resolution as f32;
 
         fn find_descs(
-            nodes: &Vec<Node>,
+            node: VNode,
             tile_cache: &TileCache,
-            id: NodeId,
             texture_origin: Vector2<f32>,
             base_origin: Vector2<f32>,
             texture_ratio: f32,
             texture_step: f32,
         ) -> [[f32; 4]; 2] {
-            if tile_cache.contains(id) {
-                let child_slot = tile_cache.get_slot(id).unwrap() as f32;
+            if tile_cache.contains(node) {
+                let child_slot = tile_cache.get_slot(node).unwrap() as f32;
                 let child_offset = texture_origin + texture_ratio * base_origin;
 
-                if let Some((parent, child_index)) = nodes[id].parent {
+                if let Some((parent, child_index)) = node.parent() {
                     if tile_cache.contains(parent) {
                         let parent_slot = tile_cache.get_slot(parent).unwrap() as f32;
                         let parent_offset = node::OFFSETS[child_index as usize].cast().unwrap();
@@ -183,7 +182,7 @@ impl QuadTree {
                 [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]]
             } else {
                 let (ancestor, generations, offset) =
-                    Node::find_ancestor(&nodes, id, |id| tile_cache.contains(id)).unwrap();
+                    node.find_ancestor(|n| tile_cache.contains(n)).unwrap();
                 let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).unwrap();
                 let scale = (0.5f32).powi(generations as i32);
                 let offset = Vector2::new(offset.x as f32, offset.y as f32);
@@ -194,73 +193,67 @@ impl QuadTree {
         }
 
         self.node_states.clear();
-        for &id in self.visible_nodes.iter() {
+        for &node in self.visible_nodes.iter() {
             let heights_desc = find_descs(
-                &self.nodes,
+                node,
                 &tile_cache[LayerType::Heights.index()],
-                id,
                 Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
                 Vector2::new(0.0, 0.0),
                 resolution as f32 / (resolution + 1) as f32,
                 1.0 / (resolution + 1) as f32,
             );
             let albedo_desc = find_descs(
-                &self.nodes,
+                node,
                 &tile_cache[LayerType::Colors.index()],
-                id,
                 Vector2::new(texture_origin, texture_origin),
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             );
             let normals_desc = find_descs(
-                &self.nodes,
+                node,
                 &tile_cache[LayerType::Normals.index()],
-                id,
                 Vector2::new(texture_origin, texture_origin),
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             );
             self.node_states.push(NodeState {
-                position: [self.nodes[id].bounds.min.x, self.nodes[id].bounds.min.z].into(),
-                side_length: self.nodes[id].side_length(),
-                min_distance: self.nodes[id].min_distance(),
+                position: [node.bounds().min.x, node.bounds().min.z].into(),
+                side_length: node.side_length(),
+                min_distance: node.min_distance(),
                 heights_desc,
                 albedo_desc,
                 normals_desc,
                 resolution: resolution as i32,
             });
         }
-        for &(id, mask) in self.partially_visible_nodes.iter() {
+        for &(node, mask) in self.partially_visible_nodes.iter() {
             assert!(mask < 15);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
-                    let side_length = self.nodes[id].side_length() * 0.5;
+                    let side_length = node.side_length() * 0.5;
                     let offset = ((i % 2) as f32, (i / 2) as f32);
                     let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let heights_desc = find_descs(
-                        &self.nodes,
+                        node,
                         &tile_cache[LayerType::Heights.index()],
-                        id,
                         Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
                         Vector2::new(offset.0, offset.1) * 0.5,
                         resolution as f32 / (resolution + 1) as f32,
                         1.0 / (resolution + 1) as f32,
                     );
                     let albedo_desc = find_descs(
-                        &self.nodes,
+                        node,
                         &tile_cache[LayerType::Colors.index()],
-                        id,
                         Vector2::new(texture_origin, texture_origin),
                         base_origin,
                         texture_ratio,
                         texture_step,
                     );
                     let normals_desc = find_descs(
-                        &self.nodes,
+                        node,
                         &tile_cache[LayerType::Normals.index()],
-                        id,
                         Vector2::new(texture_origin, texture_origin),
                         base_origin,
                         texture_ratio,
@@ -268,12 +261,12 @@ impl QuadTree {
                     );
                     self.node_states.push(NodeState {
                         position: [
-                            self.nodes[id].bounds.min.x + offset.0 * side_length,
-                            self.nodes[id].bounds.min.z + offset.1 * side_length,
+                            node.bounds().min.x + offset.0 * side_length,
+                            node.bounds().min.z + offset.1 * side_length,
                         ]
                         .into(),
                         side_length,
-                        min_distance: self.nodes[id].min_distance(),
+                        min_distance: node.min_distance(),
                         heights_desc,
                         normals_desc,
                         albedo_desc,

@@ -5,7 +5,7 @@ use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::{self, Heightmap};
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
-use crate::terrain::quadtree::{Node, NodeId};
+use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::RasterCache;
 use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
@@ -22,11 +22,11 @@ use rand;
 use rand::distributions::Distribution;
 use rand_distr::Normal;
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::f64::consts::PI;
 use std::io::Write;
 use std::rc::Rc;
 use vec_map::VecMap;
+use std::collections::HashMap;
 
 mod gpu;
 pub(crate) use gpu::*;
@@ -333,7 +333,7 @@ impl MMappedAsset for MapFileBuilder {
                 world_center.x.to_radians() as f64,
                 0.0,
             )),
-            nodes: Node::make_nodes(3000.0, max_heights_level as u8),
+            nodes: VNode::make_nodes(3000.0, max_heights_level as u8),
             layers: VecMap::new(),
             bytes_written: 0,
             directory_name: format!("maps/t.{}/", self.name()),
@@ -392,7 +392,7 @@ struct State<W: Write> {
     system: CoordinateSystem,
 
     layers: VecMap<LayerParams>,
-    nodes: Vec<Node>,
+    nodes: Vec<VNode>,
     bytes_written: usize,
 
     directory_name: String,
@@ -436,13 +436,13 @@ impl<W: Write> State<W> {
         context: &mut AssetLoadContext,
     ) -> Result<TextureDescriptor, Error> {
         let present_tile_count =
-            self.nodes.iter().filter(|n| n.level <= self.max_heights_present_level as u8).count();
+            self.nodes.iter().filter(|n| n.level() <= self.max_heights_present_level as u8).count();
         let vacant_tile_count = self
             .nodes
             .iter()
             .filter(|n| {
-                n.level > self.max_heights_present_level as u8
-                    && n.level <= self.max_heights_level as u8
+                n.level() > self.max_heights_present_level as u8
+                    && n.level() <= self.max_heights_level as u8
             })
             .count();
 
@@ -543,8 +543,8 @@ impl<W: Write> State<W> {
             LayerType::Heights.index(),
             LayerParams {
                 layer_type: LayerType::Heights,
-                tile_indices: (0..(present_tile_count + vacant_tile_count) as u32)
-                    .map(|i| (NodeId::new(i), i))
+                tile_indices: (0..(present_tile_count + vacant_tile_count))
+                    .map(|i| (self.nodes[i], i as u32))
                     .collect(),
                 tile_valid_bitmap,
                 tile_locations,
@@ -567,30 +567,30 @@ impl<W: Write> State<W> {
         };
         self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
 
+        let tile_from_node: HashMap<VNode, usize> = self.nodes.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
+
         context.increment_level("Writing heightmaps... ", present_tile_count);
         for i in 0..present_tile_count {
             context.set_progress(i as u64);
 
-            let (heightmap, offset, step) = if self.nodes[i].level > self.max_texture_present_level
-            {
-                let (ancestor, generations, mut offset) =
-                    Node::find_ancestor(&self.nodes, NodeId::new(i as u32), |id| {
-                        self.nodes[id].level <= self.max_texture_present_level
-                    })
-                    .unwrap();
+            let (heightmap, offset, step) =
+                if self.nodes[i].level() > self.max_texture_present_level {
+                    let (ancestor, generations, mut offset) = self.nodes[i]
+                        .find_ancestor(|node| node.level() <= self.max_texture_present_level)
+                        .unwrap();
 
-                let ancestor = ancestor.index();
-                let offset_scale = 1 << generations;
-                let step = self.resolution_ratio >> generations;
-                offset *= (self.heightmap_resolution - 2 * self.skirt) as i32 / offset_scale;
-                let offset = Vector2::new(offset.x as u16, offset.y as u16);
+                    let ancestor = tile_from_node[&ancestor];
+                    let offset_scale = 1 << generations;
+                    let step = self.resolution_ratio >> generations;
+                    offset *= (self.heightmap_resolution - 2 * self.skirt) as u32 / offset_scale;
+                    let offset = Vector2::new(offset.x as u16, offset.y as u16);
 
-                (ancestor, offset, step)
-            } else {
-                let step = (self.heightmap_resolution - 2 * self.skirt - 1)
-                    / (self.heights_resolution - 1);
-                (i, Vector2::new(0, 0), step)
-            };
+                    (ancestor, offset, step)
+                } else {
+                    let step = (self.heightmap_resolution - 2 * self.skirt - 1)
+                        / (self.heights_resolution - 1);
+                    (i, Vector2::new(0, 0), step)
+                };
 
             let mut miny = None;
             let mut maxy = None;
@@ -612,7 +612,7 @@ impl<W: Write> State<W> {
                     let world2 = self.world_position(
                         position.x as i32,
                         position.y as i32,
-                        self.nodes[i].bounds,
+                        self.nodes[i].bounds(),
                     );
                     let altitude =
                         self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
@@ -622,26 +622,6 @@ impl<W: Write> State<W> {
                     self.writer.write_f32::<LittleEndian>(0.0)?;
                     self.writer.write_f32::<LittleEndian>(altitude as f32)?;
                     self.bytes_written += 16;
-                }
-            }
-            let (miny, maxy) = (miny.unwrap(), maxy.unwrap());
-            self.nodes[i].bounds.min.y = miny;
-            self.nodes[i].bounds.max.y = maxy;
-
-            // TODO: child nodes should theoretically have min and max Y values only based on the
-            // heights inside their own bounds. This approximation shouldn't have much impact in
-            // practice.
-            if self.nodes[i].level == self.max_heights_present_level as u8 {
-                let mut pending = VecDeque::new();
-                pending.push_back(NodeId::new(i as u32));
-                while let Some(id) = pending.pop_front() {
-                    for i in 0..4 {
-                        if let Some(child) = self.nodes[id].children[i] {
-                            self.nodes[child].bounds.min.y = miny - 200.0;
-                            self.nodes[child].bounds.max.y = maxy + 200.0;
-                            pending.push_back(child);
-                        }
-                    }
                 }
             }
         }
@@ -663,7 +643,7 @@ impl<W: Write> State<W> {
         let colormap_resolution = self.heightmap_resolution - 5;
 
         let tile_count =
-            self.nodes.iter().filter(|n| n.level <= self.max_texture_level as u8).count();
+            self.nodes.iter().filter(|n| n.level() <= self.max_texture_level as u8).count();
 
         context.increment_level("Generating colormaps... ", tile_count);
 
@@ -746,7 +726,7 @@ impl<W: Write> State<W> {
             LayerType::Colors.index(),
             LayerParams {
                 layer_type: LayerType::Colors,
-                tile_indices: (0..tile_count as u32).map(|i| (NodeId::new(i), i)).collect(),
+                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: colormap_resolution as u32,
@@ -767,7 +747,7 @@ impl<W: Write> State<W> {
         assert!(self.skirt >= 2);
         let normalmap_resolution = self.heightmap_resolution - 5;
         let tile_count =
-            self.nodes.iter().filter(|n| n.level <= self.max_texture_level as u8).count();
+            self.nodes.iter().filter(|n| n.level() <= self.max_texture_level as u8).count();
 
         let tile_bytes = 2 * normalmap_resolution as usize * normalmap_resolution as usize;
         let tile_locations = (0..tile_count)
@@ -786,7 +766,7 @@ impl<W: Write> State<W> {
             let spacing =
                 self.nodes[i].side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
-            if self.nodes[i].level > self.max_texture_present_level {
+            if self.nodes[i].level() > self.max_texture_present_level {
                 bitmap[i] = 0;
                 self.writer.write_all(&zero_tile)?;
                 self.bytes_written += zero_tile.len();
@@ -824,7 +804,7 @@ impl<W: Write> State<W> {
             LayerType::Normals.index(),
             LayerParams {
                 layer_type: LayerType::Normals,
-                tile_indices: (0..tile_count as u32).map(|i| (NodeId::new(i), i)).collect(),
+                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: normalmap_resolution as u32,

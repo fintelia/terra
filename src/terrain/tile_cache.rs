@@ -1,6 +1,6 @@
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::{MapFile, TileState};
-use crate::terrain::quadtree::{Node, NodeId};
+use crate::terrain::quadtree::VNode;
 use cgmath::Point3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -107,8 +107,8 @@ pub(crate) struct ByteRange {
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
-    // Mapping from NodeId to tile index.
-    pub tile_indices: HashMap<NodeId, u32>,
+    // Mapping from VNode to tile index.
+    pub tile_indices: HashMap<VNode, u32>,
     // Array of bytes indicating whether each tile is valid.
     pub tile_valid_bitmap: ByteRange,
     /// Where each tile is located in the file.
@@ -146,7 +146,7 @@ pub(crate) struct TextureDescriptor {
 pub(crate) struct TileHeader {
     pub layers: VecMap<LayerParams>,
     pub noise: NoiseParams,
-    pub nodes: Vec<Node>,
+    pub nodes: Vec<VNode>,
     pub planet_mesh: MeshDescriptor,
     pub planet_mesh_texture: TextureDescriptor,
     pub base_heights: TextureDescriptor,
@@ -155,7 +155,7 @@ pub(crate) struct TileHeader {
 
 struct Entry {
     priority: Priority,
-    id: NodeId,
+    node: VNode,
     valid: bool,
     generated: bool,
 }
@@ -163,10 +163,10 @@ struct Entry {
 pub(crate) struct TileCache {
     size: usize,
     slots: Vec<Entry>,
-    reverse: VecMap<usize>,
+    reverse: HashMap<VNode, usize>,
 
     /// Nodes that should be added to the cache.
-    missing: Vec<(Priority, NodeId)>,
+    missing: Vec<(Priority, VNode)>,
     /// Smallest priority among all nodes in the cache.
     min_priority: Priority,
 
@@ -180,24 +180,24 @@ impl TileCache {
         Self {
             size,
             slots: Vec::new(),
-            reverse: VecMap::new(),
+            reverse: HashMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
             layer_params: params,
         }
     }
 
-    pub fn update_priorities(&mut self, nodes: &mut Vec<Node>, camera: Point3<f32>) {
+    pub fn update_priorities(&mut self, camera: Point3<f32>) {
         for entry in &mut self.slots {
-            entry.priority = nodes[entry.id].priority(camera);
+            entry.priority = entry.node.priority(camera);
         }
 
         self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
     }
 
-    pub fn add_missing(&mut self, element: (Priority, NodeId)) {
+    pub fn add_missing(&mut self, element: (Priority, VNode)) {
         if self.layer_params.tile_indices.contains_key(&element.1)
-            && !self.reverse.contains_key(element.1.index())
+            && !self.reverse.contains_key(&element.1)
             && (element.0 > self.min_priority || self.slots.len() < self.size)
         {
             self.missing.push(element);
@@ -209,8 +209,8 @@ impl TileCache {
         self.missing.sort();
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
-            self.reverse.insert(m.1.index(), self.slots.len());
-            self.slots.push(Entry { priority: m.0, id: m.1, valid: false, generated: false });
+            self.reverse.insert(m.1, self.slots.len());
+            self.slots.push(Entry { priority: m.0, node: m.1, valid: false, generated: false });
         }
         if !self.missing.is_empty() {
             let mut possible: Vec<_> = self
@@ -238,10 +238,10 @@ impl TileCache {
                     }
                 }
 
-                self.reverse.remove(self.slots[index].id.index());
-                self.reverse.insert(m.1.index(), index);
+                self.reverse.remove(&self.slots[index].node);
+                self.reverse.insert(m.1, index);
                 self.slots[index] =
-                    Entry { priority: m.0, id: m.1, valid: false, generated: false };
+                    Entry { priority: m.0, node: m.1, valid: false, generated: false };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -257,7 +257,7 @@ impl TileCache {
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
         mapfile: &mut MapFile,
-    ) -> Vec<NodeId> {
+    ) -> Vec<VNode> {
         self.process_missing();
 
         let ty = self.layer_params.layer_type;
@@ -271,7 +271,7 @@ impl TileCache {
                 continue;
             }
 
-            let tile = self.layer_params.tile_indices[&entry.id] as usize;
+            let tile = self.layer_params.tile_indices[&entry.node] as usize;
 
             match mapfile.tile_state(ty, tile) {
                 TileState::Base => {
@@ -282,7 +282,7 @@ impl TileCache {
                     entry.generated = true;
                     pending_uploads.push((i, tile));
                 }
-                TileState::Missing => pending_generate.push(entry.id),
+                TileState::Missing => pending_generate.push(entry.node),
             }
         }
         if pending_uploads.is_empty() {
@@ -361,16 +361,16 @@ impl TileCache {
         }
     }
 
-    pub fn contains(&self, id: NodeId) -> bool {
+    pub fn contains(&self, node: VNode) -> bool {
         self.reverse
-            .get(id.index())
+            .get(&node)
             .and_then(|&slot| self.slots.get(slot))
             .map(|entry| entry.valid)
             .unwrap_or(false)
     }
 
-    pub fn get_slot(&self, id: NodeId) -> Option<usize> {
-        self.reverse.get(id.index()).cloned()
+    pub fn get_slot(&self, node: VNode) -> Option<usize> {
+        self.reverse.get(&node).cloned()
     }
 
     pub fn resolution(&self) -> u32 {
@@ -389,13 +389,8 @@ impl TileCache {
         self.layer_params.texture_border_size
     }
 
-    pub fn get_texel<'a>(
-        &self,
-        mapfile: &'a MapFile,
-        node: NodeId,
-        x: usize,
-        y: usize,
-    ) -> &'a [u8] {
+    #[allow(unused)]
+    pub fn get_texel<'a>(&self, mapfile: &'a MapFile, node: VNode, x: usize, y: usize) -> &'a [u8] {
         let ty = self.layer_params.layer_type;
         let tile = self.layer_params.tile_indices[&node] as usize;
         let tile_data = &mapfile.read_tile(ty, tile).unwrap();
@@ -413,7 +408,7 @@ impl TileCache {
         self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid).count()
     }
 
-    pub fn tile_for_node(&self, node: NodeId) -> Option<usize> {
+    pub fn tile_for_node(&self, node: VNode) -> Option<usize> {
         self.layer_params.tile_indices.get(&node).map(|&i| i as usize)
     }
 }

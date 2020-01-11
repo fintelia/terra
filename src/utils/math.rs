@@ -9,6 +9,7 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
+    #[allow(unused)]
     pub fn new(min: Point3<f32>, max: Point3<f32>) -> Self {
         Self { min, max }
     }

@@ -84,10 +84,7 @@ impl Terrain {
             tile_cache.insert(layer.layer_type as usize, TileCache::new(layer));
         }
 
-        let quadtree = QuadTree::new(
-            mapfile.take_nodes(),
-            tile_cache[LayerType::Heights.index()].resolution() - 1,
-        );
+        let quadtree = QuadTree::new(tile_cache[LayerType::Heights.index()].resolution() - 1);
 
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
@@ -102,7 +99,7 @@ impl Terrain {
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
         });
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (std::mem::size_of::<NodeState>() * quadtree.total_nodes()) as u64,
+            size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
         });
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
@@ -460,9 +457,8 @@ impl Terrain {
         let normals_border = self.tile_cache[LayerType::Normals.index()].border();
         let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
         for node in missing_normals.into_iter().take(1) {
-            let spacing = self.quadtree.nodes[node].side_length()
-                / (normals_resolution - normals_border * 2) as f32;
-            let position = self.quadtree.nodes[node].bounds.min
+            let spacing = node.side_length() / (normals_resolution - normals_border * 2) as f32;
+            let position = node.bounds().min
                 - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
             self.gen_heights.run(
                 device,
@@ -513,8 +509,8 @@ impl Terrain {
         let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
         let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
         for node in missing_heights.into_iter().take(32) {
-            let step = self.quadtree.nodes[node].side_length() / (heights_resolution - 1) as f32;
-            let position = self.quadtree.nodes[node].bounds.min;
+            let step = node.side_length() / (heights_resolution - 1) as f32;
+            let position = node.bounds().min;
             self.gen_heights.run(
                 device,
                 &mut encoder,

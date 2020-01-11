@@ -1,4 +1,3 @@
-use crate::terrain::quadtree::Node;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TileHeader};
 use failure::Error;
 use memmap::MmapMut;
@@ -140,8 +139,5 @@ impl MapFile {
 
     pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
         &self.header.layers
-    }
-    pub(crate) fn take_nodes(&mut self) -> Vec<Node> {
-        std::mem::replace(&mut self.header.nodes, Vec::new())
     }
 }

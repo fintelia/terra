@@ -2,7 +2,7 @@ use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::{CoordinateSystem, PLANET_RADIUS};
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::Heightmap;
-use crate::terrain::quadtree::Node;
+use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
 use crate::utils::math::BoundingBox;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
@@ -42,7 +42,7 @@ pub(crate) struct ReprojectedDemDef<'a> {
     pub name: String,
     pub dem_cache: Rc<RefCell<RasterCache<f32, Vec<f32>>>>,
     pub system: &'a CoordinateSystem,
-    pub nodes: &'a Vec<Node>,
+    pub nodes: &'a Vec<VNode>,
     pub random: &'a Heightmap<f32>,
     pub global_dem: GlobalRaster<i16>,
 
@@ -62,7 +62,8 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         context: &mut AssetLoadContext,
         mut writer: W,
     ) -> Result<Self::Header, Error> {
-        let tiles = self.nodes.iter().filter(|n| n.level <= self.max_texture_present_level).count();
+        let tiles =
+            self.nodes.iter().filter(|n| n.level() <= self.max_texture_present_level).count();
 
         let global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
@@ -71,8 +72,8 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         for i in 0..tiles {
             context.set_progress(i as u64);
 
-            assert!(self.nodes[i].level <= self.max_texture_present_level);
-            let bounds = self.nodes[i].bounds;
+            assert!(self.nodes[i].level() <= self.max_texture_present_level);
+            let bounds = self.nodes[i].bounds();
             let mut heights =
                 Vec::with_capacity(self.resolution as usize * self.resolution as usize);
             for y in 0..(self.resolution as i32) {
@@ -151,7 +152,7 @@ where
     pub heights: &'a ReprojectedRaster,
 
     pub system: &'a CoordinateSystem,
-    pub nodes: &'a Vec<Node>,
+    pub nodes: &'a Vec<VNode>,
     pub skirt: u16,
 
     pub datatype: DataType,
@@ -202,7 +203,7 @@ where
                     let world = world_position(
                         x as i32,
                         y as i32,
-                        self.nodes[i].bounds,
+                        self.nodes[i].bounds(),
                         self.skirt,
                         self.heights.header.resolution,
                     );
