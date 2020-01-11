@@ -17,22 +17,30 @@ lazy_static! {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
-pub(crate) struct VNode {
-    level: u8,
-    x: u32,
-    y: u32,
-}
+pub(crate) struct VNode(u64);
+
 impl VNode {
-    pub fn root() -> Self {
-        Self { level: 0, x: 0, y: 0 }
+    fn new(level: u8, x: u32, y: u32) -> Self {
+        Self((level as u64) << 56 | (y as u64) << 24 | (x as u64))
+    }
+    fn x(&self) -> u32 {
+        self.0 as u32 & 0xffffff
+    }
+    fn y(&self) -> u32 {
+        (self.0 >> 24) as u32 & 0xffffff
+
+    }
+    pub fn level(&self) -> u8 {
+        (self.0 >> 56) as u8
     }
 
-    pub fn level(&self) -> u8 {
-        self.level
+    pub fn root() -> Self {
+        Self::new(0, 0, 0)
     }
+
 
     pub fn side_length(&self) -> f32 {
-        ROOT_SIDE_LENGTH / (1u32 << self.level) as f32
+        ROOT_SIDE_LENGTH / (1u32 << self.level()) as f32
     }
     pub fn min_distance(&self) -> f32 {
         self.side_length() * 1.95
@@ -41,9 +49,9 @@ impl VNode {
     pub fn bounds(&self) -> BoundingBox {
         let side_length = self.side_length();
         let min = Point3::new(
-            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.x as f32,
+            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.x() as f32,
             0.0,
-            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.y as f32,
+            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.y() as f32,
         );
         let max = Point3::new(min.x + side_length, 8000.0, min.z + side_length);
         BoundingBox { min, max }
@@ -59,20 +67,20 @@ impl VNode {
     }
 
     pub fn parent(&self) -> Option<(VNode, u8)> {
-        if self.level == 0 {
+        if self.level() == 0 {
             return None;
         }
-        let child_index = ((self.x % 2) + (self.y % 2) * 2) as u8;
-        Some((VNode { level: self.level - 1, x: self.x / 2, y: self.y / 2 }, child_index))
+        let child_index = ((self.x() % 2) + (self.y() % 2) * 2) as u8;
+        Some((VNode::new(self.level() - 1, self.x() / 2, self.y() / 2), child_index))
     }
 
     pub fn children(&self) -> [VNode; 4] {
-        assert!(self.level < 31);
+        assert!(self.level() < 31);
         [
-            VNode { level: self.level + 1, x: self.x * 2, y: self.y * 2 },
-            VNode { level: self.level + 1, x: self.x * 2 + 1, y: self.y * 2 },
-            VNode { level: self.level + 1, x: self.x * 2, y: self.y * 2 + 1 },
-            VNode { level: self.level + 1, x: self.x * 2 + 1, y: self.y * 2 + 1 },
+            VNode::new(self.level() + 1, self.x() * 2, self.y() * 2),
+            VNode::new(self.level() + 1, self.x() * 2+1, self.y() * 2),
+            VNode::new(self.level() + 1, self.x() * 2, self.y() * 2+1),
+            VNode::new(self.level() + 1, self.x() * 2+1, self.y() * 2+1),
         ]
     }
 
@@ -84,12 +92,12 @@ impl VNode {
         let mut generations = 0;
         let mut offset = Vector2::new(0, 0);
         while !visit(node) {
-            if node.level == 0 {
+            if node.level() == 0 {
                 return None;
             }
-            offset += Vector2::new(node.x & 1, node.y & 1) * (1 << generations);
+            offset += Vector2::new(node.x() & 1, node.y() & 1) * (1 << generations);
             generations += 1;
-            node = VNode { level: node.level - 1, x: node.x / 2, y: node.y / 2 };
+            node = VNode::new(node.level() - 1, node.x() / 2, node.y() / 2);
         }
         Some((node, generations, offset))
     }
@@ -118,7 +126,7 @@ impl VNode {
         pending.push_back(Self::root());
 
         while let Some(parent) = pending.pop_front() {
-            if parent.level >= max_level {
+            if parent.level() >= max_level {
                 continue;
             }
 
