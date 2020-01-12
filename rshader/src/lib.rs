@@ -1,8 +1,8 @@
 pub mod dynamic_shaders;
 pub mod static_shaders;
 
-use spirq::ty::{DescriptorType, ImageArrangement};
-use spirq::SpirvBinary;
+use spirq::ty::{DescriptorType, ImageArrangement, Type, ScalarType, VectorType};
+use spirq::{ExecutionModel, SpirvBinary};
 use std::collections::{btree_map::Entry, BTreeMap};
 
 #[cfg(feature = "dynamic_shaders")]
@@ -70,15 +70,58 @@ fn create_compute_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
 }
 
 fn reflect(
-    stages: &[(wgpu::ShaderStage, &[u8])],
-) -> Result<(Vec<Option<String>>, Vec<wgpu::BindGroupLayoutBinding>), failure::Error> {
+    stages: &[&[u8]],
+) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutBinding>), failure::Error> {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
         BTreeMap::new();
 
-    for (stage, spirv) in stages.iter() {
+    let mut attribute_offset = 0;
+    let mut attributes = Vec::new();
+    for spirv in stages.iter() {
         let spv: SpirvBinary = spirv.to_vec().into();
         let entries = spv.reflect()?;
         let manifest = &entries[0].manifest;
+
+        let stage = match entries[0].exec_model {
+            ExecutionModel::Vertex => wgpu::ShaderStage::VERTEX,
+            ExecutionModel::Fragment => wgpu::ShaderStage::FRAGMENT,
+            ExecutionModel::GLCompute => wgpu::ShaderStage::COMPUTE,
+            _ => unimplemented!(),
+        };
+
+        if let wgpu::ShaderStage::VERTEX = stage {
+            let mut inputs = BTreeMap::new();
+            for input in manifest.inputs() {
+                inputs.entry(u32::from(input.location)).or_insert(Vec::new()).push(input);
+            }
+            for (shader_location, mut input) in inputs {
+                input.sort_by_key(|i| u32::from(i.component));
+                let i = input.last().unwrap();
+                let (scalar_ty, nscalar) = match i.ty {
+                    Type::Scalar(s) => (s, 1),
+                    Type::Vector(VectorType { scalar_ty, nscalar }) => (scalar_ty, *nscalar),
+                    _ => return Err(failure::format_err!("Unsupported attribute type")),
+                };
+                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.component)) {
+                    (ScalarType::Signed(4), 1) => (wgpu::VertexFormat::Int, 4),
+                    (ScalarType::Signed(4), 2) => (wgpu::VertexFormat::Int2, 8),
+                    (ScalarType::Signed(4), 3) => (wgpu::VertexFormat::Int3, 12),
+                    (ScalarType::Signed(4), 4) => (wgpu::VertexFormat::Int4, 16),
+                    (ScalarType::Float(4), 1) => (wgpu::VertexFormat::Float, 4),
+                    (ScalarType::Float(4), 2) => (wgpu::VertexFormat::Float2, 8),
+                    (ScalarType::Float(4), 3) => (wgpu::VertexFormat::Float3, 12),
+                    (ScalarType::Float(4), 4) => (wgpu::VertexFormat::Float4, 16),
+                    _ => return Err(failure::format_err!("Unsupported attribute type")),
+                };
+
+                attributes.push(wgpu::VertexAttributeDescriptor {
+                    offset: attribute_offset,
+                    format,
+                    shader_location
+                });
+                attribute_offset += nbytes;
+            }
+        }
 
         for desc in manifest.descs() {
             if let Some((set, binding)) = desc.desc_bind.into_inner() {
@@ -106,11 +149,11 @@ fn reflect(
 
                 match binding_map.entry(binding) {
                     Entry::Vacant(v) => {
-                        v.insert((name, ty, *stage));
+                        v.insert((name, ty, stage));
                     }
                     Entry::Occupied(mut e) => {
                         let (ref n, ref t, ref mut s) = e.get_mut();
-                        *s = *s | *stage;
+                        *s = *s | stage;
 
                         if *n != name || *t != ty {
                             return Err(failure::format_err!("descriptor mismatch"));
@@ -128,5 +171,5 @@ fn reflect(
         bindings.push(wgpu::BindGroupLayoutBinding { binding, visibility, ty });
     }
 
-    Ok((names, bindings))
+    Ok((attributes, names, bindings))
 }

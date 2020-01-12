@@ -52,6 +52,7 @@ pub struct ShaderSet {
     fragment: Option<Vec<u8>>,
     compute: Option<Vec<u8>>,
 
+    input_attributes: Vec<wgpu::VertexAttributeDescriptor>,
     layout_descriptor: Vec<wgpu::BindGroupLayoutBinding>,
     desc_names: Vec<Option<String>>,
 
@@ -81,10 +82,7 @@ impl ShaderSet {
         let vertex = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
         let fragment = create_fragment_shader(&concat_file_contents(fragment_filenames.iter())?)?;
 
-        let (desc_names, layout_descriptor) = crate::reflect(&[
-            (wgpu::ShaderStage::VERTEX, &vertex[..]),
-            (wgpu::ShaderStage::FRAGMENT, &fragment[..]),
-        ])?;
+        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&vertex[..], &fragment[..]])?;
 
         Ok(Self {
             vertex: Some(vertex),
@@ -96,6 +94,7 @@ impl ShaderSet {
             compute_filenames: Vec::new(),
             desc_names,
             layout_descriptor,
+            input_attributes,
         })
     }
 
@@ -111,8 +110,9 @@ impl ShaderSet {
             .collect::<Vec<_>>();
         let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
 
-        let (desc_names, layout_descriptor) =
-            crate::reflect(&[(wgpu::ShaderStage::COMPUTE, &compute[..])])?;
+        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&compute[..]])?;
+
+        assert!(input_attributes.is_empty());
 
         Ok(Self {
             vertex: None,
@@ -124,6 +124,7 @@ impl ShaderSet {
             compute_filenames: compute_filenames,
             desc_names,
             layout_descriptor,
+            input_attributes,
         })
     }
 
@@ -149,29 +150,30 @@ impl ShaderSet {
                     vs = Some(create_vertex_shader(&concat_file_contents(
                         self.vertex_filenames.iter(),
                     )?)?);
-                    stages.push((wgpu::ShaderStage::VERTEX, &vs.as_ref().unwrap()[..]));
+                    stages.push(&vs.as_ref().unwrap()[..]);
                 }
                 if !self.fragment_filenames.is_empty() {
                     fs = Some(create_fragment_shader(&concat_file_contents(
                         self.fragment_filenames.iter(),
                     )?)?);
-                    stages.push((wgpu::ShaderStage::FRAGMENT, &fs.as_ref().unwrap()[..]));
+                    stages.push(&fs.as_ref().unwrap()[..]);
                 }
                 if !self.compute_filenames.is_empty() {
                     cs = Some(create_compute_shader(&concat_file_contents(
                         self.compute_filenames.iter(),
                     )?)?);
-                    stages.push((wgpu::ShaderStage::COMPUTE, &cs.as_ref().unwrap()[..]));
+                    stages.push(&cs.as_ref().unwrap()[..]);
                 }
 
-                let (dn, ld) = crate::reflect(&stages[..])?;
+                let (ia, dn, ld) = crate::reflect(&stages[..])?;
 
-                Ok((vs, fs, cs, dn, ld))
+                Ok((vs, fs, cs, ia, dn, ld))
             }();
 
-            if let Ok((vs, fs, cs, desc_names, layout_descriptor)) = new_shaders {
-                self.desc_names = desc_names;
-                self.layout_descriptor = layout_descriptor;
+            if let Ok((vs, fs, cs, ia, dn, ld)) = new_shaders {
+                self.input_attributes = ia;
+                self.desc_names = dn;
+                self.layout_descriptor = ld;
                 self.vertex = vs;
                 self.fragment = fs;
                 self.compute = cs;
@@ -186,6 +188,9 @@ impl ShaderSet {
     }
     pub fn desc_names(&self) -> &[Option<String>] {
         &self.desc_names[..]
+    }
+    pub fn input_attributes(&self) -> &[wgpu::VertexAttributeDescriptor] {
+        &self.input_attributes[..]
     }
 
     pub fn vertex(&self) -> &[u8] {

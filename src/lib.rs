@@ -10,6 +10,7 @@ extern crate rshader;
 mod cache;
 mod coordinates;
 mod generate;
+mod gpu_state;
 mod mapfile;
 mod srgb;
 mod terrain;
@@ -19,6 +20,7 @@ use crate::generate::{ComputeShader, GenHeightsUniforms, GenNormalsUniforms};
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use futures::executor;
+use gpu_state::GpuState;
 use std::mem;
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
@@ -36,20 +38,6 @@ struct UniformBlock {
 }
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
-
-pub(crate) struct GpuState {
-    base_heights: wgpu::Texture,
-
-    heights_staging: wgpu::Texture,
-    normals_staging: wgpu::Texture,
-
-    noise: wgpu::Texture,
-    _planet_mesh_texture: wgpu::Texture,
-
-    heights: wgpu::Texture,
-    normals: wgpu::Texture,
-    albedo: wgpu::Texture,
-}
 
 pub struct Terrain {
     _bind_group_layout: wgpu::BindGroupLayout,
@@ -146,90 +134,14 @@ impl Terrain {
             albedo: tile_cache[LayerType::Colors].make_cache_texture(device),
         };
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            bindings: &[
-                wgpu::BindGroupLayoutBinding {
-                    binding: 0,
-                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::UniformBuffer { dynamic: false },
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 1,
-                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler,
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 2,
-                    visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2Array,
-                    },
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 3,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2Array,
-                    },
-                },
-                wgpu::BindGroupLayoutBinding {
-                    binding: 4,
-                    visibility: wgpu::ShaderStage::FRAGMENT,
-                    ty: wgpu::BindingType::SampledTexture {
-                        multisampled: false,
-                        dimension: wgpu::TextureViewDimension::D2Array,
-                    },
-                },
-            ],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
-            bindings: &[
-                wgpu::Binding {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer {
-                        buffer: &uniform_buffer,
-                        range: 0..mem::size_of::<UniformBlock>() as u64,
-                    },
-                },
-                wgpu::Binding {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&device.create_sampler(
-                        &wgpu::SamplerDescriptor {
-                            address_mode_u: wgpu::AddressMode::ClampToEdge,
-                            address_mode_v: wgpu::AddressMode::ClampToEdge,
-                            address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
-                            min_filter: wgpu::FilterMode::Linear,
-                            mipmap_filter: wgpu::FilterMode::Nearest,
-                            lod_min_clamp: -100.0,
-                            lod_max_clamp: 100.0,
-                            compare_function: wgpu::CompareFunction::Always,
-                        },
-                    )),
-                },
-                wgpu::Binding {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(
-                        &gpu_state.heights.create_default_view(),
-                    ),
-                },
-                wgpu::Binding {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(
-                        &gpu_state.normals.create_default_view(),
-                    ),
-                },
-                wgpu::Binding {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(
-                        &gpu_state.albedo.create_default_view(),
-                    ),
-                },
-            ],
-        });
+        let (bind_group, bind_group_layout) = gpu_state.bind_group_for_shader(
+            device,
+            &shader,
+            Some(&wgpu::BindingResource::Buffer {
+                buffer: &uniform_buffer,
+                range: 0..mem::size_of::<UniformBlock>() as u64,
+            }),
+        );
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 bind_group_layouts: &[&bind_group_layout],
@@ -379,48 +291,7 @@ impl Terrain {
                     vertex_buffers: &[wgpu::VertexBufferDescriptor {
                         stride: std::mem::size_of::<NodeState>() as u64,
                         step_mode: wgpu::InputStepMode::Instance,
-                        attributes: &[
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 0,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 0,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 16,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 1,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 32,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 2,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 48,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 3,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 64,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 4,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 80,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 5,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 96,
-                                format: wgpu::VertexFormat::Float4,
-                                shader_location: 6,
-                            },
-                            wgpu::VertexAttributeDescriptor {
-                                offset: 112,
-                                format: wgpu::VertexFormat::Int,
-                                shader_location: 7,
-                            },
-                        ],
+                        attributes: self.shader.input_attributes(),
                     }],
                     sample_count: 1,
                     sample_mask: !0,
