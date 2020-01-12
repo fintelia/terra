@@ -5,15 +5,13 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform UniformBlock {
     vec2 position;
 	float spacing;
+	int slot;
 } uniform_block;
 
 layout(set = 0, binding = 1) uniform texture2D base_heights;
 layout(rgba32f, binding = 2) uniform image2D heights_staging;
 layout(rg8, binding = 3) uniform image2D normals_staging;
-
-layout(set = 0, binding = 4) uniform sampler linear;
-layout(set = 0, binding = 5) uniform sampler linear_wrap;
-layout(set = 0, binding = 6) uniform texture2D noise;
+layout(rg8, binding = 4) uniform image2DArray normals;
 
 void main() {
 	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
@@ -28,5 +26,9 @@ void main() {
 
 	normal = normalize(normal);
 
-	imageStore(normals_staging, ivec2(pos), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	if(uniform_block.slot >= 0) {
+		imageStore(normals, ivec3(pos, uniform_block.slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	} else {
+		imageStore(normals_staging, ivec2(pos), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	}
 }

@@ -83,6 +83,11 @@ impl QuadTree {
             for layer in tile_cache.values_mut() {
                 layer.add_missing((priority, node));
             }
+
+            if node.level() >= 19 {
+                return false;
+            }
+
             true
         });
     }

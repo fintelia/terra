@@ -6,6 +6,7 @@ pub(crate) struct GenHeightsUniforms {
     pub position: [f32; 2],
     pub base_heights_step: f32,
     pub step: f32,
+    pub slot: i32,
 }
 unsafe impl bytemuck::Zeroable for GenHeightsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightsUniforms {}
@@ -14,6 +15,7 @@ unsafe impl bytemuck::Pod for GenHeightsUniforms {}
 pub(crate) struct GenNormalsUniforms {
     pub position: [f32; 2],
     pub spacing: f32,
+    pub slot: i32,
 }
 unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
 unsafe impl bytemuck::Pod for GenNormalsUniforms {}

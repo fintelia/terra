@@ -6,11 +6,12 @@ layout(binding = 0) uniform UniformBlock {
     vec2 position;
 	float base_heights_spacing;
 	float spacing;
+	int slot;
 } ubo;
 
 layout(set = 0, binding = 1) uniform texture2D base_heights;
 layout(rgba32f, binding = 2) uniform image2D heights_staging;
-layout(rg8, binding = 3) uniform image2D normals_staging;
+layout(rgba32f, binding = 3) uniform image2DArray heights;
 
 layout(set = 0, binding = 4) uniform sampler linear;
 layout(set = 0, binding = 5) uniform sampler linear_wrap;
@@ -71,10 +72,14 @@ void main() {
 
 	float n = 0;
 	for(int i = 0; i < 6; i++) {
-		float weight = exp2(i) * 1.5;
-		float scale = exp2(i) * 256.0;
+		float weight = exp2(i) * 0.2;
+		float scale = exp2(i) * 32.0;
 		n += weight * (texture(sampler2D(noise, linear_wrap), position/scale).x-0.5);
 	}
-	vec4 out_height = vec4(0.0, f + n * mix(0.1, 1, smoothstep(0.1, 0.6, slope)), 0.0, 0.0);
-	imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
+	vec4 out_height = vec4(0.0, f + n * mix(0.15, 1, smoothstep(0.1, 0.6, slope)), 0.0, 0.0);
+	if(ubo.slot >= 0) {
+		imageStore(heights, ivec3(gl_GlobalInvocationID.xy, ubo.slot), out_height);
+	} else {
+		imageStore(heights_staging, ivec2(gl_GlobalInvocationID.xy), out_height);
+	}
 }

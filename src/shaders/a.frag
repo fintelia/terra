@@ -59,14 +59,14 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
-		color = mix(color, vec3(0,0,0), 0.2);
+	// if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
+	// 	color = mix(color, vec3(0,0,0), 0.2);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	if(length(position.xz) > 30000.0)
-		color = mix(color, vec3(0), 0.3);
+	// if(length(position.xz) > 30000.0)
+	// 	color = mix(color, vec3(0), 0.3);
 	// if(length(position.xz) < 10000) {
 	// 	if((fract(0.5*position.x/1000) < 0.5) != (fract(0.5*position.z/1000) < 0.5))
 	// 		color = mix(color, vec3(0,0,0), 0.3);
@@ -75,12 +75,12 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(length(position.xz-uniform_block.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
-	if(abs(max(position.x, position.z) - 2048*32) < 100)
-		color = vec3(1);
+	// if(abs(max(abs(position.x), abs(position.z)) - 2048*32) < 100)
+	// 	color = vec3(1);
 
- 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -91,12 +91,12 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(texcoord.x*ts.x/2) < 0.5) != (fract(texcoord.y*ts.y/2) < 0.5))
 	// 	color *= 0.4;
 
-	if(min_distance == 8*512.0*1.95)
-		color = mix(color, vec3(0,1,0), .1);
-	if(min_distance == 16*512.0*1.95)
-		color = mix(color, vec3(1,0,0), .1);
-	if(min_distance == 32*512.0*1.95)
-		color = mix(color, vec3(0,0,1), .1);
+	// if(min_distance == 8*512.0*1.95)
+	// 	color = mix(color, vec3(0,1,0), .1);
+	// if(min_distance == 16*512.0*1.95)
+	// 	color = mix(color, vec3(1,0,0), .1);
+	// if(min_distance == 32*512.0*1.95)
+	// 	color = mix(color, vec3(0,0,1), .1);
 
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 

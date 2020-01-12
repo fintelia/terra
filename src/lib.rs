@@ -318,10 +318,17 @@ impl Terrain {
         let normals_resolution = self.tile_cache[LayerType::Normals.index()].resolution();
         let normals_border = self.tile_cache[LayerType::Normals.index()].border();
         let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
-        for node in missing_normals.into_iter().take(1) {
+        for node in missing_normals.into_iter().take(4) {
             let spacing = node.side_length() / (normals_resolution - normals_border * 2) as f32;
             let position = node.bounds().min
                 - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
+
+            let tile = self.tile_cache[LayerType::Normals.index()].tile_for_node(node);
+            let slot = match tile {
+                None => self.tile_cache[LayerType::Normals.index()].get_slot(node).unwrap() as i32,
+                Some(_) => -1,
+            };
+
             self.gen_heights.run(
                 device,
                 &mut encoder,
@@ -331,6 +338,7 @@ impl Terrain {
                     position: [position.x, position.z],
                     base_heights_step: 32.0,
                     step: spacing,
+                    slot: -1,
                 },
             );
             self.gen_normals.run(
@@ -338,43 +346,50 @@ impl Terrain {
                 &mut encoder,
                 &self.gpu_state,
                 ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
-                &GenNormalsUniforms { position: [position.x, position.z], spacing },
+                &GenNormalsUniforms { position: [position.x, position.z], spacing, slot },
             );
 
-            let size = normals_resolution as u64 * normals_row_pitch as u64;
-            let download = device.create_buffer(&wgpu::BufferDescriptor {
-                size,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-            });
-            let tile = self.tile_cache[LayerType::Normals.index()].tile_for_node(node).unwrap();
-
-            encoder.copy_texture_to_buffer(
-                wgpu::TextureCopyView {
-                    texture: &self.gpu_state.normals_staging,
-                    mip_level: 0,
-                    array_layer: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                },
-                wgpu::BufferCopyView {
-                    buffer: &download,
-                    offset: 0,
-                    row_pitch: normals_row_pitch as u32,
-                    image_height: normals_resolution as u32,
-                },
-                wgpu::Extent3d {
-                    width: normals_resolution as u32,
-                    height: normals_resolution as u32,
-                    depth: 1,
-                },
-            );
-
-            self.pending_tiles.push((LayerType::Normals, tile, download));
+            if let Some(tile) = tile {
+                let size = normals_resolution as u64 * normals_row_pitch as u64;
+                let download = device.create_buffer(&wgpu::BufferDescriptor {
+                    size,
+                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                });
+                encoder.copy_texture_to_buffer(
+                    wgpu::TextureCopyView {
+                        texture: &self.gpu_state.normals_staging,
+                        mip_level: 0,
+                        array_layer: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    },
+                    wgpu::BufferCopyView {
+                        buffer: &download,
+                        offset: 0,
+                        row_pitch: normals_row_pitch as u32,
+                        image_height: normals_resolution as u32,
+                    },
+                    wgpu::Extent3d {
+                        width: normals_resolution as u32,
+                        height: normals_resolution as u32,
+                        depth: 1,
+                    },
+                );
+                self.pending_tiles.push((LayerType::Normals, tile, download));
+            } else {
+                self.tile_cache[LayerType::Normals.index()].set_slot_valid(slot as usize);
+            }
         }
         let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
         let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
         for node in missing_heights.into_iter().take(32) {
             let step = node.side_length() / (heights_resolution - 1) as f32;
             let position = node.bounds().min;
+            let tile = self.tile_cache[LayerType::Heights.index()].tile_for_node(node);
+            let slot = match tile {
+                None => self.tile_cache[LayerType::Heights.index()].get_slot(node).unwrap() as i32,
+                Some(_) => -1,
+            };
+
             self.gen_heights.run(
                 device,
                 &mut encoder,
@@ -384,37 +399,39 @@ impl Terrain {
                     position: [position.x, position.z],
                     base_heights_step: 32.0,
                     step,
+                    slot,
                 },
             );
 
-            let size = heights_resolution as u64 * heights_row_pitch as u64;
-            let download = device.create_buffer(&wgpu::BufferDescriptor {
-                size,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-            });
-            let tile = self.tile_cache[LayerType::Heights.index()].tile_for_node(node).unwrap();
-
-            encoder.copy_texture_to_buffer(
-                wgpu::TextureCopyView {
-                    texture: &self.gpu_state.heights_staging,
-                    mip_level: 0,
-                    array_layer: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                },
-                wgpu::BufferCopyView {
-                    buffer: &download,
-                    offset: 0,
-                    row_pitch: heights_row_pitch as u32,
-                    image_height: heights_resolution as u32,
-                },
-                wgpu::Extent3d {
-                    width: heights_resolution as u32,
-                    height: heights_resolution as u32,
-                    depth: 1,
-                },
-            );
-
-            self.pending_tiles.push((LayerType::Heights, tile, download));
+            if let Some(tile) = tile {
+                let size = heights_resolution as u64 * heights_row_pitch as u64;
+                let download = device.create_buffer(&wgpu::BufferDescriptor {
+                    size,
+                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                });
+                encoder.copy_texture_to_buffer(
+                    wgpu::TextureCopyView {
+                        texture: &self.gpu_state.heights_staging,
+                        mip_level: 0,
+                        array_layer: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    },
+                    wgpu::BufferCopyView {
+                        buffer: &download,
+                        offset: 0,
+                        row_pitch: heights_row_pitch as u32,
+                        image_height: heights_resolution as u32,
+                    },
+                    wgpu::Extent3d {
+                        width: heights_resolution as u32,
+                        height: heights_resolution as u32,
+                        depth: 1,
+                    },
+                );
+                self.pending_tiles.push((LayerType::Heights, tile, download));
+            } else {
+                self.tile_cache[LayerType::Heights.index()].set_slot_valid(slot as usize);
+            }
         }
 
         self.quadtree.prepare_vertex_buffer(

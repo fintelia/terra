@@ -196,8 +196,7 @@ impl TileCache {
     }
 
     pub fn add_missing(&mut self, element: (Priority, VNode)) {
-        if self.layer_params.tile_indices.contains_key(&element.1)
-            && !self.reverse.contains_key(&element.1)
+        if !self.reverse.contains_key(&element.1)
             && (element.0 > self.min_priority || self.slots.len() < self.size)
         {
             self.missing.push(element);
@@ -271,18 +270,22 @@ impl TileCache {
                 continue;
             }
 
-            let tile = self.layer_params.tile_indices[&entry.node] as usize;
-
-            match mapfile.tile_state(ty, tile) {
-                TileState::Base => {
-                    entry.generated = false;
-                    pending_uploads.push((i, tile));
-                }
-                TileState::Generated => {
+            match self.layer_params.tile_indices.get(&entry.node) {
+                None => {
                     entry.generated = true;
-                    pending_uploads.push((i, tile));
+                    pending_generate.push(entry.node);
                 }
-                TileState::Missing => pending_generate.push(entry.node),
+                Some(&tile) => match mapfile.tile_state(ty, tile as usize) {
+                    TileState::Base => {
+                        entry.generated = false;
+                        pending_uploads.push((i, tile as usize));
+                    }
+                    TileState::Generated => {
+                        entry.generated = true;
+                        pending_uploads.push((i, tile as usize));
+                    }
+                    TileState::Missing => pending_generate.push(entry.node),
+                }
             }
         }
         if pending_uploads.is_empty() {
@@ -367,6 +370,9 @@ impl TileCache {
             .and_then(|&slot| self.slots.get(slot))
             .map(|entry| entry.valid)
             .unwrap_or(false)
+    }
+    pub fn set_slot_valid(&mut self, slot: usize) {
+        self.slots[slot].valid = true;
     }
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
