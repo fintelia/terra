@@ -52,8 +52,8 @@ pub struct ShaderSet {
     fragment: Option<Vec<u8>>,
     compute: Option<Vec<u8>>,
 
-    layout_descriptor: Option<Vec<wgpu::BindGroupLayoutBinding>>,
-    desc_names: Option<Vec<Option<String>>>,
+    layout_descriptor: Vec<wgpu::BindGroupLayoutBinding>,
+    desc_names: Vec<Option<String>>,
 
     vertex_filenames: Vec<PathBuf>,
     fragment_filenames: Vec<PathBuf>,
@@ -81,6 +81,11 @@ impl ShaderSet {
         let vertex = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
         let fragment = create_fragment_shader(&concat_file_contents(fragment_filenames.iter())?)?;
 
+        let (desc_names, layout_descriptor) = crate::reflect(&[
+            (wgpu::ShaderStage::VERTEX, &vertex[..]),
+            (wgpu::ShaderStage::FRAGMENT, &fragment[..]),
+        ])?;
+
         Ok(Self {
             vertex: Some(vertex),
             fragment: Some(fragment),
@@ -89,8 +94,8 @@ impl ShaderSet {
             vertex_filenames: vertex_filenames,
             fragment_filenames: fragment_filenames,
             compute_filenames: Vec::new(),
-            desc_names: None,
-            layout_descriptor: None,
+            desc_names,
+            layout_descriptor,
         })
     }
 
@@ -106,8 +111,8 @@ impl ShaderSet {
             .collect::<Vec<_>>();
         let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
 
-
-        let (desc_names, layout_descriptor) = crate::reflect(&compute)?;
+        let (desc_names, layout_descriptor) =
+            crate::reflect(&[(wgpu::ShaderStage::COMPUTE, &compute[..])])?;
 
         Ok(Self {
             vertex: None,
@@ -117,8 +122,8 @@ impl ShaderSet {
             vertex_filenames: Vec::new(),
             fragment_filenames: Vec::new(),
             compute_filenames: compute_filenames,
-            desc_names: Some(desc_names),
-            layout_descriptor: Some(layout_descriptor),
+            desc_names,
+            layout_descriptor,
         })
     }
 
@@ -139,29 +144,34 @@ impl ShaderSet {
 
             let new_shaders = || -> Result<_, failure::Error> {
                 let (mut vs, mut fs, mut cs) = (None, None, None);
+                let mut stages = Vec::new();
                 if !self.vertex_filenames.is_empty() {
                     vs = Some(create_vertex_shader(&concat_file_contents(
                         self.vertex_filenames.iter(),
                     )?)?);
+                    stages.push((wgpu::ShaderStage::VERTEX, &vs.as_ref().unwrap()[..]));
                 }
                 if !self.fragment_filenames.is_empty() {
                     fs = Some(create_fragment_shader(&concat_file_contents(
                         self.fragment_filenames.iter(),
                     )?)?);
+                    stages.push((wgpu::ShaderStage::FRAGMENT, &fs.as_ref().unwrap()[..]));
                 }
                 if !self.compute_filenames.is_empty() {
                     cs = Some(create_compute_shader(&concat_file_contents(
                         self.compute_filenames.iter(),
                     )?)?);
-
-                    let (desc_names, layout_descriptor) = crate::reflect(&cs.as_ref().unwrap())?;
-                    self.desc_names = Some(desc_names);
-                    self.layout_descriptor = Some(layout_descriptor);
+                    stages.push((wgpu::ShaderStage::COMPUTE, &cs.as_ref().unwrap()[..]));
                 }
-                Ok((vs, fs, cs))
+
+                let (dn, ld) = crate::reflect(&stages[..])?;
+
+                Ok((vs, fs, cs, dn, ld))
             }();
 
-            if let Ok((vs, fs, cs)) = new_shaders {
+            if let Ok((vs, fs, cs, desc_names, layout_descriptor)) = new_shaders {
+                self.desc_names = desc_names;
+                self.layout_descriptor = layout_descriptor;
                 self.vertex = vs;
                 self.fragment = fs;
                 self.compute = cs;
@@ -171,14 +181,11 @@ impl ShaderSet {
         false
     }
 
-    pub fn layout_descriptor(&self) -> Option<wgpu::BindGroupLayoutDescriptor> {
-        match self.layout_descriptor {
-            Some(ref descs) => Some(wgpu::BindGroupLayoutDescriptor { bindings: &descs[..] }),
-            None => None,
-        }
+    pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
+        wgpu::BindGroupLayoutDescriptor { bindings: &self.layout_descriptor[..] }
     }
-    pub fn desc_names(&self) -> Option<&[Option<String>]> {
-        self.desc_names.as_ref().map(|v| &v[..])
+    pub fn desc_names(&self) -> &[Option<String>] {
+        &self.desc_names[..]
     }
 
     pub fn vertex(&self) -> &[u8] {

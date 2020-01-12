@@ -97,15 +97,10 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         let normals_staging = &state.normals_staging.create_default_view();
         let noise = &state.noise.create_default_view();
 
-        let bind_group_layout =
-            device.create_bind_group_layout(&self.shader.layout_descriptor().unwrap());
+        let bind_group_layout = device.create_bind_group_layout(&self.shader.layout_descriptor());
         let mut bindings = Vec::new();
-        for (name, layout) in self
-            .shader
-            .desc_names()
-            .unwrap()
-            .iter()
-            .zip(self.shader.layout_descriptor().unwrap().bindings.iter())
+        for (name, layout) in
+            self.shader.desc_names().iter().zip(self.shader.layout_descriptor().bindings.iter())
         {
             let name = &**name.as_ref().unwrap();
             bindings.push(wgpu::Binding {
