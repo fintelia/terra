@@ -40,11 +40,7 @@ unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
 
 pub struct Terrain {
-    _bind_group_layout: wgpu::BindGroupLayout,
-    bind_group: wgpu::BindGroup,
-
-    render_pipeline_layout: wgpu::PipelineLayout,
-    render_pipeline: Option<wgpu::RenderPipeline>,
+    bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 
     watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::ShaderSet,
@@ -134,19 +130,6 @@ impl Terrain {
             albedo: tile_cache[LayerType::Colors].make_cache_texture(device),
         };
 
-        let (bind_group, bind_group_layout) = gpu_state.bind_group_for_shader(
-            device,
-            &shader,
-            Some(&wgpu::BindingResource::Buffer {
-                buffer: &uniform_buffer,
-                range: 0..mem::size_of::<UniformBlock>() as u64,
-            }),
-        );
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                bind_group_layouts: &[&bind_group_layout],
-            });
-
         let gen_heights = ComputeShader::new(
             device,
             rshader::ShaderSet::compute_only(
@@ -173,10 +156,7 @@ impl Terrain {
             .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Self {
-            _bind_group_layout: bind_group_layout,
-            bind_group,
-            render_pipeline_layout,
-            render_pipeline: None,
+            bindgroup_pipeline: None,
             watcher,
             shader,
 
@@ -244,13 +224,26 @@ impl Terrain {
         let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
         self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
         if self.shader.refresh(&mut self.watcher) {
-            self.render_pipeline = None;
+            self.bindgroup_pipeline = None;
         }
 
-        if self.render_pipeline.is_none() {
-            self.render_pipeline = Some(
+        if self.bindgroup_pipeline.is_none() {
+            let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
+                device,
+                &self.shader,
+                Some(&wgpu::BindingResource::Buffer {
+                    buffer: &self.uniform_buffer,
+                    range: 0..mem::size_of::<UniformBlock>() as u64,
+                }),
+            );
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    bind_group_layouts: &[&bind_group_layout],
+                });
+            self.bindgroup_pipeline = Some((
+                bind_group,
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    layout: &self.render_pipeline_layout,
+                    layout: &render_pipeline_layout,
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(
                             &wgpu::read_spirv(std::io::Cursor::new(self.shader.vertex())).unwrap(),
@@ -297,7 +290,7 @@ impl Terrain {
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
                 }),
-            );
+            ));
         }
 
         let mut encoder =
@@ -463,8 +456,8 @@ impl Terrain {
                     clear_stencil: 0,
                 }),
             });
-            rpass.set_pipeline(self.render_pipeline.as_ref().unwrap());
-            rpass.set_bind_group(0, &self.bind_group, &[]);
+            rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
+            rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
 
             self.quadtree.render(
                 &mut rpass,
