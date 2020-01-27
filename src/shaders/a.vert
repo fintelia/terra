@@ -24,7 +24,7 @@ layout(location = 6, component=3) in float pnormals_step;
 layout(location = 7) in int resolution;
 
 layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 2) uniform texture2DArray heights;
+layout(set = 0, binding = 2) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
 layout(location = 1) out vec3 out_albedo_texcoord;
@@ -37,11 +37,14 @@ layout(location = 7) out float out_side_length;
 layout(location = 8) out float out_min_distance;
 layout(location = 9) out float out_elevation;
 
+const float planet_radius = 6371000.0;
+
 void main() {
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
 							(gl_VertexIndex) / (resolution+1));
 
 	vec2 gridPosition = vec2(iPosition) * (side_length / (resolution)) + in_position;
+
 	float morph = 1 - smoothstep(0.7, 0.95, distance(gridPosition, uniform_block.camera.xz) / min_distance);
 	morph = min(morph * 2, 1);
 	// if(is_top_level)
@@ -49,16 +52,21 @@ void main() {
 	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
 
 
-	vec3 offset = texture(sampler2DArray(heights, linear),
+	vec3 offset = texture(sampler2DArray(displacements, linear),
 						  heights_origin + vec3(vec2(nPosition) * heights_step, 0)).xyz;
 	if (pheights_origin.z >= 0) {
-		offset = mix(texture(sampler2DArray(heights, linear),
+		offset = mix(texture(sampler2DArray(displacements, linear),
 							 pheights_origin + vec3(vec2(nPosition) * pheights_step, 0)).xyz,
 					 offset,
 					 morph);
 	}
 
 	vec3 position = vec3(nPosition * (side_length / resolution) + in_position, 0).xzy + offset;
+
+	// dvec3 positionD = normalize(dvec3(dvec2(position.xz) * exp2(-22), 1.0).xzy) * planet_radius
+	// 	- dvec3(0, planet_radius, 0);
+
+	// position = vec3(positionD);
 
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);
@@ -69,7 +77,7 @@ void main() {
 	out_i_position = vec2(iPosition);
 	out_side_length = side_length;
 	out_min_distance = min_distance;
-	out_elevation = texture(sampler2DArray(heights, linear),
+	out_elevation = texture(sampler2DArray(displacements, linear),
 							heights_origin + vec3(nPosition * heights_step, 0)).g;
 
 	gl_Position = uniform_block.view_proj * vec4(position, 1.0);

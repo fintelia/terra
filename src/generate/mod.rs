@@ -126,40 +126,6 @@ impl TextureQuality {
     }
 }
 
-/// Spacing between adjacent mesh grid points for the most detailed quadtree level.
-pub enum GridSpacing {
-    // 4000 cm between mesh grid points.
-    FourMeters,
-    // 2000 cm between mesh grid points.
-    TwoMeters,
-    // 1000 cm between mesh grid points.
-    OneMeter,
-    // 500 cm between mesh grid points.
-    HalfMeter,
-    // 250 cm between mesh grid points.
-    QuarterMeter,
-}
-impl GridSpacing {
-    fn log2_spacing(&self) -> i32 {
-        match *self {
-            GridSpacing::FourMeters => 2,
-            GridSpacing::TwoMeters => 1,
-            GridSpacing::OneMeter => 0,
-            GridSpacing::HalfMeter => -1,
-            GridSpacing::QuarterMeter => -2,
-        }
-    }
-    fn as_str(&self) -> &str {
-        match *self {
-            GridSpacing::FourMeters => "4m",
-            GridSpacing::TwoMeters => "2m",
-            GridSpacing::OneMeter => "1m",
-            GridSpacing::HalfMeter => "500cm",
-            GridSpacing::QuarterMeter => "250cm",
-        }
-    }
-}
-
 /// Used to construct a `QuadTree`.
 pub struct MapFileBuilder {
     latitude: i16,
@@ -167,7 +133,6 @@ pub struct MapFileBuilder {
     source: DemSource,
     vertex_quality: VertexQuality,
     texture_quality: TextureQuality,
-    grid_spacing: GridSpacing,
     // materials: MaterialSet<R>,
     // sky: Skybox<R>,
     context: Option<AssetLoadContext>,
@@ -185,7 +150,6 @@ impl MapFileBuilder {
             source: DemSource::Srtm30m,
             vertex_quality: VertexQuality::High,
             texture_quality: TextureQuality::High,
-            grid_spacing: GridSpacing::TwoMeters,
             // materials: MaterialSet::load(&mut factory, encoder, &mut context).unwrap(),
             // sky: Skybox::new(&mut factory, encoder, &mut context),
             context: Some(context),
@@ -220,11 +184,6 @@ impl MapFileBuilder {
         self
     }
 
-    pub fn grid_spacing(mut self, spacing: GridSpacing) -> Self {
-        self.grid_spacing = spacing;
-        self
-    }
-
     /// Actually construct the `QuadTree`.
     ///
     /// This function will (the first time it is called) download many gigabytes of raw data,
@@ -247,13 +206,12 @@ impl MapFileBuilder {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "{}{:02}_{}{:03}_{}m_{}_{}_{}",
+            "{}{:02}_{}{:03}_{}m_{}_{}",
             n_or_s,
             self.latitude.abs(),
             e_or_w,
             self.longitude.abs(),
             self.source.resolution(),
-            self.grid_spacing.as_str(),
             self.vertex_quality.as_str(),
             self.texture_quality.as_str(),
         )
@@ -285,17 +243,13 @@ impl MMappedAsset for MapFileBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let mut max_heights_level = LEVEL_1_M
-            - self.vertex_quality.resolution_log2() as i32
-            - (self.grid_spacing.log2_spacing() - 1);
         let max_heights_present_level =
             LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
-        let mut max_texture_level = max_heights_level - (resolution_ratio as f32).log2() as i32;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
-        max_heights_level = max_heights_present_level;
-        max_texture_level = max_heights_present_level;
+        let max_heights_level = max_heights_present_level;
+        let max_texture_level = max_heights_present_level;
 
         let cell_size = world_size / ((self.vertex_quality.resolution() - 1) as f32)
             * (0.5f32).powi(max_heights_level);
@@ -342,24 +296,25 @@ impl MMappedAsset for MapFileBuilder {
             directory_name: format!("maps/t.{}/", self.name()),
         };
 
-        context.set_progress_and_total(0, 5);
-        let base_heights = state.generate_heightmaps(context)?;
+        context.set_progress_and_total(0, 6);
+        state.generate_heightmaps(context)?;
         context.set_progress(1);
-        state.generate_normalmaps(context)?;
+        state.generate_displacements(context)?;
         context.set_progress(2);
-        state.generate_colormaps(context)?;
+        state.generate_normalmaps(context)?;
         context.set_progress(3);
+        state.generate_colormaps(context)?;
+        context.set_progress(4);
         let planet_mesh = state.generate_planet_mesh(context)?;
         let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
-        context.set_progress(4);
+        context.set_progress(5);
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, system, .. } = state;
 
-        context.set_progress(5);
+        context.set_progress(6);
 
         Ok(TileHeader {
             system,
-            base_heights,
             planet_mesh,
             planet_mesh_texture,
             layers,
@@ -437,7 +392,72 @@ impl<W: Write> State<W> {
     fn generate_heightmaps(
         &mut self,
         context: &mut AssetLoadContext,
-    ) -> Result<TextureDescriptor, Error> {
+    ) -> Result<(), Error> {
+        let global_dem = GlobalDem.load(context)?;
+        let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
+        let reproject = ReprojectedDemDef {
+            name: format!("{}dem", self.directory_name),
+            dem_cache,
+            system: &self.system,
+            nodes: &self.nodes,
+            random: &self.random,
+            skirt: self.skirt,
+            max_dem_level: self.max_dem_level as u8,
+            max_texture_present_level: self.max_texture_present_level as u8,
+            resolution: self.heightmap_resolution,
+            global_dem,
+        };
+        let heightmaps = ReprojectedRaster::from_dem(reproject, context)?;
+
+        let tile_count =
+            self.nodes.iter().filter(|n| n.level() <= self.max_texture_present_level as u8).count();
+        let tile_valid_bitmap = ByteRange {
+            offset: self.bytes_written,
+            length: tile_count,
+        };
+        self.writer.write_all(&vec![1u8; tile_count])?;
+        self.bytes_written += tile_count;
+        self.page_pad()?;
+
+        context.increment_level("Writing heightmaps... ", tile_count);
+
+        let tile_bytes = 4 * self.heightmap_resolution as usize * self.heightmap_resolution as usize;
+        let tile_locations = (0..tile_count)
+            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
+            .collect();
+        self.layers.insert(
+            LayerType::Heightmaps.index(),
+            LayerParams {
+                layer_type: LayerType::Heightmaps,
+                tile_indices: (0..tile_count)
+                    .map(|i| (self.nodes[i], i as u32))
+                    .collect(),
+                tile_valid_bitmap,
+                tile_locations,
+                texture_resolution: self.heightmap_resolution as u32,
+                texture_border_size: self.skirt as u32,
+                texture_format: TextureFormat::R32F,
+            },
+        );
+
+        for i in 0..tile_count {
+            context.set_progress(i as u64);
+            for y in 0..self.heightmap_resolution {
+                for x in 0..self.heightmap_resolution {
+                    self.writer.write_f32::<LittleEndian>(heightmaps.get(i, x, y, 0))?;
+                    self.bytes_written += 4;
+                }
+            }
+        }
+
+        self.heightmaps = Some(heightmaps);
+        context.decrement_level();
+        Ok(())
+    }
+    fn generate_displacements(
+        &mut self,
+        context: &mut AssetLoadContext,
+    ) -> Result<(), Error> {
         let present_tile_count =
             self.nodes.iter().filter(|n| n.level() <= self.max_heights_present_level as u8).count();
         let vacant_tile_count = self
@@ -458,94 +478,14 @@ impl<W: Write> State<W> {
         self.bytes_written += present_tile_count + vacant_tile_count;
         self.page_pad()?;
 
-        let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
-
-        let global_dem = GlobalDem.load(context)?;
-        let base_heights = TextureDescriptor {
-            offset: self.bytes_written,
-            resolution: 4097,
-            format: TextureFormat::RGBA32F,
-            bytes: 4097 * 4097 * 16,
-        };
-        context.increment_level("Generating base_heights... ", base_heights.resolution);
-        let bh_resolution = 4097;
-        let mut bh_data = vec![0.0; bh_resolution * bh_resolution];
-        let mut be_data = vec![0.0; bh_resolution * bh_resolution];
-        for y in 0..bh_resolution {
-            context.set_progress(y as u64);
-            for x in 0..bh_resolution {
-                let world = Vector2::new(
-                    32.0 * (x as f64 - (base_heights.resolution / 2) as f64),
-                    32.0 * (y as f64 - (base_heights.resolution / 2) as f64),
-                );
-                let mut world3 = Vector3::new(
-                    world.x,
-                    EARTH_RADIUS
-                        * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
-                    world.y,
-                );
-                let mut lla = Vector3::new(0.0, 0.0, 0.0);
-                for i in 0..5 {
-                    world3.x = world.x;
-                    world3.z = world.y;
-                    lla = self.system.world_to_lla(world3);
-                    lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
-                        if world.magnitude2() < 250000.0 * 250000.0 {
-                            dem_cache
-                                .borrow_mut()
-                                .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                                .unwrap_or(0.0) as f64
-                        } else {
-                            global_dem
-                                .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                                .max(0.0)
-                        }
-                    } else {
-                        0.0
-                    };
-                    world3 = self.system.lla_to_world(lla);
-                }
-                bh_data[x + y * bh_resolution] = world3.y as f32;
-                be_data[x + y * bh_resolution] = lla.z as f32;
-            }
-        }
-        context.decrement_level();
-
-        context.increment_level("Writing base_heights... ", 100);
-        for y in 0..bh_resolution {
-            for x in 0..bh_resolution {
-                let dx = if x == 0 {
-                    bh_data[x + 1 + bh_resolution * y] - bh_data[x + bh_resolution * y]
-                } else if x == bh_resolution - 1 {
-                    bh_data[x + bh_resolution * y] - bh_data[x - 1 + bh_resolution * y]
-                } else {
-                    0.5 * (bh_data[x + 1 + bh_resolution * y] - bh_data[x - 1 + bh_resolution * y])
-                };
-                let dy = if y == 0 {
-                    bh_data[x + bh_resolution * (y + 1)] - bh_data[x + bh_resolution * y]
-                } else if y == bh_resolution - 1 {
-                    bh_data[x + bh_resolution * y] - bh_data[x + bh_resolution * (y - 1)]
-                } else {
-                    0.5 * (bh_data[x + bh_resolution * (y + 1)]
-                        - bh_data[x + bh_resolution * (y - 1)])
-                };
-                self.writer.write_f32::<LittleEndian>(bh_data[x + y * bh_resolution])?;
-                self.writer.write_f32::<LittleEndian>(dx / 32.0)?;
-                self.writer.write_f32::<LittleEndian>(dy / 32.0)?;
-                self.writer.write_f32::<LittleEndian>(be_data[x + y * bh_resolution])?;
-                self.bytes_written += 16;
-            }
-        }
-        context.decrement_level();
-
         let tile_bytes = 16 * self.heights_resolution as usize * self.heights_resolution as usize;
         let tile_locations = (0..(present_tile_count + vacant_tile_count))
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
         self.layers.insert(
-            LayerType::Heights.index(),
+            LayerType::Displacements.index(),
             LayerParams {
-                layer_type: LayerType::Heights,
+                layer_type: LayerType::Displacements,
                 tile_indices: (0..(present_tile_count + vacant_tile_count))
                     .map(|i| (self.nodes[i], i as u32))
                     .collect(),
@@ -556,19 +496,6 @@ impl<W: Write> State<W> {
                 texture_format: TextureFormat::RGBA32F,
             },
         );
-        let reproject = ReprojectedDemDef {
-            name: format!("{}dem", self.directory_name),
-            dem_cache,
-            system: &self.system,
-            nodes: &self.nodes,
-            random: &self.random,
-            skirt: self.skirt,
-            max_dem_level: self.max_dem_level as u8,
-            max_texture_present_level: self.max_texture_present_level as u8,
-            resolution: self.heightmap_resolution,
-            global_dem,
-        };
-        self.heightmaps = Some(ReprojectedRaster::from_dem(reproject, context)?);
 
         let tile_from_node: HashMap<VNode, usize> =
             self.nodes.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
@@ -639,7 +566,7 @@ impl<W: Write> State<W> {
 
         context.decrement_level();
 
-        Ok(base_heights)
+        Ok(())
     }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);

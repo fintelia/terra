@@ -1,0 +1,18 @@
+#line 2
+
+layout(local_size_x = 1, local_size_y = 1) in;
+
+layout(binding = 0) uniform UniformBlock {
+	ivec2 position;
+	int heightmaps_slot;
+	int displacements_slot;
+} ubo;
+
+layout(r32f, binding = 2) uniform image2DArray heightmaps;
+layout(rgba32f, binding = 3) uniform image2DArray displacements;
+
+void main() {
+	ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
+	float height = imageLoad(heightmaps, ivec3(ubo.position + pos.xy, ubo.heightmaps_slot)).x;
+	imageStore(displacements, pos, vec4(0.0, height, 0.0, 0.0));
+}

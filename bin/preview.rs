@@ -91,7 +91,6 @@ fn main() {
         .longitude(-73)
         .vertex_quality(terra::VertexQuality::Medium)
         .texture_quality(terra::TextureQuality::High)
-        .grid_spacing(terra::GridSpacing::OneMeter)
         .build()
         .unwrap();
 

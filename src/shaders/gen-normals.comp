@@ -3,32 +3,28 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
-    vec2 position;
 	float spacing;
-	int slot;
-} uniform_block;
+	int heightmaps_slot;
+	int normals_slot;
+} ubo;
 
-layout(set = 0, binding = 1) uniform texture2D base_heights;
-layout(rgba32f, binding = 2) uniform image2D heights_staging;
-layout(rg8, binding = 3) uniform image2D normals_staging;
-layout(rg8, binding = 4) uniform image2DArray normals;
+layout(r32f, binding = 1) uniform image2DArray heightmaps;
+layout(rg8, binding = 2) uniform image2DArray normals;
 
 void main() {
-	ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
-	float h00 = imageLoad(heights_staging, pos).y;
-	float h10 = imageLoad(heights_staging, pos + ivec2(1,0)).y;
-	float h01 = imageLoad(heights_staging, pos + ivec2(0,1)).y;
-	float h11 = imageLoad(heights_staging, pos + ivec2(1,1)).y;
+	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy, ubo.heightmaps_slot);
+	ivec3 out_pos = ivec3(gl_GlobalInvocationID.xy, ubo.normals_slot);
+
+	float h00 = imageLoad(heightmaps, in_pos).x;
+	float h10 = imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x;
+	float h01 = imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x;
+	float h11 = imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x;
 
 	vec3 normal = vec3(h10 + h11 - h00 - h01,
-					   2.0 * uniform_block.spacing,
+					   2.0 * ubo.spacing,
 					   -1.0 * (h01 + h11 - h00 - h10));
 
 	normal = normalize(normal);
 
-	if(uniform_block.slot >= 0) {
-		imageStore(normals, ivec3(pos, uniform_block.slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
-	} else {
-		imageStore(normals_staging, ivec2(pos), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
-	}
+	imageStore(normals, out_pos, vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
 }

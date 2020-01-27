@@ -16,7 +16,7 @@ mod srgb;
 mod terrain;
 mod utils;
 
-use crate::generate::{ComputeShader, GenHeightsUniforms, GenNormalsUniforms};
+use crate::generate::{ComputeShader, GenHeightmapsUniforms, GenDisplacementsUniforms, GenNormalsUniforms};
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use futures::executor;
@@ -27,7 +27,7 @@ use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, Section};
 
 pub use crate::mapfile::MapFile;
-pub use generate::{GridSpacing, MapFileBuilder, TextureQuality, VertexQuality};
+pub use generate::{MapFileBuilder, TextureQuality, VertexQuality};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -50,7 +50,8 @@ pub struct Terrain {
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
 
-    gen_heights: ComputeShader<GenHeightsUniforms>,
+    gen_heightmaps: ComputeShader<GenHeightmapsUniforms>,
+    gen_displacements: ComputeShader<GenDisplacementsUniforms>,
     gen_normals: ComputeShader<GenNormalsUniforms>,
     gpu_state: GpuState,
     quadtree: QuadTree,
@@ -68,7 +69,7 @@ impl Terrain {
             tile_cache.insert(layer.layer_type as usize, TileCache::new(layer));
         }
 
-        let quadtree = QuadTree::new(tile_cache[LayerType::Heights.index()].resolution() - 1);
+        let quadtree = QuadTree::new(tile_cache[LayerType::Displacements.index()].resolution() - 1);
 
         let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
@@ -101,40 +102,37 @@ impl Terrain {
                 | wgpu::TextureUsage::STORAGE,
         };
 
-        let (noise, planet_mesh_texture, base_heights) = {
+        let (noise, planet_mesh_texture) = {
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
             let noise = mapfile.noise_texture(device, &mut encoder);
             let planet_mesh_texture = mapfile.planet_mesh_texture(device, &mut encoder);
-            let base_heights = mapfile.base_heights_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
-            (noise, planet_mesh_texture, base_heights)
+            (noise, planet_mesh_texture)
         };
 
         let gpu_state = GpuState {
             noise,
             _planet_mesh_texture: planet_mesh_texture,
-            base_heights,
-            heights_staging: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 1025, height: 1025, depth: 1 },
-                format: wgpu::TextureFormat::Rgba32Float,
-                ..staging_texture_desc
-            }),
-            normals_staging: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 1024, height: 1024, depth: 1 },
-                format: wgpu::TextureFormat::Rg8Unorm,
-                ..staging_texture_desc
-            }),
-            heights: tile_cache[LayerType::Heights].make_cache_texture(device),
+            displacements: tile_cache[LayerType::Displacements].make_cache_texture(device),
             normals: tile_cache[LayerType::Normals].make_cache_texture(device),
             albedo: tile_cache[LayerType::Colors].make_cache_texture(device),
+            heightmaps: tile_cache[LayerType::Heightmaps].make_cache_texture(device),
         };
 
-        let gen_heights = ComputeShader::new(
+        let gen_heightmaps = ComputeShader::new(
             device,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-heights.comp"),
+                rshader::shader_source!("shaders", "version", "gen-heightmaps.comp"),
+            )
+            .unwrap(),
+        );
+        let gen_displacements = ComputeShader::new(
+            device,
+            rshader::ShaderSet::compute_only(
+                &mut watcher,
+                rshader::shader_source!("shaders", "version", "gen-displacements.comp"),
             )
             .unwrap(),
         );
@@ -148,8 +146,9 @@ impl Terrain {
         );
 
         // TODO: only clear if shader has changed?
-        mapfile.clear_generated(LayerType::Heights);
+        mapfile.clear_generated(LayerType::Displacements);
         mapfile.clear_generated(LayerType::Normals);
+        mapfile.clear_generated(LayerType::Heightmaps);
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
         let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
@@ -165,7 +164,8 @@ impl Terrain {
             index_buffer,
             index_buffer_partial,
 
-            gen_heights,
+            gen_heightmaps,
+            gen_displacements,
             gen_normals,
 
             gpu_state,
@@ -210,11 +210,17 @@ impl Terrain {
             }
         }
 
-        if self.gen_heights.refresh(&mut self.watcher) {
-            self.mapfile.clear_generated(LayerType::Heights);
+        if self.gen_heightmaps.refresh(&mut self.watcher) {
+            self.mapfile.clear_generated(LayerType::Heightmaps);
+            self.mapfile.clear_generated(LayerType::Displacements);
             self.mapfile.clear_generated(LayerType::Normals);
-            self.tile_cache[LayerType::Heights.index()].clear_generated();
+            self.tile_cache[LayerType::Heightmaps.index()].clear_generated();
+            self.tile_cache[LayerType::Displacements.index()].clear_generated();
             self.tile_cache[LayerType::Normals.index()].clear_generated();
+        }
+        if self.gen_displacements.refresh(&mut self.watcher) {
+            self.mapfile.clear_generated(LayerType::Displacements);
+            self.tile_cache[LayerType::Displacements.index()].clear_generated();
         }
         if self.gen_normals.refresh(&mut self.watcher) {
             self.mapfile.clear_generated(LayerType::Normals);
@@ -296,10 +302,16 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
 
-        let missing_heights = self.tile_cache[LayerType::Heights.index()].upload_tiles(
+        let missing_heightmaps = self.tile_cache[LayerType::Heightmaps.index()].upload_tiles(
             device,
             &mut encoder,
-            &self.gpu_state.heights,
+            &self.gpu_state.heightmaps,
+            &mut self.mapfile,
+        );
+        let missing_displacements = self.tile_cache[LayerType::Displacements.index()].upload_tiles(
+            device,
+            &mut encoder,
+            &self.gpu_state.displacements,
             &mut self.mapfile,
         );
         let missing_normals = self.tile_cache[LayerType::Normals.index()].upload_tiles(
@@ -315,41 +327,69 @@ impl Terrain {
             &mut self.mapfile,
         );
 
+        let heightmaps_resolution = self.tile_cache[LayerType::Heightmaps.index()].resolution();
+        let heightmaps_border = self.tile_cache[LayerType::Heightmaps.index()].border();
+        let heightmaps_row_pitch = self.tile_cache[LayerType::Heightmaps.index()].row_pitch();
+
         let normals_resolution = self.tile_cache[LayerType::Normals.index()].resolution();
         let normals_border = self.tile_cache[LayerType::Normals.index()].border();
         let normals_row_pitch = self.tile_cache[LayerType::Normals.index()].row_pitch();
         for node in missing_normals.into_iter().take(4) {
+            let heightmaps_slot = match self.tile_cache[LayerType::Heightmaps.index()].get_slot(node) {
+                Some(slot) => slot as i32,
+                None => continue,
+            };
+
             let spacing = node.side_length() / (normals_resolution - normals_border * 2) as f32;
             let position = node.bounds().min
                 - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
 
-            let tile = self.tile_cache[LayerType::Normals.index()].tile_for_node(node);
-            let slot = match tile {
-                None => self.tile_cache[LayerType::Normals.index()].get_slot(node).unwrap() as i32,
-                Some(_) => -1,
-            };
+            let normals_slot = self.tile_cache[LayerType::Normals.index()].get_slot(node).unwrap() as i32;
 
-            self.gen_heights.run(
-                device,
-                &mut encoder,
-                &self.gpu_state,
-                (normals_resolution + 1, normals_resolution + 1, 1),
-                &GenHeightsUniforms {
-                    position: [position.x, position.z],
-                    base_heights_step: 32.0,
-                    step: spacing,
-                    slot: -1,
-                },
-            );
+            if !self.tile_cache[LayerType::Heightmaps.index()].slot_valid(heightmaps_slot as usize) {
+                let mut nodes_needed = vec![node];
+                let mut parent = node.parent().unwrap().0;
+                while !self.tile_cache[LayerType::Heightmaps.index()].contains(parent) {
+                    nodes_needed.push(parent);
+                    parent = parent.parent().unwrap().0;
+                }
+
+                for node in nodes_needed.drain(..).rev() {
+                    let (parent, parent_index) = node.parent().expect("root node missing");
+                    let parent_offset = terrain::quadtree::node::OFFSETS[parent_index as usize];
+                    let origin = [heightmaps_border as i32/2, heightmaps_resolution as i32/2 - heightmaps_border as i32/2];
+                    let in_slot = self.tile_cache[LayerType::Heightmaps.index()].get_slot(parent).unwrap() as i32;
+                    let out_slot = self.tile_cache[LayerType::Heightmaps.index()].get_slot(node).unwrap() as i32;
+                    let spacing = node.side_length() / (heightmaps_resolution-heightmaps_border*2-1) as f32;
+                    let position = node.bounds().min
+                        - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
+                    self.gen_heightmaps.run(
+                        device,
+                        &mut encoder,
+                        &self.gpu_state,
+                        ((heightmaps_resolution+7)/8, (heightmaps_resolution+7)/8, 1),
+                        &GenHeightmapsUniforms {
+                            position: [position.x, position.z],
+                            origin: [origin[parent_offset.x as usize], origin[parent_offset.y as usize]],
+                            spacing,
+                            in_slot,
+                            out_slot,
+                        },
+                    );
+                    self.tile_cache[LayerType::Heightmaps.index()].set_slot_valid(out_slot as usize);
+                }
+            }
+
             self.gen_normals.run(
                 device,
                 &mut encoder,
                 &self.gpu_state,
-                ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
-                &GenNormalsUniforms { position: [position.x, position.z], spacing, slot },
+                ((normals_resolution+7)/8, (normals_resolution+7)/8, 1),
+                &GenNormalsUniforms { spacing, heightmaps_slot, normals_slot },
             );
+            self.tile_cache[LayerType::Normals.index()].set_slot_valid(normals_slot as usize);
 
-            if let Some(tile) = tile {
+            if let Some(tile) = self.tile_cache[LayerType::Normals.index()].tile_for_node(node) {
                 let size = normals_resolution as u64 * normals_row_pitch as u64;
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
@@ -357,9 +397,9 @@ impl Terrain {
                 });
                 encoder.copy_texture_to_buffer(
                     wgpu::TextureCopyView {
-                        texture: &self.gpu_state.normals_staging,
+                        texture: &self.gpu_state.normals,
                         mip_level: 0,
-                        array_layer: 0,
+                        array_layer: normals_slot as u32,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     },
                     wgpu::BufferCopyView {
@@ -375,64 +415,59 @@ impl Terrain {
                     },
                 );
                 self.pending_tiles.push((LayerType::Normals, tile, download));
-            } else {
-                self.tile_cache[LayerType::Normals.index()].set_slot_valid(slot as usize);
             }
         }
-        let heights_resolution = self.tile_cache[LayerType::Heights.index()].resolution();
-        let heights_row_pitch = self.tile_cache[LayerType::Heights.index()].row_pitch();
-        for node in missing_heights.into_iter().take(32) {
-            let step = node.side_length() / (heights_resolution - 1) as f32;
-            let position = node.bounds().min;
-            let tile = self.tile_cache[LayerType::Heights.index()].tile_for_node(node);
-            let slot = match tile {
-                None => self.tile_cache[LayerType::Heights.index()].get_slot(node).unwrap() as i32,
-                Some(_) => -1,
-            };
+        // let displacements_resolution = self.tile_cache[LayerType::Displacements.index()].resolution();
+        // let displacements_row_pitch = self.tile_cache[LayerType::Displacements.index()].row_pitch();
+        // for node in missing_displacements.into_iter().take(32) {
+        //     let heightmaps_slot = match self.tile_cache[LayerType::Heightmaps.index()].get_slot(node) {
+        //         Some(slot) => slot as i32,
+        //         None => continue,
+        //     };
 
-            self.gen_heights.run(
-                device,
-                &mut encoder,
-                &self.gpu_state,
-                (heights_resolution, heights_resolution, 1),
-                &GenHeightsUniforms {
-                    position: [position.x, position.z],
-                    base_heights_step: 32.0,
-                    step,
-                    slot,
-                },
-            );
+        //     let displacements_slot = self.tile_cache[LayerType::Displacements.index()].get_slot(node).unwrap() as i32;
 
-            if let Some(tile) = tile {
-                let size = heights_resolution as u64 * heights_row_pitch as u64;
-                let download = device.create_buffer(&wgpu::BufferDescriptor {
-                    size,
-                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                });
-                encoder.copy_texture_to_buffer(
-                    wgpu::TextureCopyView {
-                        texture: &self.gpu_state.heights_staging,
-                        mip_level: 0,
-                        array_layer: 0,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-                    },
-                    wgpu::BufferCopyView {
-                        buffer: &download,
-                        offset: 0,
-                        row_pitch: heights_row_pitch as u32,
-                        image_height: heights_resolution as u32,
-                    },
-                    wgpu::Extent3d {
-                        width: heights_resolution as u32,
-                        height: heights_resolution as u32,
-                        depth: 1,
-                    },
-                );
-                self.pending_tiles.push((LayerType::Heights, tile, download));
-            } else {
-                self.tile_cache[LayerType::Heights.index()].set_slot_valid(slot as usize);
-            }
-        }
+        //     self.gen_displacements.run(
+        //         device,
+        //         &mut encoder,
+        //         &self.gpu_state,
+        //         (displacements_resolution, displacements_resolution, 1),
+        //         &GenDisplacementsUniforms {
+        //             position: unimplemented!(),
+        //             heightmaps_slot,
+        //             displacements_slot,
+        //         },
+        //     );
+        //     self.tile_cache[LayerType::Displacements.index()].set_slot_valid(displacements_slot as usize);
+
+        //     if let Some(tile) = self.tile_cache[LayerType::Displacements.index()].tile_for_node(node) {
+        //         let size = displacements_resolution as u64 * displacements_row_pitch as u64;
+        //         let download = device.create_buffer(&wgpu::BufferDescriptor {
+        //             size,
+        //             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        //         });
+        //         encoder.copy_texture_to_buffer(
+        //             wgpu::TextureCopyView {
+        //                 texture: &self.gpu_state.displacements,
+        //                 mip_level: 0,
+        //                 array_layer: displacements_slot as u32,
+        //                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+        //             },
+        //             wgpu::BufferCopyView {
+        //                 buffer: &download,
+        //                 offset: 0,
+        //                 row_pitch: displacements_row_pitch as u32,
+        //                 image_height: displacements_resolution as u32,
+        //             },
+        //             wgpu::Extent3d {
+        //                 width: displacements_resolution as u32,
+        //                 height: displacements_resolution as u32,
+        //                 depth: 1,
+        //             },
+        //         );
+        //         self.pending_tiles.push((LayerType::Displacements, tile, download));
+        //     }
+        // }
 
         self.quadtree.prepare_vertex_buffer(
             device,
@@ -487,7 +522,7 @@ impl Terrain {
         {
             use std::fmt::Write;
             let mut text = String::new();
-            let heights = &self.tile_cache[LayerType::Heights.index()];
+            let heights = &self.tile_cache[LayerType::Displacements.index()];
             writeln!(
                 &mut text,
                 "tile_cache[heights] = {} / {}",

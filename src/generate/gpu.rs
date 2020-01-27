@@ -2,20 +2,30 @@ use crate::GpuState;
 use std::mem;
 
 #[derive(Copy, Clone)]
-pub(crate) struct GenHeightsUniforms {
+pub(crate) struct GenHeightmapsUniforms {
     pub position: [f32; 2],
-    pub base_heights_step: f32,
-    pub step: f32,
-    pub slot: i32,
+    pub origin: [i32; 2],
+    pub spacing: f32,
+    pub in_slot: i32,
+    pub out_slot: i32,
 }
-unsafe impl bytemuck::Zeroable for GenHeightsUniforms {}
-unsafe impl bytemuck::Pod for GenHeightsUniforms {}
+unsafe impl bytemuck::Zeroable for GenHeightmapsUniforms {}
+unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}
+
+#[derive(Copy, Clone)]
+pub(crate) struct GenDisplacementsUniforms {
+    pub position: [i32; 2],
+    pub heightmaps_slot: i32,
+    pub displacements_slot: i32,
+}
+unsafe impl bytemuck::Zeroable for GenDisplacementsUniforms {}
+unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
 
 #[derive(Copy, Clone)]
 pub(crate) struct GenNormalsUniforms {
-    pub position: [f32; 2],
     pub spacing: f32,
-    pub slot: i32,
+    pub heightmaps_slot: i32,
+    pub normals_slot: i32,
 }
 unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
 unsafe impl bytemuck::Pod for GenNormalsUniforms {}

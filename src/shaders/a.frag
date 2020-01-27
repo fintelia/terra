@@ -59,7 +59,7 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = vec3(0,0,.3);
 	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
 
-	// if((fract(0.5*position.x/1024) < 0.5) != (fract(0.5*position.z/1024) < 0.5))
+	// if((fract(0.5*position.x/(4*1024*1024)) < 0.5) != (fract(0.5*position.z/(4*1024*1024)) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
@@ -75,7 +75,7 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(length(position.xz-uniform_block.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
-	// if(abs(max(abs(position.x), abs(position.z)) - 2048*32) < 100)
+	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
  	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
@@ -91,7 +91,7 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(texcoord.x*ts.x/2) < 0.5) != (fract(texcoord.y*ts.y/2) < 0.5))
 	// 	color *= 0.4;
 
-	// if(min_distance == 8*512.0*1.95)
+	// if(min_distance == 16*64.0*1.95)
 	// 	color = mix(color, vec3(0,1,0), .1);
 	// if(min_distance == 16*512.0*1.95)
 	// 	color = mix(color, vec3(1,0,0), .1);
@@ -123,6 +123,12 @@ void main() {
 		albedo_roughness = mix(texture(sampler2DArray(albedo, linear), albedo_parent_texcoord),
 							   albedo_roughness,
 							   morph);
+	}
+
+	if (length(position.xz-uniform_block.camera.xz) < 5000 && position.y < 50) {
+		float t = smoothstep(50,40, position.y);
+		albedo_roughness = mix(albedo_roughness, vec4(vec3(0.002,.007,.003), 0.1), t);
+		normal = mix(normal, vec3(0,1,0), t);
 	}
 
 	out_color = vec4(1);

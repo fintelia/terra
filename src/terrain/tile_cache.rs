@@ -65,20 +65,18 @@ impl Ord for Priority {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
-    Heights = 0,
+    Displacements = 0,
     Colors = 1,
     Normals = 2,
-    Splats = 3,
-    Foliage = 4,
+    Heightmaps = 3
 }
 impl LayerType {
     pub fn cache_size(&self) -> u16 {
         match *self {
-            LayerType::Heights => 512,
+            LayerType::Displacements => 512,
             LayerType::Colors => 384,
             LayerType::Normals => 384,
-            LayerType::Splats => 32,
-            LayerType::Foliage => 64,
+            LayerType::Heightmaps => 384,
         }
     }
     pub fn index(&self) -> usize {
@@ -149,7 +147,6 @@ pub(crate) struct TileHeader {
     pub nodes: Vec<VNode>,
     pub planet_mesh: MeshDescriptor,
     pub planet_mesh_texture: TextureDescriptor,
-    pub base_heights: TextureDescriptor,
     pub system: CoordinateSystem,
 }
 
@@ -377,6 +374,10 @@ impl TileCache {
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
         self.reverse.get(&node).cloned()
+    }
+
+    pub fn slot_valid(&self, slot: usize) -> bool {
+        self.slots.get(slot).map(|entry| entry.valid).unwrap_or(false)
     }
 
     pub fn resolution(&self) -> u32 {
