@@ -244,7 +244,7 @@ impl MMappedAsset for MapFileBuilder {
 
         let world_size = 4194304.0;
         let max_heights_present_level =
-            LEVEL_32_M - self.vertex_quality.resolution_log2() as i32 + 1;
+            LEVEL_64_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 

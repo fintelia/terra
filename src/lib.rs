@@ -124,7 +124,7 @@ impl Terrain {
             device,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-heightmaps.comp"),
+                rshader::shader_source!("shaders", "version", "hash", "gen-heightmaps.comp"),
             )
             .unwrap(),
         );

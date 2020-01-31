@@ -70,6 +70,7 @@ void main() {
 	uint x = gl_LocalInvocationID.x;
 	uint y = gl_LocalInvocationID.y;
 
+	// Load parent heights
 	if (x < 5 && y < 5) {
 		ivec3 origin = ivec3(ubo.origin+gl_WorkGroupID.xy*4, ubo.in_slot);
 		ivec3 gpos = origin + ivec3(gl_LocalInvocationID.xy*2-ivec2(2), 0);
@@ -78,32 +79,44 @@ void main() {
 		h[x*2][y*2+1] = imageLoad(heightmaps, gpos + ivec3(0,1,0));
 		h[x*2+1][y*2+1] = imageLoad(heightmaps, gpos + ivec3(1,1,0));
 	}
-
 	barrier();
 
-	h[x+1][y+1].yz = vec2((h[x+2][y+1].x - h[x][y+1].x) / ubo.spacing * 0.25,
-						  (h[x+1][y+2].x - h[x+1][y].x) / ubo.spacing * 0.25);
-
+	// Compute slopes
+	if (x < 8 && y < 8) {
+		h[x+1][y+1].y = (h[x+2][y+1].x - h[x][y+1].x) * 0.5;
+		h[x+1][y+1].z = (h[x+1][y+2].x - h[x+1][y].x) * 0.5;
+		h[x+1][y+1].w = (h[x+2][y+2].x - h[x][y+1].x - h[x+1][y].x + h[x+1][y+1].x) * 0.5;
+	}
 	barrier();
 
-	x = x/2 + 2;
-	y = y/2 + 2;
-
+	x = x/2 + 1;
+	y = y/2 + 1;
 	vec2 t = vec2(gl_GlobalInvocationID.xy%2)/2.0;
-    vec3 h = mix(mix(h[x][y], h[x+1][y], t.x),
-				 mix(h[x][y+1], h[x+1][y+1], t.x), t.y).xyz;
 
-	float height = h.x;
-	float slope = length(h.yz);
+
+	mat4 Binv = mat4(1, 0, -3, 2,
+					 0, 0, 3, -2,
+					 0, 1, -2, 1,
+					 0, 0, -1, 1);
+	mat4 F = mat4(h[x][y].x,   h[x+1][y].x,   h[x][y].y,   h[x+1][y].y,
+				  h[x][y+1].x, h[x+1][y+1].x, h[x][y+1].y, h[x+1][y+1].y,
+				  h[x][y].z,   h[x+1][y].z,   h[x][y].w,   h[x+1][y].w,
+				  h[x][y+1].z, h[x+1][y+1].z, h[x][y+1].w, h[x+1][y+1].w);
+	mat4 M = Binv * F * transpose(Binv);
+	vec4 xx = vec4(1, t.x, t.x*t.x, t.x*t.x*t.x);
+	vec4 yy = vec4(1, t.y, t.y*t.y, t.y*t.y*t.y);
+	vec4 ddx = vec4(0, 1, 2*t.x, 3*t.x*t.x);
+	vec4 ddy = vec4(0, 1, 2*t.y, 3*t.y*t.y);
+	float height = dot(xx * M, yy);
+	float dx = dot(ddx * M, yy) / ubo.spacing;
+	float dy = dot(xx * M, ddy) / ubo.spacing;
+	// float dxy = dot(ddx * M, ddy) / (ubo.spacing*ubo.spacing);
+	float slope = length(vec2(dx, dy));
 
 	vec2 position = ubo.position + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
-	float n = 0;
-	for(int i = 0; i < 6; i++) {
-		float weight = exp2(i) * 0.1;
-		float scale = exp2(i) * 64.0;
-		n += weight * (texture(sampler2D(noise, linear_wrap), position/scale).x-0.5);
-	}
-	height += n * mix(0.15, 1, smoothstep(0.1, 0.6, slope));
+	vec2 n = guassian_random(position);
+
+	height += n.x * ubo.spacing * mix(0.025, .08, smoothstep(0.4, 0.6, slope));
 
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));
 }
