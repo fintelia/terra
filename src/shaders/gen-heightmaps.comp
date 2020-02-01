@@ -12,61 +12,9 @@ layout(binding = 0) uniform UniformBlock {
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
 
-layout(set = 0, binding = 2) uniform sampler linear;
-layout(set = 0, binding = 3) uniform sampler linear_wrap;
-layout(set = 0, binding = 4) uniform texture2D noise;
-
-// See: https://stackoverflow.com/questions/13501081/efficient-bicubic-filtering-code-in-glsl
-vec4 cubic(float v)
-{
-    vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - v;
-    vec4 s = n * n * n;
-    float x = s.x;
-    float y = s.y - 4.0 * s.x;
-    float z = s.z - 4.0 * s.y + 6.0 * s.x;
-    float w = 6.0 - x - y - z;
-    return vec4(x, y, z, w);
-}
-
-// // See: https://groups.google.com/forum/#!topic/comp.graphics.api.opengl/kqrujgJfTxo
-// float bicubic(vec2 texcoord, vec2 texscale)
-// {
-//     float fx = fract(texcoord.x);
-//     float fy = fract(texcoord.y);
-//     texcoord.x -= fx;
-//     texcoord.y -= fy;
-
-//     vec4 xcubic = cubic(fx);
-//     vec4 ycubic = cubic(fy);
-
-//     vec4 c = vec4(texcoord.x - 0.5, texcoord.x + 1.5, texcoord.y - 0.5, texcoord.y + 1.5);
-//     vec4 s = vec4(xcubic.x + xcubic.y, xcubic.z + xcubic.w, ycubic.x + ycubic.y, ycubic.z + ycubic.w);
-//     vec4 offset = c + vec4(xcubic.y, xcubic.w, ycubic.y, ycubic.w) / s;
-
-//     float sample0 = texture(sampler2DArray(heightmaps, linear),
-// 							vec3(vec2(offset.x, offset.z) * texscale), ubo.in_slot).x;
-//     float sample1 = texture(sampler2DArray(heightmaps, linear),
-// 							vec3(vec2(offset.y, offset.z) * texscale), ubo.in_slot).x;
-//     float sample2 = texture(sampler2DArray(heightmaps, linear),
-// 							vec3(vec2(offset.x, offset.w) * texscale), ubo.in_slot).x;
-//     float sample3 = texture(sampler2DArray(heightmaps, linear),
-// 							vec3(vec2(offset.y, offset.w) * texscale), ubo.in_slot).x;
-
-//     float sx = s.x / (s.x + s.y);
-//     float sy = s.z / (s.z + s.w);
-
-//     return mix(
-//         mix(sample3, sample2, sx),
-//         mix(sample1, sample0, sx), sy);
-// }
-
 shared vec4 h[10][10];
 
 void main() {
-	// vec2 texsize = vec2(imageSize(heightmaps).xy);
-	// vec2 texcoord = ubo.texcoord + vec2(gl_GlobalInvocationID.xy) * 0.5 / texsize;
-	// float height = bicubic(texcoord * texsize, 1.0 / texsize);
-
 	uint x = gl_LocalInvocationID.x;
 	uint y = gl_LocalInvocationID.y;
 
@@ -89,6 +37,7 @@ void main() {
 	}
 	barrier();
 
+	// Bicubic Interpolation
 	x = x/2 + 1;
 	y = y/2 + 1;
 	vec2 t = vec2(gl_GlobalInvocationID.xy%2)/2.0;
@@ -113,10 +62,11 @@ void main() {
 	// float dxy = dot(ddx * M, ddy) / (ubo.spacing*ubo.spacing);
 	float slope = length(vec2(dx, dy));
 
+	// Apply noise
 	vec2 position = ubo.position + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
 	vec2 n = guassian_random(position);
-
 	height += n.x * ubo.spacing * mix(0.025, .08, smoothstep(0.4, 0.6, slope));
 
+	// Write output
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));
 }
