@@ -212,8 +212,7 @@ impl Terrain {
             self.tile_cache.clear_generated(LayerType::Normals);
         }
 
-        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
-        self.quadtree.update(&mut self.tile_cache, camera, camera_frustum);
+        self.quadtree.update_cache(&mut self.tile_cache, camera);
         if self.shader.refresh(&mut self.watcher) {
             self.bindgroup_pipeline = None;
         }
@@ -480,6 +479,8 @@ impl Terrain {
             }
         }
 
+        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
+        self.quadtree.update_visibility(&self.tile_cache, camera, camera_frustum);
         self.quadtree.prepare_vertex_buffer(
             device,
             &mut encoder,

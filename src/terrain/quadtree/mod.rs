@@ -1,3 +1,4 @@
+use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
 use byteorder::{ByteOrder, NativeEndian};
 use cgmath::*;
@@ -68,7 +69,9 @@ impl QuadTree {
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
-    fn update_cache(&mut self, tile_cache: &mut TileCache, camera: Point3<f32>) {
+    pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f32>) {
+        let camera = Point3::new(camera.x, camera.y, camera.z);
+
         tile_cache.update_priorities(camera);
 
         VNode::breadth_first(|node| {
@@ -87,7 +90,14 @@ impl QuadTree {
         });
     }
 
-    fn update_visibility(&mut self, camera: Point3<f32>, cull_frustum: Option<Frustum<f32>>) {
+    pub fn update_visibility(
+        &mut self,
+        tile_cache: &TileCache,
+        camera: mint::Point3<f32>,
+        cull_frustum: Option<Frustum<f32>>,
+    ) {
+        let camera = Point3::new(camera.x, camera.y, camera.z);
+
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
 
@@ -99,6 +109,19 @@ impl QuadTree {
             node_visibilities.insert(node, visible);
             visible
         });
+        let min_missing_level = node_visibilities
+            .iter()
+            .filter(|(&n, &v)| v && !tile_cache.contains(n, LayerType::Displacements))
+            .map(|(n, v)| n.level())
+            .min();
+        if let Some(min) = min_missing_level {
+            for (n, v) in node_visibilities.iter_mut() {
+                if n.level() >= min {
+                    *v = false;
+                }
+            }
+        }
+
         // ...Except if all its children are visible instead.
         VNode::breadth_first(|node| {
             if node_visibilities[&node] {
@@ -135,63 +158,6 @@ impl QuadTree {
             }
         });
     }
-
-    pub fn update(
-        &mut self,
-        tile_cache: &mut TileCache,
-        camera: mint::Point3<f32>,
-        cull_frustum: Option<Frustum<f32>>,
-        // dt: f32,
-    ) {
-        let camera = Point3::new(camera.x, camera.y, camera.z);
-
-        // Convert the MVP matrix to "vecmath encoding".
-        // let to_array = |v: Vector4<f32>| [v.x, v.y, v.z, v.w];
-        // let mvp_mat = [
-        //     to_array(mvp_mat.x),
-        //     to_array(mvp_mat.y),
-        //     to_array(mvp_mat.z),
-        //     to_array(mvp_mat.w),
-        // ];
-        let start = std::time::Instant::now();
-        self.update_cache(tile_cache, camera);
-        self.update_visibility(camera, cull_frustum);
-
-        // let inv_mvp_mat = vecmath::mat4_inv::<f64>(vecmath::mat4_cast(mvp_mat));
-        // let homogeneous = |[x, y, z, w]: [f64; 4]| [x / w, y / w, z / w];
-        // let unproject = |v| homogeneous(vecmath::col_mat4_transform(inv_mvp_mat, v));
-        // let ray = |x, y| {
-        //     vecmath::vec3_cast(vecmath::vec3_normalized(vecmath::vec3_sub(
-        //         unproject([x, y, 0.5, 1.0]),
-        //         unproject([x, y, 1.0, 1.0]),
-        //     )))
-        // };
-        // self.sky_pipeline_data.ray_bottom_left = ray(-1.0, -1.0);
-        // self.sky_pipeline_data.ray_bottom_right = ray(1.0, -1.0);
-        // self.sky_pipeline_data.ray_top_left = ray(-1.0, 1.0);
-        // self.sky_pipeline_data.ray_top_right = ray(1.0, 1.0);
-        // self.sky_pipeline_data.camera_position = [camera.x, camera.y, camera.z];
-        // self.sky_pipeline_data.sun_direction = sun_direction;
-    }
-
-    // fn breadth_first<Visit>(&mut self, mut visit: Visit)
-    // where
-    //     Visit: FnMut(&mut Self, NodeId) -> bool,
-    // {
-    //     let mut pending = VecDeque::new();
-    //     if visit(self, NodeId::root()) {
-    //         pending.push_back(NodeId::root());
-    //     }
-    //     while let Some(id) = pending.pop_front() {
-    //         for i in 0..4 {
-    //             if let Some(child) = self.nodes[id].children[i] {
-    //                 if visit(self, child) {
-    //                     pending.push_back(child);
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
 
     // pub fn get_height(
     //     &self,
