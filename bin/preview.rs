@@ -169,7 +169,7 @@ fn main() {
                     if gamepad.value(Axis::LeftStickX).abs() > 0.1 {
                         eye -= right * gamepad.value(Axis::LeftStickX) * 50.0;
                     }
-                    if gamepad.value(Axis::RightZ).abs() > 0.1 {
+                    if gamepad.value(Axis::RightZ).abs() > 0.025 {
                         angle -= gamepad.value(Axis::RightZ) * 0.1;
                     }
                 }
