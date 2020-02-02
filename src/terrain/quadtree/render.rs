@@ -20,17 +20,18 @@ impl QuadTree {
     pub fn find_descs(
         node: VNode,
         tile_cache: &TileCache,
+        ty: LayerType,
         texture_origin: Vector2<f32>,
         base_origin: Vector2<f32>,
         texture_ratio: f32,
         texture_step: f32,
     ) -> [[f32; 4]; 2] {
-        if tile_cache.contains(node) {
-            let child_slot = tile_cache.get_slot(node).unwrap() as f32;
+        if tile_cache.contains(node, ty) {
+            let child_slot = tile_cache.get_slot(node).expect("child_slot") as f32;
             let child_offset = texture_origin + texture_ratio * base_origin;
 
             if let Some((parent, child_index)) = node.parent() {
-                if tile_cache.contains(parent) {
+                if tile_cache.contains(parent, ty) {
                     let parent_slot = tile_cache.get_slot(parent).unwrap() as f32;
                     let parent_offset = node::OFFSETS[child_index as usize].cast().unwrap();
                     let parent_offset =
@@ -46,8 +47,8 @@ impl QuadTree {
             [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]]
         } else {
             let (ancestor, generations, offset) =
-                node.find_ancestor(|n| tile_cache.contains(n)).unwrap();
-            let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).unwrap();
+                node.find_ancestor(|n| tile_cache.contains(n, ty)).expect(&format!("find_ancestor({:?})", ty));
+            let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).expect("slot");
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(offset.x as f32, offset.y as f32);
             let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
@@ -61,20 +62,17 @@ impl QuadTree {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         vertex_buffer: &wgpu::Buffer,
-        tile_cache: &VecMap<TileCache>,
+        tile_cache: &TileCache,
     ) {
         assert_eq!(
-            tile_cache[LayerType::Colors.index()].resolution(),
-            tile_cache[LayerType::Normals.index()].resolution()
+            tile_cache.resolution(LayerType::Albedo),
+            tile_cache.resolution(LayerType::Normals)
         );
-        assert_eq!(
-            tile_cache[LayerType::Colors.index()].border(),
-            tile_cache[LayerType::Normals.index()].border()
-        );
+        assert_eq!(tile_cache.border(LayerType::Albedo), tile_cache.border(LayerType::Normals));
 
-        let resolution = tile_cache[LayerType::Displacements.index()].resolution() - 1;
-        let texture_resolution = tile_cache[LayerType::Normals.index()].resolution();
-        let texture_border = tile_cache[LayerType::Normals.index()].border();
+        let resolution = tile_cache.resolution(LayerType::Displacements) - 1;
+        let texture_resolution = tile_cache.resolution(LayerType::Normals);
+        let texture_border = tile_cache.border(LayerType::Normals);
         let texture_ratio =
             (texture_resolution - 2 * texture_border) as f32 / texture_resolution as f32;
         let texture_step = texture_ratio / resolution as f32;
@@ -84,7 +82,8 @@ impl QuadTree {
         for &node in self.visible_nodes.iter() {
             let displacements_desc = Self::find_descs(
                 node,
-                &tile_cache[LayerType::Displacements.index()],
+                &tile_cache,
+                LayerType::Displacements,
                 Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
                 Vector2::new(0.0, 0.0),
                 resolution as f32 / (resolution + 1) as f32,
@@ -92,7 +91,8 @@ impl QuadTree {
             );
             let albedo_desc = Self::find_descs(
                 node,
-                &tile_cache[LayerType::Colors.index()],
+                &tile_cache,
+                LayerType::Albedo,
                 Vector2::new(texture_origin, texture_origin),
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
@@ -100,7 +100,8 @@ impl QuadTree {
             );
             let normals_desc = Self::find_descs(
                 node,
-                &tile_cache[LayerType::Normals.index()],
+                &tile_cache,
+                LayerType::Normals,
                 Vector2::new(texture_origin, texture_origin),
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
@@ -125,7 +126,8 @@ impl QuadTree {
                     let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let displacements_desc = Self::find_descs(
                         node,
-                        &tile_cache[LayerType::Displacements.index()],
+                        &tile_cache,
+                        LayerType::Displacements,
                         Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
                         Vector2::new(offset.0, offset.1) * 0.5,
                         resolution as f32 / (resolution + 1) as f32,
@@ -133,7 +135,8 @@ impl QuadTree {
                     );
                     let albedo_desc = Self::find_descs(
                         node,
-                        &tile_cache[LayerType::Colors.index()],
+                        &tile_cache,
+                        LayerType::Albedo,
                         Vector2::new(texture_origin, texture_origin),
                         base_origin,
                         texture_ratio,
@@ -141,7 +144,8 @@ impl QuadTree {
                     );
                     let normals_desc = Self::find_descs(
                         node,
-                        &tile_cache[LayerType::Normals.index()],
+                        &tile_cache,
+                        LayerType::Normals,
                         Vector2::new(texture_origin, texture_origin),
                         base_origin,
                         texture_ratio,

@@ -66,30 +66,34 @@ impl Ord for Priority {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Displacements = 0,
-    Colors = 1,
+    Albedo = 1,
     Normals = 2,
-    Heightmaps = 3
+    Heightmaps = 3,
 }
 impl LayerType {
-    pub fn cache_size(&self) -> u16 {
-        match *self {
-            LayerType::Displacements => 512,
-            LayerType::Colors => 384,
-            LayerType::Normals => 384,
-            LayerType::Heightmaps => 384,
-        }
-    }
     pub fn index(&self) -> usize {
         *self as usize
     }
+    pub fn from_index(i: usize) -> Self {
+        match i {
+            0 => LayerType::Displacements,
+            1 => LayerType::Albedo,
+            2 => LayerType::Normals,
+            3 => LayerType::Heightmaps,
+            _ => unreachable!(),
+        }
+    }
+    pub fn bit_mask(&self) -> u32 {
+        1 << self.index() as u32
+    }
 }
-impl Index<LayerType> for VecMap<TileCache> {
-    type Output = TileCache;
+impl<T> Index<LayerType> for VecMap<T> {
+    type Output = T;
     fn index(&self, i: LayerType) -> &Self::Output {
         &self[i as usize]
     }
 }
-impl IndexMut<LayerType> for VecMap<TileCache> {
+impl<T> IndexMut<LayerType> for VecMap<T> {
     fn index_mut(&mut self, i: LayerType) -> &mut Self::Output {
         &mut self[i as usize]
     }
@@ -153,8 +157,8 @@ pub(crate) struct TileHeader {
 struct Entry {
     priority: Priority,
     node: VNode,
-    valid: bool,
-    generated: bool,
+    valid: u32,
+    generated: u32,
 }
 
 pub(crate) struct TileCache {
@@ -168,19 +172,17 @@ pub(crate) struct TileCache {
     min_priority: Priority,
 
     /// Resolution of each tile in this cache.
-    layer_params: LayerParams,
+    layers: VecMap<LayerParams>,
 }
 impl TileCache {
-    pub fn new(params: LayerParams) -> Self {
-        let size = params.layer_type.cache_size() as usize;
-
+    pub fn new(layers: VecMap<LayerParams>, size: usize) -> Self {
         Self {
             size,
             slots: Vec::new(),
             reverse: HashMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
-            layer_params: params,
+            layers,
         }
     }
 
@@ -206,7 +208,7 @@ impl TileCache {
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
             self.reverse.insert(m.1, self.slots.len());
-            self.slots.push(Entry { priority: m.0, node: m.1, valid: false, generated: false });
+            self.slots.push(Entry { priority: m.0, node: m.1, valid: 0, generated: 0 });
         }
         if !self.missing.is_empty() {
             let mut possible: Vec<_> = self
@@ -237,7 +239,7 @@ impl TileCache {
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
                 self.slots[index] =
-                    Entry { priority: m.0, node: m.1, valid: false, generated: false };
+                    Entry { priority: m.0, node: m.1, valid: 0, generated: 0 };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -253,44 +255,43 @@ impl TileCache {
         encoder: &mut wgpu::CommandEncoder,
         texture: &wgpu::Texture,
         mapfile: &mut MapFile,
+        ty: LayerType,
     ) -> Vec<VNode> {
         self.process_missing();
-
-        let ty = self.layer_params.layer_type;
 
         // Figure out which entries need to be uploaded
         let mut pending_uploads = Vec::new();
         let mut pending_generate = Vec::new();
 
         for (i, ref mut entry) in self.slots.iter_mut().enumerate() {
-            if entry.valid {
+            if entry.valid & ty.bit_mask() != 0 {
                 continue;
             }
 
-            match self.layer_params.tile_indices.get(&entry.node) {
+            match self.layers[ty].tile_indices.get(&entry.node) {
                 None => {
-                    entry.generated = true;
+                    entry.generated |= ty.bit_mask();
                     pending_generate.push(entry.node);
                 }
                 Some(&tile) => match mapfile.tile_state(ty, tile as usize) {
                     TileState::Base => {
-                        entry.generated = false;
+                        entry.generated &= !ty.bit_mask();
                         pending_uploads.push((i, tile as usize));
                     }
                     TileState::Generated => {
-                        entry.generated = true;
+                        entry.generated |= ty.bit_mask();
                         pending_uploads.push((i, tile as usize));
                     }
                     TileState::Missing => pending_generate.push(entry.node),
-                }
+                },
             }
         }
         if pending_uploads.is_empty() {
             return pending_generate;
         }
 
-        let resolution = self.resolution() as usize;
-        let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
+        let resolution = self.resolution(ty) as usize;
+        let bytes_per_texel = self.layers[ty].texture_format.bytes_per_texel();
         let row_bytes = resolution * bytes_per_texel;
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = pending_uploads.len();
@@ -328,94 +329,107 @@ impl TileCache {
                 },
                 wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
             );
-            self.slots[slot].valid = true;
+            self.slots[slot].valid |= ty.bit_mask();
         }
 
         pending_generate
     }
 
-    pub fn make_cache_texture(&self, device: &wgpu::Device) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width: self.layer_params.texture_resolution,
-                height: self.layer_params.texture_resolution,
-                depth: 1,
-            },
-            format: self.layer_params.texture_format.to_wgpu(),
-            array_layer_count: self.size as u32,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE,
-        })
+    pub fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+        self.layers
+            .iter()
+            .map(|(ty, layer)| {
+                (
+                    ty,
+                    device.create_texture(&wgpu::TextureDescriptor {
+                        size: wgpu::Extent3d {
+                            width: layer.texture_resolution,
+                            height: layer.texture_resolution,
+                            depth: 1,
+                        },
+                        format: layer.texture_format.to_wgpu(),
+                        array_layer_count: self.size as u32,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        usage: wgpu::TextureUsage::COPY_SRC
+                            | wgpu::TextureUsage::COPY_DST
+                            | wgpu::TextureUsage::SAMPLED
+                            | wgpu::TextureUsage::STORAGE,
+                    }),
+                )
+            })
+            .collect()
     }
 
-    pub fn clear_generated(&mut self) {
+    pub fn clear_generated(&mut self, ty: LayerType) {
         for i in 0..self.slots.len() {
-            if self.slots[i].generated {
-                self.slots[i].valid = false;
+            if self.slots[i].generated & ty.bit_mask() != 0 {
+                self.slots[i].valid &= !ty.bit_mask();
             }
         }
     }
 
-    pub fn contains(&self, node: VNode) -> bool {
+    pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
         self.reverse
             .get(&node)
             .and_then(|&slot| self.slots.get(slot))
-            .map(|entry| entry.valid)
+            .map(|entry| (entry.valid & ty.bit_mask()) != 0)
             .unwrap_or(false)
     }
-    pub fn set_slot_valid(&mut self, slot: usize) {
-        self.slots[slot].valid = true;
+    pub fn set_slot_valid(&mut self, slot: usize, ty: LayerType) {
+        self.slots[slot].valid |= ty.bit_mask();
     }
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
         self.reverse.get(&node).cloned()
     }
 
-    pub fn slot_valid(&self, slot: usize) -> bool {
-        self.slots.get(slot).map(|entry| entry.valid).unwrap_or(false)
+    pub fn slot_valid(&self, slot: usize, ty: LayerType) -> bool {
+        self.slots.get(slot).map(|entry| entry.valid & ty.bit_mask() != 0).unwrap_or(false)
     }
 
-    pub fn resolution(&self) -> u32 {
-        self.layer_params.texture_resolution
+    pub fn resolution(&self, ty: LayerType) -> u32 {
+        self.layers[ty].texture_resolution
     }
-    pub fn bytes_per_texel(&self) -> usize {
-        self.layer_params.texture_format.bytes_per_texel()
+    pub fn bytes_per_texel(&self, ty: LayerType) -> usize {
+        self.layers[ty].texture_format.bytes_per_texel()
     }
-    pub fn row_pitch(&self) -> usize {
-        let row_bytes = self.resolution() as usize * self.bytes_per_texel();
+    pub fn row_pitch(&self, ty: LayerType) -> usize {
+        let row_bytes = self.resolution(ty) as usize * self.bytes_per_texel(ty);
         let row_pitch = (row_bytes + 255) & !255;
         row_pitch
     }
 
-    pub fn border(&self) -> u32 {
-        self.layer_params.texture_border_size
+    pub fn border(&self, ty: LayerType) -> u32 {
+        self.layers[ty].texture_border_size
     }
 
     #[allow(unused)]
-    pub fn get_texel<'a>(&self, mapfile: &'a MapFile, node: VNode, x: usize, y: usize) -> &'a [u8] {
-        let ty = self.layer_params.layer_type;
-        let tile = self.layer_params.tile_indices[&node] as usize;
+    pub fn get_texel<'a>(
+        &self,
+        mapfile: &'a MapFile,
+        node: VNode,
+        ty: LayerType,
+        x: usize,
+        y: usize,
+    ) -> &'a [u8] {
+        let tile = self.layers[ty].tile_indices[&node] as usize;
         let tile_data = &mapfile.read_tile(ty, tile).unwrap();
-        let bytes_per_texel = self.layer_params.texture_format.bytes_per_texel();
-        let border = self.layer_params.texture_border_size as usize;
-        let index = ((x + border) + (y + border) * self.layer_params.texture_resolution as usize)
-            * bytes_per_texel;
-        &tile_data[index..(index + bytes_per_texel)]
+        let border = self.border(ty) as usize;
+        let index =
+            ((x + border) + (y + border) * self.resolution(ty) as usize) * self.bytes_per_texel(ty);
+        &tile_data[index..(index + self.bytes_per_texel(ty))]
     }
 
     pub fn capacity(&self) -> usize {
         self.size
     }
     pub fn utilization(&self) -> usize {
-        self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid).count()
+        self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid != 0).count()
     }
 
-    pub fn tile_for_node(&self, node: VNode) -> Option<usize> {
-        self.layer_params.tile_indices.get(&node).map(|&i| i as usize)
+    pub fn tile_for_node(&self, node: VNode, ty: LayerType) -> Option<usize> {
+        self.layers[ty].tile_indices.get(&node).map(|&i| i as usize)
     }
 }

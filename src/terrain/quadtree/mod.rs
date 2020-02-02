@@ -3,7 +3,6 @@ use byteorder::{ByteOrder, NativeEndian};
 use cgmath::*;
 use collision::{Frustum, Relation};
 use std::collections::HashMap;
-use vec_map::VecMap;
 
 pub(crate) mod node;
 pub(crate) mod render;
@@ -69,10 +68,8 @@ impl QuadTree {
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
-    fn update_cache(&mut self, tile_cache: &mut VecMap<TileCache>, camera: Point3<f32>) {
-        for (_, ref mut cache_layer) in tile_cache.iter_mut() {
-            cache_layer.update_priorities(camera);
-        }
+    fn update_cache(&mut self, tile_cache: &mut TileCache, camera: Point3<f32>) {
+        tile_cache.update_priorities(camera);
 
         VNode::breadth_first(|node| {
             let priority = node.priority(camera);
@@ -80,9 +77,7 @@ impl QuadTree {
                 return false;
             }
 
-            for layer in tile_cache.values_mut() {
-                layer.add_missing((priority, node));
-            }
+            tile_cache.add_missing((priority, node));
 
             if node.level() >= 19 {
                 return false;
@@ -143,7 +138,7 @@ impl QuadTree {
 
     pub fn update(
         &mut self,
-        tile_cache: &mut VecMap<TileCache>,
+        tile_cache: &mut TileCache,
         camera: mint::Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
         // dt: f32,

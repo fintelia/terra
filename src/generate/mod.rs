@@ -313,14 +313,7 @@ impl MMappedAsset for MapFileBuilder {
 
         context.set_progress(6);
 
-        Ok(TileHeader {
-            system,
-            planet_mesh,
-            planet_mesh_texture,
-            layers,
-            noise,
-            nodes,
-        })
+        Ok(TileHeader { system, planet_mesh, planet_mesh_texture, layers, noise, nodes })
     }
 }
 
@@ -389,10 +382,7 @@ impl<W: Write> State<W> {
         return Ok(());
     }
 
-    fn generate_heightmaps(
-        &mut self,
-        context: &mut AssetLoadContext,
-    ) -> Result<(), Error> {
+    fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         let global_dem = GlobalDem.load(context)?;
         let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
         let reproject = ReprojectedDemDef {
@@ -411,17 +401,15 @@ impl<W: Write> State<W> {
 
         let tile_count =
             self.nodes.iter().filter(|n| n.level() <= self.max_texture_present_level as u8).count();
-        let tile_valid_bitmap = ByteRange {
-            offset: self.bytes_written,
-            length: tile_count,
-        };
+        let tile_valid_bitmap = ByteRange { offset: self.bytes_written, length: tile_count };
         self.writer.write_all(&vec![1u8; tile_count])?;
         self.bytes_written += tile_count;
         self.page_pad()?;
 
         context.increment_level("Writing heightmaps... ", tile_count);
 
-        let tile_bytes = 4 * self.heightmap_resolution as usize * self.heightmap_resolution as usize;
+        let tile_bytes =
+            4 * self.heightmap_resolution as usize * self.heightmap_resolution as usize;
         let tile_locations = (0..tile_count)
             .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
             .collect();
@@ -429,9 +417,7 @@ impl<W: Write> State<W> {
             LayerType::Heightmaps.index(),
             LayerParams {
                 layer_type: LayerType::Heightmaps,
-                tile_indices: (0..tile_count)
-                    .map(|i| (self.nodes[i], i as u32))
-                    .collect(),
+                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
                 texture_resolution: self.heightmap_resolution as u32,
@@ -454,10 +440,7 @@ impl<W: Write> State<W> {
         context.decrement_level();
         Ok(())
     }
-    fn generate_displacements(
-        &mut self,
-        context: &mut AssetLoadContext,
-    ) -> Result<(), Error> {
+    fn generate_displacements(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         let present_tile_count =
             self.nodes.iter().filter(|n| n.level() <= self.max_heights_present_level as u8).count();
         let vacant_tile_count = self
@@ -654,9 +637,9 @@ impl<W: Write> State<W> {
             .collect();
 
         self.layers.insert(
-            LayerType::Colors.index(),
+            LayerType::Albedo.index(),
             LayerParams {
-                layer_type: LayerType::Colors,
+                layer_type: LayerType::Albedo,
                 tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
                 tile_locations,
