@@ -23,10 +23,10 @@ impl VNode {
     fn new(level: u8, x: u32, y: u32) -> Self {
         Self((level as u64) << 56 | (y as u64) << 24 | (x as u64))
     }
-    fn x(&self) -> u32 {
+    pub fn x(&self) -> u32 {
         self.0 as u32 & 0xffffff
     }
-    fn y(&self) -> u32 {
+    pub fn y(&self) -> u32 {
         (self.0 >> 24) as u32 & 0xffffff
     }
     pub fn level(&self) -> u8 {

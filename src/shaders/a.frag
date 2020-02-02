@@ -41,23 +41,24 @@ vec3 debug_overlay(vec3 color) {
 	vec2 tc = normals_texcoord.xy;//;
 	float ml = mipmap_level(tc * ts);
 
-	ml = mipmap_level(position.xz / side_length * 512);
-
-	// if (ml < 0.0 && side_length == 128.0)
-	// 	color = vec3(0.4);
+	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
+	// vec3 overlay_color = vec3(0);
+	// if (ml < 0.0 && side_length <= 16.0)
+	// 	overlay_color = vec3(0.4);
 	// else if (ml < -1.0)
-	// 	color = vec3(1,0,0);
+	// 	overlay_color = vec3(1,0,0);
 	// else if (ml < 0.0) // 1024
-	// 	color = vec3(0.5,0,0);
+	// 	overlay_color = vec3(0.5,0,0);
 	// else if (ml < 1.0) // 512
-	// 	color = vec3(0,0.2,0);
+	// 	overlay_color = vec3(0,0.2,0);
 	// else if (ml < 2.0) // 256
-	// 	color = vec3(0,0.4,0);
+	// 	overlay_color = vec3(0,0.4,0);
 	// else if (ml < 3.0) // 128
-	// 	color = vec3(0,0,.7);
+	// 	overlay_color = vec3(0,0,.7);
 	// else               // 64
-	// 	color = vec3(0,0,.3);
-	// color = mix(color, vec3(0), 0.3-0.3*fract(ml));
+	// 	overlay_color = vec3(0,0,.3);
+	// // overlay_color = mix(overlay_color, vec3(0), 0.3-0.3*fract(ml));
+	// color = mix(color, overlay_color, 0.9);
 
 	// if((fract(0.5*position.x/(4*1024*1024)) < 0.5) != (fract(0.5*position.z/(4*1024*1024)) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
@@ -99,6 +100,7 @@ vec3 debug_overlay(vec3 color) {
 	// 	color = mix(color, vec3(0,0,1), .1);
 
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
+	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
 
  	return color;
 }
@@ -125,11 +127,13 @@ void main() {
 							   morph);
 	}
 
-	if (length(position.xz-uniform_block.camera.xz) < 5000 && position.y < 50) {
-		float t = smoothstep(50,40, position.y);
-		albedo_roughness = mix(albedo_roughness, vec4(vec3(0.002,.007,.003), 0.1), t);
-		normal = mix(normal, vec3(0,1,0), t);
-	}
+	// if (length(position.xz-uniform_block.camera.xz) < 5000 && position.y < 50) {
+	// 	float t = smoothstep(50,40, position.y);
+	// 	albedo_roughness = mix(albedo_roughness, vec4(vec3(0.002,.007,.003), 0.1), t);
+	// 	normal = mix(normal, vec3(0,1,0), t);
+	// }
+	// if(albedo_roughness.a == float(int(0.35*255))/255)
+	// 	albedo_roughness.a = 0.7;
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,
@@ -137,10 +141,10 @@ void main() {
 						position,
 						normal,
 						uniform_block.camera,
-						vec3(0.4, 0.7,0.2),
+						vec3(0.4, 0.7, 0.2),
 						vec3(100000.0));
 
-	float ev100 = 14.0;
+	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 

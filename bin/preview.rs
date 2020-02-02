@@ -1,4 +1,4 @@
-use gilrs::{Axis, Button, Gilrs};
+use gilrs::{Axis, Gilrs};
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
@@ -159,7 +159,7 @@ fn main() {
                 let forward = cgmath::Vector3::new(angle.sin(), 0.0, angle.cos());
                 let right = cgmath::Vector3::new(angle.cos(), 0.0, -angle.sin());
 
-                while let Some(gilrs::Event { id, .. }) = gilrs.next_event() {
+                while let Some(gilrs::Event { id, event: _, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
@@ -169,11 +169,8 @@ fn main() {
                     if gamepad.value(Axis::LeftStickX).abs() > 0.1 {
                         eye -= right * gamepad.value(Axis::LeftStickX) * 50.0;
                     }
-                    if gamepad.is_pressed(Button::DPadLeft) {
-                        angle += 0.02;
-                    }
-                    if gamepad.is_pressed(Button::DPadRight) {
-                        angle -= 0.02;
+                    if gamepad.value(Axis::RightZ).abs() > 0.1 {
+                        angle -= gamepad.value(Axis::RightZ) * 0.1;
                     }
                 }
 

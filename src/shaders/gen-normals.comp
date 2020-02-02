@@ -3,6 +3,7 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
+	ivec2 origin;
 	float spacing;
 	int heightmaps_slot;
 	int normals_slot;
@@ -10,9 +11,10 @@ layout(binding = 0) uniform UniformBlock {
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
 layout(rg8, binding = 2) uniform image2DArray normals;
+layout(rgba8, binding = 3) uniform image2DArray albedo;
 
 void main() {
-	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy, ubo.heightmaps_slot);
+	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.origin, ubo.heightmaps_slot);
 	ivec3 out_pos = ivec3(gl_GlobalInvocationID.xy, ubo.normals_slot);
 
 	float h00 = imageLoad(heightmaps, in_pos).x;
@@ -26,5 +28,11 @@ void main() {
 
 	normal = normalize(normal);
 
+	vec4 albedo_roughness = vec4(.011, .03, .003, 0.7);
+
+	float rock = 1-smoothstep(0.80, .95, normal.y);
+	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
+
 	imageStore(normals, out_pos, vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	imageStore(albedo, out_pos, albedo_roughness);
 }

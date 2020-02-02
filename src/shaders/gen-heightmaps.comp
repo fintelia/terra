@@ -38,8 +38,8 @@ void main() {
 	barrier();
 
 	// Bicubic Interpolation
-	x = x/2 + 1;
-	y = y/2 + 1;
+	x = x/2 + 2;
+	y = y/2 + 2;
 	vec2 t = vec2(gl_GlobalInvocationID.xy%2)/2.0;
 
 
@@ -65,7 +65,7 @@ void main() {
 	// Apply noise
 	vec2 position = ubo.position + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
 	vec2 n = guassian_random(position);
-	height += n.x * ubo.spacing * mix(0.025, .08, smoothstep(0.4, 0.6, slope));
+	height += n.x * ubo.spacing * mix(0.025, .08, smoothstep(0.4, 0.5, slope));
 
 	// Write output
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));

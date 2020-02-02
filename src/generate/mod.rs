@@ -1,6 +1,7 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
+use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::{self, Heightmap};
@@ -615,7 +616,7 @@ impl<W: Write> State<W> {
                         let g = bluemarble.get(i, x, y, 1) as u8;
                         let b = bluemarble.get(i, x, y, 2) as u8;
                         let roughness = (0.7 * 255.0) as u8;
-                        [r, g, b, roughness]
+                        [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
                     };
 
                     colormap.extend_from_slice(&color);
@@ -645,7 +646,7 @@ impl<W: Write> State<W> {
                 tile_locations,
                 texture_resolution: colormap_resolution as u32,
                 texture_border_size: colormap_skirt as u32,
-                texture_format: TextureFormat::SRGBA,
+                texture_format: TextureFormat::RGBA8,
             },
         );
 

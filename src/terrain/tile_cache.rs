@@ -379,6 +379,7 @@ impl TileCache {
     }
     pub fn set_slot_valid(&mut self, slot: usize, ty: LayerType) {
         self.slots[slot].valid |= ty.bit_mask();
+        self.slots[slot].generated |= ty.bit_mask();
     }
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {

@@ -49,17 +49,19 @@ impl MapFile {
         self.file[offset..][..length].copy_from_slice(data);
         self.file.flush_range(offset, length)?;
         self.file[params.tile_valid_bitmap.offset + tile] = 2;
-        self.file.flush_async_range(params.tile_valid_bitmap.offset + tile, 1)?;
+        self.file.flush_range(params.tile_valid_bitmap.offset + tile, 1)?;
         Ok(())
     }
 
-    pub(crate) fn clear_generated(&mut self, layer: LayerType) {
+    pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
         let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
         for i in 0..bitmap.length {
             if self.file[bitmap.offset + i] == 2 {
                 self.file[bitmap.offset + i] = 0;
             }
         }
+        self.file.flush_range(bitmap.offset, bitmap.length)?;
+        Ok(())
     }
 
     fn load_texture(
