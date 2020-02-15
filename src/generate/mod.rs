@@ -743,33 +743,21 @@ impl<W: Write> State<W> {
         };
 
         let noise_heightmaps: Vec<_> = (0..4)
-            .map(|_| {
-                let mut octaves = vec![
-                    heightmap::wavelet_noise(512, 4),
-                    heightmap::wavelet_noise(256, 8),
-                    heightmap::wavelet_noise(128, 16),
-                    heightmap::wavelet_noise(64, 32),
-                    heightmap::wavelet_noise(32, 64),
-                ];
-                let mut heightmap = octaves.remove(0);
-                assert_eq!(octaves.len(), 4);
-                for octave in octaves {
-                    assert_eq!(heightmap.heights.len(), octave.heights.len());
-                    for i in 0..heightmap.heights.len() {
-                        heightmap.heights[i] += octave.heights[i];
-                    }
-                }
-                heightmap
-            })
+            .map(|i| heightmap::wavelet_noise(64<<i, 32>>i))
             .collect();
 
-        for i in 0..noise_heightmaps[0].heights.len() {
-            for j in 0..4 {
-                let v = (noise_heightmaps[j].heights[i] * 0.2).max(-3.0).min(3.0);
-                self.writer.write_u8((v * 127.5 / 3.0 + 127.5) as u8)?;
-                self.bytes_written += 1;
+        let len = noise_heightmaps[0].heights.len();
+        let mut heights = vec![0u8; len * 4];
+        for (i, heightmap) in noise_heightmaps.into_iter().enumerate() {
+            let mut dist: Vec<(usize, f32)> = heightmap.heights.into_iter().enumerate().collect();
+            dist.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for j in 0..len {
+                heights[dist[j].0 * 4 + i] = (j * 256 / len) as u8;
             }
         }
+
+        self.writer.write_all(&heights[..])?;
+        self.bytes_written += heights.len();
         assert_eq!(self.bytes_written, noise.texture.offset + noise.texture.bytes);
         Ok(noise)
     }
