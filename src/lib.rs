@@ -369,6 +369,10 @@ impl Terrain {
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,
                     ],
+                    world_origin: [
+                        node.bounds().min.x - (normals_border as f32 - 0.5) * spacing,
+                        node.bounds().min.z - (normals_border as f32 - 0.5) * spacing,
+                    ],
                     spacing,
                     heightmaps_slot,
                     normals_slot,

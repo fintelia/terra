@@ -26,6 +26,7 @@ unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
 #[derive(Copy, Clone)]
 pub(crate) struct GenNormalsUniforms {
     pub origin: [i32; 2],
+    pub world_origin: [f32; 2],
     pub spacing: f32,
     pub heightmaps_slot: i32,
     pub normals_slot: i32,
