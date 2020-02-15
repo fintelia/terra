@@ -82,7 +82,7 @@ impl QuadTree {
 
             tile_cache.add_missing((priority, node));
 
-            if node.level() >= 19 {
+            if node.level() >= 22 {
                 return false;
             }
 
