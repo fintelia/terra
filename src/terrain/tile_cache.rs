@@ -149,8 +149,6 @@ pub(crate) struct TileHeader {
     pub layers: VecMap<LayerParams>,
     pub noise: NoiseParams,
     pub nodes: Vec<VNode>,
-    pub planet_mesh: MeshDescriptor,
-    pub planet_mesh_texture: TextureDescriptor,
     pub system: CoordinateSystem,
 }
 
@@ -186,9 +184,9 @@ impl TileCache {
         }
     }
 
-    pub fn update_priorities(&mut self, camera: Point3<f32>) {
+    pub fn update_priorities(&mut self, camera_cspace: Point3<f64>) {
         for entry in &mut self.slots {
-            entry.priority = entry.node.priority(camera);
+            entry.priority = entry.node.priority(camera_cspace);
         }
 
         self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());

@@ -3,10 +3,10 @@
 layout(early_fragment_tests) in;
 
 layout(binding = 0) uniform UniformBlock {
+	dvec4 local_origin;
     mat4 view_proj;
-	vec3 camera;
-	float padding;
-} uniform_block;
+	vec4 camera;
+} ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
@@ -73,15 +73,15 @@ vec3 debug_overlay(vec3 color) {
 	// 		color = mix(color, vec3(0,0,0), 0.3);
 	// }
 
-	// if(abs(length(position.xz-uniform_block.camera.xz) - 32*1024) < 100)
+	// if(abs(length(position.xz-ubo.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	float line = min(grid.x, grid.y);
+	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -127,7 +127,7 @@ void main() {
 							   morph);
 	}
 
-	// if (length(position.xz-uniform_block.camera.xz) < 5000 && position.y < 50) {
+	// if (length(position.xz-ubo.camera.xz) < 5000 && position.y < 50) {
 	// 	float t = smoothstep(50,40, position.y);
 	// 	albedo_roughness = mix(albedo_roughness, vec4(vec3(0.002,.007,.003), 0.1), t);
 	// 	normal = mix(normal, vec3(0,1,0), t);
@@ -140,7 +140,7 @@ void main() {
 						albedo_roughness.a,
 						position,
 						normal,
-						uniform_block.camera,
+						ubo.camera.xyz,
 						vec3(0.4, 0.7, 0.2),
 						vec3(100000.0));
 

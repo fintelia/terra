@@ -12,8 +12,7 @@ use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
 use crate::terrain::tile_cache::{
-    ByteRange, LayerParams, LayerType, MeshDescriptor, NoiseParams, TextureDescriptor,
-    TextureFormat, TileHeader,
+    ByteRange, LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat, TileHeader,
 };
 use crate::utils::math::BoundingBox;
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -33,8 +32,8 @@ mod gpu;
 pub(crate) use gpu::*;
 
 /// The radius of the earth in meters.
-const EARTH_RADIUS: f64 = 6371000.0;
-const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
+pub(crate) const EARTH_RADIUS: f64 = 6371000.0;
+pub(crate) const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
 // Mapping from side length to level number.
 #[allow(unused)]
@@ -297,7 +296,7 @@ impl MMappedAsset for MapFileBuilder {
             directory_name: format!("maps/t.{}/", self.name()),
         };
 
-        context.set_progress_and_total(0, 6);
+        context.set_progress_and_total(0, 5);
         state.generate_heightmaps(context)?;
         context.set_progress(1);
         state.generate_displacements(context)?;
@@ -306,15 +305,12 @@ impl MMappedAsset for MapFileBuilder {
         context.set_progress(3);
         state.generate_colormaps(context)?;
         context.set_progress(4);
-        let planet_mesh = state.generate_planet_mesh(context)?;
-        let planet_mesh_texture = state.generate_planet_mesh_texture(context)?;
-        context.set_progress(5);
         let noise = state.generate_noise(context)?;
         let State { layers, nodes, system, .. } = state;
 
-        context.set_progress(6);
+        context.set_progress(5);
 
-        Ok(TileHeader { system, planet_mesh, planet_mesh_texture, layers, noise, nodes })
+        Ok(TileHeader { system, layers, noise, nodes })
     }
 }
 
@@ -598,8 +594,8 @@ impl<W: Write> State<W> {
             let mut colormap =
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
             let _heights = self.heightmaps.as_ref().unwrap();
-            let spacing =
-                self.nodes[i].side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let spacing = self.nodes[i].aprox_side_length()
+                / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if spacing <= bluemarble.spacing().unwrap() as f32 {
                 continue;
@@ -678,8 +674,8 @@ impl<W: Write> State<W> {
             context.set_progress(i as u64);
 
             let heights = self.heightmaps.as_ref().unwrap();
-            let spacing =
-                self.nodes[i].side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let spacing = self.nodes[i].aprox_side_length()
+                / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if self.nodes[i].level() > self.max_texture_present_level {
                 bitmap[i] = 0;
@@ -742,9 +738,8 @@ impl<W: Write> State<W> {
             wavelength: 1.0 / 256.0,
         };
 
-        let noise_heightmaps: Vec<_> = (0..4)
-            .map(|i| heightmap::wavelet_noise(64<<i, 32>>i))
-            .collect();
+        let noise_heightmaps: Vec<_> =
+            (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
 
         let len = noise_heightmaps[0].heights.len();
         let mut heights = vec![0u8; len * 4];
@@ -762,239 +757,239 @@ impl<W: Write> State<W> {
         Ok(noise)
     }
 
-    fn generate_planet_mesh(
-        &mut self,
-        _context: &mut AssetLoadContext,
-    ) -> Result<MeshDescriptor, Error> {
-        fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Error> {
-            writer.write_f32::<LittleEndian>(v.x)?;
-            writer.write_f32::<LittleEndian>(v.y)?;
-            writer.write_f32::<LittleEndian>(v.z)?;
-            Ok(())
-        };
+    // fn generate_planet_mesh(
+    //     &mut self,
+    //     _context: &mut AssetLoadContext,
+    // ) -> Result<MeshDescriptor, Error> {
+    //     fn write_vertex<W: Write>(writer: &mut W, v: Vector3<f32>) -> Result<(), Error> {
+    //         writer.write_f32::<LittleEndian>(v.x)?;
+    //         writer.write_f32::<LittleEndian>(v.y)?;
+    //         writer.write_f32::<LittleEndian>(v.z)?;
+    //         Ok(())
+    //     };
 
-        let root_side_length = self.nodes[0].side_length();
-        let offset = self.bytes_written;
-        let mut num_vertices = 0;
+    //     let root_side_length = self.nodes[0].side_length();
+    //     let offset = self.bytes_written;
+    //     let mut num_vertices = 0;
 
-        let resolution =
-            Vector2::new(self.heights_resolution / 8, (self.heights_resolution - 1) / 2 + 1);
-        for i in 0..4 {
-            let mut vertices = Vec::new();
-            for y in 0..resolution.y {
-                for x in 0..resolution.x {
-                    // grid coordinates
-                    let fx = x as f64 / (resolution.x - 1) as f64;
-                    let fy = y as f64 / (resolution.y - 1) as f64;
+    //     let resolution =
+    //         Vector2::new(self.heights_resolution / 8, (self.heights_resolution - 1) / 2 + 1);
+    //     for i in 0..4 {
+    //         let mut vertices = Vec::new();
+    //         for y in 0..resolution.y {
+    //             for x in 0..resolution.x {
+    //                 // grid coordinates
+    //                 let fx = x as f64 / (resolution.x - 1) as f64;
+    //                 let fy = y as f64 / (resolution.y - 1) as f64;
 
-                    // circle coordinates
-                    let theta = PI * (0.25 + 0.5 * fy);
-                    let cx = (theta.sin() - (PI * 0.25).sin()) * 0.5 * 2f64.sqrt();
-                    let cy = ((PI * 0.25).cos() - theta.cos()) / 2f64.sqrt();
+    //                 // circle coordinates
+    //                 let theta = PI * (0.25 + 0.5 * fy);
+    //                 let cx = (theta.sin() - (PI * 0.25).sin()) * 0.5 * 2f64.sqrt();
+    //                 let cy = ((PI * 0.25).cos() - theta.cos()) / 2f64.sqrt();
 
-                    // Interpolate between the two points.
-                    let x = fx * cx;
-                    let y = fy * (1.0 - fx) + cy * fx;
+    //                 // Interpolate between the two points.
+    //                 let x = fx * cx;
+    //                 let y = fy * (1.0 - fx) + cy * fx;
 
-                    // Compute location in world space.
-                    let world = Vector2::new(
-                        (x + 0.5) * root_side_length as f64,
-                        (y - 0.5) * root_side_length as f64,
-                    );
-                    let world = match i {
-                        0 => world,
-                        1 => Vector2::new(world.y, world.x),
-                        2 => Vector2::new(-world.x, world.y),
-                        3 => Vector2::new(world.y, -world.x),
-                        _ => unreachable!(),
-                    };
+    //                 // Compute location in world space.
+    //                 let world = Vector2::new(
+    //                     (x + 0.5) * root_side_length as f64,
+    //                     (y - 0.5) * root_side_length as f64,
+    //                 );
+    //                 let world = match i {
+    //                     0 => world,
+    //                     1 => Vector2::new(world.y, world.x),
+    //                     2 => Vector2::new(-world.x, world.y),
+    //                     3 => Vector2::new(world.y, -world.x),
+    //                     _ => unreachable!(),
+    //                 };
 
-                    // Project onto ellipsoid.
-                    let mut world3 = Vector3::new(
-                        world.x,
-                        EARTH_RADIUS
-                            * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
-                        world.y,
-                    );
-                    for _ in 0..5 {
-                        world3.x = world.x;
-                        world3.z = world.y;
-                        let mut lla = self.system.world_to_lla(world3);
-                        lla.z = 0.0;
-                        world3 = self.system.lla_to_world(lla);
-                    }
+    //                 // Project onto ellipsoid.
+    //                 let mut world3 = Vector3::new(
+    //                     world.x,
+    //                     EARTH_RADIUS
+    //                         * ((1.0 - world.magnitude2() / EARTH_RADIUS).max(0.25).sqrt() - 1.0),
+    //                     world.y,
+    //                 );
+    //                 for _ in 0..5 {
+    //                     world3.x = world.x;
+    //                     world3.z = world.y;
+    //                     let mut lla = self.system.world_to_lla(world3);
+    //                     lla.z = 0.0;
+    //                     world3 = self.system.lla_to_world(lla);
+    //                 }
 
-                    vertices.push(Vector3::new(world.x as f32, world3.y as f32, world.y as f32));
-                }
-            }
+    //                 vertices.push(Vector3::new(world.x as f32, world3.y as f32, world.y as f32));
+    //             }
+    //         }
 
-            for y in 0..(resolution.y - 1) as usize {
-                for x in 0..(resolution.x - 1) as usize {
-                    let v00 = vertices[x + y * resolution.x as usize];
-                    let v10 = vertices[x + 1 + y * resolution.x as usize];
-                    let v01 = vertices[x + (y + 1) * resolution.x as usize];
-                    let v11 = vertices[x + 1 + (y + 1) * resolution.x as usize];
+    //         for y in 0..(resolution.y - 1) as usize {
+    //             for x in 0..(resolution.x - 1) as usize {
+    //                 let v00 = vertices[x + y * resolution.x as usize];
+    //                 let v10 = vertices[x + 1 + y * resolution.x as usize];
+    //                 let v01 = vertices[x + (y + 1) * resolution.x as usize];
+    //                 let v11 = vertices[x + 1 + (y + 1) * resolution.x as usize];
 
-                    // To support back face culling, we must invert draw order if the vertices were
-                    // flipped above.
-                    if i == 0 || i == 3 {
-                        write_vertex(&mut self.writer, v00)?;
-                        write_vertex(&mut self.writer, v10)?;
-                        write_vertex(&mut self.writer, v01)?;
+    //                 // To support back face culling, we must invert draw order if the vertices were
+    //                 // flipped above.
+    //                 if i == 0 || i == 3 {
+    //                     write_vertex(&mut self.writer, v00)?;
+    //                     write_vertex(&mut self.writer, v10)?;
+    //                     write_vertex(&mut self.writer, v01)?;
 
-                        write_vertex(&mut self.writer, v11)?;
-                        write_vertex(&mut self.writer, v01)?;
-                        write_vertex(&mut self.writer, v10)?;
-                    } else {
-                        write_vertex(&mut self.writer, v00)?;
-                        write_vertex(&mut self.writer, v01)?;
-                        write_vertex(&mut self.writer, v10)?;
+    //                     write_vertex(&mut self.writer, v11)?;
+    //                     write_vertex(&mut self.writer, v01)?;
+    //                     write_vertex(&mut self.writer, v10)?;
+    //                 } else {
+    //                     write_vertex(&mut self.writer, v00)?;
+    //                     write_vertex(&mut self.writer, v01)?;
+    //                     write_vertex(&mut self.writer, v10)?;
 
-                        write_vertex(&mut self.writer, v11)?;
-                        write_vertex(&mut self.writer, v10)?;
-                        write_vertex(&mut self.writer, v01)?;
-                    }
+    //                     write_vertex(&mut self.writer, v11)?;
+    //                     write_vertex(&mut self.writer, v10)?;
+    //                     write_vertex(&mut self.writer, v01)?;
+    //                 }
 
-                    self.bytes_written += 72;
-                    num_vertices += 6;
-                }
-            }
-        }
+    //                 self.bytes_written += 72;
+    //                 num_vertices += 6;
+    //             }
+    //         }
+    //     }
 
-        let mut vertices = Vec::new();
-        let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
-        let resolution =
-            Vector2::new(self.heights_resolution / 4, ((self.heights_resolution - 1) / 2) * 4);
+    //     let mut vertices = Vec::new();
+    //     let radius = root_side_length as f64 * 0.5 * 2f64.sqrt();
+    //     let resolution =
+    //         Vector2::new(self.heights_resolution / 4, ((self.heights_resolution - 1) / 2) * 4);
 
-        for y in 0..resolution.y {
-            let fy = y as f64 / resolution.y as f64;
-            let theta = 2.0 * PI * fy;
+    //     for y in 0..resolution.y {
+    //         let fy = y as f64 / resolution.y as f64;
+    //         let theta = 2.0 * PI * fy;
 
-            let tworld = Vector2::new(theta.cos() * radius, theta.sin() * radius);
-            let mut tworld3 = Vector3::new(tworld.x, 0.0, tworld.y);
-            for _ in 0..5 {
-                tworld3.x = tworld.x;
-                tworld3.z = tworld.y;
-                let mut lla = self.system.world_to_lla(tworld3);
-                lla.z = 0.0;
-                tworld3 = self.system.lla_to_world(lla);
-            }
+    //         let tworld = Vector2::new(theta.cos() * radius, theta.sin() * radius);
+    //         let mut tworld3 = Vector3::new(tworld.x, 0.0, tworld.y);
+    //         for _ in 0..5 {
+    //             tworld3.x = tworld.x;
+    //             tworld3.z = tworld.y;
+    //             let mut lla = self.system.world_to_lla(tworld3);
+    //             lla.z = 0.0;
+    //             tworld3 = self.system.lla_to_world(lla);
+    //         }
 
-            let phi_min = f64::acos((EARTH_RADIUS + tworld3.y) / EARTH_RADIUS);
+    //         let phi_min = f64::acos((EARTH_RADIUS + tworld3.y) / EARTH_RADIUS);
 
-            for x in 0..resolution.x {
-                let fx = x as f64 / (resolution.x - 1) as f64;
-                let phi = phi_min + fx * (100f64.to_radians() - phi_min);
+    //         for x in 0..resolution.x {
+    //             let fx = x as f64 / (resolution.x - 1) as f64;
+    //             let phi = phi_min + fx * (100f64.to_radians() - phi_min);
 
-                let world = Vector3::new(tworld3.x, (phi.cos() - 1.0) * EARTH_RADIUS, tworld3.z);
-                let lla = self.system.world_to_lla(world);
-                let surface_point = self.system.lla_to_world(Vector3::new(lla.x, lla.y, 0.0));
+    //             let world = Vector3::new(tworld3.x, (phi.cos() - 1.0) * EARTH_RADIUS, tworld3.z);
+    //             let lla = self.system.world_to_lla(world);
+    //             let surface_point = self.system.lla_to_world(Vector3::new(lla.x, lla.y, 0.0));
 
-                vertices.push(Vector3::new(
-                    surface_point.x as f32,
-                    surface_point.y as f32,
-                    surface_point.z as f32,
-                ));
-            }
-        }
-        for y in 0..resolution.y as usize {
-            for x in 0..(resolution.x - 1) as usize {
-                let v00 = vertices[x + y * resolution.x as usize];
-                let v10 = vertices[x + 1 + y * resolution.x as usize];
-                let v01 = vertices[x + ((y + 1) % resolution.y as usize) * resolution.x as usize];
-                let v11 =
-                    vertices[x + 1 + ((y + 1) % resolution.y as usize) * resolution.x as usize];
+    //             vertices.push(Vector3::new(
+    //                 surface_point.x as f32,
+    //                 surface_point.y as f32,
+    //                 surface_point.z as f32,
+    //             ));
+    //         }
+    //     }
+    //     for y in 0..resolution.y as usize {
+    //         for x in 0..(resolution.x - 1) as usize {
+    //             let v00 = vertices[x + y * resolution.x as usize];
+    //             let v10 = vertices[x + 1 + y * resolution.x as usize];
+    //             let v01 = vertices[x + ((y + 1) % resolution.y as usize) * resolution.x as usize];
+    //             let v11 =
+    //                 vertices[x + 1 + ((y + 1) % resolution.y as usize) * resolution.x as usize];
 
-                write_vertex(&mut self.writer, v00)?;
-                write_vertex(&mut self.writer, v10)?;
-                write_vertex(&mut self.writer, v01)?;
+    //             write_vertex(&mut self.writer, v00)?;
+    //             write_vertex(&mut self.writer, v10)?;
+    //             write_vertex(&mut self.writer, v01)?;
 
-                write_vertex(&mut self.writer, v11)?;
-                write_vertex(&mut self.writer, v01)?;
-                write_vertex(&mut self.writer, v10)?;
+    //             write_vertex(&mut self.writer, v11)?;
+    //             write_vertex(&mut self.writer, v01)?;
+    //             write_vertex(&mut self.writer, v10)?;
 
-                self.bytes_written += 72;
-                num_vertices += 6;
-            }
-        }
+    //             self.bytes_written += 72;
+    //             num_vertices += 6;
+    //         }
+    //     }
 
-        Ok(MeshDescriptor { bytes: self.bytes_written - offset, offset, num_vertices })
-    }
+    //     Ok(MeshDescriptor { bytes: self.bytes_written - offset, offset, num_vertices })
+    // }
 
-    fn generate_planet_mesh_texture(
-        &mut self,
-        context: &mut AssetLoadContext,
-    ) -> Result<TextureDescriptor, Error> {
-        let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
-        let descriptor = TextureDescriptor {
-            offset: self.bytes_written,
-            resolution: resolution as u32,
-            format: TextureFormat::SRGBA,
-            bytes: resolution * resolution * 4,
-        };
+    // fn generate_planet_mesh_texture(
+    //     &mut self,
+    //     context: &mut AssetLoadContext,
+    // ) -> Result<TextureDescriptor, Error> {
+    //     let resolution = 8 * (self.heightmap_resolution - 1 - 2 * self.skirt) as usize;
+    //     let descriptor = TextureDescriptor {
+    //         offset: self.bytes_written,
+    //         resolution: resolution as u32,
+    //         format: TextureFormat::SRGBA,
+    //         bytes: resolution * resolution * 4,
+    //     };
 
-        struct PlanetMesh<'a> {
-            name: String,
-            system: &'a CoordinateSystem,
-            resolution: usize,
-        };
-        impl<'a> MMappedAsset for PlanetMesh<'a> {
-            type Header = usize;
-            fn filename(&self) -> String {
-                self.name.clone()
-            }
-            fn generate<W: Write>(
-                &self,
-                context: &mut AssetLoadContext,
-                mut writer: W,
-            ) -> Result<Self::Header, Error> {
-                let bluemarble = BlueMarble.load(context)?;
+    //     struct PlanetMesh<'a> {
+    //         name: String,
+    //         system: &'a CoordinateSystem,
+    //         resolution: usize,
+    //     };
+    //     impl<'a> MMappedAsset for PlanetMesh<'a> {
+    //         type Header = usize;
+    //         fn filename(&self) -> String {
+    //             self.name.clone()
+    //         }
+    //         fn generate<W: Write>(
+    //             &self,
+    //             context: &mut AssetLoadContext,
+    //             mut writer: W,
+    //         ) -> Result<Self::Header, Error> {
+    //             let bluemarble = BlueMarble.load(context)?;
 
-                let mut bytes_written = 0;
-                for y in 0..self.resolution {
-                    for x in 0..self.resolution {
-                        let fx = 2.0 * (x as f64 + 0.5) / self.resolution as f64 - 1.0;
-                        let fy = 2.0 * (y as f64 + 0.5) / self.resolution as f64 - 1.0;
-                        let r = (fx * fx + fy * fy).sqrt().min(1.0);
+    //             let mut bytes_written = 0;
+    //             for y in 0..self.resolution {
+    //                 for x in 0..self.resolution {
+    //                     let fx = 2.0 * (x as f64 + 0.5) / self.resolution as f64 - 1.0;
+    //                     let fy = 2.0 * (y as f64 + 0.5) / self.resolution as f64 - 1.0;
+    //                     let r = (fx * fx + fy * fy).sqrt().min(1.0);
 
-                        let phi = r * PI;
-                        let theta = f64::atan2(fy, fx);
+    //                     let phi = r * PI;
+    //                     let theta = f64::atan2(fy, fx);
 
-                        let world3 = Vector3::new(
-                            EARTH_RADIUS * theta.cos() * phi.sin(),
-                            EARTH_RADIUS * (phi.cos() - 1.0),
-                            EARTH_RADIUS * theta.sin() * phi.sin(),
-                        );
-                        let lla = self.system.world_to_lla(world3);
+    //                     let world3 = Vector3::new(
+    //                         EARTH_RADIUS * theta.cos() * phi.sin(),
+    //                         EARTH_RADIUS * (phi.cos() - 1.0),
+    //                         EARTH_RADIUS * theta.sin() * phi.sin(),
+    //                     );
+    //                     let lla = self.system.world_to_lla(world3);
 
-                        let brighten = |x: f64| (255.0 * (x / 255.0).powf(0.6)) as u8;
+    //                     let brighten = |x: f64| (255.0 * (x / 255.0).powf(0.6)) as u8;
 
-                        let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
-                        let r = brighten(bluemarble.interpolate(lat, long, 0));
-                        let g = brighten(bluemarble.interpolate(lat, long, 1));
-                        let b = brighten(bluemarble.interpolate(lat, long, 2));
-                        let a = 0; //watermask.interpolate(lat, long, 0) as u8;
+    //                     let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+    //                     let r = brighten(bluemarble.interpolate(lat, long, 0));
+    //                     let g = brighten(bluemarble.interpolate(lat, long, 1));
+    //                     let b = brighten(bluemarble.interpolate(lat, long, 2));
+    //                     let a = 0; //watermask.interpolate(lat, long, 0) as u8;
 
-                        writer.write_u8(r)?;
-                        writer.write_u8(g)?;
-                        writer.write_u8(b)?;
-                        writer.write_u8(a)?;
-                        bytes_written += 4;
-                    }
-                }
-                Ok(bytes_written)
-            }
-        }
+    //                     writer.write_u8(r)?;
+    //                     writer.write_u8(g)?;
+    //                     writer.write_u8(b)?;
+    //                     writer.write_u8(a)?;
+    //                     bytes_written += 4;
+    //                 }
+    //             }
+    //             Ok(bytes_written)
+    //         }
+    //     }
 
-        let (bytes, mmap) = PlanetMesh {
-            name: format!("{}planetmesh-texture", self.directory_name),
-            system: &self.system,
-            resolution,
-        }
-        .load(context)?;
-        self.writer.write_all(&mmap[..bytes])?;
-        self.bytes_written += bytes;
+    //     let (bytes, mmap) = PlanetMesh {
+    //         name: format!("{}planetmesh-texture", self.directory_name),
+    //         system: &self.system,
+    //         resolution,
+    //     }
+    //     .load(context)?;
+    //     self.writer.write_all(&mmap[..bytes])?;
+    //     self.bytes_written += bytes;
 
-        Ok(descriptor)
-    }
+    //     Ok(descriptor)
+    // }
 }

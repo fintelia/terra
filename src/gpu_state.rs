@@ -3,7 +3,6 @@ use vec_map::VecMap;
 
 pub(crate) struct GpuState {
     pub noise: wgpu::Texture,
-    pub _planet_mesh_texture: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
 }

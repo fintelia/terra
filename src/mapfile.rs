@@ -124,13 +124,6 @@ impl MapFile {
     ) -> wgpu::Texture {
         self.load_texture(device, encoder, &self.header.noise.texture)
     }
-    pub(crate) fn planet_mesh_texture(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> wgpu::Texture {
-        self.load_texture(device, encoder, &self.header.planet_mesh_texture)
-    }
 
     pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
         &self.header.layers

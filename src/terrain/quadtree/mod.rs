@@ -1,3 +1,4 @@
+use crate::coordinates::PLANET_RADIUS;
 use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
 use byteorder::{ByteOrder, NativeEndian};
@@ -70,7 +71,9 @@ impl QuadTree {
     }
 
     pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f32>) {
-        let camera = Point3::new(camera.x, camera.y, camera.z);
+        let camera = Point3::new(camera.x as f64, camera.y as f64 + PLANET_RADIUS, camera.z as f64);
+        let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
+        let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
 
         tile_cache.update_priorities(camera);
 
@@ -96,7 +99,9 @@ impl QuadTree {
         camera: mint::Point3<f32>,
         cull_frustum: Option<Frustum<f32>>,
     ) {
-        let camera = Point3::new(camera.x, camera.y, camera.z);
+        let camera = Point3::new(camera.x as f64, camera.y as f64 + PLANET_RADIUS, camera.z as f64);
+        let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
+        let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
 
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
@@ -137,12 +142,12 @@ impl QuadTree {
                     }
                 }
 
-                if let Some(frustum) = cull_frustum {
-                    // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
-                    if frustum.contains(&node.bounds().as_aabb3()) == Relation::Out {
-                        mask = 0;
-                    }
-                }
+                // if let Some(frustum) = cull_frustum {
+                //     // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
+                //     if frustum.contains(&node.bounds().as_aabb3()) == Relation::Out {
+                //         mask = 0;
+                //     }
+                // }
 
                 if mask == 0 {
                     node_visibilities.insert(node, false);

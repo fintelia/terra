@@ -5,13 +5,17 @@ use std::mem;
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeState {
-    position: glsl_layout::vec2,
-    side_length: f32,
-    min_distance: f32,
     displacements_desc: [[f32; 4]; 2],
     albedo_desc: [[f32; 4]; 2],
     normals_desc: [[f32; 4]; 2],
-    resolution: i32,
+    resolution: u32,
+    level_resolution: u32,
+    position: [i32; 2],
+    face: u32,
+    min_distance: f32,
+    // side_length: f32,
+    // padding0: f32,
+    // padding1: u32,
 }
 unsafe impl bytemuck::Pod for NodeState {}
 unsafe impl bytemuck::Zeroable for NodeState {}
@@ -46,8 +50,9 @@ impl QuadTree {
 
             [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]]
         } else {
-            let (ancestor, generations, offset) =
-                node.find_ancestor(|n| tile_cache.contains(n, ty)).expect(&format!("find_ancestor({:?})", ty));
+            let (ancestor, generations, offset) = node
+                .find_ancestor(|n| tile_cache.contains(n, ty))
+                .expect(&format!("find_ancestor({:?})", ty));
             let slot = tile_cache.get_slot(ancestor).map(|s| s as f32).expect("slot");
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(offset.x as f32, offset.y as f32);
@@ -80,6 +85,7 @@ impl QuadTree {
 
         self.node_states.clear();
         for &node in self.visible_nodes.iter() {
+            let level_resolution = resolution << node.level();
             let displacements_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -108,20 +114,27 @@ impl QuadTree {
                 texture_step,
             );
             self.node_states.push(NodeState {
-                position: [node.bounds().min.x, node.bounds().min.z].into(),
-                side_length: node.side_length(),
-                min_distance: node.min_distance(),
+                position: [
+                    (node.x() * resolution) as i32 - level_resolution as i32 / 2,
+                    (node.y() * resolution) as i32 - level_resolution as i32 / 2,
+                ],
+                // side_length: node.side_length(),
+                min_distance: node.min_distance() as f32,
                 displacements_desc,
                 albedo_desc,
                 normals_desc,
-                resolution: resolution as i32,
+                resolution: resolution,
+                level_resolution: resolution << node.level(),
+                face: 0,
+                // padding0: 0.0,
+                // padding1: 0,
             });
         }
         for &(node, mask) in self.partially_visible_nodes.iter() {
             assert!(mask < 15);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
-                    let side_length = node.side_length() * 0.5;
+                    let level_resolution = resolution << node.level();
                     let offset = ((i % 2) as f32, (i / 2) as f32);
                     let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let displacements_desc = Self::find_descs(
@@ -153,16 +166,21 @@ impl QuadTree {
                     );
                     self.node_states.push(NodeState {
                         position: [
-                            node.bounds().min.x + offset.0 * side_length,
-                            node.bounds().min.z + offset.1 * side_length,
-                        ]
-                        .into(),
-                        side_length,
-                        min_distance: node.min_distance(),
+                            (((node.x()*2) + offset.0 as u32) * (resolution/2)) as i32
+                                - (level_resolution as i32 / 2),
+                            (((node.y()*2) + offset.1 as u32) * (resolution/2)) as i32
+                                - (level_resolution as i32 / 2)
+                        ],
+                        // side_length: node.side_length() * 0.5,
+                        min_distance: node.min_distance() as f32,
                         displacements_desc,
                         normals_desc,
                         albedo_desc,
-                        resolution: resolution as i32 / 2,
+                        resolution: resolution / 2,
+                        level_resolution,
+                        face: 0,
+                        // padding0: 0.0,
+                        // padding1: 0,
                     });
                 }
             }

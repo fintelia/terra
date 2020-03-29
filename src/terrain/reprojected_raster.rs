@@ -195,7 +195,7 @@ where
         assert_eq!(self.heights.header.bands, 1);
         context.set_progress_and_total(0, self.heights.header.tiles);
         for i in 0..self.heights.header.tiles {
-            let spacing = self.nodes[i].side_length()
+            let spacing = self.nodes[i].aprox_side_length()
                 / (self.heights.header.resolution - 2 * self.skirt) as f32;
 
             for y in 0..(self.heights.header.resolution - 1) {

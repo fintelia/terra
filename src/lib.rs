@@ -35,6 +35,8 @@ pub use generate::{MapFileBuilder, TextureQuality, VertexQuality};
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct UniformBlock {
+    local_origin: [f64; 3],
+    padding2: f64,
     view_proj: mint::ColumnMatrix4<f32>,
     camera: mint::Point3<f32>,
     padding: f32,
@@ -88,18 +90,16 @@ impl Terrain {
         });
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
-        let (noise, planet_mesh_texture) = {
+        let noise = {
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
             let noise = mapfile.noise_texture(device, &mut encoder);
-            let planet_mesh_texture = mapfile.planet_mesh_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
-            (noise, planet_mesh_texture)
+            noise
         };
 
         let gpu_state = GpuState {
             noise,
-            _planet_mesh_texture: planet_mesh_texture,
             tile_cache: tile_cache.make_cache_textures(device),
         };
 
@@ -312,7 +312,7 @@ impl Terrain {
                 None => continue,
             };
 
-            let spacing = node.side_length() / (normals_resolution - normals_border * 2) as f32;
+            let spacing = node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
             // let position = node.bounds().min
             //     - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
 
@@ -335,7 +335,7 @@ impl Terrain {
                     ];
                     let in_slot = self.tile_cache.get_slot(parent).unwrap() as i32;
                     let out_slot = self.tile_cache.get_slot(node).unwrap() as i32;
-                    let spacing = node.side_length()
+                    let spacing = node.aprox_side_length()
                         / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
                     let position = node.bounds().min
                         - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
@@ -446,7 +446,6 @@ impl Terrain {
                             + (heightmaps_resolution - heightmaps_border * 2 - 1) * offset.y
                                 / (1 << generations)) as i32,
                     ],
-                    spacing: node.side_length() / (displacements_resolution - 1) as f32,
                     stride: stride as i32,
                     displacements_slot: displacements_slot as i32,
                     heightmaps_slot: heightmaps_slot as i32,
@@ -496,7 +495,13 @@ impl Terrain {
             mem::size_of::<UniformBlock>(),
             wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
         );
-        bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock { view_proj, camera, padding: 0.0 };
+        bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock {
+            view_proj,
+            camera,
+            padding: 0.0,
+            local_origin: [0.0, 6371000.0, 0.0],
+            padding2: 0.0,
+        };
         encoder.copy_buffer_to_buffer(
             &mapped.finish(),
             0,

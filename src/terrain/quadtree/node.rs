@@ -1,13 +1,11 @@
+use crate::generate::EARTH_CIRCUMFERENCE;
+use crate::terrain::tile_cache::Priority;
+use crate::utils::math::BoundingBox;
 use cgmath::*;
 use serde::{Deserialize, Serialize};
-
 use std::collections::VecDeque;
 
-use crate::terrain::tile_cache::Priority;
-
-use crate::utils::math::BoundingBox;
-
-const ROOT_SIDE_LENGTH: f32 = 4194304.0;
+const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
 
 lazy_static! {
     pub static ref OFFSETS: [Vector2<i32>; 4] =
@@ -37,15 +35,18 @@ impl VNode {
         Self::new(0, 0, 0)
     }
 
-    pub fn side_length(&self) -> f32 {
+    pub fn aprox_side_length(&self) -> f32 {
         ROOT_SIDE_LENGTH / (1u32 << self.level()) as f32
     }
-    pub fn min_distance(&self) -> f32 {
-        self.side_length() * 1.95
+
+    // Minimum distance from the center of this node on the face of a cube with coordinates from [-1,
+    // 1].
+    pub fn min_distance(&self) -> f64 {
+        1.95 / (1u32 << self.level()) as f64
     }
 
     pub fn bounds(&self) -> BoundingBox {
-        let side_length = self.side_length();
+        let side_length = self.aprox_side_length();
         let min = Point3::new(
             -ROOT_SIDE_LENGTH * 0.5 + side_length * self.x() as f32,
             0.0,
@@ -55,12 +56,22 @@ impl VNode {
         BoundingBox { min, max }
     }
 
+    fn center_cspace(&self) -> Point3<f64> {
+        // TODO: adjust for which face this is
+        Point3::new(
+            (self.x() * 2 + 1) as f64 / (1u32 << self.level()) as f64 - 1.0,
+            1.0,
+            (self.y() * 2 + 1) as f64 / (1u32 << self.level()) as f64 - 1.0,
+        )
+    }
+
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
-    pub fn priority(&self, camera: Point3<f32>) -> Priority {
+    pub fn priority(&self, camera_cspace: Point3<f64>) -> Priority {
         let min_distance = self.min_distance();
         Priority::from_f32(
-            (min_distance * min_distance) / self.bounds().square_distance_xz(camera).max(0.001),
+            ((min_distance * min_distance) / (self.center_cspace().distance2(camera_cspace) -
+                                              1.41 / (1u64 << (self.level()*2)) as f64).max(1e-9)) as f32,
         )
     }
 
@@ -129,7 +140,7 @@ impl VNode {
 
             for &child in parent.children().iter() {
                 if child.bounds().distance(Point3::origin())
-                    < playable_radius + child.min_distance()
+                    < playable_radius + child.aprox_side_length() * 1.95
                 {
                     nodes.push(child);
                     pending.push_back(child);
