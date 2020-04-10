@@ -12,9 +12,9 @@ fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     #[cfg_attr(rustfmt, rustfmt_skip)]
     cgmath::Matrix4::new(
         f / aspect, 0.0,  0.0,  0.0,
-        0.0,          f,  0.0,  0.0,
-        0.0,        0.0,  0.0, -1.0,
-        0.0,        0.0, near,  0.0)
+        0.0,         -f,  0.0,  0.0,
+        0.0,        0.0,  0.0,  1.0,
+        0.0,        0.0,  near,  0.0)
 }
 
 fn make_swapchain(
@@ -30,7 +30,7 @@ fn make_swapchain(
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             width,
             height,
-            present_mode: wgpu::PresentMode::Vsync,
+            present_mode: wgpu::PresentMode::Mailbox,
         },
     )
 }
@@ -44,6 +44,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            label: None,
         })
         .create_default_view()
 }
@@ -75,16 +76,20 @@ fn main() {
         (window, size, surface)
     };
 
-    let adapter = wgpu::Adapter::request(
-        &wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::Default },
+    let adapter = futures::executor::block_on(wgpu::Adapter::request(
+        &wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::Default,
+            compatible_surface: Some(&surface),
+        },
         wgpu::BackendBit::PRIMARY,
-    )
+    ))
     .unwrap();
 
-    let (device, mut queue) = adapter.request_device(&wgpu::DeviceDescriptor {
-        extensions: wgpu::Extensions { anisotropic_filtering: false },
-        limits: wgpu::Limits::default(),
-    });
+    let (device, mut queue) =
+        futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            extensions: wgpu::Extensions { anisotropic_filtering: false },
+            limits: wgpu::Limits::default(),
+        }));
 
     let mapfile = terra::MapFileBuilder::new()
         .latitude(42)

@@ -3,7 +3,7 @@ use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
 use byteorder::{ByteOrder, NativeEndian};
 use cgmath::*;
-use collision::{Frustum, Relation};
+use collision::Frustum;
 use std::collections::HashMap;
 
 pub(crate) mod node;
@@ -47,10 +47,11 @@ impl QuadTree {
         device: &wgpu::Device,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
         let make_index_buffer = |resolution: u16| -> wgpu::Buffer {
-            let mapped = device.create_buffer_mapped(
-                12 * (resolution as usize + 1) * (resolution as usize + 1),
-                wgpu::BufferUsage::INDEX,
-            );
+            let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+                size: 12 * (resolution as u64 + 1) * (resolution as u64 + 1),
+                usage: wgpu::BufferUsage::INDEX,
+                label: Some(&format!("index_buffer_{0}x{0}", resolution)),
+            });
 
             let mut i = 0;
             let width = resolution + 1;

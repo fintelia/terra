@@ -71,7 +71,7 @@ fn create_compute_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
 
 fn reflect(
     stages: &[&[u8]],
-) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutBinding>), failure::Error> {
+) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>), failure::Error> {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
         BTreeMap::new();
 
@@ -132,7 +132,7 @@ fn reflect(
                 assert_eq!(set, 0);
                 let name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
                 let ty = match desc.desc_ty {
-                    DescriptorType::Sampler => wgpu::BindingType::Sampler,
+                    DescriptorType::Sampler => wgpu::BindingType::Sampler { comparison: false },
                     DescriptorType::UniformBuffer(..) => {
                         wgpu::BindingType::UniformBuffer { dynamic: false }
                     }
@@ -146,6 +146,7 @@ fn reflect(
                                 }
                                 _ => unimplemented!(),
                             },
+                            component_type: wgpu::TextureComponentType::Uint,
                         }
                     }
                     v => unimplemented!("{:?}", v),
@@ -172,7 +173,7 @@ fn reflect(
     let mut bindings = Vec::new();
     for (binding, (name, ty, visibility)) in binding_map.into_iter() {
         names.push(name);
-        bindings.push(wgpu::BindGroupLayoutBinding { binding, visibility, ty });
+        bindings.push(wgpu::BindGroupLayoutEntry { binding, visibility, ty });
     }
 
     Ok((attributes, names, bindings))

@@ -294,10 +294,11 @@ impl TileCache {
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = pending_uploads.len();
 
-        let buffer = device.create_buffer_mapped(
-            row_pitch * resolution * tiles,
-            wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
-        );
+        let buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            size: (row_pitch * resolution * tiles) as u64,
+            usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+            label: None,
+        });
 
         let mut i = 0;
         for upload in &pending_uploads {
@@ -316,8 +317,8 @@ impl TileCache {
                 wgpu::BufferCopyView {
                     buffer: &buffer,
                     offset: (index * row_pitch * resolution) as u64,
-                    row_pitch: row_pitch as u32,
-                    image_height: resolution as u32,
+                    bytes_per_row: row_pitch as u32,
+                    rows_per_image: resolution as u32,
                 },
                 wgpu::TextureCopyView {
                     texture,
@@ -354,6 +355,7 @@ impl TileCache {
                             | wgpu::TextureUsage::COPY_DST
                             | wgpu::TextureUsage::SAMPLED
                             | wgpu::TextureUsage::STORAGE,
+                        label: None,
                     }),
                 )
             })

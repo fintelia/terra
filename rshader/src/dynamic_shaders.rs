@@ -53,7 +53,7 @@ pub struct ShaderSet {
     compute: Option<Vec<u8>>,
 
     input_attributes: Vec<wgpu::VertexAttributeDescriptor>,
-    layout_descriptor: Vec<wgpu::BindGroupLayoutBinding>,
+    layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
     desc_names: Vec<Option<String>>,
 
     vertex_filenames: Vec<PathBuf>,
@@ -184,7 +184,7 @@ impl ShaderSet {
     }
 
     pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
-        wgpu::BindGroupLayoutDescriptor { bindings: &self.layout_descriptor[..] }
+        wgpu::BindGroupLayoutDescriptor { bindings: &self.layout_descriptor[..], label: None }
     }
     pub fn desc_names(&self) -> &[Option<String>] {
         &self.desc_names[..]

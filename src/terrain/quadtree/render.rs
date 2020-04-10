@@ -186,10 +186,11 @@ impl QuadTree {
             }
         }
 
-        let mapped = device.create_buffer_mapped(
-            self.node_states.len() * mem::size_of::<NodeState>(),
-            wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        );
+        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            size: (self.node_states.len() * mem::size_of::<NodeState>()) as u64,
+            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+            label: None,
+        });
 
         let slice = bytemuck::cast_slice_mut(mapped.data);
         slice.copy_from_slice(&self.node_states[..]);
@@ -203,23 +204,23 @@ impl QuadTree {
         );
     }
 
-    pub(crate) fn render(
+    pub(crate) fn render<'b, 'c>(
         &self,
-        rpass: &mut wgpu::RenderPass,
-        vertex_buffer: &wgpu::Buffer,
-        index_buffer: &wgpu::Buffer,
-        index_buffer_partial: &wgpu::Buffer,
+        rpass: &'b mut wgpu::RenderPass<'c>,
+        vertex_buffer: &'c wgpu::Buffer,
+        index_buffer: &'c wgpu::Buffer,
+        index_buffer_partial: &'c wgpu::Buffer,
     ) {
         let resolution = self.heights_resolution;
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 
-        rpass.set_vertex_buffers(0, &[(vertex_buffer, 0)]);
+        rpass.set_vertex_buffer(0, vertex_buffer, 0, 0);
 
-        rpass.set_index_buffer(index_buffer, 0);
+        rpass.set_index_buffer(index_buffer, 0, 0);
         rpass.draw_indexed(0..(resolution * resolution * 6), 0, 0..visible_nodes);
 
-        rpass.set_index_buffer(index_buffer_partial, 0);
+        rpass.set_index_buffer(index_buffer_partial, 0, 0);
         rpass.draw_indexed(
             0..((resolution / 2) * (resolution / 2) * 6),
             0,

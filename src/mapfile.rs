@@ -81,6 +81,7 @@ impl MapFile {
                 | wgpu::TextureUsage::COPY_DST
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE,
+            label: None,
         });
 
         let resolution = desc.resolution as usize;
@@ -89,10 +90,12 @@ impl MapFile {
         let row_pitch = (row_bytes + 255) & !255;
         let data = &self.file[desc.offset..][..desc.bytes];
 
-        let mapped = device.create_buffer_mapped(
-            row_pitch * resolution,
-            wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        );
+        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            size: (row_pitch * resolution) as u64,
+            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+            label: None,
+        });
+
         for row in 0..resolution {
             mapped.data[row * row_pitch..][..row_bytes]
                 .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
@@ -102,8 +105,8 @@ impl MapFile {
             wgpu::BufferCopyView {
                 buffer: &mapped.finish(),
                 offset: 0,
-                row_pitch: row_pitch as u32,
-                image_height: resolution as u32,
+                bytes_per_row: row_pitch as u32,
+                rows_per_image: resolution as u32,
             },
             wgpu::TextureCopyView {
                 texture: &texture,

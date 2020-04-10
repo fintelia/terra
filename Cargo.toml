@@ -54,13 +54,13 @@ shred = { version = "0.9.3", features = ["nightly"] }
 toml = "0.5.3"
 vec_map = { version = "0.8.1", features = ["serde"] }
 vecmath = "1.0.0"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "8f083e54c57f7411c60b53fc8366be254bace093" }
+wgpu = "0.5.0"
 winit = "0.20.0-alpha5"
 xdg = "2.2.0"
 zerocopy = "0.2.8"
 zip = "0.5.3"
 bytemuck = "1.1.0"
-wgpu_glyph = { git = "https://github.com/fintelia/wgpu_glyph", rev = "d22b96444160326977965cab9742c3d367426121" }
+wgpu_glyph = { git = "https://github.com/fintelia/wgpu_glyph", rev = "7c09d12815a1e3496418730172d293a16190c18f" }
 futures = "0.3.1"
 gilrs = "0.7.3"
 

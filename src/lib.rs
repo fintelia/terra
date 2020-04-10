@@ -83,16 +83,18 @@ impl Terrain {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: std::mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+            label: Some("terrain.uniforms"),
         });
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
+            label: Some("terrain.vertex_buffer"),
         });
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
         let noise = {
             let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("generate_noise") });
             let noise = mapfile.noise_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
             noise
@@ -135,7 +137,7 @@ impl Terrain {
         mapfile.clear_generated(LayerType::Albedo).unwrap();
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
-        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
+        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font).unwrap()
             .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Self {
@@ -181,7 +183,7 @@ impl Terrain {
 
             let future = buffer.map_read(0, size as u64);
 
-            device.poll(false);
+            device.poll(wgpu::Maintain::Wait);
 
             if let Ok(mapping) = executor::block_on(future) {
                 let mut tile_data = vec![0; resolution * resolution * bytes_per_texel];
@@ -270,12 +272,14 @@ impl Terrain {
                         stencil_read_mask: 0,
                         stencil_write_mask: 0,
                     }),
-                    index_format: wgpu::IndexFormat::Uint16,
-                    vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                        stride: std::mem::size_of::<NodeState>() as u64,
-                        step_mode: wgpu::InputStepMode::Instance,
-                        attributes: self.shader.input_attributes(),
-                    }],
+                    vertex_state: wgpu::VertexStateDescriptor {
+                        index_format: wgpu::IndexFormat::Uint16,
+                        vertex_buffers: &[wgpu::VertexBufferDescriptor {
+                            stride: std::mem::size_of::<NodeState>() as u64,
+                            step_mode: wgpu::InputStepMode::Instance,
+                            attributes: self.shader.input_attributes(),
+                        }],
+                    },
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
@@ -284,7 +288,7 @@ impl Terrain {
         }
 
         let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { todo: 0 });
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         let mut missing = VecMap::new();
         for (i, texture) in &self.gpu_state.tile_cache {
@@ -386,6 +390,7 @@ impl Terrain {
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                    label: Some("download_tiles.normals"),
                 });
                 encoder.copy_texture_to_buffer(
                     wgpu::TextureCopyView {
@@ -397,8 +402,8 @@ impl Terrain {
                     wgpu::BufferCopyView {
                         buffer: &download,
                         offset: 0,
-                        row_pitch: normals_row_pitch as u32,
-                        image_height: normals_resolution as u32,
+                        bytes_per_row: normals_row_pitch as u32,
+                        rows_per_image: normals_resolution as u32,
                     },
                     wgpu::Extent3d {
                         width: normals_resolution as u32,
@@ -458,6 +463,7 @@ impl Terrain {
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                    label: Some("download_tiles.displacements"),
                 });
                 encoder.copy_texture_to_buffer(
                     wgpu::TextureCopyView {
@@ -469,8 +475,8 @@ impl Terrain {
                     wgpu::BufferCopyView {
                         buffer: &download,
                         offset: 0,
-                        row_pitch: displacements_row_pitch as u32,
-                        image_height: displacements_resolution as u32,
+                        bytes_per_row: displacements_row_pitch as u32,
+                        rows_per_image: displacements_resolution as u32,
                     },
                     wgpu::Extent3d {
                         width: displacements_resolution as u32,
@@ -491,10 +497,11 @@ impl Terrain {
             &self.tile_cache,
         );
 
-        let mapped = device.create_buffer_mapped(
-            mem::size_of::<UniformBlock>(),
-            wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-        );
+        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+            size: mem::size_of::<UniformBlock>() as u64,
+            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+            label: Some("terrain_uniforms_upload"),
+        });
         bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock {
             view_proj,
             camera,

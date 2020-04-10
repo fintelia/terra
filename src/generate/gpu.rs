@@ -47,6 +47,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             uniforms: device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+                label: None,
             }),
             _phantom: std::marker::PhantomData,
         }

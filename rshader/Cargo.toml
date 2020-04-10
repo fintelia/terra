@@ -14,7 +14,7 @@ failure = "0.1.6"
 notify = "4.0.13"
 shaderc = "0.6.1"
 spirq = { git = "https://github.com/fintelia/spirq-rs", rev = "7b80ba366f9c8eb94450ba5d119dd6d8effa2dd5" }
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "8f083e54c57f7411c60b53fc8366be254bace093" }
+wgpu = "0.5.0"
 
 [features]
 default = []

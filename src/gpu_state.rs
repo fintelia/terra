@@ -22,7 +22,7 @@ impl GpuState {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: -100.0,
             lod_max_clamp: 100.0,
-            compare_function: wgpu::CompareFunction::Always,
+            compare: wgpu::CompareFunction::Always,
         });
         let linear_wrap = &device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -33,7 +33,7 @@ impl GpuState {
             mipmap_filter: wgpu::FilterMode::Nearest,
             lod_min_clamp: -100.0,
             lod_max_clamp: 100.0,
-            compare_function: wgpu::CompareFunction::Always,
+            compare: wgpu::CompareFunction::Always,
         });
 
         let noise = &self.noise.create_default_view();
@@ -49,7 +49,7 @@ impl GpuState {
             bindings.push(wgpu::Binding {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler => wgpu::BindingResource::Sampler(match name {
+                    wgpu::BindingType::Sampler { comparison: _ } => wgpu::BindingResource::Sampler(match name {
                         "linear" => &linear,
                         "linear_wrap" => &linear_wrap,
                         _ => unreachable!("unrecognized sampler: {}", name),
@@ -68,12 +68,13 @@ impl GpuState {
                     }
                     wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
                 },
-            })
+            });
         }
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             bindings: &*bindings,
+            label: None,
         });
 
         (bind_group, bind_group_layout)
