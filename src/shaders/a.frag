@@ -19,7 +19,7 @@ layout(location = 3) in vec3 normals_texcoord;
 layout(location = 4) in vec3 normals_parent_texcoord;
 layout(location = 5) in float morph;
 layout(location = 6) in vec2 i_position;
-layout(location = 7) in float side_length;
+layout(location = 7) in float resolution;
 layout(location = 8) in float min_distance;
 layout(location = 9) in float elevation;
 
@@ -40,6 +40,15 @@ vec3 debug_overlay(vec3 color) {
 	vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
 	vec2 tc = normals_texcoord.xy;//;
 	float ml = mipmap_level(tc * ts);
+
+	// vec3 pc = normalize((position+vec3(0,6371000.0,0)) / (position.y+6371000.0));
+	// vec3 cc = normalize((ubo.camera.xyz+vec3(0,6371000.0,0)) / (ubo.camera.y+6371000.0));
+	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
+	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
+
+	vec2 ip = abs(vec2(1) - 2*i_position/resolution);
+	if(ip.x > 0.99 || ip.y > 0.99)
+		color.rgb = mix(color.rgb, vec3(0,0,0), 0.8);
 
 	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
 	// vec3 overlay_color = vec3(0);
@@ -148,5 +157,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	out_color.rgb = debug_overlay(out_color.rgb);
+	// out_color.rgb = debug_overlay(out_color.rgb);
 }

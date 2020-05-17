@@ -65,7 +65,9 @@ void main() {
 	// Apply noise
 	vec2 position = ubo.position + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
 	vec2 n = abs(vec2(pow(random(position),2)));
-	height += n.x * ubo.spacing * mix(0.05, .4, smoothstep(0.4, 0.5, slope));
+	if(ubo.spacing < 0.25)
+	height += n.x * ubo.spacing * mix(0.05, .4, smoothstep(0.4, 0.5, 2+slope*1000));
+	// height += 100 * sin(length(position.xy)/500);
 
 	// Write output
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));

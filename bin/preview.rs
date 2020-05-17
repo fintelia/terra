@@ -12,8 +12,8 @@ fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     #[cfg_attr(rustfmt, rustfmt_skip)]
     cgmath::Matrix4::new(
         f / aspect, 0.0,  0.0,  0.0,
-        0.0,         -f,  0.0,  0.0,
-        0.0,        0.0,  0.0,  1.0,
+        0.0,         f,  0.0,  0.0,
+        0.0,        0.0,  0.0,  -1.0,
         0.0,        0.0,  near,  0.0)
 }
 
@@ -187,7 +187,7 @@ fn main() {
                         0.0,
                         eye.z + 20000.0 * forward.z,
                     ),
-                    cgmath::Vector3::new(0.0, -1.0, 0.0),
+                    cgmath::Vector3::new(0.0, 1.0, 0.0),
                 );
 
                 let view_proj = proj * view;

@@ -1,5 +1,5 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
-use crate::coordinates::{CoordinateSystem, PLANET_RADIUS};
+use crate::coordinates::CoordinateSystem;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::Heightmap;
 use crate::terrain::quadtree::VNode;
@@ -78,34 +78,38 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                 Vec::with_capacity(self.resolution as usize * self.resolution as usize);
             for y in 0..(self.resolution as i32) {
                 for x in 0..(self.resolution as i32) {
-                    let world = world_position(x, y, bounds, self.skirt, self.resolution);
-                    let mut world3 = Vector3::new(
-                        world.x,
-                        PLANET_RADIUS
-                            * ((1.0 - world.magnitude2() / PLANET_RADIUS).max(0.25).sqrt() - 1.0),
-                        world.y,
-                    );
-                    for i in 0..5 {
-                        world3.x = world.x;
-                        world3.z = world.y;
-                        let mut lla = self.system.world_to_lla(world3);
-                        lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
-                            if world.magnitude2() < 250000.0 * 250000.0 {
-                                self.dem_cache
-                                    .borrow_mut()
-                                    .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                                    .unwrap_or(0.0) as f64
-                            } else {
-                                global_dem
-                                    .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
-                                    .max(0.0)
-                            }
-                        } else {
-                            0.0
-                        };
-                        world3 = self.system.lla_to_world(lla);
-                    }
-                    heights.push(world3.y as f32);
+                    let cspace = self.nodes[i].grid_position_cspace(x, y, self.skirt, self.resolution);
+                    let sspace = CoordinateSystem::cspace_to_sspace(cspace);
+
+                    // let world = world_position(x, y, bounds, self.skirt, self.resolution);
+                    // let mut world3 = Vector3::new(
+                    //     world.x,
+                    //     PLANET_RADIUS
+                    //         * ((1.0 - world.magnitude2() / PLANET_RADIUS).max(0.25).sqrt() - 1.0),
+                    //     world.y,
+                    // );
+                    // for i in 0..5 {
+                    //     world3.x = world.x;
+                    //     world3.z = world.y;
+                    //     let mut lla = self.system.world_to_lla(world3);
+                    //     lla.z = if i >= 3 && world.magnitude2() < 2000000.0 * 2000000.0 {
+                    //         if world.magnitude2() < 250000.0 * 250000.0 {
+                    //             self.dem_cache
+                    //                 .borrow_mut()
+                    //                 .interpolate(context, lla.x.to_degrees(), lla.y.to_degrees(), 0)
+                    //                 .unwrap_or(0.0) as f64
+                    //         } else {
+                    //             global_dem
+                    //                 .interpolate(lla.x.to_degrees(), lla.y.to_degrees(), 0)
+                    //                 .max(0.0)
+                    //         }
+                    //     } else {
+                    //         0.0
+                    //     };
+                    //     world3 = self.system.lla_to_world(lla);
+                    // }
+                    // heights.push(world3.y as f32);
+                    heights.push(0.0);
                 }
             }
             heightmaps.push(Heightmap::new(heights, self.resolution, self.resolution));
@@ -135,8 +139,6 @@ where
 {
     #[allow(unused)]
     GlobalRaster { global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>> },
-    #[allow(unused)]
-    RasterCache { cache: Rc<RefCell<RasterCache<T, C2>>>, default: f64, radius2: Option<f64> },
     Hybrid {
         global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
         cache: Rc<RefCell<RasterCache<T, C2>>>,
@@ -149,10 +151,10 @@ where
     C2: Deref<Target = [T]>,
 {
     pub name: String,
-    pub heights: &'a ReprojectedRaster,
 
     pub system: &'a CoordinateSystem,
-    pub nodes: &'a Vec<VNode>,
+    pub nodes: &'a [VNode],
+    pub resolution: u16,
     pub skirt: u16,
 
     pub datatype: DataType,
@@ -180,40 +182,26 @@ where
                 let spacing = global_raster.spacing() as f32;
                 (Some(global_raster), Some(spacing))
             }
-            RasterSource::RasterCache { .. } => (None, None),
         };
 
         let bands = match self.raster {
             RasterSource::GlobalRaster { .. } => global_raster.as_ref().unwrap().bands,
-            RasterSource::RasterCache { ref cache, .. } => cache.borrow().bands(),
             RasterSource::Hybrid { ref cache, .. } => {
                 assert_eq!(global_raster.as_ref().unwrap().bands, cache.borrow().bands());
                 cache.borrow().bands()
             }
         };
 
-        assert_eq!(self.heights.header.bands, 1);
-        context.set_progress_and_total(0, self.heights.header.tiles);
-        for i in 0..self.heights.header.tiles {
-            let spacing = self.nodes[i].aprox_side_length()
-                / (self.heights.header.resolution - 2 * self.skirt) as f32;
+        context.set_progress_and_total(0, self.nodes.len());
+        for (i, node) in self.nodes.iter().enumerate() {
+            let spacing = node.aprox_side_length() / (self.resolution - 2 * self.skirt) as f32;
 
-            for y in 0..(self.heights.header.resolution - 1) {
-                for x in 0..(self.heights.header.resolution - 1) {
-                    let world = world_position(
-                        x as i32,
-                        y as i32,
-                        self.nodes[i].bounds(),
-                        self.skirt,
-                        self.heights.header.resolution,
-                    );
-                    let h00 = self.heights.get(i, x, y, 0);
-                    let h01 = self.heights.get(i, x, y + 1, 0);
-                    let h10 = self.heights.get(i, x + 1, y, 0);
-                    let h11 = self.heights.get(i, x + 1, y + 1, 0);
-                    let h = (h00 + h01 + h10 + h11) as f64 * 0.25;
-                    let lla = self.system.world_to_lla(Vector3::new(world.x, h, world.y));
-                    let (lat, long) = (lla.x.to_degrees(), lla.y.to_degrees());
+            for y in 0..(self.resolution as i32) {
+                for x in 0..(self.resolution as i32) {
+                    let cspace = node.cell_position_cspace(x, y, self.skirt, self.resolution);
+                    let sspace = CoordinateSystem::cspace_to_sspace(cspace);
+                    let polar = CoordinateSystem::sspace_to_polar(sspace);
+                    let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
 
                     for band in 0..bands {
                         let v = match self.raster {
@@ -221,16 +209,6 @@ where
                                 .as_ref()
                                 .unwrap()
                                 .interpolate(lat, long, band as usize),
-                            RasterSource::RasterCache { ref cache, ref radius2, default } => {
-                                if radius2.is_none() || world.magnitude2() < radius2.unwrap() {
-                                    cache
-                                        .borrow_mut()
-                                        .interpolate(context, lat, long, band)
-                                        .unwrap_or(default)
-                                } else {
-                                    default
-                                }
-                            }
                             RasterSource::Hybrid { ref cache, .. } => {
                                 if spacing >= *global_spacing.as_ref().unwrap() {
                                     global_raster.as_ref().unwrap().interpolate(lat, long, band)
@@ -260,15 +238,14 @@ where
 
         let spacing = match self.raster {
             RasterSource::GlobalRaster { .. } => Some(global_raster.unwrap().spacing()),
-            RasterSource::RasterCache { ref cache, .. } => cache.borrow().spacing(),
             RasterSource::Hybrid { ref cache, .. } => {
                 cache.borrow().spacing().or(Some(global_raster.unwrap().spacing()))
             }
         };
 
         Ok(ReprojectedRasterHeader {
-            resolution: self.heights.header.resolution - 1,
-            tiles: self.heights.header.tiles,
+            resolution: self.resolution,
+            tiles: self.nodes.len(),
             datatype: self.datatype,
             bands: bands.try_into().unwrap(),
             spacing,
@@ -319,7 +296,10 @@ impl ReprojectedRaster {
         let resolution = self.header.resolution as usize;
         let index = band as usize
             + (x as usize + (y as usize + tile * resolution) * resolution)
-                * self.header.bands as usize;
+            * self.header.bands as usize;
+        if index >= self.data.len() {
+            eprintln!("ERROR: tile = {}/{}, x = {}, y = {}, band = {}, resolution = {}", tile, self.header.tiles, x, y, band, resolution);
+        }
         match self.header.datatype {
             DataType::F32 => LittleEndian::read_f32(&self.data[index * 4..]),
             DataType::U8 => f32::from(self.data[index]),
@@ -329,5 +309,9 @@ impl ReprojectedRaster {
     /// Returns the spacing of the source dataset, if known.
     pub fn spacing(&self) -> Option<f64> {
         self.header.spacing
+    }
+
+    pub fn tiles(&self) -> usize {
+        self.header.tiles
     }
 }

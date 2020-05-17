@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 lazy_static! {
     static ref ELLIPSOID: GeoEllipsoid =
-        { GeoEllipsoid::new(WGS84_SEMI_MAJOR_AXIS_METERS, WGS84_FLATTENING) };
+        GeoEllipsoid::new(WGS84_SEMI_MAJOR_AXIS_METERS, WGS84_FLATTENING);
 }
 
 pub const PLANET_RADIUS: f64 = 6371000.0;
@@ -209,6 +209,18 @@ impl CoordinateSystem {
 
         let world = self.ecef_to_world(ecef);
         world.normalize()
+    }
+
+    pub fn cspace_to_sspace(position: Vector3<f64>) -> Vector3<f64> {
+        Vector3::new(position.x, position.y, position.z).normalize()
+    }
+    pub fn sspace_to_polar(sspace: Vector3<f64>) -> Vector3<f64> {
+        let r = sspace.magnitude();
+        let latitude = f64::asin(sspace.y / r);
+        let longitude = f64::atan2(sspace.x, sspace.z);
+        let altitude = (r - 1.0) * PLANET_RADIUS;
+
+        Vector3::new(latitude, longitude, altitude)
     }
 }
 

@@ -35,7 +35,7 @@ layout(location = 3) out vec3 out_normals_texcoord;
 layout(location = 4) out vec3 out_pnormals_texcoord;
 layout(location = 5) out float out_morph;
 layout(location = 6) out vec2 out_i_position;
-layout(location = 7) out float out_side_length;
+layout(location = 7) out float out_resolution;
 layout(location = 8) out float out_min_distance;
 layout(location = 9) out float out_elevation;
 
@@ -68,8 +68,8 @@ float compute_morph(vec2 iPosition) {
 	float r = max(max(abs(ubo.camera.x), abs(camera.y)), abs(camera.z));
 	camera = camera / r;
 
-	float morph = 1 - smoothstep(0.7, 0.95, float(distance(cubePosition, camera)) / min_distance);
-	morph = min(morph * 2, 1);
+	float morph = 1 - smoothstep(0.9, 1, float(distance(cubePosition, camera)) / min_distance);
+	// morph = min(morph * 20000, 1);
 	return morph;
 }
 
@@ -108,13 +108,10 @@ void main() {
 	out_pnormals_texcoord = pnormals_origin + vec3(nPosition * pnormals_step, 0);
 	out_morph = morph;
 	out_i_position = vec2(iPosition);
-	out_side_length = resolution; //side_length;
-	out_min_distance = 0.0; //min_distance;
+	out_resolution = resolution;
+	out_min_distance = min_distance;
 	out_elevation = texture(sampler2DArray(displacements, linear),
 							heights_origin + vec3(nPosition * heights_step, 0)).g;
 
 	gl_Position = ubo.view_proj * vec4(position, 1.0);
-
-	// TODO: This should not be needed
-	gl_Position.x *= -1;
 }

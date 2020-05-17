@@ -2,6 +2,7 @@
 #![feature(async_closure)]
 #![feature(stmt_expr_attributes)]
 #![feature(with_options)]
+#![feature(is_sorted)]
 
 #[macro_use]
 extern crate lazy_static;

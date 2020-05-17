@@ -558,11 +558,13 @@ impl<W: Write> State<W> {
 
         context.increment_level("Generating colormaps... ", tile_count);
 
+        // let heights = self.heightmaps.as_ref().unwrap();
+
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
-            heights: self.heightmaps.as_ref().unwrap(),
             system: &self.system,
-            nodes: &self.nodes,
+            nodes: &self.nodes[..tile_count],
+            resolution: colormap_resolution,
             skirt: self.skirt,
             datatype: DataType::U8,
             raster: RasterSource::Hybrid {
@@ -601,18 +603,20 @@ impl<W: Write> State<W> {
                 continue;
             }
 
-            for y in 2..(2 + colormap_resolution) {
-                for x in 2..(2 + colormap_resolution) {
+            for y in 0..colormap_resolution {
+                for x in 0..colormap_resolution {
                     let color = if false
                     /*watermasks.get(i, x, y, 0) > 0.01*/
                     {
                         [0, 6, 13, 77]
-                    } else {
+                    } else if i < bluemarble.tiles() {
                         let r = bluemarble.get(i, x, y, 0) as u8;
                         let g = bluemarble.get(i, x, y, 1) as u8;
                         let b = bluemarble.get(i, x, y, 2) as u8;
                         let roughness = (0.7 * 255.0) as u8;
                         [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
+                    } else {
+                        [0, 0, 0, (0.7 * 255.0) as u8]
                     };
 
                     colormap.extend_from_slice(&color);
