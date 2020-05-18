@@ -125,7 +125,7 @@ impl QuadTree {
                 normals_desc,
                 resolution: resolution,
                 level_resolution: resolution << node.level(),
-                face: 0,
+                face: node.face() as u32,
                 // padding0: 0.0,
                 // padding1: 0,
             });

@@ -38,32 +38,33 @@ pub(crate) const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 // Mapping from side length to level number.
 #[allow(unused)]
 mod levels {
-    pub const LEVEL_4194_KM: i32 = 0;
-    pub const LEVEL_2097_KM: i32 = 1;
-    pub const LEVEL_1049_KM: i32 = 2;
-    pub const LEVEL_524_KM: i32 = 3;
-    pub const LEVEL_262_KM: i32 = 4;
-    pub const LEVEL_131_KM: i32 = 5;
-    pub const LEVEL_66_KM: i32 = 6;
-    pub const LEVEL_33_KM: i32 = 7;
-    pub const LEVEL_16_KM: i32 = 8;
-    pub const LEVEL_8_KM: i32 = 9;
-    pub const LEVEL_4_KM: i32 = 10;
-    pub const LEVEL_2_KM: i32 = 11;
-    pub const LEVEL_1_KM: i32 = 12;
-    pub const LEVEL_256_M: i32 = 13;
-    pub const LEVEL_128_M: i32 = 14;
-    pub const LEVEL_64_M: i32 = 15;
-    pub const LEVEL_32_M: i32 = 16;
-    pub const LEVEL_16_M: i32 = 17;
-    pub const LEVEL_8_M: i32 = 18;
-    pub const LEVEL_4_M: i32 = 19;
-    pub const LEVEL_2_M: i32 = 20;
-    pub const LEVEL_1_M: i32 = 21;
-    pub const LEVEL_50_CM: i32 = 22;
-    pub const LEVEL_25_CM: i32 = 23;
-    pub const LEVEL_13_CM: i32 = 24;
-    pub const LEVEL_6_CM: i32 = 25;
+    pub const LEVEL_10000_KM: i32 = 0;
+    pub const LEVEL_5000_KM: i32 = 1;
+    pub const LEVEL_2500_KM: i32 = 2;
+    pub const LEVEL_1250_KM: i32 = 3;
+    pub const LEVEL_625_KM: i32 = 4;
+    pub const LEVEL_300_KM: i32 = 5;
+    pub const LEVEL_150_KM: i32 = 6;
+    pub const LEVEL_75_KM: i32 = 7;
+    pub const LEVEL_40_KM: i32 = 8;
+    pub const LEVEL_20_KM: i32 = 9;
+    pub const LEVEL_10_KM: i32 = 10;
+    pub const LEVEL_5_KM: i32 = 11;
+    pub const LEVEL_2_KM: i32 = 12;
+    pub const LEVEL_1_KM: i32 = 13;
+    pub const LEVEL_600_M: i32 = 14;
+    pub const LEVEL_305_M: i32 = 15;
+    pub const LEVEL_153_M: i32 = 16;
+    pub const LEVEL_76_M: i32 = 17;
+    pub const LEVEL_38_M: i32 = 18;
+    pub const LEVEL_19_M: i32 = 19;
+    pub const LEVEL_10_M: i32 = 20;
+    pub const LEVEL_5_M: i32 = 21;
+    pub const LEVEL_2_M: i32 = 22;
+    pub const LEVEL_1_M: i32 = 23;
+    pub const LEVEL_60_CM: i32 = 24;
+    pub const LEVEL_30_CM: i32 = 25;
+    pub const LEVEL_15_CM: i32 = 26;
 }
 use levels::*;
 
@@ -244,7 +245,7 @@ impl MMappedAsset for MapFileBuilder {
 
         let world_size = 4194304.0;
         let max_heights_present_level =
-            LEVEL_64_M - self.vertex_quality.resolution_log2() as i32 + 1;
+            LEVEL_600_M - self.vertex_quality.resolution_log2() as i32 + 1;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
@@ -520,18 +521,18 @@ impl<W: Write> State<W> {
                         _ => height,
                     });
 
-                    let world2 = self.world_position(
-                        position.x as i32,
-                        position.y as i32,
-                        self.nodes[i].bounds(),
-                    );
-                    let altitude =
-                        self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
+                    // let world2 = self.world_position(
+                    //     position.x as i32,
+                    //     position.y as i32,
+                    //     self.nodes[i].bounds(),
+                    // );
+                    // let altitude =
+                    //     self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
 
                     self.writer.write_f32::<LittleEndian>(0.0)?;
                     self.writer.write_f32::<LittleEndian>(height)?;
                     self.writer.write_f32::<LittleEndian>(0.0)?;
-                    self.writer.write_f32::<LittleEndian>(altitude as f32)?;
+                    self.writer.write_f32::<LittleEndian>(0.0)?;
                     self.bytes_written += 16;
                 }
             }

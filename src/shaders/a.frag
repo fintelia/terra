@@ -22,6 +22,7 @@ layout(location = 6) in vec2 i_position;
 layout(location = 7) in float resolution;
 layout(location = 8) in float min_distance;
 layout(location = 9) in float elevation;
+layout(location = 10) in float face;
 
 layout(location = 0) out vec4 out_color;
 
@@ -46,9 +47,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
 	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
 
-	vec2 ip = abs(vec2(1) - 2*i_position/resolution);
-	if(ip.x > 0.99 || ip.y > 0.99)
-		color.rgb = mix(color.rgb, vec3(0,0,0), 0.8);
+	// vec2 ip = abs(vec2(1) - 2*i_position/resolution);
+	// if(ip.x > 0.99 || ip.y > 0.99)
+	// 	color.rgb = mix(color.rgb, vec3(0,0,0), 0.8);
 
 	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
 	// vec3 overlay_color = vec3(0);
@@ -88,9 +89,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -110,6 +111,15 @@ vec3 debug_overlay(vec3 color) {
 
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
+
+	// if(face == 0) color = mix(color, vec3(1,0,0), .1);
+	// if(face == 1) color = mix(color, vec3(0,1,0), .1);
+	// if(face == 2) color = mix(color, vec3(0,0,1), .1);
+	// if(face == 3) color = mix(color, vec3(1,1,0), .1);
+	// if(face == 4) color = mix(color, vec3(1,1,1), .1);
+	// if(face == 5) color = mix(color, vec3(0,0,0), .1);
+
+	// if(face == 2 && sin(gl_FragCoord.x) * sin(gl_FragCoord.y) < 1.4 )discard;
 
  	return color;
 }
@@ -157,5 +167,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// out_color.rgb = debug_overlay(out_color.rgb);
+	out_color.rgb = debug_overlay(out_color.rgb);
 }

@@ -38,6 +38,7 @@ layout(location = 6) out vec2 out_i_position;
 layout(location = 7) out float out_resolution;
 layout(location = 8) out float out_min_distance;
 layout(location = 9) out float out_elevation;
+layout(location = 10) out float out_face;
 
 const double planetRadius = 6371000.0;
 
@@ -50,7 +51,15 @@ struct Positions {
 
 vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, out vec3 bitangent) {
 	dvec2 facePosition = 2.0 * (dvec2(iPosition) + dvec2(in_position)) / double(level_resolution);
-	dvec3 cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
+
+	dvec3 cubePosition = dvec3(0);
+	if(face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
+	else if(face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
+	else if(face == 2) cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
+	else if(face == 3) cubePosition = dvec3(-facePosition.x, -1.0, facePosition.y);
+	else if(face == 4) cubePosition = dvec3(facePosition.x, -facePosition.y, 1.0);
+    else if(face == 5) cubePosition = dvec3(-facePosition.x, -facePosition.y, -1.0);
+
 	dvec3 spherePosition = normalize(cubePosition);
 
 	normal = vec3(spherePosition);
@@ -112,6 +121,6 @@ void main() {
 	out_min_distance = min_distance;
 	out_elevation = texture(sampler2DArray(displacements, linear),
 							heights_origin + vec3(nPosition * heights_step, 0)).g;
-
+	out_face = face;
 	gl_Position = ubo.view_proj * vec4(position, 1.0);
 }

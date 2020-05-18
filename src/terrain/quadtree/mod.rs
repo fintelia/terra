@@ -111,7 +111,7 @@ impl QuadTree {
 
         // Any node with all needed layers in cache is visible...
         VNode::breadth_first(|node| {
-            let visible = node.level() == 0 || node.priority(camera) >= Priority::cutoff();
+            let visible = node.level() == 0 /*|| node.priority(camera) >= Priority::cutoff()*/;
             node_visibilities.insert(node, visible);
             visible
         });

@@ -71,12 +71,19 @@ impl VNode {
     }
 
     fn center_cspace(&self) -> Vector3<f64> {
-        // TODO: adjust for which face this is
-        Vector3::new(
-            (self.x() * 2 + 1) as f64 / (1u32 << self.level()) as f64 - 1.0,
-            1.0,
-            (self.y() * 2 + 1) as f64 / (1u32 << self.level()) as f64 - 1.0,
-        )
+        self.cell_position_cspace(0, 0, 0, 1)
+    }
+
+    fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
+        match self.face() {
+            0 => Vector3::new(1.0, x, -y),
+            1 => Vector3::new(-1.0, -x, -y),
+            2 => Vector3::new(x, 1.0, y),
+            3 => Vector3::new(-x, -1.0, y),
+            4 => Vector3::new(x, -y, 1.0),
+            5 => Vector3::new(-x, -y, -1.0),
+            _ => unreachable!(),
+        }
     }
 
     /// Interpolate position on this node assuming a grid with given `resolution` and surrounded by
@@ -95,16 +102,13 @@ impl VNode {
     ///       |       |
     ///
     pub fn grid_position_cspace(&self, x: i32, y: i32, skirt: u16, resolution: u16) -> Vector3<f64> {
-        // TODO: adjust for which face this is
         let fx = (x - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;
         let fy = (y - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;
         let scale = 2.0 / (1u32 << self.level()) as f64;
 
-        Vector3::new(
-            (self.x() as f64 + fx) * scale - 1.0,
-            1.0,
-            (self.y() as f64 + fy) * scale - 1.0,
-        )
+        let fx = (self.x() as f64 + fx) * scale - 1.0;
+        let fx = (self.y() as f64 + fy) * scale - 1.0;
+        self.fspace_to_cspace(fx, fy)
     }
 
     /// Same as `position_cspace_corners` but uses "cell registration". Used for textures/normalmaps.
@@ -118,16 +122,13 @@ impl VNode {
     ///     |       |
     ///
     pub fn cell_position_cspace(&self, x: i32, y: i32, skirt: u16, resolution: u16) -> Vector3<f64> {
-        // TODO: adjust for which face this is
         let fx = ((x - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;
         let fy = ((y - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;
         let scale = 2.0 / (1u32 << self.level()) as f64;
 
-        Vector3::new(
-            (self.x() as f64 + fx) * scale - 1.0,
-            1.0,
-            (self.y() as f64 + fy) * scale - 1.0,
-        )
+        let fx = (self.x() as f64 + fx) * scale - 1.0;
+        let fy = (self.y() as f64 + fy) * scale - 1.0;
+        self.fspace_to_cspace(fx, fy)
     }
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
@@ -200,6 +201,7 @@ impl VNode {
     }
 
     pub fn make_nodes(playable_radius: f32, max_level: u8) -> Vec<VNode> {
+
         let mut nodes = Self::roots().to_vec();
         let mut pending: VecDeque<VNode> = nodes.iter().cloned().collect();
 
@@ -209,14 +211,17 @@ impl VNode {
             }
 
             for &child in parent.children().iter() {
-                if child.bounds().distance(Point3::origin())
-                    < playable_radius + child.aprox_side_length() * 1.95
-                {
+                // let distance = (child.center_cspace() - Vector3::new(0.0,1.0,0.0)).magnitude() as f32;
+                // let min_distance = 1.95 / (1 << child.level()) as f32;
+
+                if child.level() <= 3 {
                     nodes.push(child);
                     pending.push_back(child);
                 }
             }
         }
+
+        eprintln!("NNODES = {}", nodes.len());
 
         nodes
     }

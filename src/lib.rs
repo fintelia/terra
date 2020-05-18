@@ -342,15 +342,15 @@ impl Terrain {
                     let out_slot = self.tile_cache.get_slot(node).unwrap() as i32;
                     let spacing = node.aprox_side_length()
                         / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
-                    let position = node.bounds().min
-                        - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
+                    // let position = node.bounds().min
+                    //     - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
                     self.gen_heightmaps.run(
                         device,
                         &mut encoder,
                         &self.gpu_state,
                         ((heightmaps_resolution + 7) / 8, (heightmaps_resolution + 7) / 8, 1),
                         &GenHeightmapsUniforms {
-                            position: [position.x, position.z],
+                            position: [0.0, 0.0],
                             origin: [
                                 origin[parent_offset.x as usize],
                                 origin[parent_offset.y as usize],
@@ -374,10 +374,10 @@ impl Terrain {
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,
                     ],
-                    world_origin: [
-                        node.bounds().min.x - (normals_border as f32 - 0.5) * spacing,
-                        node.bounds().min.z - (normals_border as f32 - 0.5) * spacing,
-                    ],
+                    world_origin: [0.0, 0.0],
+                    //     node.bounds().min.x - (normals_border as f32 - 0.5) * spacing,
+                    //     node.bounds().min.z - (normals_border as f32 - 0.5) * spacing,
+                    // ],
                     spacing,
                     heightmaps_slot,
                     normals_slot,

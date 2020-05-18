@@ -73,7 +73,6 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
             context.set_progress(i as u64);
 
             assert!(self.nodes[i].level() <= self.max_texture_present_level);
-            let bounds = self.nodes[i].bounds();
             let mut heights =
                 Vec::with_capacity(self.resolution as usize * self.resolution as usize);
             for y in 0..(self.resolution as i32) {
