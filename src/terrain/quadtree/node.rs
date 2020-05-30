@@ -142,7 +142,7 @@ impl VNode {
         let dz = ((center.z - r) - camera_cspace.z).max(0.0).max(camera_cspace.z - (center.z + r));
         let distance = dx * dx + dy * dy + dz * dz;
 
-        Priority::from_f32(((min_distance * min_distance) / distance.max(1e-12)) as f32)
+        Priority::from_f32(((min_distance * min_distance) / distance.max(1e-8)) as f32)
     }
 
     pub fn parent(&self) -> Option<(VNode, u8)> {

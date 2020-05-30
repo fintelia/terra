@@ -39,6 +39,7 @@ layout(location = 7) out float out_resolution;
 layout(location = 8) out float out_min_distance;
 layout(location = 9) out float out_elevation;
 layout(location = 10) out float out_face;
+layout(location = 11) out float out_level_resolution;
 
 const double planetRadius = 6371000.0;
 
@@ -106,6 +107,8 @@ void main() {
 					 morph);
 	}
 
+	//offset.y += log(level_resolution)*3000;
+
 	vec3 position = compute_local_position(nPosition, tangent, normal, bitangent);
 	// position = vec3(vec2(iPosition+in_position) / float(level_resolution) * 4194304.0, 0).xzy;
 	position += mat3(tangent, normal, bitangent) * offset;
@@ -122,5 +125,6 @@ void main() {
 	out_elevation = texture(sampler2DArray(displacements, linear),
 							heights_origin + vec3(nPosition * heights_step, 0)).g;
 	out_face = face;
+	out_level_resolution = level_resolution;
 	gl_Position = ubo.view_proj * vec4(position, 1.0);
 }

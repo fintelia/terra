@@ -111,7 +111,7 @@ impl QuadTree {
 
         // Any node with all needed layers in cache is visible...
         VNode::breadth_first(|node| {
-            let visible = node.level() == 0 /*|| node.priority(camera) >= Priority::cutoff()*/;
+            let visible = node.level() == 0 || node.priority(camera) >= Priority::cutoff();
             node_visibilities.insert(node, visible);
             visible
         });
@@ -132,14 +132,9 @@ impl QuadTree {
         VNode::breadth_first(|node| {
             if node_visibilities[&node] {
                 let mut mask = 0;
-                let mut has_visible_children = false;
                 for (i, c) in node.children().iter().enumerate() {
                     if !node_visibilities[c] {
                         mask = mask | (1 << i);
-                    }
-
-                    if node_visibilities[&c] {
-                        has_visible_children = true;
                     }
                 }
 
@@ -149,16 +144,13 @@ impl QuadTree {
                 //         mask = 0;
                 //     }
                 // }
-
-                if mask == 0 {
-                    node_visibilities.insert(node, false);
-                } else if has_visible_children {
-                    self.partially_visible_nodes.push((node, mask));
-                } else {
+                if mask == 15 {
                     self.visible_nodes.push(node);
+                } else if mask > 0 {
+                    self.partially_visible_nodes.push((node, mask));
                 }
 
-                true
+                mask < 15
             } else {
                 false
             }

@@ -23,6 +23,7 @@ layout(location = 7) in float resolution;
 layout(location = 8) in float min_distance;
 layout(location = 9) in float elevation;
 layout(location = 10) in float face;
+layout(location = 11) in float level_resolution;
 
 layout(location = 0) out vec4 out_color;
 
@@ -112,14 +113,21 @@ vec3 debug_overlay(vec3 color) {
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
 
-	// if(face == 0) color = mix(color, vec3(1,0,0), .1);
-	// if(face == 1) color = mix(color, vec3(0,1,0), .1);
-	// if(face == 2) color = mix(color, vec3(0,0,1), .1);
-	// if(face == 3) color = mix(color, vec3(1,1,0), .1);
-	// if(face == 4) color = mix(color, vec3(1,1,1), .1);
-	// if(face == 5) color = mix(color, vec3(0,0,0), .1);
+	// if(face == 0) color = mix(color, vec3(1,0,0), .3);
+	// if(face == 1) color = mix(color, vec3(0,1,0), .3);
+	// if(face == 2) color = mix(color, vec3(0,0,1), .3);
+	// if(face == 3) color = mix(color, vec3(1,1,0), .3);
+	// if(face == 4) color = mix(color, vec3(1,1,1), .3);
+	// if(face == 5) color = mix(color, vec3(0,0,0), .3);
+	// if(level_resolution == 128*1024)color = mix(color, vec3(1,0,0), .4);
+	// if(level_resolution == 64*1024)color = mix(color, vec3(0,1,0), .4);
+	// if(level_resolution == 32*1024)color = mix(color, vec3(0,0,1), .4);
+	// if(level_resolution == 16*1024)color = mix(color, vec3(1,1,1), .4);
 
-	// if(face == 2 && sin(gl_FragCoord.x) * sin(gl_FragCoord.y) < 1.4 )discard;
+	// if(resolution == 64)color = mix(color, vec3(0,0,1), .4);
+
+	// if(resolution == 32 && sin(gl_FragCoord.x) * sin(gl_FragCoord.y) < 0.4 )discard;
+	// if(face == 2) discard;
 
  	return color;
 }

@@ -6,13 +6,13 @@ use winit::{
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     let aspect = width as f32 / height as f32;
-    let f = 1.0 / (55.0f32.to_radians() / aspect).tan();
+    let f = 1.0 / (45.0f32.to_radians() / aspect).tan();
     let near = 0.1;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     cgmath::Matrix4::new(
-        f / aspect, 0.0,  0.0,  0.0,
-        0.0,         f,  0.0,  0.0,
+        f,           0.0,  0.0,  0.0,
+        0.0,        f * aspect,  0.0,  0.0,
         0.0,        0.0,  0.0,  -1.0,
         0.0,        0.0,  near,  0.0)
 }
@@ -168,9 +168,9 @@ fn main() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    eye += forward * gamepad.value(Axis::LeftStickY) * 50.0;
-                    eye -= right * gamepad.value(Axis::LeftStickX) * 50.0;
-                    angle -= gamepad.value(Axis::RightZ) * 0.1;
+                    eye += forward * gamepad.value(Axis::LeftStickY) * 2500.0;
+                    eye -= right * gamepad.value(Axis::LeftStickX) * 2500.0;
+                    angle -= gamepad.value(Axis::RightZ) * 0.01;
 
                     if gamepad.is_pressed(Button::DPadUp) {
                         eye.y += 0.01 * eye.y;

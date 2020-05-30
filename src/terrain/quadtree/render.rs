@@ -85,7 +85,6 @@ impl QuadTree {
 
         self.node_states.clear();
         for &node in self.visible_nodes.iter() {
-            let level_resolution = resolution << node.level();
             let displacements_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -113,6 +112,7 @@ impl QuadTree {
                 texture_ratio,
                 texture_step,
             );
+            let level_resolution = resolution << node.level();
             self.node_states.push(NodeState {
                 position: [
                     (node.x() * resolution) as i32 - level_resolution as i32 / 2,
@@ -123,8 +123,8 @@ impl QuadTree {
                 displacements_desc,
                 albedo_desc,
                 normals_desc,
-                resolution: resolution,
-                level_resolution: resolution << node.level(),
+                resolution,
+                level_resolution,
                 face: node.face() as u32,
                 // padding0: 0.0,
                 // padding1: 0,
@@ -134,7 +134,6 @@ impl QuadTree {
             assert!(mask < 15);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
-                    let level_resolution = resolution << node.level();
                     let offset = ((i % 2) as f32, (i / 2) as f32);
                     let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let displacements_desc = Self::find_descs(
@@ -164,12 +163,13 @@ impl QuadTree {
                         texture_ratio,
                         texture_step,
                     );
+                    let level_resolution = resolution << node.level();
                     self.node_states.push(NodeState {
                         position: [
-                            (((node.x()*2) + offset.0 as u32) * (resolution/2)) as i32
-                                - (level_resolution as i32 / 2),
-                            (((node.y()*2) + offset.1 as u32) * (resolution/2)) as i32
-                                - (level_resolution as i32 / 2)
+                            (node.x() * resolution) as i32 - level_resolution as i32 / 2
+                                + offset.0 as i32 * resolution as i32 / 2,
+                            (node.y() * resolution) as i32 - level_resolution as i32 / 2
+                                + offset.1 as i32 * resolution as i32 / 2,
                         ],
                         // side_length: node.side_length() * 0.5,
                         min_distance: node.min_distance() as f32,
@@ -178,7 +178,7 @@ impl QuadTree {
                         albedo_desc,
                         resolution: resolution / 2,
                         level_resolution,
-                        face: 0,
+                        face: node.face() as u32,
                         // padding0: 0.0,
                         // padding1: 0,
                     });
