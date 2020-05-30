@@ -109,12 +109,8 @@ pub(crate) struct ByteRange {
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
-    // Mapping from VNode to tile index.
-    pub tile_indices: HashMap<VNode, u32>,
     // Array of bytes indicating whether each tile is valid.
     pub tile_valid_bitmap: ByteRange,
-    /// Where each tile is located in the file.
-    pub tile_locations: Vec<ByteRange>,
     /// Number of samples in each dimension, per tile.
     pub texture_resolution: u32,
     /// Number of samples outside the tile on each side.
@@ -236,8 +232,7 @@ impl TileCache {
 
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
-                self.slots[index] =
-                    Entry { priority: m.0, node: m.1, valid: 0, generated: 0 };
+                self.slots[index] = Entry { priority: m.0, node: m.1, valid: 0, generated: 0 };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -266,22 +261,20 @@ impl TileCache {
                 continue;
             }
 
-            match self.layers[ty].tile_indices.get(&entry.node) {
-                None => {
+            match mapfile.tile_state(ty, entry.node) {
+                TileState::GpuOnly => {
                     entry.generated |= ty.bit_mask();
                     pending_generate.push(entry.node);
                 }
-                Some(&tile) => match mapfile.tile_state(ty, tile as usize) {
-                    TileState::Base => {
-                        entry.generated &= !ty.bit_mask();
-                        pending_uploads.push((i, tile as usize));
-                    }
-                    TileState::Generated => {
-                        entry.generated |= ty.bit_mask();
-                        pending_uploads.push((i, tile as usize));
-                    }
-                    TileState::Missing => pending_generate.push(entry.node),
-                },
+                TileState::Base => {
+                    entry.generated &= !ty.bit_mask();
+                    pending_uploads.push((i, entry.node));
+                }
+                TileState::Generated => {
+                    entry.generated |= ty.bit_mask();
+                    pending_uploads.push((i, entry.node));
+                }
+                TileState::Missing => pending_generate.push(entry.node),
             }
         }
         if pending_uploads.is_empty() {
@@ -406,31 +399,27 @@ impl TileCache {
         self.layers[ty].texture_border_size
     }
 
-    #[allow(unused)]
-    pub fn get_texel<'a>(
-        &self,
-        mapfile: &'a MapFile,
-        node: VNode,
-        ty: LayerType,
-        x: usize,
-        y: usize,
-    ) -> &'a [u8] {
-        let tile = self.layers[ty].tile_indices[&node] as usize;
-        let tile_data = &mapfile.read_tile(ty, tile).unwrap();
-        let border = self.border(ty) as usize;
-        let index =
-            ((x + border) + (y + border) * self.resolution(ty) as usize) * self.bytes_per_texel(ty);
-        &tile_data[index..(index + self.bytes_per_texel(ty))]
-    }
+    // #[allow(unused)]
+    // pub fn get_texel<'a>(
+    //     &self,
+    //     mapfile: &'a MapFile,
+    //     node: VNode,
+    //     ty: LayerType,
+    //     x: usize,
+    //     y: usize,
+    // ) -> &'a [u8] {
+    //     let tile = self.layers[ty].tile_indices[&node] as usize;
+    //     let tile_data = &mapfile.read_tile(ty, node).unwrap();
+    //     let border = self.border(ty) as usize;
+    //     let index =
+    //         ((x + border) + (y + border) * self.resolution(ty) as usize) * self.bytes_per_texel(ty);
+    //     &tile_data[index..(index + self.bytes_per_texel(ty))]
+    // }
 
     pub fn capacity(&self) -> usize {
         self.size
     }
     pub fn utilization(&self) -> usize {
         self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid != 0).count()
-    }
-
-    pub fn tile_for_node(&self, node: VNode, ty: LayerType) -> Option<usize> {
-        self.layers[ty].tile_indices.get(&node).map(|&i| i as usize)
     }
 }

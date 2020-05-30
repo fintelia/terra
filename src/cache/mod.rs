@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 lazy_static! {
-    static ref TERRA_DIRECTORY: PathBuf =
+    pub(crate) static ref TERRA_DIRECTORY: PathBuf =
         dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra");
 }
 

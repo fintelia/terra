@@ -216,8 +216,8 @@ impl CoordinateSystem {
     }
     pub fn sspace_to_polar(sspace: Vector3<f64>) -> Vector3<f64> {
         let r = sspace.magnitude();
-        let latitude = f64::asin(sspace.y / r);
-        let longitude = f64::atan2(sspace.x, sspace.z);
+        let latitude = f64::asin(sspace.z / r);
+        let longitude = f64::atan2(sspace.y, sspace.x);
         let altitude = (r - 1.0) * PLANET_RADIUS;
 
         Vector3::new(latitude, longitude, altitude)

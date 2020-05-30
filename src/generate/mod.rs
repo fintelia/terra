@@ -24,6 +24,7 @@ use rand_distr::Normal;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::fs;
 use std::io::Write;
 use std::rc::Rc;
 use vec_map::VecMap;
@@ -406,18 +407,11 @@ impl<W: Write> State<W> {
 
         context.increment_level("Writing heightmaps... ", tile_count);
 
-        let tile_bytes =
-            4 * self.heightmap_resolution as usize * self.heightmap_resolution as usize;
-        let tile_locations = (0..tile_count)
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
         self.layers.insert(
             LayerType::Heightmaps.index(),
             LayerParams {
                 layer_type: LayerType::Heightmaps,
-                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
-                tile_locations,
                 texture_resolution: self.heightmap_resolution as u32,
                 texture_border_size: self.skirt as u32,
                 texture_format: TextureFormat::R32F,
@@ -426,12 +420,13 @@ impl<W: Write> State<W> {
 
         for i in 0..tile_count {
             context.set_progress(i as u64);
+            let mut heightmap = Vec::new();
             for y in 0..self.heightmap_resolution {
                 for x in 0..self.heightmap_resolution {
-                    self.writer.write_f32::<LittleEndian>(heightmaps.get(i, x, y, 0))?;
-                    self.bytes_written += 4;
+                    heightmap.write_f32::<LittleEndian>(heightmaps.get(i, x, y, 0))?;
                 }
             }
+            fs::write(MapFile::tile_name(LayerType::Heightmaps, self.nodes[i]), heightmap)?;
         }
 
         self.heightmaps = Some(heightmaps);
@@ -459,19 +454,11 @@ impl<W: Write> State<W> {
         self.bytes_written += present_tile_count + vacant_tile_count;
         self.page_pad()?;
 
-        let tile_bytes = 16 * self.heights_resolution as usize * self.heights_resolution as usize;
-        let tile_locations = (0..(present_tile_count + vacant_tile_count))
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
         self.layers.insert(
             LayerType::Displacements.index(),
             LayerParams {
                 layer_type: LayerType::Displacements,
-                tile_indices: (0..(present_tile_count + vacant_tile_count))
-                    .map(|i| (self.nodes[i], i as u32))
-                    .collect(),
                 tile_valid_bitmap,
-                tile_locations,
                 texture_resolution: self.heights_resolution as u32,
                 texture_border_size: 0,
                 texture_format: TextureFormat::RGBA32F,
@@ -506,6 +493,7 @@ impl<W: Write> State<W> {
 
             let mut miny = None;
             let mut maxy = None;
+            let mut data = Vec::new();
             for y in 0..self.heights_resolution {
                 for x in 0..self.heights_resolution {
                     let position = Vector2::new(
@@ -529,21 +517,14 @@ impl<W: Write> State<W> {
                     // let altitude =
                     //     self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
 
-                    self.writer.write_f32::<LittleEndian>(0.0)?;
-                    self.writer.write_f32::<LittleEndian>(height)?;
-                    self.writer.write_f32::<LittleEndian>(0.0)?;
-                    self.writer.write_f32::<LittleEndian>(0.0)?;
-                    self.bytes_written += 16;
+                    data.write_f32::<LittleEndian>(0.0)?;
+                    data.write_f32::<LittleEndian>(height)?;
+                    data.write_f32::<LittleEndian>(0.0)?;
+                    data.write_f32::<LittleEndian>(0.0)?;
                 }
             }
+            fs::write(MapFile::tile_name(LayerType::Displacements, self.nodes[i]), data)?;
         }
-
-        let vacant_bytes = vacant_tile_count
-            * self.heights_resolution as usize
-            * self.heights_resolution as usize
-            * 16;
-        self.writer.write_all(&vec![0; vacant_bytes])?;
-        self.bytes_written += vacant_bytes;
 
         context.decrement_level();
 
@@ -633,27 +614,28 @@ impl<W: Write> State<W> {
         self.bytes_written += tile_count;
         self.page_pad()?;
 
-        let tile_bytes = 4 * colormap_resolution as usize * colormap_resolution as usize;
-        let tile_locations = (0..colormaps.len())
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
-
         self.layers.insert(
             LayerType::Albedo.index(),
             LayerParams {
                 layer_type: LayerType::Albedo,
-                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
-                tile_locations,
                 texture_resolution: colormap_resolution as u32,
                 texture_border_size: colormap_skirt as u32,
                 texture_format: TextureFormat::RGBA8,
             },
         );
 
-        for colormap in colormaps {
-            self.writer.write_all(&colormap[..])?;
-            self.bytes_written += colormap.len();
+        for (colormap, node) in colormaps.iter().zip(self.nodes.iter()) {
+            let filename = MapFile::tile_name(LayerType::Albedo, *node);
+            fs::create_dir_all(filename.parent().unwrap());
+            image::save_buffer_with_format(
+                &filename,
+                &colormap[..],
+                colormap_resolution as u32,
+                colormap_resolution as u32,
+                image::ColorType::Rgba8,
+                image::ImageFormat::Bmp,
+            )?;
         }
 
         context.decrement_level();
@@ -664,11 +646,6 @@ impl<W: Write> State<W> {
         let normalmap_resolution = self.heightmap_resolution - 5;
         let tile_count =
             self.nodes.iter().filter(|n| n.level() <= self.max_texture_level as u8).count();
-
-        let tile_bytes = 2 * normalmap_resolution as usize * normalmap_resolution as usize;
-        let tile_locations = (0..tile_count)
-            .map(|i| ByteRange { offset: self.bytes_written + i * tile_bytes, length: tile_bytes })
-            .collect();
 
         let zero_tile =
             vec![0u8; normalmap_resolution as usize * normalmap_resolution as usize * 2];
@@ -682,6 +659,7 @@ impl<W: Write> State<W> {
             let spacing = self.nodes[i].aprox_side_length()
                 / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
+            let mut data = Vec::new();
             if self.nodes[i].level() > self.max_texture_present_level {
                 bitmap[i] = 0;
                 self.writer.write_all(&zero_tile)?;
@@ -701,12 +679,12 @@ impl<W: Write> State<W> {
                         )
                         .normalize();
 
-                        self.writer.write_u8((normal.x * 127.5 + 127.5) as u8)?;
-                        self.writer.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                        self.bytes_written += 2;
+                        data.write_u8((normal.x * 127.5 + 127.5) as u8)?;
+                        data.write_u8((normal.z * 127.5 + 127.5) as u8)?;
                     }
                 }
             }
+            fs::write(MapFile::tile_name(LayerType::Normals, self.nodes[i]), data)?;
         }
         context.decrement_level();
 
@@ -720,9 +698,7 @@ impl<W: Write> State<W> {
             LayerType::Normals.index(),
             LayerParams {
                 layer_type: LayerType::Normals,
-                tile_indices: (0..tile_count).map(|i| (self.nodes[i], i as u32)).collect(),
                 tile_valid_bitmap,
-                tile_locations,
                 texture_resolution: normalmap_resolution as u32,
                 texture_border_size: self.skirt as u32 - 2,
                 texture_format: TextureFormat::RG8,

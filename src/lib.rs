@@ -20,6 +20,7 @@ mod utils;
 use crate::generate::{
     ComputeShader, GenDisplacementsUniforms, GenHeightmapsUniforms, GenNormalsUniforms,
 };
+use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use cgmath::Vector2;
@@ -29,6 +30,7 @@ use std::mem;
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, Section};
+use crate::mapfile::TileState;
 
 pub use crate::mapfile::MapFile;
 pub use generate::{MapFileBuilder, TextureQuality, VertexQuality};
@@ -64,7 +66,7 @@ pub struct Terrain {
     mapfile: MapFile,
     tile_cache: TileCache,
 
-    pending_tiles: Vec<(LayerType, usize, wgpu::Buffer)>,
+    pending_tiles: Vec<(LayerType, VNode, wgpu::Buffer)>,
 
     glyph_brush: GlyphBrush<'static, ()>,
 }
@@ -94,17 +96,15 @@ impl Terrain {
         let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
 
         let noise = {
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("generate_noise") });
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("generate_noise"),
+            });
             let noise = mapfile.noise_texture(device, &mut encoder);
             queue.submit(&[encoder.finish()]);
             noise
         };
 
-        let gpu_state = GpuState {
-            noise,
-            tile_cache: tile_cache.make_cache_textures(device),
-        };
+        let gpu_state = GpuState { noise, tile_cache: tile_cache.make_cache_textures(device) };
 
         let gen_heightmaps = ComputeShader::new(
             device,
@@ -138,7 +138,8 @@ impl Terrain {
         mapfile.clear_generated(LayerType::Albedo).unwrap();
 
         let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
-        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font).unwrap()
+        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
+            .unwrap()
             .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Self {
@@ -175,7 +176,7 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f32>,
     ) {
-        for (layer, tile, buffer) in self.pending_tiles.drain(..) {
+        for (layer, node, buffer) in self.pending_tiles.drain(..) {
             let resolution = self.tile_cache.resolution(layer) as usize;
             let bytes_per_texel = self.tile_cache.bytes_per_texel(layer);
             let row_pitch = self.tile_cache.row_pitch(layer);
@@ -193,7 +194,7 @@ impl Terrain {
                     tile_data[row * row_bytes..][..row_bytes]
                         .copy_from_slice(&buffer_data[row * row_pitch..][..row_bytes]);
                 }
-                self.mapfile.write_tile(layer, tile, &tile_data).unwrap();
+                self.mapfile.write_tile(layer, node, &tile_data).unwrap();
             }
         }
 
@@ -317,7 +318,8 @@ impl Terrain {
                 None => continue,
             };
 
-            let spacing = node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
+            let spacing =
+                node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
             // let position = node.bounds().min
             //     - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
 
@@ -386,7 +388,7 @@ impl Terrain {
             self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Normals);
             self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Albedo);
 
-            if let Some(tile) = self.tile_cache.tile_for_node(node, LayerType::Normals) {
+            if let TileState::Missing = self.mapfile.tile_state(LayerType::Normals, node) {
                 let size = normals_resolution as u64 * normals_row_pitch as u64;
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
@@ -412,7 +414,7 @@ impl Terrain {
                         depth: 1,
                     },
                 );
-                self.pending_tiles.push((LayerType::Normals, tile, download));
+                self.pending_tiles.push((LayerType::Normals, node, download));
             }
         }
         let displacements_resolution = self.tile_cache.resolution(LayerType::Displacements);
@@ -459,7 +461,7 @@ impl Terrain {
             );
             self.tile_cache.set_slot_valid(displacements_slot as usize, LayerType::Displacements);
 
-            if let Some(tile) = self.tile_cache.tile_for_node(node, LayerType::Displacements) {
+            if let TileState::Missing = self.mapfile.tile_state(LayerType::Displacements, node) {
                 let size = displacements_resolution as u64 * displacements_row_pitch as u64;
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
@@ -485,7 +487,7 @@ impl Terrain {
                         depth: 1,
                     },
                 );
-                self.pending_tiles.push((LayerType::Displacements, tile, download));
+                self.pending_tiles.push((LayerType::Displacements, node, download));
             }
         }
 

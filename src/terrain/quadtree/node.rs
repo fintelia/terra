@@ -221,8 +221,6 @@ impl VNode {
             }
         }
 
-        eprintln!("NNODES = {}", nodes.len());
-
         nodes
     }
 }
