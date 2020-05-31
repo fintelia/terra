@@ -1,13 +1,17 @@
 use crate::cache::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
-use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TileHeader};
+use crate::terrain::tile_cache::{
+    LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
+};
 use failure::Error;
 use memmap::MmapMut;
-use std::path::PathBuf;
-use vec_map::VecMap;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
+use std::path::PathBuf;
+use vec_map::VecMap;
 
+#[derive(Serialize, Deserialize)]
 pub(crate) enum TileState {
     Missing,
     Base,
@@ -15,31 +19,42 @@ pub(crate) enum TileState {
     GpuOnly,
 }
 
+#[derive(Serialize, Deserialize)]
+struct TileMeta {
+    crc32: u32,
+    state: TileState,
+}
+
 pub struct MapFile {
     header: TileHeader,
-    file: MmapMut,
     reverse: HashMap<VNode, usize>,
+    db: sled::Db,
 }
 impl MapFile {
-    pub(crate) fn new(header: TileHeader, file: MmapMut) -> Self {
+    pub(crate) fn new(header: TileHeader) -> Self {
         let reverse = header.nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
-        Self { header, file, reverse }
+        let db = sled::open(TERRA_DIRECTORY.join("tiles/meta")).unwrap();
+        Self { header, reverse, db }
     }
 
-    pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> TileState {
-        let bitmap = &self.header.layers[layer.index()].tile_valid_bitmap;
-        let tile = self.reverse.get(&node);
+    pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
+        Ok(match self.lookup_tile_meta(layer, node)? {
+            Some(meta) => meta.state,
+            None => TileState::GpuOnly,
+        })
+        // let bitmap = &self.header.layers[layer.index()].tile_valid_bitmap;
+        // let tile = self.reverse.get(&node);
 
-        if tile.is_none() || *tile.unwrap() >= bitmap.length {
-            return TileState::GpuOnly;
-        }
+        // if tile.is_none() || *tile.unwrap() >= bitmap.length {
+        //     return TileState::GpuOnly;
+        // }
 
-        match self.file[bitmap.offset + tile.unwrap()] {
-            0 => TileState::Missing,
-            1 => TileState::Base,
-            2 => TileState::Generated,
-            _ => unreachable!(),
-        }
+        // match self.file[bitmap.offset + tile.unwrap()] {
+        //     0 => TileState::Missing,
+        //     1 => TileState::Base,
+        //     2 => TileState::Generated,
+        //     _ => unreachable!(),
+        // }
     }
     pub(crate) fn read_tile(&self, layer: LayerType, node: VNode) -> Option<Vec<u8>> {
         let filename = Self::tile_name(layer, node);
@@ -57,13 +72,6 @@ impl MapFile {
                 }
                 fs::read(filename).ok()
             }
-            // _ => {
-            //     let tile = self.reverse[&node];
-            //     let params = &self.header.layers[layer.index()];
-            //     let offset = params.tile_locations[tile].offset;
-            //     let length = params.tile_locations[tile].length;
-            //     Some(self.file[offset..][..length].to_vec())
-            // }
         }
     }
     pub(crate) fn write_tile(
@@ -71,47 +79,46 @@ impl MapFile {
         layer: LayerType,
         node: VNode,
         data: &[u8],
+        base: bool,
     ) -> Result<(), Error> {
         let filename = Self::tile_name(layer, node);
         match layer {
-            LayerType::Albedo => {
-                Ok(image::save_buffer_with_format(
-                    &filename,
-                    data,
-                    self.header.layers[layer].texture_resolution as u32,
-                    self.header.layers[layer].texture_resolution as u32,
-                    image::ColorType::Rgba8,
-                    image::ImageFormat::Bmp,
-                )?)
-            }
+            LayerType::Albedo => image::save_buffer_with_format(
+                &filename,
+                data,
+                self.header.layers[layer].texture_resolution as u32,
+                self.header.layers[layer].texture_resolution as u32,
+                image::ColorType::Rgba8,
+                image::ImageFormat::Bmp,
+            )?,
             LayerType::Heightmaps | LayerType::Normals | LayerType::Displacements => {
-                Ok(fs::write(filename, data)?)
+                fs::write(filename, data)?;
             }
-            // _ => {
-            //     let tile = self.reverse[&node];
-            //     let params = &self.header.layers[layer.index()];
-            //     let offset = params.tile_locations[tile].offset;
-            //     let length = params.tile_locations[tile].length;
-
-            //     assert_eq!(length, data.len());
-
-            //     self.file[offset..][..length].copy_from_slice(data);
-            //     self.file.flush_range(offset, length)?;
-            //     self.file[params.tile_valid_bitmap.offset + tile] = 2;
-            //     self.file.flush_range(params.tile_valid_bitmap.offset + tile, 1)?;
-            //     Ok(())
-            // }
         }
+
+        self.update_tile_meta(
+            layer,
+            node,
+            TileMeta { crc32: 0, state: if base { TileState::Base } else { TileState::Generated } },
+        )
     }
 
     pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
-        let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
-        for i in 0..bitmap.length {
-            if self.file[bitmap.offset + i] == 2 {
-                self.file[bitmap.offset + i] = 0;
+        let prefix = bincode::serialize(&layer).unwrap();
+        for i in self.db.scan_prefix(&prefix) {
+            let (k, v) = i?;
+            if let TileState::Generated = bincode::deserialize::<TileMeta>(&v)?.state {
+                self.db.remove(k)?;
             }
         }
-        self.file.flush_range(bitmap.offset, bitmap.length)?;
+
+        // let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
+        // for i in 0..bitmap.length {
+        //     if self.file[bitmap.offset + i] == 2 {
+        //         self.file[bitmap.offset + i] = 0;
+        //     }
+        // }
+        // self.file.flush_range(bitmap.offset, bitmap.length)?;
         Ok(())
     }
 
@@ -120,7 +127,8 @@ impl MapFile {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         desc: &TextureDescriptor,
-    ) -> wgpu::Texture {
+        name: &str,
+    ) -> Result<wgpu::Texture, Error> {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: desc.resolution, height: desc.resolution, depth: 1 },
             format: desc.format.to_wgpu(),
@@ -139,7 +147,11 @@ impl MapFile {
         let bytes_per_texel = desc.format.bytes_per_texel();
         let row_bytes = resolution * bytes_per_texel;
         let row_pitch = (row_bytes + 255) & !255;
-        let data = &self.file[desc.offset..][..desc.bytes];
+        // let data = &self.file[desc.offset..][..desc.bytes];
+
+        let filename = TERRA_DIRECTORY.join(name);
+        let image = image::open(filename)?;
+        let data = image.to_rgba().into_vec();
 
         let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
             size: (row_pitch * resolution) as u64,
@@ -168,15 +180,27 @@ impl MapFile {
             wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
         );
 
-        texture
+        Ok(texture)
     }
 
     pub(crate) fn noise_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> wgpu::Texture {
-        self.load_texture(device, encoder, &self.header.noise.texture)
+    ) -> Result<wgpu::Texture, Error> {
+        self.load_texture(device, encoder, &self.header.noise.texture, "noise.bmp")
+    }
+
+    pub(crate) fn save_noise_texture(desc: &TextureDescriptor, data: &[u8]) -> Result<(), Error> {
+        assert_eq!(desc.format, TextureFormat::RGBA8);
+        Ok(image::save_buffer_with_format(
+            &TERRA_DIRECTORY.join("noise.bmp"),
+            data,
+            desc.resolution as u32,
+            desc.resolution as u32,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Bmp,
+        )?)
     }
 
     pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
@@ -208,5 +232,20 @@ impl MapFile {
             node.y(),
             ext
         ))
+    }
+
+    pub(crate) fn set_missing(&self, layer: LayerType, node: VNode) -> Result<(), Error> {
+        self.update_tile_meta(layer, node, TileMeta {crc32: 0, state: TileState::Missing })
+    }
+
+    fn lookup_tile_meta(&self, layer: LayerType, node: VNode) -> Result<Option<TileMeta>, Error> {
+        let key = bincode::serialize(&(layer, node)).unwrap();
+        Ok(self.db.get(key)?.map(|value| bincode::deserialize(&value).unwrap()))
+    }
+    fn update_tile_meta(&self, layer: LayerType, node: VNode, meta: TileMeta) -> Result<(), Error> {
+        let key = bincode::serialize(&(layer, node)).unwrap();
+        let value = bincode::serialize(&meta).unwrap();
+        self.db.insert(key, value)?;
+        Ok(())
     }
 }

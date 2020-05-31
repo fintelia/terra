@@ -63,6 +63,8 @@ bytemuck = "1.1.0"
 wgpu_glyph = { git = "https://github.com/fintelia/wgpu_glyph", rev = "7c09d12815a1e3496418730172d293a16190c18f" }
 futures = "0.3.1"
 gilrs = "0.7.3"
+sled = "0.31.0"
+maplit = "1.0.2"
 
 [profile]
 [profile.dev]

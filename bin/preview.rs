@@ -99,7 +99,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile);
+    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
     let mut swap_chain =
         make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);

@@ -109,8 +109,6 @@ pub(crate) struct ByteRange {
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
-    // Array of bytes indicating whether each tile is valid.
-    pub tile_valid_bitmap: ByteRange,
     /// Number of samples in each dimension, per tile.
     pub texture_resolution: u32,
     /// Number of samples outside the tile on each side.
@@ -134,18 +132,16 @@ pub(crate) struct MeshDescriptor {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TextureDescriptor {
-    pub offset: usize,
     pub resolution: u32,
     pub format: TextureFormat,
     pub bytes: usize,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct TileHeader {
     pub layers: VecMap<LayerParams>,
     pub noise: NoiseParams,
     pub nodes: Vec<VNode>,
-    pub system: CoordinateSystem,
 }
 
 struct Entry {
@@ -261,7 +257,7 @@ impl TileCache {
                 continue;
             }
 
-            match mapfile.tile_state(ty, entry.node) {
+            match mapfile.tile_state(ty, entry.node).unwrap() {
                 TileState::GpuOnly => {
                     entry.generated |= ty.bit_mask();
                     pending_generate.push(entry.node);
