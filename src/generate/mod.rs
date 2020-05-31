@@ -126,8 +126,6 @@ impl TextureQuality {
 
 /// Used to construct a `QuadTree`.
 pub struct MapFileBuilder {
-    latitude: i16,
-    longitude: i16,
     source: DemSource,
     vertex_quality: VertexQuality,
     texture_quality: TextureQuality,
@@ -143,8 +141,6 @@ impl MapFileBuilder {
     pub fn new() -> Self {
         let context = AssetLoadContext::new();
         Self {
-            latitude: 38,
-            longitude: -122,
             source: DemSource::Srtm30m,
             vertex_quality: VertexQuality::High,
             texture_quality: TextureQuality::High,
@@ -154,20 +150,6 @@ impl MapFileBuilder {
             // factory,
             // encoder,
         }
-    }
-
-    /// The latitude the generated map should be centered at, in degrees.
-    pub fn latitude(mut self, latitude: i16) -> Self {
-        assert!(latitude >= -90 && latitude <= 90);
-        self.latitude = latitude;
-        self
-    }
-
-    /// The longitude the generated map should be centered at, in degrees.
-    pub fn longitude(mut self, longitude: i16) -> Self {
-        assert!(longitude >= -180 && longitude <= 180);
-        self.longitude = longitude;
-        self
     }
 
     /// How detailed the resulting terrain mesh should be.
@@ -201,14 +183,8 @@ impl MapFileBuilder {
     }
 
     fn name(&self) -> String {
-        let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
-        let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         format!(
-            "{}{:02}_{}{:03}_{}m_{}_{}",
-            n_or_s,
-            self.latitude.abs(),
-            e_or_w,
-            self.longitude.abs(),
+            "{}m_{}_{}",
             self.source.resolution(),
             self.vertex_quality.as_str(),
             self.texture_quality.as_str(),

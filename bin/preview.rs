@@ -92,8 +92,6 @@ fn main() {
         }));
 
     let mapfile = terra::MapFileBuilder::new()
-        .latitude(42)
-        .longitude(-73)
         .vertex_quality(terra::VertexQuality::Medium)
         .texture_quality(terra::TextureQuality::High)
         .build()
