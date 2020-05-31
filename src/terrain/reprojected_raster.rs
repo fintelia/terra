@@ -276,9 +276,9 @@ impl ReprojectedRaster {
         let index = band as usize
             + (x as usize + (y as usize + tile * resolution) * resolution)
             * self.header.bands as usize;
-        if index >= self.data.len() {
-            eprintln!("ERROR: tile = {}/{}, x = {}, y = {}, band = {}, resolution = {}", tile, self.header.tiles, x, y, band, resolution);
-        }
+        // if index * 4 >= self.data.len() {
+        //     eprintln!("ERROR: tile = {}/{}, x = {}, y = {}, band = {}, resolution = {}", tile, self.header.tiles, x, y, band, resolution);
+        // }
         match self.header.datatype {
             DataType::F32 => LittleEndian::read_f32(&self.data[index * 4..]),
             DataType::U8 => f32::from(self.data[index]),

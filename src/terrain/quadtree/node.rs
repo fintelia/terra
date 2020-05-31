@@ -187,27 +187,4 @@ impl VNode {
             }
         }
     }
-
-    pub fn make_nodes(max_level: u8) -> Vec<VNode> {
-        let mut nodes = Self::roots().to_vec();
-        let mut pending: VecDeque<VNode> = nodes.iter().cloned().collect();
-
-        while let Some(parent) = pending.pop_front() {
-            if parent.level() >= max_level {
-                continue;
-            }
-
-            for &child in parent.children().iter() {
-                // let distance = (child.center_cspace() - Vector3::new(0.0,1.0,0.0)).magnitude() as f32;
-                // let min_distance = 1.95 / (1 << child.level()) as f32;
-
-                if child.level() <= 3 {
-                    nodes.push(child);
-                    pending.push_back(child);
-                }
-            }
-        }
-
-        nodes
-    }
 }

@@ -230,4 +230,17 @@ impl MapFile {
         self.db.insert(key, value)?;
         Ok(())
     }
+
+    pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<Vec<VNode>, Error> {
+        let mut missing = Vec::new();
+        let prefix = bincode::serialize(&layer).unwrap();
+        for i in self.db.scan_prefix(&prefix) {
+            let (k, v) = i?;
+            if let TileState::MissingBase = bincode::deserialize::<TileMeta>(&v)?.state {
+                let (_, node) = bincode::deserialize::<(LayerType, VNode)>(&k).unwrap();
+                missing.push(node);
+            }
+        }
+        Ok(missing)
+    }
 }

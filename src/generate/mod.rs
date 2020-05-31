@@ -217,7 +217,7 @@ impl MMappedAsset for MapFileBuilder {
 
         let world_size = 4194304.0;
         let max_heights_present_level =
-            LEVEL_600_M - self.vertex_quality.resolution_log2() as i32 + 1;
+            LEVEL_1_KM - self.vertex_quality.resolution_log2() as i32;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
@@ -271,26 +271,19 @@ impl MMappedAsset for MapFileBuilder {
         ]
         .into_iter()
         .collect();
-        let nodes = VNode::make_nodes(max_heights_level as u8);
         let noise = State::generate_noise(context)?;
         let tile_header = TileHeader { layers, noise };
 
         let mapfile = MapFile::new(tile_header.clone());
 
-        // for &n in &nodes {
-        //     if n.level() <= max_texture_present_level as u8 {
-        //         mapfile.set_missing(LayerType::Heightmaps, n, true)?;
-        //         // mapfile.set_missing(LayerType::Albedo, n, true)?;
-        //     } else if n.level() <= max_texture_level as u8 {
-        //         // mapfile.set_missing(LayerType::Albedo, n, true)?;
-        //     }
-
-        //     if n.level() <= max_heights_present_level as u8 {
-        //         mapfile.set_missing(LayerType::Displacements, n, true)?;
-        //     } else {
-        //         mapfile.set_missing(LayerType::Displacements, n, false)?;
-        //     }
-        // }
+        VNode::breadth_first(|n| {
+            mapfile.set_missing(LayerType::Heightmaps, n, true).unwrap();
+            n.level() < 3
+        });
+        VNode::breadth_first(|n| {
+            mapfile.set_missing(LayerType::Albedo, n, true).unwrap();
+            n.level() < 3
+        });
 
         let mut state = State {
             random: {
@@ -306,7 +299,6 @@ impl MMappedAsset for MapFileBuilder {
             max_dem_level: max_dem_level as u8,
             heightmaps: None,
             skirt,
-            nodes,
             directory_name: format!("maps/t.{}/", self.name()),
             mapfile,
         };
@@ -337,20 +329,23 @@ struct State {
     max_texture_present_level: u8,
     max_dem_level: u8,
 
-    nodes: Vec<VNode>,
-
     directory_name: String,
     mapfile: MapFile,
 }
 
 impl State {
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        let missing = self.mapfile.get_missing_base(LayerType::Heightmaps)?;
+        if missing.is_empty() {
+            return Ok(());
+        }
+
         let global_dem = GlobalDem.load(context)?;
         let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
         let reproject = ReprojectedDemDef {
             name: format!("{}dem", self.directory_name),
             dem_cache,
-            nodes: &self.nodes,
+            nodes: &missing,
             random: &self.random,
             skirt: self.skirt,
             max_dem_level: self.max_dem_level as u8,
@@ -360,12 +355,9 @@ impl State {
         };
         let heightmaps = ReprojectedRaster::from_dem(reproject, context)?;
 
-        let tile_count =
-            self.nodes.iter().filter(|n| n.level() <= self.max_texture_present_level as u8).count();
-
-        context.increment_level("Writing heightmaps... ", tile_count);
-
-        for i in 0..tile_count {
+        eprintln!("missing.len = {}", missing.len());
+        context.increment_level("Writing heightmaps... ", missing.len());
+        for (i, n) in missing.into_iter().enumerate() {
             context.set_progress(i as u64);
             let mut heightmap = Vec::new();
             for y in 0..self.heightmap_resolution {
@@ -373,11 +365,10 @@ impl State {
                     heightmap.write_f32::<LittleEndian>(heightmaps.get(i, x, y, 0))?;
                 }
             }
-            self.mapfile.write_tile(LayerType::Heightmaps, self.nodes[i], &heightmap, true)?;
+            self.mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;
         }
-
-        self.heightmaps = Some(heightmaps);
         context.decrement_level();
+
         Ok(())
     }
 
@@ -385,16 +376,18 @@ impl State {
         assert!(self.skirt >= 2);
         let colormap_resolution = self.heightmap_resolution - 5;
 
-        let tile_count =
-            self.nodes.iter().filter(|n| n.level() <= self.max_texture_level as u8).count();
+        let missing = self.mapfile.get_missing_base(LayerType::Albedo)?;
+        if missing.is_empty() {
+            return Ok(());
+        }
 
-        context.increment_level("Generating colormaps... ", tile_count);
+        context.increment_level("Generating colormaps... ", missing.len());
 
         // let heights = self.heightmaps.as_ref().unwrap();
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
-            nodes: &self.nodes[..tile_count],
+            nodes: &missing[..],
             resolution: colormap_resolution,
             skirt: self.skirt,
             datatype: DataType::U8,
@@ -403,7 +396,7 @@ impl State {
                 cache: Rc::new(RefCell::new(RasterCache::new(Box::new(BlueMarbleTileSource), 8))),
             },
         };
-        let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context)?;
+        let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context).unwrap();
 
         // let reproject = ReprojectedRasterDef {
         //     name: format!("{}watermasks", self.directory_name),
@@ -418,17 +411,16 @@ impl State {
         // };
         // let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
 
-        for i in 0..tile_count {
+        for (i, n) in missing.into_iter().enumerate() {
             context.set_progress(i as u64);
 
             let mut colormap =
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
-            let _heights = self.heightmaps.as_ref().unwrap();
-            let spacing = self.nodes[i].aprox_side_length()
-                / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            // let _heights = self.heightmaps.as_ref().unwrap();
+            let spacing = n.aprox_side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if spacing <= bluemarble.spacing().unwrap() as f32 {
-                self.mapfile.set_missing(LayerType::Albedo, self.nodes[i], false)?;
+                self.mapfile.set_missing(LayerType::Albedo, n, false)?;
                 continue;
             }
 
@@ -452,7 +444,7 @@ impl State {
                 }
             }
 
-            self.mapfile.write_tile(LayerType::Albedo, self.nodes[i], &colormap, true)?;
+            self.mapfile.write_tile(LayerType::Albedo, n, &colormap, true)?;
         }
 
         context.decrement_level();
