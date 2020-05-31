@@ -1,4 +1,5 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
+use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
@@ -216,8 +217,7 @@ impl MMappedAsset for MapFileBuilder {
         assert!(resolution_ratio > 0);
 
         let world_size = 4194304.0;
-        let max_heights_present_level =
-            LEVEL_1_KM - self.vertex_quality.resolution_log2() as i32;
+        let max_heights_present_level = LEVEL_1_KM - self.vertex_quality.resolution_log2() as i32;
         let max_texture_present_level =
             max_heights_present_level - (resolution_ratio as f32).log2() as i32;
 
@@ -294,10 +294,8 @@ impl MMappedAsset for MapFileBuilder {
             },
             dem_source: self.source,
             heightmap_resolution,
-            max_texture_level: max_texture_level as u8,
             max_texture_present_level: max_texture_present_level as u8,
             max_dem_level: max_dem_level as u8,
-            heightmaps: None,
             skirt,
             directory_name: format!("maps/t.{}/", self.name()),
             mapfile,
@@ -317,7 +315,6 @@ struct State {
     dem_source: DemSource,
 
     random: Heightmap<f32>,
-    heightmaps: Option<ReprojectedRaster>,
 
     /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
     /// colormaps. Derived from the target texture resolution.
@@ -325,7 +322,6 @@ struct State {
 
     skirt: u16,
 
-    max_texture_level: u8,
     max_texture_present_level: u8,
     max_dem_level: u8,
 
@@ -340,29 +336,29 @@ impl State {
             return Ok(());
         }
 
-        let global_dem = GlobalDem.load(context)?;
-        let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
-        let reproject = ReprojectedDemDef {
-            name: format!("{}dem", self.directory_name),
-            dem_cache,
-            nodes: &missing,
-            random: &self.random,
-            skirt: self.skirt,
-            max_dem_level: self.max_dem_level as u8,
-            max_texture_present_level: self.max_texture_present_level as u8,
-            resolution: self.heightmap_resolution,
-            global_dem,
-        };
-        let heightmaps = ReprojectedRaster::from_dem(reproject, context)?;
+        // let _global_dem = GlobalDem.load(context)?;
 
-        eprintln!("missing.len = {}", missing.len());
+        // let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
+        // let reproject = ReprojectedDemDef {
+        //     name: format!("{}dem", self.directory_name),
+        //     dem_cache,
+        //     nodes: &missing,
+        //     random: &self.random,
+        //     skirt: self.skirt,
+        //     max_dem_level: self.max_dem_level as u8,
+        //     max_texture_present_level: self.max_texture_present_level as u8,
+        //     resolution: self.heightmap_resolution,
+        //     global_dem,
+        // };
+        // let heightmaps = ReprojectedRaster::from_dem(reproject, context)?;
+
         context.increment_level("Writing heightmaps... ", missing.len());
         for (i, n) in missing.into_iter().enumerate() {
             context.set_progress(i as u64);
             let mut heightmap = Vec::new();
             for y in 0..self.heightmap_resolution {
                 for x in 0..self.heightmap_resolution {
-                    heightmap.write_f32::<LittleEndian>(heightmaps.get(i, x, y, 0))?;
+                    heightmap.write_f32::<LittleEndian>(0.0)?;
                 }
             }
             self.mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;
@@ -385,18 +381,21 @@ impl State {
 
         // let heights = self.heightmaps.as_ref().unwrap();
 
-        let reproject_bluemarble = ReprojectedRasterDef {
-            name: format!("{}bluemarble", self.directory_name),
-            nodes: &missing[..],
-            resolution: colormap_resolution,
-            skirt: self.skirt,
-            datatype: DataType::U8,
-            raster: RasterSource::Hybrid {
-                global: Box::new(BlueMarble),
-                cache: Rc::new(RefCell::new(RasterCache::new(Box::new(BlueMarbleTileSource), 8))),
-            },
-        };
-        let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context).unwrap();
+        // let reproject_bluemarble = ReprojectedRasterDef {
+        //     name: format!("{}bluemarble", self.directory_name),
+        //     nodes: &missing[..],
+        //     resolution: colormap_resolution,
+        //     skirt: self.skirt,
+        //     datatype: DataType::U8,
+        //     raster: RasterSource::Hybrid {
+        //         global: Box::new(BlueMarble),
+        //         cache: Rc::new(RefCell::new(RasterCache::new(Box::new(BlueMarbleTileSource), 8))),
+        //     },
+        // };
+        // let bluemarble = ReprojectedRaster::from_raster(reproject_bluemarble, context).unwrap();
+
+        let bluemarble = BlueMarble.load(context)?;
+        let bluemarble_spacing = bluemarble.spacing() as f32;
 
         // let reproject = ReprojectedRasterDef {
         //     name: format!("{}watermasks", self.directory_name),
@@ -417,27 +416,28 @@ impl State {
             let mut colormap =
                 Vec::with_capacity(colormap_resolution as usize * colormap_resolution as usize);
             // let _heights = self.heightmaps.as_ref().unwrap();
-            let spacing = n.aprox_side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
+            let spacing =
+                n.aprox_side_length() / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
-            if spacing <= bluemarble.spacing().unwrap() as f32 {
+            if spacing <= bluemarble_spacing {
                 self.mapfile.set_missing(LayerType::Albedo, n, false)?;
                 continue;
             }
 
             for y in 0..colormap_resolution {
                 for x in 0..colormap_resolution {
-                    let color = if false
-                    /*watermasks.get(i, x, y, 0) > 0.01*/
-                    {
-                        [0, 6, 13, 77]
-                    } else if i < bluemarble.tiles() {
-                        let r = bluemarble.get(i, x, y, 0) as u8;
-                        let g = bluemarble.get(i, x, y, 1) as u8;
-                        let b = bluemarble.get(i, x, y, 2) as u8;
+                    let cspace =
+                        n.cell_position_cspace(x as i32, y as i32, self.skirt, colormap_resolution);
+                    let sspace = CoordinateSystem::cspace_to_sspace(cspace);
+                    let polar = CoordinateSystem::sspace_to_polar(sspace);
+                    let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
+
+                    let color = {
+                        let r = bluemarble.interpolate(lat, long, 0) as u8;
+                        let g = bluemarble.interpolate(lat, long, 0) as u8;
+                        let b = bluemarble.interpolate(lat, long, 0) as u8;
                         let roughness = (0.7 * 255.0) as u8;
                         [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
-                    } else {
-                        [0, 0, 0, (0.7 * 255.0) as u8]
                     };
 
                     colormap.extend_from_slice(&color);
