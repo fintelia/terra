@@ -270,6 +270,7 @@ impl TileCache {
                     pending_uploads.push((i, entry.node));
                 }
                 TileState::Missing => pending_generate.push(entry.node),
+                TileState::MissingBase => unreachable!(),
             }
         }
         if pending_uploads.is_empty() {

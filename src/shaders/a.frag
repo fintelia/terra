@@ -90,9 +90,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	float line = min(grid.x, grid.y);
+	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);

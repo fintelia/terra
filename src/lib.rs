@@ -317,7 +317,13 @@ impl Terrain {
         let normals_resolution = self.tile_cache.resolution(LayerType::Normals);
         let normals_border = self.tile_cache.border(LayerType::Normals);
         let normals_row_pitch = self.tile_cache.row_pitch(LayerType::Normals);
-        for node in missing.remove(LayerType::Normals.index()).unwrap().into_iter().take(8) {
+
+        for (i, node) in missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
+        {
+            if node.level() > 0 && i >= 8 {
+                continue;
+            }
+
             let heightmaps_slot = match self.tile_cache.get_slot(node) {
                 Some(slot) => slot as i32,
                 None => continue,

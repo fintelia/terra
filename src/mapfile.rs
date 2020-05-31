@@ -17,6 +17,7 @@ pub(crate) enum TileState {
     Base,
     Generated,
     GpuOnly,
+    MissingBase,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -211,8 +212,14 @@ impl MapFile {
         ))
     }
 
-    pub(crate) fn set_missing(&self, layer: LayerType, node: VNode) -> Result<(), Error> {
-        self.update_tile_meta(layer, node, TileMeta {crc32: 0, state: TileState::Missing })
+    pub(crate) fn set_missing(
+        &self,
+        layer: LayerType,
+        node: VNode,
+        base: bool,
+    ) -> Result<(), Error> {
+        let state = if base { TileState::MissingBase } else { TileState::Missing };
+        self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
     }
 
     fn lookup_tile_meta(&self, layer: LayerType, node: VNode) -> Result<Option<TileMeta>, Error> {

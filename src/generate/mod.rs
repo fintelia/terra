@@ -309,6 +309,21 @@ impl MMappedAsset for MapFileBuilder {
 
         let mapfile = MapFile::new(tile_header.clone());
 
+        // for &n in &nodes {
+        //     if n.level() <= max_texture_present_level as u8 {
+        //         mapfile.set_missing(LayerType::Heightmaps, n, true)?;
+        //         // mapfile.set_missing(LayerType::Albedo, n, true)?;
+        //     } else if n.level() <= max_texture_level as u8 {
+        //         // mapfile.set_missing(LayerType::Albedo, n, true)?;
+        //     }
+
+        //     if n.level() <= max_heights_present_level as u8 {
+        //         mapfile.set_missing(LayerType::Displacements, n, true)?;
+        //     } else {
+        //         mapfile.set_missing(LayerType::Displacements, n, false)?;
+        //     }
+        // }
+
         let mut state = State {
             random: {
                 let normal = Normal::new(0.0, 1.0).unwrap();
@@ -332,15 +347,13 @@ impl MMappedAsset for MapFileBuilder {
             mapfile,
         };
 
-        context.set_progress_and_total(0, 4);
+        context.set_progress_and_total(0, 3);
         state.generate_heightmaps(context)?;
         context.set_progress(1);
-        state.generate_displacements(context)?;
+        state.generate_colormaps(context)?;
         context.set_progress(2);
         state.generate_normalmaps(context)?;
         context.set_progress(3);
-        state.generate_colormaps(context)?;
-        context.set_progress(4);
 
         Ok(tile_header)
     }
@@ -508,7 +521,7 @@ impl State {
         }
 
         for i in present_tile_count..(present_tile_count + vacant_tile_count) {
-            self.mapfile.set_missing(LayerType::Heightmaps, self.nodes[i])?;
+            self.mapfile.set_missing(LayerType::Displacements, self.nodes[i], false)?;
         }
 
         context.decrement_level();
@@ -566,7 +579,7 @@ impl State {
                 / (self.heightmap_resolution - 2 * self.skirt) as f32;
 
             if spacing <= bluemarble.spacing().unwrap() as f32 {
-                self.mapfile.set_missing(LayerType::Heightmaps, self.nodes[i])?;
+                self.mapfile.set_missing(LayerType::Albedo, self.nodes[i], false)?;
                 continue;
             }
 
@@ -640,8 +653,9 @@ impl State {
             if n.level() > self.max_texture_level {
                 continue;
             } else if n.level() > self.max_texture_present_level {
-                mapfile.set_missing(LayerType::Heightmaps, n)?;
+                mapfile.set_missing(LayerType::Normals, n, false)?;
             } else {
+                mapfile.set_missing(LayerType::Normals, n, false)?;
                 Self::generate_normalmap(mapfile, n)?;
             }
         }
