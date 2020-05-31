@@ -8,6 +8,7 @@ layout(binding = 0) uniform UniformBlock {
 	float spacing;
 	int heightmaps_slot;
 	int normals_slot;
+	int albedo_slot;
 } ubo;
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
@@ -19,7 +20,7 @@ layout(set = 0, binding = 5) uniform sampler linear_wrap;
 
 void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.origin, ubo.heightmaps_slot);
-	ivec3 out_pos = ivec3(gl_GlobalInvocationID.xy, ubo.normals_slot);
+	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
 	vec2 world_pos = vec2(ubo.world_origin) + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
 
@@ -46,6 +47,8 @@ void main() {
 
 	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
 
-	imageStore(normals, out_pos, vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
-	imageStore(albedo, out_pos, albedo_roughness);
+	if (ubo.normals_slot >= 0)
+		imageStore(normals, ivec3(out_pos, ubo.normals_slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	if (ubo.albedo_slot >= 0)
+		imageStore(albedo, ivec3(out_pos, ubo.albedo_slot), albedo_roughness);
 }

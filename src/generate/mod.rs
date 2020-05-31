@@ -347,13 +347,11 @@ impl MMappedAsset for MapFileBuilder {
             mapfile,
         };
 
-        context.set_progress_and_total(0, 3);
+        context.set_progress_and_total(0, 2);
         state.generate_heightmaps(context)?;
         context.set_progress(1);
         state.generate_colormaps(context)?;
         context.set_progress(2);
-        state.generate_normalmaps(context)?;
-        context.set_progress(3);
 
         Ok(tile_header)
     }
@@ -388,29 +386,6 @@ struct State {
 }
 
 impl State {
-    #[allow(unused)]
-    fn world_position(&self, x: i32, y: i32, bounds: BoundingBox) -> Vector2<f64> {
-        let fx = (x - self.skirt as i32) as f32
-            / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-        let fy = (y - self.skirt as i32) as f32
-            / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-
-        Vector2::new(
-            (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
-            (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) as f64,
-        )
-    }
-    #[allow(unused)]
-    fn world_positionf(&self, x: f32, y: f32, bounds: BoundingBox) -> Vector2<f64> {
-        let fx = (x - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-        let fy = (y - self.skirt as f32) / (self.heightmap_resolution - 1 - 2 * self.skirt) as f32;
-
-        Vector2::new(
-            (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
-            (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) as f64,
-        )
-    }
-
     fn generate_heightmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         let global_dem = GlobalDem.load(context)?;
         let dem_cache = Rc::new(RefCell::new(RasterCache::new(Box::new(self.dem_source), 128)));
@@ -447,87 +422,7 @@ impl State {
         context.decrement_level();
         Ok(())
     }
-    fn generate_displacements(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        let present_tile_count =
-            self.nodes.iter().filter(|n| n.level() <= self.max_heights_present_level as u8).count();
-        let vacant_tile_count = self
-            .nodes
-            .iter()
-            .filter(|n| {
-                n.level() > self.max_heights_present_level as u8
-                    && n.level() <= self.max_heights_level as u8
-            })
-            .count();
 
-        let tile_from_node: HashMap<VNode, usize> =
-            self.nodes.iter().cloned().enumerate().map(|(i, n)| (n, i)).collect();
-
-        context.increment_level("Writing heightmaps... ", present_tile_count);
-        for i in 0..present_tile_count {
-            context.set_progress(i as u64);
-
-            let (heightmap, offset, step) =
-                if self.nodes[i].level() > self.max_texture_present_level {
-                    let (ancestor, generations, mut offset) = self.nodes[i]
-                        .find_ancestor(|node| node.level() <= self.max_texture_present_level)
-                        .unwrap();
-
-                    let ancestor = tile_from_node[&ancestor];
-                    let offset_scale = 1 << generations;
-                    let step = self.resolution_ratio >> generations;
-                    offset *= (self.heightmap_resolution - 2 * self.skirt) as u32 / offset_scale;
-                    let offset = Vector2::new(offset.x as u16, offset.y as u16);
-
-                    (ancestor, offset, step)
-                } else {
-                    let step = (self.heightmap_resolution - 2 * self.skirt - 1)
-                        / (self.heights_resolution - 1);
-                    (i, Vector2::new(0, 0), step)
-                };
-
-            let mut miny = None;
-            let mut maxy = None;
-            let mut data = Vec::new();
-            for y in 0..self.heights_resolution {
-                for x in 0..self.heights_resolution {
-                    let position = Vector2::new(
-                        x * step + offset.x + self.skirt,
-                        y * step + offset.y + self.skirt,
-                    );
-                    let height =
-                        self.heightmaps.as_ref().unwrap().get(heightmap, position.x, position.y, 0);
-
-                    miny = Some(height.min(miny.unwrap_or(height)));
-                    maxy = Some(match maxy {
-                        Some(y) if y > height => y,
-                        _ => height,
-                    });
-
-                    // let world2 = self.world_position(
-                    //     position.x as i32,
-                    //     position.y as i32,
-                    //     self.nodes[i].bounds(),
-                    // );
-                    // let altitude =
-                    //     self.system.world_to_lla(Vector3::new(world2.x, height as f64, world2.y)).z;
-
-                    data.write_f32::<LittleEndian>(0.0)?;
-                    data.write_f32::<LittleEndian>(height)?;
-                    data.write_f32::<LittleEndian>(0.0)?;
-                    data.write_f32::<LittleEndian>(0.0)?;
-                }
-            }
-            self.mapfile.write_tile(LayerType::Displacements, self.nodes[i], &data, true)?;
-        }
-
-        for i in present_tile_count..(present_tile_count + vacant_tile_count) {
-            self.mapfile.set_missing(LayerType::Displacements, self.nodes[i], false)?;
-        }
-
-        context.decrement_level();
-
-        Ok(())
-    }
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
         let colormap_skirt = self.skirt - 2;
@@ -607,59 +502,6 @@ impl State {
         }
 
         context.decrement_level();
-        Ok(())
-    }
-
-    fn generate_normalmap(mapfile: &mut MapFile, node: VNode) -> Result<(), Error> {
-        let heights_resolution =
-            mapfile.layers()[LayerType::Heightmaps].texture_resolution as usize;
-        let normals_resolution = mapfile.layers()[LayerType::Normals].texture_resolution as usize;
-        let normals_skirt = mapfile.layers()[LayerType::Normals].texture_border_size as usize;
-
-        let spacing = node.aprox_side_length() / (normals_resolution - 2 * normals_skirt) as f32;
-
-        let heights = mapfile.read_tile(LayerType::Heightmaps, node).unwrap();
-        let heights: &[f32] = bytemuck::cast_slice(&heights);
-
-        let mut data = Vec::new();
-        let skirt = (heights_resolution - normals_resolution) / 2;
-        for y in normals_skirt..(normals_skirt + normals_resolution) {
-            for x in normals_skirt..(normals_skirt + normals_resolution) {
-                let h00 = heights[x + y * heights_resolution];
-                let h01 = heights[x + (y + 1) * heights_resolution];
-                let h10 = heights[(x + 1) + y * heights_resolution];
-                let h11 = heights[(x + 1) + (y + 1) * heights_resolution];
-
-                let normal = Vector3::new(
-                    h10 + h11 - h00 - h01,
-                    2.0 * spacing,
-                    -1.0 * (h01 + h11 - h00 - h10),
-                )
-                .normalize();
-
-                data.write_u8((normal.x * 127.5 + 127.5) as u8)?;
-                data.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-            }
-        }
-        mapfile.write_tile(LayerType::Normals, node, &data, true)
-    }
-
-    fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        assert!(self.skirt >= 2);
-
-        let nodes = &self.nodes;
-        let mapfile = &mut self.mapfile;
-        for &n in nodes.iter() {
-            if n.level() > self.max_texture_level {
-                continue;
-            } else if n.level() > self.max_texture_present_level {
-                mapfile.set_missing(LayerType::Normals, n, false)?;
-            } else {
-                mapfile.set_missing(LayerType::Normals, n, false)?;
-                Self::generate_normalmap(mapfile, n)?;
-            }
-        }
-
         Ok(())
     }
 

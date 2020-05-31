@@ -377,6 +377,13 @@ impl Terrain {
                 }
             }
 
+            let albedo_slot =
+                if self.tile_cache.slot_valid(normals_slot as usize, LayerType::Albedo) {
+                    -1
+                } else {
+                    normals_slot
+                };
+
             self.gen_normals.run(
                 device,
                 &mut encoder,
@@ -394,10 +401,13 @@ impl Terrain {
                     spacing,
                     heightmaps_slot,
                     normals_slot,
+                    albedo_slot,
                 },
             );
             self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Normals);
-            self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Albedo);
+            if albedo_slot >= 0 {
+                self.tile_cache.set_slot_valid(albedo_slot as usize, LayerType::Albedo);
+            }
 
             if let TileState::Missing = self.mapfile.tile_state(LayerType::Normals, node).unwrap() {
                 let size = normals_resolution as u64 * normals_row_pitch as u64;

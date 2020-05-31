@@ -29,6 +29,7 @@ pub(crate) struct GenNormalsUniforms {
     pub spacing: f32,
     pub heightmaps_slot: i32,
     pub normals_slot: i32,
+    pub albedo_slot: i32,
 }
 unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
 unsafe impl bytemuck::Pod for GenNormalsUniforms {}
