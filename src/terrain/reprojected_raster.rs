@@ -49,7 +49,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         let _global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
 
-        context.increment_level("Reprojecting DEMs... ", tiles);
+        let context = &mut context.increment_level("Reprojecting DEMs... ", tiles);
         for i in 0..tiles {
             context.set_progress(i as u64);
 
@@ -100,7 +100,6 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                 writer.write_f32::<LittleEndian>(height)?;
             }
         }
-        context.decrement_level();
 
         Ok(ReprojectedRasterHeader {
             resolution: self.resolution,

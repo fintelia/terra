@@ -199,10 +199,10 @@ impl MapFile {
         let face = match node.face() {
             0 => "0E",
             1 => "180E",
-            2 => "N",
-            3 => "S",
-            4 => "90E",
-            5 => "90W",
+            2 => "90E",
+            3 => "90W",
+            4 => "N",
+            5 => "S",
             _ => unreachable!(),
         };
         let (layer, ext) = match layer {
@@ -265,8 +265,9 @@ impl MapFile {
     pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
         self.scan_tile_meta(layer, |node, meta| {
             if let TileState::Generated = meta.state {
-                self.remove_tile_meta(layer, node);
+                self.remove_tile_meta(layer, node)?;
             }
+            Ok(())
         })
     }
     pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<Vec<VNode>, Error> {
@@ -275,7 +276,8 @@ impl MapFile {
             if let TileState::MissingBase = meta.state {
                 missing.push(node);
             }
-        });
+            Ok(())
+        })?;
         Ok(missing)
     }
 
@@ -297,7 +299,7 @@ impl MapFile {
         self.db.remove(key)?;
         Ok(())
     }
-    fn scan_tile_meta<F: FnMut(VNode, TileMeta)>(
+    fn scan_tile_meta<F: FnMut(VNode, TileMeta) -> Result<(), Error>>(
         &self,
         layer: LayerType,
         mut f: F,
@@ -307,7 +309,7 @@ impl MapFile {
             let (k, v) = i?;
             let meta = bincode::deserialize::<TileMeta>(&v)?;
             let node = bincode::deserialize::<(KeyType, LayerType, VNode)>(&k)?.2;
-            f(node, meta);
+            f(node, meta)?;
         }
         Ok(())
     }

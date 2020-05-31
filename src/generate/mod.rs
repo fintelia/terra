@@ -1,10 +1,9 @@
-use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
+use crate::cache::{AssetLoadContext, AssetLoadContextBuf, MMappedAsset, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
 use crate::srgb::SRGB_TO_LINEAR;
-use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
-use crate::terrain::heightmap::{self, Heightmap};
+use crate::terrain::heightmap;
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::RasterCache;
@@ -117,17 +116,17 @@ impl MapFileBuilder {
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true);
-            n.level() < 3
+            n.level() < 5
         });
 
-        let mut context = AssetLoadContext::new();
-        context.increment_level("Generating mapfile...", 3);
+        let mut context = AssetLoadContextBuf::new();
+        let mut context = context.context("Generating mapfile...", 3);
         generate_heightmaps(&mut mapfile, &mut context)?;
         context.set_progress(1);
         generate_colormaps(&mut mapfile, &mut context)?;
         context.set_progress(2);
         generate_noise(&mut mapfile)?;
-        context.decrement_level();
+        context.set_progress(3);
 
         Ok(mapfile)
     }
@@ -143,7 +142,7 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
 
     // let _global_dem = GlobalDem.load(context)?;
 
-    context.increment_level("Writing heightmaps... ", missing.len());
+    let mut context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
         let mut heightmap = Vec::new();
@@ -154,7 +153,6 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
         }
         mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;
     }
-    context.decrement_level();
 
     Ok(())
 }
@@ -171,7 +169,9 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
     let bluemarble = BlueMarble.load(context)?;
     let bluemarble_spacing = bluemarble.spacing() as f32;
 
-    context.increment_level("Generating colormaps... ", missing.len());
+    let mut bluemarble_cache = RasterCache::new(Box::new(BlueMarbleTileSource), 8);
+
+    let context = &mut context.increment_level("Generating colormaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
 
@@ -180,11 +180,6 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
         );
         let spacing = n.aprox_side_length()
             / (layer.texture_resolution - 2 * layer.texture_border_size) as f32;
-
-        if spacing <= bluemarble_spacing {
-            mapfile.set_missing(LayerType::Albedo, n, false)?;
-            continue;
-        }
 
         for y in 0..layer.texture_resolution {
             for x in 0..layer.texture_resolution {
@@ -198,10 +193,16 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
                 let polar = CoordinateSystem::sspace_to_polar(sspace);
                 let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
 
-                let color = {
+                let color = if spacing < bluemarble_spacing {
+                    let r = bluemarble_cache.interpolate(context, lat, long, 0).unwrap_or(0.0) as u8;
+                    let g = bluemarble_cache.interpolate(context, lat, long, 1).unwrap_or(0.0) as u8;
+                    let b = bluemarble_cache.interpolate(context, lat, long, 2).unwrap_or(0.0) as u8;
+                    let roughness = (0.7 * 255.0) as u8;
+                    [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
+                } else {
                     let r = bluemarble.interpolate(lat, long, 0) as u8;
-                    let g = bluemarble.interpolate(lat, long, 0) as u8;
-                    let b = bluemarble.interpolate(lat, long, 0) as u8;
+                    let g = bluemarble.interpolate(lat, long, 1) as u8;
+                    let b = bluemarble.interpolate(lat, long, 2) as u8;
                     let roughness = (0.7 * 255.0) as u8;
                     [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
                 };
@@ -213,7 +214,6 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
         mapfile.write_tile(LayerType::Albedo, n, &colormap, true)?;
     }
 
-    context.decrement_level();
     Ok(())
 }
 
