@@ -1,5 +1,4 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
-use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
@@ -12,20 +11,16 @@ use crate::terrain::reprojected_raster::{
     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 };
 use crate::terrain::tile_cache::{
-    ByteRange, LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat, TileHeader,
+    LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat, TileHeader,
 };
-use crate::utils::math::BoundingBox;
 use byteorder::{LittleEndian, WriteBytesExt};
-use cgmath::*;
 use failure::Error;
 use maplit::hashmap;
 use rand;
 use rand::distributions::Distribution;
 use rand_distr::Normal;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::f64::consts::PI;
-use std::fs;
 use std::io::Write;
 use std::rc::Rc;
 use vec_map::VecMap;
@@ -200,7 +195,7 @@ impl MapFileBuilder {
     /// mode...).
     pub fn build(mut self) -> Result<MapFile, Error> {
         let mut context = self.context.take().unwrap();
-        let (header, data) = self.load(&mut context)?;
+        let (header, _) = self.load(&mut context)?;
 
         Ok(MapFile::new(header))
     }
@@ -234,9 +229,6 @@ impl MMappedAsset for MapFileBuilder {
         mut writer: W,
     ) -> Result<Self::Header, Error> {
         writer.write_all(&[0])?;
-
-        let world_center =
-            Vector2::<f32>::new(self.longitude as f32 + 0.5, self.latitude as f32 + 0.5);
 
         // Cell size in the y (latitude) direction, in meters. The x (longitude) direction will have
         // smaller cell sizes due to the projection.
@@ -303,7 +295,7 @@ impl MMappedAsset for MapFileBuilder {
         ]
         .into_iter()
         .collect();
-        let nodes = VNode::make_nodes(30000.0, max_heights_level as u8);
+        let nodes = VNode::make_nodes(max_heights_level as u8);
         let noise = State::generate_noise(context)?;
         let tile_header = TileHeader { layers, noise };
 
@@ -333,13 +325,9 @@ impl MMappedAsset for MapFileBuilder {
             },
             dem_source: self.source,
             heightmap_resolution,
-            heights_resolution,
-            max_heights_level: max_heights_level as u8,
-            max_heights_present_level: max_heights_present_level as u8,
             max_texture_level: max_texture_level as u8,
             max_texture_present_level: max_texture_present_level as u8,
             max_dem_level: max_dem_level as u8,
-            resolution_ratio,
             heightmaps: None,
             skirt,
             nodes,
@@ -363,21 +351,15 @@ struct State {
     random: Heightmap<f32>,
     heightmaps: Option<ReprojectedRaster>,
 
-    /// Resolution of the heightmap for each quadtree node.
-    heights_resolution: u16,
     /// Resolution of the intermediate heightmaps which are used to generate normalmaps and
     /// colormaps. Derived from the target texture resolution.
     heightmap_resolution: u16,
 
     skirt: u16,
 
-    max_heights_level: u8,
-    max_heights_present_level: u8,
     max_texture_level: u8,
     max_texture_present_level: u8,
     max_dem_level: u8,
-
-    resolution_ratio: u16,
 
     nodes: Vec<VNode>,
 
@@ -425,7 +407,6 @@ impl State {
 
     fn generate_colormaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
         assert!(self.skirt >= 2);
-        let colormap_skirt = self.skirt - 2;
         let colormap_resolution = self.heightmap_resolution - 5;
 
         let tile_count =
@@ -461,9 +442,6 @@ impl State {
         // };
         // let watermasks = ReprojectedRaster::from_raster(reproject, context)?;
 
-        let _mix = |a: u8, b: u8, t: f32| (f32::from(a) * (1.0 - t) + f32::from(b) * t) as u8;
-
-        let mut colormaps: Vec<Vec<u8>> = Vec::new();
         for i in 0..tile_count {
             context.set_progress(i as u64);
 

@@ -1,4 +1,3 @@
-use crate::coordinates::CoordinateSystem;
 use crate::mapfile::{MapFile, TileState};
 use crate::terrain::quadtree::VNode;
 use cgmath::Point3;

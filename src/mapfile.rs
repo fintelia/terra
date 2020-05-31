@@ -4,9 +4,7 @@ use crate::terrain::tile_cache::{
     LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
 };
 use failure::Error;
-use memmap::MmapMut;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use vec_map::VecMap;

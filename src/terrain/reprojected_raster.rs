@@ -4,9 +4,7 @@ use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::Heightmap;
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
-use crate::utils::math::BoundingBox;
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use cgmath::*;
 use failure::Error;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
@@ -20,22 +18,6 @@ use std::rc::Rc;
 pub(crate) enum DataType {
     F32,
     U8,
-}
-
-fn world_position(
-    x: i32,
-    y: i32,
-    bounds: BoundingBox,
-    skirt: u16,
-    resolution: u16,
-) -> Vector2<f64> {
-    let fx = (x - skirt as i32) as f32 / (resolution - 1 - 2 * skirt) as f32;
-    let fy = (y - skirt as i32) as f32 / (resolution - 1 - 2 * skirt) as f32;
-
-    Vector2::new(
-        (bounds.min.x + (bounds.max.x - bounds.min.x) * fx) as f64,
-        (bounds.min.z + (bounds.max.z - bounds.min.z) * fy) as f64,
-    )
 }
 
 pub(crate) struct ReprojectedDemDef<'a> {
@@ -64,7 +46,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
         let tiles =
             self.nodes.iter().filter(|n| n.level() <= self.max_texture_present_level).count();
 
-        let global_dem = GlobalDem.load(context)?;
+        let _global_dem = GlobalDem.load(context)?;
         let mut heightmaps: Vec<Heightmap<f32>> = Vec::with_capacity(tiles);
 
         context.increment_level("Reprojecting DEMs... ", tiles);
@@ -77,7 +59,7 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
             for y in 0..(self.resolution as i32) {
                 for x in 0..(self.resolution as i32) {
                     let cspace = self.nodes[i].grid_position_cspace(x, y, self.skirt, self.resolution);
-                    let sspace = CoordinateSystem::cspace_to_sspace(cspace);
+                    let _sspace = CoordinateSystem::cspace_to_sspace(cspace);
 
                     // let world = world_position(x, y, bounds, self.skirt, self.resolution);
                     // let mut world3 = Vector3::new(

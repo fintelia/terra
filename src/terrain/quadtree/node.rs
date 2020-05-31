@@ -1,6 +1,5 @@
 use crate::generate::EARTH_CIRCUMFERENCE;
 use crate::terrain::tile_cache::Priority;
-use crate::utils::math::BoundingBox;
 use cgmath::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -59,17 +58,6 @@ impl VNode {
         4.0 / (1u32 << self.level()) as f64
     }
 
-    pub fn bounds(&self) -> BoundingBox {
-        let side_length = self.aprox_side_length();
-        let min = Point3::new(
-            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.x() as f32,
-            0.0,
-            -ROOT_SIDE_LENGTH * 0.5 + side_length * self.y() as f32,
-        );
-        let max = Point3::new(min.x + side_length, 8000.0, min.z + side_length);
-        BoundingBox { min, max }
-    }
-
     fn center_cspace(&self) -> Vector3<f64> {
         self.cell_position_cspace(0, 0, 0, 1)
     }
@@ -107,7 +95,7 @@ impl VNode {
         let scale = 2.0 / (1u32 << self.level()) as f64;
 
         let fx = (self.x() as f64 + fx) * scale - 1.0;
-        let fx = (self.y() as f64 + fy) * scale - 1.0;
+        let fy = (self.y() as f64 + fy) * scale - 1.0;
         self.fspace_to_cspace(fx, fy)
     }
 
@@ -200,8 +188,7 @@ impl VNode {
         }
     }
 
-    pub fn make_nodes(playable_radius: f32, max_level: u8) -> Vec<VNode> {
-
+    pub fn make_nodes(max_level: u8) -> Vec<VNode> {
         let mut nodes = Self::roots().to_vec();
         let mut pending: VecDeque<VNode> = nodes.iter().cloned().collect();
 
