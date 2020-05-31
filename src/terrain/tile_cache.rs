@@ -141,7 +141,6 @@ pub(crate) struct TextureDescriptor {
 pub(crate) struct TileHeader {
     pub layers: VecMap<LayerParams>,
     pub noise: NoiseParams,
-    pub nodes: Vec<VNode>,
 }
 
 struct Entry {

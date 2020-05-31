@@ -27,14 +27,12 @@ struct TileMeta {
 
 pub struct MapFile {
     header: TileHeader,
-    reverse: HashMap<VNode, usize>,
     db: sled::Db,
 }
 impl MapFile {
     pub(crate) fn new(header: TileHeader) -> Self {
-        let reverse = header.nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
         let db = sled::open(TERRA_DIRECTORY.join("tiles/meta")).unwrap();
-        Self { header, reverse, db }
+        Self { header, db }
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {

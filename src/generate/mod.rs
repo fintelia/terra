@@ -18,6 +18,7 @@ use crate::utils::math::BoundingBox;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cgmath::*;
 use failure::Error;
+use maplit::hashmap;
 use rand;
 use rand::distributions::Distribution;
 use rand_distr::Normal;
@@ -28,7 +29,6 @@ use std::fs;
 use std::io::Write;
 use std::rc::Rc;
 use vec_map::VecMap;
-use maplit::hashmap;
 
 mod gpu;
 pub(crate) use gpu::*;
@@ -276,34 +276,36 @@ impl MMappedAsset for MapFileBuilder {
         let colormap_skirt = skirt - 2;
 
         let layers: VecMap<LayerParams> = hashmap![
-                LayerType::Heightmaps.index() => LayerParams {
-                        layer_type: LayerType::Heightmaps,
-                        texture_resolution: heightmap_resolution as u32,
-                        texture_border_size: skirt as u32,
-                        texture_format: TextureFormat::R32F,
-                    },
-                LayerType::Displacements.index() => LayerParams {
-                        layer_type: LayerType::Displacements,
-                        texture_resolution: heights_resolution as u32,
-                        texture_border_size: 0,
-                        texture_format: TextureFormat::RGBA32F,
-                    },
-                LayerType::Albedo.index() => LayerParams {
-                        layer_type: LayerType::Albedo,
-                        texture_resolution: colormap_resolution as u32,
-                        texture_border_size: colormap_skirt as u32,
-                        texture_format: TextureFormat::RGBA8,
-                    },
-                LayerType::Normals.index() => LayerParams {
-                        layer_type: LayerType::Normals,
-                        texture_resolution: normalmap_resolution as u32,
-                        texture_border_size: skirt as u32 - 2,
-                        texture_format: TextureFormat::RG8,
-                    },
-            ].into_iter().collect();
+            LayerType::Heightmaps.index() => LayerParams {
+                    layer_type: LayerType::Heightmaps,
+                    texture_resolution: heightmap_resolution as u32,
+                    texture_border_size: skirt as u32,
+                    texture_format: TextureFormat::R32F,
+                },
+            LayerType::Displacements.index() => LayerParams {
+                    layer_type: LayerType::Displacements,
+                    texture_resolution: heights_resolution as u32,
+                    texture_border_size: 0,
+                    texture_format: TextureFormat::RGBA32F,
+                },
+            LayerType::Albedo.index() => LayerParams {
+                    layer_type: LayerType::Albedo,
+                    texture_resolution: colormap_resolution as u32,
+                    texture_border_size: colormap_skirt as u32,
+                    texture_format: TextureFormat::RGBA8,
+                },
+            LayerType::Normals.index() => LayerParams {
+                    layer_type: LayerType::Normals,
+                    texture_resolution: normalmap_resolution as u32,
+                    texture_border_size: skirt as u32 - 2,
+                    texture_format: TextureFormat::RG8,
+                },
+        ]
+        .into_iter()
+        .collect();
         let nodes = VNode::make_nodes(30000.0, max_heights_level as u8);
         let noise = State::generate_noise(context)?;
-        let tile_header = TileHeader { layers, noise, nodes: nodes.clone() };
+        let tile_header = TileHeader { layers, noise };
 
         let mapfile = MapFile::new(tile_header.clone());
 
@@ -594,46 +596,55 @@ impl State {
         context.decrement_level();
         Ok(())
     }
-    fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
-        assert!(self.skirt >= 2);
-        let normalmap_resolution = self.heightmap_resolution - 5;
-        let tile_count =
-            self.nodes.iter().filter(|n| n.level() <= self.max_texture_level as u8).count();
 
-        context.increment_level("Generating normalmaps... ", tile_count);
-        for i in 0..tile_count {
-            context.set_progress(i as u64);
+    fn generate_normalmap(mapfile: &mut MapFile, node: VNode) -> Result<(), Error> {
+        let heights_resolution =
+            mapfile.layers()[LayerType::Heightmaps].texture_resolution as usize;
+        let normals_resolution = mapfile.layers()[LayerType::Normals].texture_resolution as usize;
+        let normals_skirt = mapfile.layers()[LayerType::Normals].texture_border_size as usize;
 
-            let heights = self.heightmaps.as_ref().unwrap();
-            let spacing = self.nodes[i].aprox_side_length()
-                / (self.heightmap_resolution - 2 * self.skirt) as f32;
+        let spacing = node.aprox_side_length() / (normals_resolution - 2 * normals_skirt) as f32;
 
-            if self.nodes[i].level() > self.max_texture_present_level {
-                self.mapfile.set_missing(LayerType::Heightmaps, self.nodes[i])?;
-            } else {
-                let mut data = Vec::new();
-                for y in 2..(2 + normalmap_resolution) {
-                    for x in 2..(2 + normalmap_resolution) {
-                        let h00 = heights.get(i, x, y, 0);
-                        let h01 = heights.get(i, x, y + 1, 0);
-                        let h10 = heights.get(i, x + 1, y, 0);
-                        let h11 = heights.get(i, x + 1, y + 1, 0);
+        let heights = mapfile.read_tile(LayerType::Heightmaps, node).unwrap();
+        let heights: &[f32] = bytemuck::cast_slice(&heights);
 
-                        let normal = Vector3::new(
-                            h10 + h11 - h00 - h01,
-                            2.0 * spacing,
-                            -1.0 * (h01 + h11 - h00 - h10),
-                        )
-                        .normalize();
+        let mut data = Vec::new();
+        let skirt = (heights_resolution - normals_resolution) / 2;
+        for y in normals_skirt..(normals_skirt + normals_resolution) {
+            for x in normals_skirt..(normals_skirt + normals_resolution) {
+                let h00 = heights[x + y * heights_resolution];
+                let h01 = heights[x + (y + 1) * heights_resolution];
+                let h10 = heights[(x + 1) + y * heights_resolution];
+                let h11 = heights[(x + 1) + (y + 1) * heights_resolution];
 
-                        data.write_u8((normal.x * 127.5 + 127.5) as u8)?;
-                        data.write_u8((normal.z * 127.5 + 127.5) as u8)?;
-                    }
-                }
-                self.mapfile.write_tile(LayerType::Normals, self.nodes[i], &data, true)?;
+                let normal = Vector3::new(
+                    h10 + h11 - h00 - h01,
+                    2.0 * spacing,
+                    -1.0 * (h01 + h11 - h00 - h10),
+                )
+                .normalize();
+
+                data.write_u8((normal.x * 127.5 + 127.5) as u8)?;
+                data.write_u8((normal.z * 127.5 + 127.5) as u8)?;
             }
         }
-        context.decrement_level();
+        mapfile.write_tile(LayerType::Normals, node, &data, true)
+    }
+
+    fn generate_normalmaps(&mut self, context: &mut AssetLoadContext) -> Result<(), Error> {
+        assert!(self.skirt >= 2);
+
+        let nodes = &self.nodes;
+        let mapfile = &mut self.mapfile;
+        for &n in nodes.iter() {
+            if n.level() > self.max_texture_level {
+                continue;
+            } else if n.level() > self.max_texture_present_level {
+                mapfile.set_missing(LayerType::Heightmaps, n)?;
+            } else {
+                Self::generate_normalmap(mapfile, n)?;
+            }
+        }
 
         Ok(())
     }
