@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use vec_map::VecMap;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TileState {
     Missing,
     Base,
@@ -18,7 +18,14 @@ pub(crate) enum TileState {
     MissingBase,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum TileKind {
+    Base,
+    Generate,
+    GpuOnly,
+}
+
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
 struct TileMeta {
     crc32: u32,
     state: TileState,
@@ -229,6 +236,38 @@ impl MapFile {
         let value = bincode::serialize(&meta).unwrap();
         self.db.insert(key, value)?;
         Ok(())
+    }
+
+    pub(crate) fn reload_tile_state(
+        &self,
+        layer: LayerType,
+        node: VNode,
+        base: bool,
+    ) -> Result<TileState, Error> {
+        let filename = Self::tile_name(layer, node);
+        let mut meta = self.lookup_tile_meta(layer, node);
+
+        let exists = filename.exists();
+
+        let target_state = if base && exists {
+            TileState::Base
+        } else if base {
+            TileState::MissingBase
+        } else if exists {
+            TileState::Generated
+        } else {
+            TileState::Missing
+        };
+
+        if let Ok(Some(TileMeta { state, .. })) = meta {
+            if state == target_state {
+                return Ok(state);
+            }
+        }
+
+        let new_meta = TileMeta { state: target_state, crc32: 0 };
+        self.update_tile_meta(layer, node, new_meta)?;
+        Ok(target_state)
     }
 
     pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<Vec<VNode>, Error> {

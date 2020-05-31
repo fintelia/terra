@@ -91,11 +91,7 @@ fn main() {
             limits: wgpu::Limits::default(),
         }));
 
-    let mapfile = terra::MapFileBuilder::new()
-        .vertex_quality(terra::VertexQuality::Medium)
-        .texture_quality(terra::TextureQuality::High)
-        .build()
-        .unwrap();
+    let mapfile = terra::MapFileBuilder::build().unwrap();
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 

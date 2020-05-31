@@ -34,7 +34,7 @@ use vec_map::VecMap;
 use wgpu_glyph::{GlyphBrush, Section};
 
 pub use crate::mapfile::MapFile;
-pub use generate::{MapFileBuilder, TextureQuality, VertexQuality};
+pub use generate::MapFileBuilder;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
