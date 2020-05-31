@@ -41,7 +41,6 @@ fn world_position(
 pub(crate) struct ReprojectedDemDef<'a> {
     pub name: String,
     pub dem_cache: Rc<RefCell<RasterCache<f32, Vec<f32>>>>,
-    pub system: &'a CoordinateSystem,
     pub nodes: &'a Vec<VNode>,
     pub random: &'a Heightmap<f32>,
     pub global_dem: GlobalRaster<i16>,
@@ -151,7 +150,6 @@ where
 {
     pub name: String,
 
-    pub system: &'a CoordinateSystem,
     pub nodes: &'a [VNode],
     pub resolution: u16,
     pub skirt: u16,

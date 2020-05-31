@@ -302,7 +302,7 @@ impl MMappedAsset for MapFileBuilder {
                     },
             ].into_iter().collect();
         let nodes = VNode::make_nodes(30000.0, max_heights_level as u8);
-        let noise = State::<Vec<u8>>::generate_noise(context)?;
+        let noise = State::generate_noise(context)?;
         let tile_header = TileHeader { layers, noise, nodes: nodes.clone() };
 
         let mapfile = MapFile::new(tile_header.clone());
@@ -323,14 +323,8 @@ impl MMappedAsset for MapFileBuilder {
             max_texture_present_level: max_texture_present_level as u8,
             max_dem_level: max_dem_level as u8,
             resolution_ratio,
-            writer,
             heightmaps: None,
             skirt,
-            system: CoordinateSystem::from_lla(Vector3::new(
-                world_center.y.to_radians() as f64,
-                world_center.x.to_radians() as f64,
-                0.0,
-            )),
             nodes,
             directory_name: format!("maps/t.{}/", self.name()),
             mapfile,
@@ -350,7 +344,7 @@ impl MMappedAsset for MapFileBuilder {
     }
 }
 
-struct State<W: Write> {
+struct State {
     dem_source: DemSource,
 
     random: Heightmap<f32>,
@@ -371,9 +365,6 @@ struct State<W: Write> {
     max_dem_level: u8,
 
     resolution_ratio: u16,
-    writer: W,
-    // materials: &'a MaterialSet<R>,
-    system: CoordinateSystem,
 
     nodes: Vec<VNode>,
 
@@ -381,7 +372,7 @@ struct State<W: Write> {
     mapfile: MapFile,
 }
 
-impl<W: Write> State<W> {
+impl State {
     #[allow(unused)]
     fn world_position(&self, x: i32, y: i32, bounds: BoundingBox) -> Vector2<f64> {
         let fx = (x - self.skirt as i32) as f32
@@ -411,7 +402,6 @@ impl<W: Write> State<W> {
         let reproject = ReprojectedDemDef {
             name: format!("{}dem", self.directory_name),
             dem_cache,
-            system: &self.system,
             nodes: &self.nodes,
             random: &self.random,
             skirt: self.skirt,
@@ -537,7 +527,6 @@ impl<W: Write> State<W> {
 
         let reproject_bluemarble = ReprojectedRasterDef {
             name: format!("{}bluemarble", self.directory_name),
-            system: &self.system,
             nodes: &self.nodes[..tile_count],
             resolution: colormap_resolution,
             skirt: self.skirt,

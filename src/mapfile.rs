@@ -42,19 +42,6 @@ impl MapFile {
             Some(meta) => meta.state,
             None => TileState::GpuOnly,
         })
-        // let bitmap = &self.header.layers[layer.index()].tile_valid_bitmap;
-        // let tile = self.reverse.get(&node);
-
-        // if tile.is_none() || *tile.unwrap() >= bitmap.length {
-        //     return TileState::GpuOnly;
-        // }
-
-        // match self.file[bitmap.offset + tile.unwrap()] {
-        //     0 => TileState::Missing,
-        //     1 => TileState::Base,
-        //     2 => TileState::Generated,
-        //     _ => unreachable!(),
-        // }
     }
     pub(crate) fn read_tile(&self, layer: LayerType, node: VNode) -> Option<Vec<u8>> {
         let filename = Self::tile_name(layer, node);
@@ -111,14 +98,6 @@ impl MapFile {
                 self.db.remove(k)?;
             }
         }
-
-        // let bitmap = self.header.layers[layer.index()].tile_valid_bitmap;
-        // for i in 0..bitmap.length {
-        //     if self.file[bitmap.offset + i] == 2 {
-        //         self.file[bitmap.offset + i] = 0;
-        //     }
-        // }
-        // self.file.flush_range(bitmap.offset, bitmap.length)?;
         Ok(())
     }
 
