@@ -110,12 +110,7 @@ impl MapFileBuilder {
         .into_iter()
         .collect();
 
-        let mut context = AssetLoadContext::new();
-        let noise = generate_noise(&mut context)?;
-        let tile_header = TileHeader { layers, noise };
-
-        let mut mapfile = MapFile::new(tile_header.clone());
-
+        let mut mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true);
             n.level() < 3
@@ -125,11 +120,13 @@ impl MapFileBuilder {
             n.level() < 3
         });
 
-        context.increment_level("Generating mapfile...", 2);
+        let mut context = AssetLoadContext::new();
+        context.increment_level("Generating mapfile...", 3);
         generate_heightmaps(&mut mapfile, &mut context)?;
         context.set_progress(1);
         generate_colormaps(&mut mapfile, &mut context)?;
         context.set_progress(2);
+        generate_noise(&mut mapfile)?;
         context.decrement_level();
 
         Ok(mapfile)
@@ -220,29 +217,31 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
     Ok(())
 }
 
-fn generate_noise(_context: &mut AssetLoadContext) -> Result<NoiseParams, Error> {
-    let noise = NoiseParams {
-        texture: TextureDescriptor {
-            resolution: 2048,
-            format: TextureFormat::RGBA8,
-            bytes: 4 * 2048 * 2048,
-        },
-        wavelength: 1.0 / 256.0,
-    };
+fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
+    if !mapfile.reload_texture("noise") {
+        let noise = NoiseParams {
+            texture: TextureDescriptor {
+                resolution: 2048,
+                format: TextureFormat::RGBA8,
+                bytes: 4 * 2048 * 2048,
+            },
+            wavelength: 1.0 / 256.0,
+        };
 
-    let noise_heightmaps: Vec<_> =
-        (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
+        let noise_heightmaps: Vec<_> =
+            (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
 
-    let len = noise_heightmaps[0].heights.len();
-    let mut heights = vec![0u8; len * 4];
-    for (i, heightmap) in noise_heightmaps.into_iter().enumerate() {
-        let mut dist: Vec<(usize, f32)> = heightmap.heights.into_iter().enumerate().collect();
-        dist.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        for j in 0..len {
-            heights[dist[j].0 * 4 + i] = (j * 256 / len) as u8;
+        let len = noise_heightmaps[0].heights.len();
+        let mut heights = vec![0u8; len * 4];
+        for (i, heightmap) in noise_heightmaps.into_iter().enumerate() {
+            let mut dist: Vec<(usize, f32)> = heightmap.heights.into_iter().enumerate().collect();
+            dist.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            for j in 0..len {
+                heights[dist[j].0 * 4 + i] = (j * 256 / len) as u8;
+            }
         }
-    }
 
-    MapFile::save_noise_texture(&noise.texture, &heights[..])?;
-    Ok(noise)
+        mapfile.write_texture("noise", noise.texture, &heights[..])?;
+    }
+    Ok(())
 }

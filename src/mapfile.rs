@@ -31,14 +31,20 @@ struct TileMeta {
     state: TileState,
 }
 
+#[derive(PartialEq, Eq, Serialize, Deserialize)]
+enum KeyType {
+    Tile,
+    Texture,
+}
+
 pub struct MapFile {
-    header: TileHeader,
+    layers: VecMap<LayerParams>,
     db: sled::Db,
 }
 impl MapFile {
-    pub(crate) fn new(header: TileHeader) -> Self {
+    pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
         let db = sled::open(TERRA_DIRECTORY.join("tiles/meta")).unwrap();
-        Self { header, db }
+        Self { layers, db }
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
@@ -77,8 +83,8 @@ impl MapFile {
             LayerType::Albedo => image::save_buffer_with_format(
                 &filename,
                 data,
-                self.header.layers[layer].texture_resolution as u32,
-                self.header.layers[layer].texture_resolution as u32,
+                self.layers[layer].texture_resolution as u32,
+                self.layers[layer].texture_resolution as u32,
                 image::ColorType::Rgba8,
                 image::ImageFormat::Bmp,
             )?,
@@ -94,24 +100,13 @@ impl MapFile {
         )
     }
 
-    pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
-        let prefix = bincode::serialize(&layer).unwrap();
-        for i in self.db.scan_prefix(&prefix) {
-            let (k, v) = i?;
-            if let TileState::Generated = bincode::deserialize::<TileMeta>(&v)?.state {
-                self.db.remove(k)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn load_texture(
+    pub(crate) fn read_texture(
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        desc: &TextureDescriptor,
         name: &str,
     ) -> Result<wgpu::Texture, Error> {
+        let desc = self.lookup_texture(name)?.unwrap();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: desc.resolution, height: desc.resolution, depth: 1 },
             format: desc.format.to_wgpu(),
@@ -132,7 +127,7 @@ impl MapFile {
         let row_pitch = (row_bytes + 255) & !255;
         // let data = &self.file[desc.offset..][..desc.bytes];
 
-        let filename = TERRA_DIRECTORY.join(name);
+        let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
         let image = image::open(filename)?;
         let data = image.to_rgba().into_vec();
 
@@ -166,28 +161,38 @@ impl MapFile {
         Ok(texture)
     }
 
-    pub(crate) fn noise_texture(
+    pub(crate) fn write_texture(
         &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> Result<wgpu::Texture, Error> {
-        self.load_texture(device, encoder, &self.header.noise.texture, "noise.bmp")
-    }
-
-    pub(crate) fn save_noise_texture(desc: &TextureDescriptor, data: &[u8]) -> Result<(), Error> {
+        name: &str,
+        desc: TextureDescriptor,
+        data: &[u8],
+    ) -> Result<(), Error> {
         assert_eq!(desc.format, TextureFormat::RGBA8);
+        let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
+        let resolution = desc.resolution as u32;
+        self.update_texture(name, desc)?;
         Ok(image::save_buffer_with_format(
-            &TERRA_DIRECTORY.join("noise.bmp"),
+            &filename,
             data,
-            desc.resolution as u32,
-            desc.resolution as u32,
+            resolution,
+            resolution,
             image::ColorType::Rgba8,
             image::ImageFormat::Bmp,
         )?)
     }
 
+    pub(crate) fn reload_texture(&self, name: &str) -> bool {
+        let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
+        let desc = self.lookup_texture(name);
+        if let Ok(Some(d)) = desc {
+            filename.exists()
+        } else {
+            false
+        }
+    }
+
     pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
-        &self.header.layers
+        &self.layers
     }
 
     pub(crate) fn tile_name(layer: LayerType, node: VNode) -> PathBuf {
@@ -215,27 +220,6 @@ impl MapFile {
             node.y(),
             ext
         ))
-    }
-
-    pub(crate) fn set_missing(
-        &self,
-        layer: LayerType,
-        node: VNode,
-        base: bool,
-    ) -> Result<(), Error> {
-        let state = if base { TileState::MissingBase } else { TileState::Missing };
-        self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
-    }
-
-    fn lookup_tile_meta(&self, layer: LayerType, node: VNode) -> Result<Option<TileMeta>, Error> {
-        let key = bincode::serialize(&(layer, node)).unwrap();
-        Ok(self.db.get(key)?.map(|value| bincode::deserialize(&value).unwrap()))
-    }
-    fn update_tile_meta(&self, layer: LayerType, node: VNode, meta: TileMeta) -> Result<(), Error> {
-        let key = bincode::serialize(&(layer, node)).unwrap();
-        let value = bincode::serialize(&meta).unwrap();
-        self.db.insert(key, value)?;
-        Ok(())
     }
 
     pub(crate) fn reload_tile_state(
@@ -269,17 +253,73 @@ impl MapFile {
         self.update_tile_meta(layer, node, new_meta)?;
         Ok(target_state)
     }
-
+    pub(crate) fn set_missing(
+        &self,
+        layer: LayerType,
+        node: VNode,
+        base: bool,
+    ) -> Result<(), Error> {
+        let state = if base { TileState::MissingBase } else { TileState::Missing };
+        self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
+    }
+    pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
+        self.scan_tile_meta(layer, |node, meta| {
+            if let TileState::Generated = meta.state {
+                self.remove_tile_meta(layer, node);
+            }
+        })
+    }
     pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<Vec<VNode>, Error> {
         let mut missing = Vec::new();
-        let prefix = bincode::serialize(&layer).unwrap();
-        for i in self.db.scan_prefix(&prefix) {
-            let (k, v) = i?;
-            if let TileState::MissingBase = bincode::deserialize::<TileMeta>(&v)?.state {
-                let (_, node) = bincode::deserialize::<(LayerType, VNode)>(&k).unwrap();
+        self.scan_tile_meta(layer, |node, meta| {
+            if let TileState::MissingBase = meta.state {
                 missing.push(node);
             }
-        }
+        });
         Ok(missing)
+    }
+
+    //
+    // These functions use the database.
+    //
+    fn lookup_tile_meta(&self, layer: LayerType, node: VNode) -> Result<Option<TileMeta>, Error> {
+        let key = bincode::serialize(&(KeyType::Tile, layer, node)).unwrap();
+        Ok(self.db.get(key)?.map(|value| bincode::deserialize(&value).unwrap()))
+    }
+    fn update_tile_meta(&self, layer: LayerType, node: VNode, meta: TileMeta) -> Result<(), Error> {
+        let key = bincode::serialize(&(KeyType::Tile, layer, node)).unwrap();
+        let value = bincode::serialize(&meta).unwrap();
+        self.db.insert(key, value)?;
+        Ok(())
+    }
+    fn remove_tile_meta(&self, layer: LayerType, node: VNode) -> Result<(), Error> {
+        let key = bincode::serialize(&(KeyType::Tile, layer, node)).unwrap();
+        self.db.remove(key)?;
+        Ok(())
+    }
+    fn scan_tile_meta<F: FnMut(VNode, TileMeta)>(
+        &self,
+        layer: LayerType,
+        mut f: F,
+    ) -> Result<(), Error> {
+        let prefix = bincode::serialize(&(KeyType::Tile, layer)).unwrap();
+        for i in self.db.scan_prefix(&prefix) {
+            let (k, v) = i?;
+            let meta = bincode::deserialize::<TileMeta>(&v)?;
+            let node = bincode::deserialize::<(KeyType, LayerType, VNode)>(&k)?.2;
+            f(node, meta);
+        }
+        Ok(())
+    }
+
+    fn lookup_texture(&self, name: &str) -> Result<Option<TextureDescriptor>, Error> {
+        let key = bincode::serialize(&(KeyType::Texture, name)).unwrap();
+        Ok(self.db.get(key)?.map(|value| bincode::deserialize(&value).unwrap()))
+    }
+    fn update_texture(&self, name: &str, desc: TextureDescriptor) -> Result<(), Error> {
+        let key = bincode::serialize(&(KeyType::Texture, name)).unwrap();
+        let value = bincode::serialize(&desc).unwrap();
+        self.db.insert(key, value)?;
+        Ok(())
     }
 }

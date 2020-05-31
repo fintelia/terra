@@ -104,7 +104,7 @@ impl Terrain {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("generate_noise"),
             });
-            let noise = mapfile.noise_texture(device, &mut encoder)?;
+            let noise = mapfile.read_texture(device, &mut encoder, "noise")?;
             queue.submit(&[encoder.finish()]);
             noise
         };
