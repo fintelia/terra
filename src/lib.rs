@@ -39,11 +39,9 @@ pub use generate::MapFileBuilder;
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct UniformBlock {
-    local_origin: [f64; 3],
-    padding2: f64,
     view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f32>,
-    padding: f32,
+    camera: mint::Point3<f64>,
+    padding: f64,
 }
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
@@ -179,7 +177,7 @@ impl Terrain {
         depth_buffer: &wgpu::TextureView,
         frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
-        camera: mint::Point3<f32>,
+        camera: mint::Point3<f64>,
     ) {
         for (layer, node, buffer) in self.pending_tiles.drain(..) {
             let resolution = self.tile_cache.resolution(layer) as usize;
@@ -532,8 +530,6 @@ impl Terrain {
             view_proj,
             camera,
             padding: 0.0,
-            local_origin: [0.0, 6371000.0, 0.0],
-            padding2: 0.0,
         };
         encoder.copy_buffer_to_buffer(
             &mapped.finish(),

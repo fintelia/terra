@@ -140,7 +140,7 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
 
     let layer = mapfile.layers()[LayerType::Heightmaps].clone();
 
-    // let _global_dem = GlobalDem.load(context)?;
+    let global_dem = GlobalDem.load(context)?;
 
     let mut context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
@@ -148,7 +148,17 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
         let mut heightmap = Vec::new();
         for y in 0..layer.texture_resolution {
             for x in 0..layer.texture_resolution {
-                heightmap.write_f32::<LittleEndian>(0.0)?;
+                let cspace = n.cell_position_cspace(
+                    x as i32,
+                    y as i32,
+                    layer.texture_border_size as u16,
+                    layer.texture_resolution as u16,
+                );
+                let sspace = CoordinateSystem::cspace_to_sspace(cspace);
+                let polar = CoordinateSystem::sspace_to_polar(sspace);
+                let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
+
+                heightmap.write_f32::<LittleEndian>(global_dem.interpolate(lat, long, 0) as f32)?;
             }
         }
         mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;

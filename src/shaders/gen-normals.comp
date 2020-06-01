@@ -24,10 +24,10 @@ void main() {
 
 	vec2 world_pos = vec2(ubo.world_origin) + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
 
-	float h00 = imageLoad(heightmaps, in_pos).x;
-	float h10 = imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x;
-	float h01 = imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x;
-	float h11 = imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x;
+	float h00 = max(0, imageLoad(heightmaps, in_pos).x);
+	float h10 = max(0, imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x);
+	float h01 = max(0, imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x);
+	float h11 = max(0, imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x);
 
 	vec3 normal = vec3(h10 + h11 - h00 - h01,
 					   2.0 * ubo.spacing,

@@ -1,8 +1,11 @@
+use cgmath::EuclideanSpace;
+use cgmath::MetricSpace;
 use gilrs::{Axis, Button, Gilrs};
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
 };
+use std::f64::consts::PI;
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     let aspect = width as f32 / height as f32;
@@ -102,8 +105,14 @@ fn main() {
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
-    let mut angle = 3.14159f32;
-    let mut eye = cgmath::Point3::new(0.0, 300.0, 0.0);
+    let planet_radius = 6371000.0;
+
+    let mut angle = 3.14159f64;
+    let mut eye = cgmath::Point3::new(0.0f64, planet_radius + 300.0, 0.0);
+
+    let mut lat = 0.0f64;
+    let mut long = 0.0f64;
+    let mut altitude = 100.0f64;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
@@ -155,33 +164,48 @@ fn main() {
                     .get_next_texture()
                     .expect("Timeout when acquiring next swap chain texture");
 
-                let forward = cgmath::Vector3::new(angle.sin(), 0.0, angle.cos());
-                let right = cgmath::Vector3::new(angle.cos(), 0.0, -angle.sin());
-
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    eye += forward * gamepad.value(Axis::LeftStickY) * 2500.0;
-                    eye -= right * gamepad.value(Axis::LeftStickX) * 2500.0;
-                    angle -= gamepad.value(Axis::RightZ) * 0.01;
+                    lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
+                        - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+
+
+                    long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
+                        + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+
+                    angle -= gamepad.value(Axis::RightZ) as f64 * 0.01;
 
                     if gamepad.is_pressed(Button::DPadUp) {
-                        eye.y += 0.01 * eye.y;
+                        altitude += 0.01 * altitude;
                     }
                     if gamepad.is_pressed(Button::DPadDown) {
-                        eye.y -= 0.01 * eye.y;
+                        altitude -= 0.01 * altitude;
                     }
                 }
 
+                lat = lat.max(-PI).min(PI);
+                if long < -PI {
+                    long += PI * 2.0;
+                }
+                if long > PI {
+                    long -= PI * 2.0;
+                }
+
+                let r = altitude + planet_radius;
+                let eye = cgmath::Point3::new(r*lat.cos()*long.cos(), r*lat.cos()*long.sin(), r*lat.sin());
+
+                let latc = lat + angle.cos() * 0.001;
+                let longc = long - angle.sin() * 0.001;
+
+                let center = cgmath::Point3::new(planet_radius*latc.cos()*longc.cos() - eye.x, planet_radius*latc.cos()*longc.sin() - eye.y, planet_radius*latc.sin() - eye.z);
+                let up = cgmath::Vector3::new(eye.x as f32, eye.y as f32, eye.z as f32);
+
                 let view = cgmath::Matrix4::look_at(
-                    cgmath::Point3::new(eye.x, eye.y, eye.z),
-                    cgmath::Point3::new(
-                        eye.x + 20000.0 * forward.x,
-                        0.0,
-                        eye.z + 20000.0 * forward.z,
-                    ),
-                    cgmath::Vector3::new(0.0, 1.0, 0.0),
+                    cgmath::Point3::origin(),
+                    cgmath::Point3::new(center.x as f32, center.y as f32, center.z as f32),
+                    up,
                 );
 
                 let view_proj = proj * view;

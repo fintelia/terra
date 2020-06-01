@@ -278,13 +278,14 @@ impl<T: Into<f64> + Copy, C: Index<usize, Output = T>> GlobalRaster<T, C> {
     }
 
     fn get(&self, x: i64, y: i64, band: usize) -> f64 {
-        let y = y.max(0).min(self.height as i64) as usize;
+        let y = y.max(0).min(self.height as i64 - 1) as usize;
         let x = (((x % self.width as i64) + self.width as i64) % self.width as i64) as usize;
         self.values[(x + y * self.width) * self.bands + band].into()
     }
 
     pub fn interpolate(&self, latitude: f64, longitude: f64, band: usize) -> f64 {
         assert!(latitude >= -90.0 && latitude <= 90.0);
+        assert!(longitude >= -180.0 && latitude <= 180.0);
 
         let x = (longitude + 180.0) / 360.0 * self.width as f64 - 0.5;
         let y = (90.0 - latitude) / 180.0 * self.height as f64 - 0.5;

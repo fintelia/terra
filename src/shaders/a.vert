@@ -1,9 +1,9 @@
 #line 2
 
 layout(binding = 0) uniform UniformBlock {
-	dvec4 local_origin;
     mat4 view_proj;
-	vec4 camera;
+	dvec3 camera;
+	double padding;
 } ubo;
 
 layout(location = 0, component=0) in vec3 heights_origin;
@@ -50,9 +50,8 @@ struct Positions {
 	vec3 world; // In world space
 };
 
-vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, out vec3 bitangent) {
+dvec3 cube_position(vec2 iPosition) {
 	dvec2 facePosition = 2.0 * (dvec2(iPosition) + dvec2(in_position)) / double(level_resolution);
-
 	dvec3 cubePosition = dvec3(0);
 	if(face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
 	else if(face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
@@ -60,22 +59,24 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 	else if(face == 3) cubePosition = dvec3(-facePosition.x, -1.0, facePosition.y);
 	else if(face == 4) cubePosition = dvec3(facePosition.x, -facePosition.y, 1.0);
     else if(face == 5) cubePosition = dvec3(-facePosition.x, -facePosition.y, -1.0);
+	return cubePosition;
+}
 
-	dvec3 spherePosition = normalize(cubePosition);
+vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, out vec3 bitangent) {
+	dvec3 spherePosition = normalize(cube_position(iPosition));
 
 	normal = vec3(spherePosition);
 	tangent = vec3(1,0,0); // TODO
 	bitangent = vec3(0,0,1); // TODO
 
-	return vec3(spherePosition * planetRadius - ubo.local_origin.xyz);
+	return vec3(spherePosition * planetRadius - ubo.camera.xyz);
 }
 
 float compute_morph(vec2 iPosition) {
-	dvec2 facePosition = 2.0 * (dvec2(iPosition) + dvec2(in_position)) / double(level_resolution);
-	dvec3 cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
+	dvec3 cubePosition = cube_position(iPosition);
 
-	vec3 camera = vec3(ubo.camera.x, ubo.camera.y + planetRadius, ubo.camera.z);
-	float r = max(max(abs(ubo.camera.x), abs(camera.y)), abs(camera.z));
+	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
+	float r = max(max(abs(camera.x), abs(camera.y)), abs(camera.z));
 	camera = camera / r;
 
 	float morph = 1 - smoothstep(0.9, 1, float(distance(cubePosition, camera)) / min_distance);
@@ -107,10 +108,7 @@ void main() {
 					 morph);
 	}
 
-	//offset.y += log(level_resolution)*3000;
-
 	vec3 position = compute_local_position(nPosition, tangent, normal, bitangent);
-	// position = vec3(vec2(iPosition+in_position) / float(level_resolution) * 4194304.0, 0).xzy;
 	position += mat3(tangent, normal, bitangent) * offset;
 
 	out_position = position;

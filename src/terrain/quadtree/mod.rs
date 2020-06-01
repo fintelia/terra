@@ -71,8 +71,8 @@ impl QuadTree {
         (make_index_buffer(resolution), make_index_buffer(resolution / 2))
     }
 
-    pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f32>) {
-        let camera = Point3::new(camera.x as f64, camera.y as f64 + PLANET_RADIUS, camera.z as f64);
+    pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f64>) {
+        let camera = Point3::new(camera.x, camera.y, camera.z);
         let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
         let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
 
@@ -97,10 +97,10 @@ impl QuadTree {
     pub fn update_visibility(
         &mut self,
         tile_cache: &TileCache,
-        camera: mint::Point3<f32>,
+        camera: mint::Point3<f64>,
         cull_frustum: Option<Frustum<f32>>,
     ) {
-        let camera = Point3::new(camera.x as f64, camera.y as f64 + PLANET_RADIUS, camera.z as f64);
+        let camera = Point3::new(camera.x, camera.y, camera.z);
         let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
         let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
 
