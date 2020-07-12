@@ -282,37 +282,38 @@ impl TileCache {
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = pending_uploads.len();
 
-        let buffer = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (row_pitch * resolution * tiles) as u64,
             usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
             label: None,
+            mapped_at_creation: true,
         });
+        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
 
         let mut i = 0;
         for upload in &pending_uploads {
             let data = mapfile.read_tile(ty, upload.1).unwrap();
             for row in 0..resolution {
-                buffer.data[i..][..row_bytes]
+                buffer_view[i..][..row_bytes]
                     .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
                 i += row_pitch;
             }
         }
 
-        let buffer = buffer.finish();
-
         for (index, (slot, _)) in pending_uploads.drain(..).enumerate() {
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
                     buffer: &buffer,
-                    offset: (index * row_pitch * resolution) as u64,
-                    bytes_per_row: row_pitch as u32,
-                    rows_per_image: resolution as u32,
+                    layout: wgpu::TextureDataLayout {
+                        offset: (index * row_pitch * resolution) as u64,
+                        bytes_per_row: row_pitch as u32,
+                        rows_per_image: resolution as u32,
+                    },
                 },
                 wgpu::TextureCopyView {
                     texture,
                     mip_level: 0,
-                    array_layer: slot as u32,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                 },
                 wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
             );
@@ -332,10 +333,9 @@ impl TileCache {
                         size: wgpu::Extent3d {
                             width: layer.texture_resolution,
                             height: layer.texture_resolution,
-                            depth: 1,
+                            depth: self.size as u32,
                         },
                         format: layer.texture_format.to_wgpu(),
-                        array_layer_count: self.size as u32,
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,

@@ -12,7 +12,10 @@ pub(crate) struct NodeState {
     level_resolution: u32,
     position: [i32; 2],
     face: u32,
+    _padding0: [u32; 3],
+
     min_distance: f32,
+    _padding1: [f32; 3 + 7*4],
     // side_length: f32,
     // padding0: f32,
     // padding1: u32,
@@ -114,6 +117,8 @@ impl QuadTree {
             );
             let level_resolution = resolution << node.level();
             self.node_states.push(NodeState {
+                _padding0: [0; 3],
+                _padding1: [0.0; 31],
                 position: [
                     (node.x() * resolution) as i32 - level_resolution as i32 / 2,
                     (node.y() * resolution) as i32 - level_resolution as i32 / 2,
@@ -165,6 +170,8 @@ impl QuadTree {
                     );
                     let level_resolution = resolution << node.level();
                     self.node_states.push(NodeState {
+                        _padding0: [0; 3],
+                        _padding1: [0.0; 31],
                         position: [
                             (node.x() * resolution) as i32 - level_resolution as i32 / 2
                                 + offset.0 as i32 * resolution as i32 / 2,
@@ -186,17 +193,18 @@ impl QuadTree {
             }
         }
 
-        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (self.node_states.len() * mem::size_of::<NodeState>()) as u64,
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
+            mapped_at_creation: true,
             label: None,
         });
-
-        let slice = bytemuck::cast_slice_mut(mapped.data);
+        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
+        let slice = bytemuck::cast_slice_mut(&mut *buffer_view);
         slice.copy_from_slice(&self.node_states[..]);
 
         encoder.copy_buffer_to_buffer(
-            &mapped.finish(),
+            &buffer,
             0,
             vertex_buffer,
             0,
@@ -215,12 +223,12 @@ impl QuadTree {
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 
-        rpass.set_vertex_buffer(0, vertex_buffer, 0, 0);
+        rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
-        rpass.set_index_buffer(index_buffer, 0, 0);
+        rpass.set_index_buffer(index_buffer.slice(..));
         rpass.draw_indexed(0..(resolution * resolution * 6), 0, 0..visible_nodes);
 
-        rpass.set_index_buffer(index_buffer_partial, 0, 0);
+        rpass.set_index_buffer(index_buffer_partial.slice(..));
         rpass.draw_indexed(
             0..((resolution / 2) * (resolution / 2) * 6),
             0,

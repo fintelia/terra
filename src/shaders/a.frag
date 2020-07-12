@@ -2,10 +2,10 @@
 
 layout(early_fragment_tests) in;
 
-layout(binding = 0) uniform UniformBlock {
-	dvec4 local_origin;
+layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	vec4 camera;
+	dvec3 camera;
+	double padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;
@@ -48,9 +48,19 @@ vec3 debug_overlay(vec3 color) {
 	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
 	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
 
-	// vec2 ip = abs(vec2(1) - 2*i_position/resolution);
-	// if(ip.x > 0.99 || ip.y > 0.99)
-	// 	color.rgb = mix(color.rgb, vec3(0,0,0), 0.8);
+	vec3 level_color = vec3(0);
+	if(level_resolution <= 256) level_color = vec3(1,0,0);
+	else if(level_resolution <= 512) level_color = vec3(1,1,0);
+	else if(level_resolution <= 1024) level_color = vec3(0,1,0);
+	else if(level_resolution <= 2048) level_color = vec3(0,1,1);
+	else if(level_resolution <= 4096) level_color = vec3(0,0,1);
+	else if(level_resolution <= 8192) level_color = vec3(1,1,1);
+
+	vec2 ip = vec2(1) - abs(vec2(1) - 2*tc);
+	if(ip.x < 0.05 || ip.y < 0.05)
+		color.rgb = mix(color.rgb, level_color, 0.8);
+	else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
+		color.rgb = mix(color.rgb, level_color, 0.2);
 
 	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
 	// vec3 overlay_color = vec3(0);
@@ -90,9 +100,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -167,7 +177,7 @@ void main() {
 						albedo_roughness.a,
 						position,
 						normal,
-						ubo.camera.xyz,
+						vec3(ubo.camera.xyz),
 						vec3(0.4, 0.7, 0.2),
 						vec3(100000.0));
 
@@ -175,5 +185,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	out_color.rgb = debug_overlay(out_color.rgb);
+	// out_color.rgb = debug_overlay(out_color.rgb);
 }

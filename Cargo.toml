@@ -19,6 +19,7 @@ path = "bin/preview.rs"
 astro = "2.0.0"
 bincode = "1.2.0"
 bit-vec = "0.6.1"
+bytemuck = "1.1.0"
 byteorder = "1.3.2"
 cgmath = { version = "0.17.0", features = ["mint"] }
 collision = "0.20.1"
@@ -28,7 +29,9 @@ derivative = "1.0.3"
 dirs = "2.0.2"
 env_logger = "0.7.0"
 failure = "0.1.6"
+futures = "0.3.1"
 generic-array = { version = "0.12.3", features = ["serde"] }
+gilrs = "0.7.3"
 glsl-layout = "0.3.2"
 hex = "0.4.0"
 image = { git = "https://github.com/fintelia/image", branch = "tiff-no-limit" }
@@ -36,6 +39,7 @@ lazy_static = "1.4.0"
 linked-hash-map = "0.5.2"
 log = "0.4.8"
 lru-cache = "0.1.2"
+maplit = "1.0.2"
 memmap = "0.7.0"
 mint = "0.5.4"
 nalgebra = "0.18.1"
@@ -51,20 +55,15 @@ serde = { version = "1.0.101", features = ["derive"] }
 serde_json = "1.0.41"
 sha2 = "0.8.0"
 shred = { version = "0.9.3", features = ["nightly"] }
+sled = "0.31.0"
 toml = "0.5.3"
 vec_map = { version = "0.8.1", features = ["serde"] }
 vecmath = "1.0.0"
-wgpu = "0.5.0"
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "6ca03f8354db2e827b17d0af40c5c33083a15908" }
 winit = "0.20.0-alpha5"
 xdg = "2.2.0"
 zerocopy = "0.2.8"
 zip = "0.5.3"
-bytemuck = "1.1.0"
-wgpu_glyph = { git = "https://github.com/fintelia/wgpu_glyph", rev = "7c09d12815a1e3496418730172d293a16190c18f" }
-futures = "0.3.1"
-gilrs = "0.7.3"
-sled = "0.31.0"
-maplit = "1.0.2"
 
 [profile]
 [profile.dev]

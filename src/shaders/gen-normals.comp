@@ -3,12 +3,17 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
-	ivec2 origin;
-	vec2 world_origin;
-	float spacing;
+	dvec4 cspace_origin;
+	dvec4 cspace_dx;
+	dvec4 cspace_dy;
+	ivec2 heightmaps_origin;
+	ivec2 parent_origin;
 	int heightmaps_slot;
 	int normals_slot;
 	int albedo_slot;
+	int parent_slot;
+	float spacing;
+	int padding;
 } ubo;
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
@@ -19,10 +24,12 @@ layout(set = 0, binding = 4) uniform texture2D noise;
 layout(set = 0, binding = 5) uniform sampler linear_wrap;
 
 void main() {
-	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.origin, ubo.heightmaps_slot);
+	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
-	vec2 world_pos = vec2(ubo.world_origin) + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
+	dvec3 cspace_pos = ubo.cspace_origin.xyz
+		+ gl_GlobalInvocationID.x * ubo.cspace_dx.xyz
+		+ gl_GlobalInvocationID.y * ubo.cspace_dy.xyz;
 
 	float h00 = max(0, imageLoad(heightmaps, in_pos).x);
 	float h10 = max(0, imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x);
@@ -35,7 +42,7 @@ void main() {
 
 	normal = normalize(normal);
 
-	vec4 noise_value = texture(sampler2D(noise, linear_wrap), vec2(world_pos.xy*.0001));
+	vec4 noise_value = vec4(0.5);//texture(sampler2D(noise, linear_wrap), vec2(world_pos.xy*.0001));
 
 
 	vec4 albedo_roughness = vec4(.011, .03, .003, 0.7);
@@ -46,6 +53,30 @@ void main() {
 	albedo_roughness.rgb = mix(vec3(.03,.02,0), vec3(0,.1,0), grass);
 
 	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
+
+	if (ubo.parent_slot >= 0) {
+		albedo_roughness = imageLoad(albedo, ivec3(ubo.parent_origin + out_pos/2, ubo.parent_slot));
+		// if(ubo.spacing < 150)
+		// 	albedo_roughness.rgb = vec3(0,0,0);
+		// else if(ubo.spacing < 300)
+		// 	albedo_roughness.rgb += vec3(0.1,0,-0.1);
+		// else
+		// 	albedo_roughness.rgb += vec3(0,0,0.1);
+
+		// if (ubo.spacing < 150 && max(abs(out_pos.x-260), abs(out_pos.y-260)) > 228)
+		// 	albedo_roughness = vec4(1,0,0,1);
+		// else if(ubo.spacing < 300 && max(abs(out_pos.x-260), abs(out_pos.y-260)) > 244)
+		// 	albedo_roughness = vec4(0,1,0,1);
+		// else if(max(abs(out_pos.x-260), abs(out_pos.y-260)) > 252)
+		// 	albedo_roughness = vec4(0,0,1,1);
+
+		// albedo_roughness.xy = vec2(ubo.parent_origin) / 4000;
+		// albedo_roughness.z = 0;
+		// if(ubo.parent_origin.x > 256)
+		// 	albedo_roughness.xyz = vec3(1,0,0);
+	} else {
+		albedo_roughness = vec4(0,1,0,1);
+	}
 
 	if (ubo.normals_slot >= 0)
 		imageStore(normals, ivec3(out_pos, ubo.normals_slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));

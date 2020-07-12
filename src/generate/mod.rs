@@ -1,4 +1,4 @@
-use crate::cache::{AssetLoadContext, AssetLoadContextBuf, MMappedAsset, WebAsset};
+use crate::cache::{AssetLoadContext, AssetLoadContextBuf, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::MapFile;
 use crate::srgb::SRGB_TO_LINEAR;
@@ -7,22 +7,22 @@ use crate::terrain::heightmap;
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::RasterCache;
-use crate::terrain::reprojected_raster::{
-    DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
-};
+// use crate::terrain::reprojected_raster::{
+//     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
+// };
 use crate::terrain::tile_cache::{
-    LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat, TileHeader,
+    LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use failure::Error;
 use maplit::hashmap;
-use rand;
-use rand::distributions::Distribution;
-use rand_distr::Normal;
-use std::cell::RefCell;
+// use rand;
+// use rand::distributions::Distribution;
+// use rand_distr::Normal;
+// use std::cell::RefCell;
 use std::f64::consts::PI;
-use std::io::Write;
-use std::rc::Rc;
+// use std::io::Write;
+// use std::rc::Rc;
 use vec_map::VecMap;
 
 mod gpu;
@@ -63,7 +63,7 @@ mod levels {
     pub const LEVEL_30_CM: i32 = 25;
     pub const LEVEL_15_CM: i32 = 26;
 }
-use levels::*;
+// use levels::*;
 
 /// Used to construct a `QuadTree`.
 pub struct MapFileBuilder;

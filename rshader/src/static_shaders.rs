@@ -15,9 +15,9 @@ impl ShaderDirectoryWatcher {
 }
 
 pub struct ShaderSet {
-    vertex: Option<Vec<u8>>,
-    fragment: Option<Vec<u8>>,
-    compute: Option<Vec<u8>>,
+    vertex: Option<Vec<u32>>,
+    fragment: Option<Vec<u32>>,
+    compute: Option<Vec<u32>>,
 }
 impl ShaderSet {
     pub fn simple(
@@ -39,13 +39,13 @@ impl ShaderSet {
     pub fn refresh(&mut self, _: &mut ShaderDirectoryWatcher) -> bool {
         false
     }
-    pub fn vertex(&self) -> &[u8] {
+    pub fn vertex(&self) -> &[u32] {
         self.vertex.as_ref().unwrap()
     }
-    pub fn fragment(&self) -> &[u8] {
+    pub fn fragment(&self) -> &[u32] {
         self.fragment.as_ref().unwrap()
     }
-    pub fn compute(&self) -> &[u8] {
+    pub fn compute(&self) -> &[u32] {
         self.compute.as_ref().unwrap()
     }
 }

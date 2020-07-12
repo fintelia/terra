@@ -1,7 +1,7 @@
 use crate::cache::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{
-    LayerParams, LayerType, TextureDescriptor, TextureFormat, TileHeader,
+    LayerParams, LayerType, TextureDescriptor, TextureFormat,
 };
 use failure::Error;
 use serde::{Deserialize, Serialize};
@@ -111,7 +111,6 @@ impl MapFile {
             size: wgpu::Extent3d { width: desc.resolution, height: desc.resolution, depth: 1 },
             format: desc.format.to_wgpu(),
             mip_level_count: 1,
-            array_layer_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             usage: wgpu::TextureUsage::COPY_SRC
@@ -131,28 +130,31 @@ impl MapFile {
         let image = image::open(filename)?;
         let data = image.to_rgba().into_vec();
 
-        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (row_pitch * resolution) as u64,
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
             label: None,
+            mapped_at_creation: true,
         });
 
+        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
         for row in 0..resolution {
-            mapped.data[row * row_pitch..][..row_bytes]
+            buffer_view[row * row_pitch..][..row_bytes]
                 .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
         }
 
         encoder.copy_buffer_to_texture(
             wgpu::BufferCopyView {
-                buffer: &mapped.finish(),
-                offset: 0,
-                bytes_per_row: row_pitch as u32,
-                rows_per_image: resolution as u32,
+                buffer: &buffer,
+                layout: wgpu::TextureDataLayout {
+                    offset: 0,
+                    bytes_per_row: row_pitch as u32,
+                    rows_per_image: resolution as u32,
+                },
             },
             wgpu::TextureCopyView {
                 texture: &texture,
                 mip_level: 0,
-                array_layer: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
             },
             wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },

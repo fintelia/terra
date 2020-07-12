@@ -1,4 +1,4 @@
-use crate::coordinates::PLANET_RADIUS;
+// use crate::coordinates::PLANET_RADIUS;
 use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
 use byteorder::{ByteOrder, NativeEndian};
@@ -45,26 +45,48 @@ impl QuadTree {
     pub(crate) fn create_index_buffers(
         &self,
         device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
-        let make_index_buffer = |resolution: u16| -> wgpu::Buffer {
-            let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+        let mut make_index_buffer = |resolution: u16| -> wgpu::Buffer {
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 size: 12 * (resolution as u64 + 1) * (resolution as u64 + 1),
-                usage: wgpu::BufferUsage::INDEX,
+                usage: wgpu::BufferUsage::INDEX | wgpu::BufferUsage::COPY_DST,
                 label: Some(&format!("index_buffer_{0}x{0}", resolution)),
+                mapped_at_creation: false,
             });
+            let upload_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                size: 12 * (resolution as u64 + 1) * (resolution as u64 + 1),
+                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
+                label: Some(&format!("index_buffer_{0}x{0}-upload", resolution)),
+                mapped_at_creation: true,
+            });
+            {
+                let mut buffer_view = upload_buffer.slice(..).get_mapped_range_mut();
+                let data: &mut [u16] = bytemuck::cast_slice_mut(&mut *buffer_view);
 
-            let mut i = 0;
-            let width = resolution + 1;
-            for y in 0..resolution {
-                for x in 0..resolution {
-                    for offset in [0, 1, width, 1, width + 1, width].iter() {
-                        NativeEndian::write_u16(&mut mapped.data[i..], offset + (x + y * width));
-                        i += 2;
+                let mut i = 0;
+                let width = resolution + 1;
+                for y in 0..resolution {
+                    for x in 0..resolution {
+                        for offset in [0, 1, width, 1, width + 1, width].iter() {
+                            data[i] = offset + (x + y * width);
+                            i += 1;
+                        }
                     }
                 }
+                for j in 0..64 {
+                    print!("{} ", data[j]);
+                }
+                println!();
             }
-
-            mapped.finish()
+            encoder.copy_buffer_to_buffer(
+                &upload_buffer,
+                0,
+                &buffer,
+                0,
+                12 * (resolution as u64 + 1) * (resolution as u64 + 1),
+            );
+            buffer
         };
         let resolution = self.heights_resolution as u16;
 

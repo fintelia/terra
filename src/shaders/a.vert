@@ -1,11 +1,5 @@
 #line 2
 
-layout(binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	dvec3 camera;
-	double padding;
-} ubo;
-
 layout(location = 0, component=0) in vec3 heights_origin;
 layout(location = 0, component=3) in float heights_step;
 layout(location = 1, component=0) in vec3 pheights_origin;
@@ -18,15 +12,19 @@ layout(location = 4, component=0) in vec3 normals_origin;
 layout(location = 4, component=3) in float normals_step;
 layout(location = 5, component=0) in vec3 pnormals_origin;
 layout(location = 5, component=3) in float pnormals_step;
-
 layout(location = 6, component=0) in uint resolution;
 layout(location = 6, component=1) in uint level_resolution;
 layout(location = 6, component=2) in ivec2 in_position;
 layout(location = 7, component=0) in uint face;
 layout(location = 7, component=1) in float min_distance;
 
+layout(set = 0, binding = 0) uniform UniformBlock {
+    mat4 view_proj;
+	dvec3 camera;
+	double padding;
+} ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 2) uniform texture2DArray displacements;
+layout(set = 0, binding = 5) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
 layout(location = 1) out vec3 out_albedo_texcoord;
@@ -73,6 +71,7 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 }
 
 float compute_morph(vec2 iPosition) {
+	return 0;
 	dvec3 cubePosition = cube_position(iPosition);
 
 	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
@@ -109,7 +108,7 @@ void main() {
 	}
 
 	vec3 position = compute_local_position(nPosition, tangent, normal, bitangent);
-	position += mat3(tangent, normal, bitangent) * offset;
+	// position += mat3(tangent, normal, bitangent) * offset;
 
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);

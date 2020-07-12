@@ -47,30 +47,30 @@ macro_rules! shader_source {
     };
 }
 
-fn create_vertex_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
+fn create_vertex_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Vertex, "[VERTEX]", "main", None)?
-        .as_binary_u8()
+        .as_binary()
         .to_vec())
 }
-fn create_fragment_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
+fn create_fragment_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Fragment, "[FRAGMENT]", "main", None)?
-        .as_binary_u8()
+        .as_binary()
         .to_vec())
 }
-fn create_compute_shader(source: &str) -> Result<Vec<u8>, failure::Error> {
+fn create_compute_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Compute, "[COMPUTE]", "main", None)?
-        .as_binary_u8()
+        .as_binary()
         .to_vec())
 }
 
 fn reflect(
-    stages: &[&[u8]],
+    stages: &[&[u32]],
 ) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>), failure::Error> {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
         BTreeMap::new();
@@ -134,7 +134,10 @@ fn reflect(
                 let ty = match desc.desc_ty {
                     DescriptorType::Sampler => wgpu::BindingType::Sampler { comparison: false },
                     DescriptorType::UniformBuffer(..) => {
-                        wgpu::BindingType::UniformBuffer { dynamic: false }
+                        wgpu::BindingType::UniformBuffer {
+                            dynamic: false,
+                            min_binding_size: None,
+                        }
                     }
                     DescriptorType::Image(spirq::ty::Type::Image(ty)) => {
                         wgpu::BindingType::SampledTexture {
@@ -173,7 +176,7 @@ fn reflect(
     let mut bindings = Vec::new();
     for (binding, (name, ty, visibility)) in binding_map.into_iter() {
         names.push(name);
-        bindings.push(wgpu::BindGroupLayoutEntry { binding, visibility, ty });
+        bindings.push(wgpu::BindGroupLayoutEntry::new(binding, visibility, ty));
     }
 
     Ok((attributes, names, bindings))

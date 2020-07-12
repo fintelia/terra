@@ -31,7 +31,7 @@ use gpu_state::GpuState;
 use std::mem;
 use terrain::quadtree::QuadTree;
 use vec_map::VecMap;
-use wgpu_glyph::{GlyphBrush, Section};
+// use wgpu_glyph::{GlyphBrush, Section};
 
 pub use crate::mapfile::MapFile;
 pub use generate::MapFileBuilder;
@@ -66,8 +66,7 @@ pub struct Terrain {
     tile_cache: TileCache,
 
     pending_tiles: Vec<(LayerType, VNode, wgpu::Buffer)>,
-
-    glyph_brush: GlyphBrush<'static, ()>,
+    // glyph_brush: GlyphBrush<'static, ()>,
 }
 impl Terrain {
     pub fn new(
@@ -90,20 +89,29 @@ impl Terrain {
             size: std::mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
             label: Some("terrain.uniforms"),
+            mapped_at_creation: false,
         });
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
             label: Some("terrain.vertex_buffer"),
+            mapped_at_creation: false,
         });
-        let (index_buffer, index_buffer_partial) = quadtree.create_index_buffers(device);
+        let (index_buffer, index_buffer_partial) = {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("generate_index_buffers"),
+            });
+            let r = quadtree.create_index_buffers(device, &mut encoder);
+            queue.submit(Some(encoder.finish()));
+            r
+        };
 
         let noise = {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("generate_noise"),
             });
             let noise = mapfile.read_texture(device, &mut encoder, "noise")?;
-            queue.submit(&[encoder.finish()]);
+            queue.submit(Some(encoder.finish()));
             noise
         };
 
@@ -140,10 +148,10 @@ impl Terrain {
         mapfile.clear_generated(LayerType::Heightmaps).unwrap();
         mapfile.clear_generated(LayerType::Albedo).unwrap();
 
-        let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
-        let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
-            .unwrap()
-            .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
+        // let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
+        // let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
+        //     .unwrap()
+        //     .build(device, wgpu::TextureFormat::Bgra8UnormSrgb);
 
         Ok(Self {
             bindgroup_pipeline: None,
@@ -163,8 +171,7 @@ impl Terrain {
             quadtree,
             mapfile,
             tile_cache,
-            glyph_brush,
-
+            // glyph_brush,
             pending_tiles: Vec::new(),
         })
     }
@@ -173,9 +180,9 @@ impl Terrain {
         &mut self,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
-        frame: &wgpu::SwapChainOutput,
+        color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
-        frame_size: (u32, u32),
+        _frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
@@ -186,13 +193,14 @@ impl Terrain {
             let row_bytes = resolution * bytes_per_texel;
             let size = row_pitch * resolution;
 
-            let future = buffer.map_read(0, size as u64);
+            let buffer_slice = buffer.slice(..size as u64);
+            let future = buffer_slice.map_async(wgpu::MapMode::Read);
 
             device.poll(wgpu::Maintain::Wait);
 
-            if let Ok(mapping) = executor::block_on(future) {
+            if executor::block_on(future).is_ok() {
                 let mut tile_data = vec![0; resolution * resolution * bytes_per_texel];
-                let buffer_data = mapping.as_slice();
+                let buffer_data = &*buffer_slice.get_mapped_range();
                 for row in 0..resolution {
                     tile_data[row * row_bytes..][..row_bytes]
                         .copy_from_slice(&buffer_data[row * row_pitch..][..row_bytes]);
@@ -216,7 +224,7 @@ impl Terrain {
         if self.gen_normals.refresh(&mut self.watcher) {
             self.mapfile.clear_generated(LayerType::Normals).unwrap();
             self.tile_cache.clear_generated(LayerType::Normals);
-            self.tile_cache.clear_generated(LayerType::Normals);
+            self.tile_cache.clear_generated(LayerType::Albedo);
         }
 
         self.quadtree.update_cache(&mut self.tile_cache, camera);
@@ -228,10 +236,7 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(&wgpu::BindingResource::Buffer {
-                    buffer: &self.uniform_buffer,
-                    range: 0..mem::size_of::<UniformBlock>() as u64,
-                }),
+                Some(self.uniform_buffer.slice(0..mem::size_of::<UniformBlock>() as u64)),
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -242,16 +247,15 @@ impl Terrain {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: &render_pipeline_layout,
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(
-                            &wgpu::read_spirv(std::io::Cursor::new(self.shader.vertex())).unwrap(),
-                        ),
+                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+                            self.shader.vertex(),
+                        )),
                         entry_point: "main",
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(
-                            &wgpu::read_spirv(std::io::Cursor::new(self.shader.fragment()))
-                                .unwrap(),
-                        ),
+                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+                            self.shader.fragment(),
+                        )),
                         entry_point: "main",
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor {
@@ -318,7 +322,7 @@ impl Terrain {
 
         for (i, node) in missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
         {
-            if node.level() > 0 && i >= 8 {
+            if node.level() > 0 && i >= 20 {
                 continue;
             }
 
@@ -326,6 +330,11 @@ impl Terrain {
                 Some(slot) => slot as i32,
                 None => continue,
             };
+
+            let parent_slot = node
+                .parent()
+                .map(|(p, idx)| (self.tile_cache.get_slot(p).unwrap() as i32, idx))
+                .unwrap_or((-1, 0));
 
             let spacing =
                 node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
@@ -382,24 +391,54 @@ impl Terrain {
                     normals_slot
                 };
 
+            let cspace_origin =
+                node.cell_position_cspace(0, 0, normals_border as u16, normals_resolution as u16);
+            let cspace_origin_dx =
+                node.cell_position_cspace(1, 0, normals_border as u16, normals_resolution as u16);
+            let cspace_origin_dy =
+                node.cell_position_cspace(0, 1, normals_border as u16, normals_resolution as u16);
+
             self.gen_normals.run(
                 device,
                 &mut encoder,
                 &self.gpu_state,
                 ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
                 &GenNormalsUniforms {
-                    origin: [
+                    heightmaps_origin: [
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,
                     ],
-                    world_origin: [0.0, 0.0],
-                    //     node.bounds().min.x - (normals_border as f32 - 0.5) * spacing,
-                    //     node.bounds().min.z - (normals_border as f32 - 0.5) * spacing,
-                    // ],
+                    cspace_origin: [cspace_origin.x, cspace_origin.y, cspace_origin.z, 0.0],
+                    cspace_dx: [
+                        cspace_origin_dx.x - cspace_origin.x,
+                        cspace_origin_dx.y - cspace_origin.y,
+                        cspace_origin_dx.z - cspace_origin.z,
+                        0.0,
+                    ],
+                    cspace_dy: [
+                        cspace_origin_dy.x - cspace_origin.x,
+                        cspace_origin_dy.y - cspace_origin.y,
+                        cspace_origin_dy.z - cspace_origin.z,
+                        0.0,
+                    ],
                     spacing,
                     heightmaps_slot,
                     normals_slot,
                     albedo_slot,
+                    parent_slot: parent_slot.0,
+                    parent_origin: [
+                        if parent_slot.1 % 2 == 0 {
+                            normals_border / 2
+                        } else {
+                            normals_resolution / 2
+                        },
+                        if parent_slot.1 / 2 == 0 {
+                            normals_border / 2
+                        } else {
+                            normals_resolution / 2
+                        },
+                    ],
+                    padding: 0,
                 },
             );
             self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Normals);
@@ -413,19 +452,21 @@ impl Terrain {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
                     label: Some("download_tiles.normals"),
+                    mapped_at_creation: false,
                 });
                 encoder.copy_texture_to_buffer(
                     wgpu::TextureCopyView {
                         texture: &self.gpu_state.tile_cache[LayerType::Normals],
                         mip_level: 0,
-                        array_layer: normals_slot as u32,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: normals_slot as u32 },
                     },
                     wgpu::BufferCopyView {
                         buffer: &download,
-                        offset: 0,
-                        bytes_per_row: normals_row_pitch as u32,
-                        rows_per_image: normals_resolution as u32,
+                        layout: wgpu::TextureDataLayout {
+                            offset: 0,
+                            bytes_per_row: normals_row_pitch as u32,
+                            rows_per_image: normals_resolution as u32,
+                        },
                     },
                     wgpu::Extent3d {
                         width: normals_resolution as u32,
@@ -488,19 +529,21 @@ impl Terrain {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
                     label: Some("download_tiles.displacements"),
+                    mapped_at_creation: false,
                 });
                 encoder.copy_texture_to_buffer(
                     wgpu::TextureCopyView {
                         texture: &self.gpu_state.tile_cache[LayerType::Displacements],
                         mip_level: 0,
-                        array_layer: displacements_slot as u32,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: displacements_slot as u32 },
                     },
                     wgpu::BufferCopyView {
                         buffer: &download,
-                        offset: 0,
-                        bytes_per_row: displacements_row_pitch as u32,
-                        rows_per_image: displacements_resolution as u32,
+                        layout: wgpu::TextureDataLayout {
+                            offset: 0,
+                            bytes_per_row: displacements_row_pitch as u32,
+                            rows_per_image: displacements_resolution as u32,
+                        },
                     },
                     wgpu::Extent3d {
                         width: displacements_resolution as u32,
@@ -521,18 +564,18 @@ impl Terrain {
             &self.tile_cache,
         );
 
-        let mapped = device.create_buffer_mapped(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
             label: Some("terrain_uniforms_upload"),
+            mapped_at_creation: true,
         });
-        bytemuck::cast_slice_mut(mapped.data)[0] = UniformBlock {
-            view_proj,
-            camera,
-            padding: 0.0,
-        };
+        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
+        bytemuck::cast_slice_mut(&mut *buffer_view)[0] =
+            UniformBlock { view_proj, camera, padding: 0.0 };
+
         encoder.copy_buffer_to_buffer(
-            &mapped.finish(),
+            &buffer,
             0,
             &self.uniform_buffer,
             0,
@@ -542,20 +585,20 @@ impl Terrain {
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &frame.view,
+                    attachment: color_buffer,
                     resolve_target: None,
-                    load_op: wgpu::LoadOp::Clear,
-                    store_op: wgpu::StoreOp::Store,
-                    clear_color: wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 }),
+                        store: true,
+                    },
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
-                    depth_load_op: wgpu::LoadOp::Clear,
-                    depth_store_op: wgpu::StoreOp::Store,
-                    clear_depth: 0.0,
-                    stencil_load_op: wgpu::LoadOp::Clear,
-                    stencil_store_op: wgpu::StoreOp::Store,
-                    clear_stencil: 0,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
                 }),
             });
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
@@ -569,29 +612,29 @@ impl Terrain {
             );
         }
 
-        {
-            use std::fmt::Write;
-            let mut text = String::new();
-            writeln!(
-                &mut text,
-                "tile_cache: {} / {}",
-                self.tile_cache.utilization(),
-                self.tile_cache.capacity()
-            )
-            .unwrap();
+        // {
+        //     use std::fmt::Write;
+        //     let mut text = String::new();
+        //     writeln!(
+        //         &mut text,
+        //         "tile_cache: {} / {}",
+        //         self.tile_cache.utilization(),
+        //         self.tile_cache.capacity()
+        //     )
+        //     .unwrap();
 
-            writeln!(&mut text, "x = {}\ny = {}\nz = {}", camera.x, camera.y, camera.z).unwrap();
+        //     writeln!(&mut text, "x = {}\ny = {}\nz = {}", camera.x, camera.y, camera.z).unwrap();
 
-            self.glyph_brush.queue(Section {
-                text: &text,
-                screen_position: (10.0, 10.0),
-                ..Default::default()
-            });
-        }
+        //     self.glyph_brush.queue(Section {
+        //         text: &text,
+        //         screen_position: (10.0, 10.0),
+        //         ..Default::default()
+        //     });
+        // }
 
-        self.glyph_brush
-            .draw_queued(device, &mut encoder, &frame.view, frame_size.0, frame_size.1)
-            .unwrap();
-        queue.submit(&[encoder.finish()]);
+        // self.glyph_brush
+        //     .draw_queued(device, &mut encoder, &frame.view, frame_size.0, frame_size.1)
+        //     .unwrap();
+        queue.submit(Some(encoder.finish()));
     }
 }

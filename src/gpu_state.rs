@@ -11,7 +11,7 @@ impl GpuState {
         &self,
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
-        ubo: Option<&wgpu::BindingResource>,
+        ubo: Option<wgpu::BufferSlice>,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let linear = &device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -20,9 +20,8 @@ impl GpuState {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            lod_min_clamp: -100.0,
-            lod_max_clamp: 100.0,
-            compare: wgpu::CompareFunction::Always,
+            label: Some("linear"),
+            ..Default::default()
         });
         let linear_wrap = &device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -31,9 +30,8 @@ impl GpuState {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            lod_min_clamp: -100.0,
-            lod_max_clamp: 100.0,
-            compare: wgpu::CompareFunction::Always,
+            label: Some("linear_wrap"),
+            ..Default::default()
         });
 
         let noise = &self.noise.create_default_view();
@@ -49,12 +47,16 @@ impl GpuState {
             bindings.push(wgpu::Binding {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler { comparison: _ } => wgpu::BindingResource::Sampler(match name {
-                        "linear" => &linear,
-                        "linear_wrap" => &linear_wrap,
-                        _ => unreachable!("unrecognized sampler: {}", name),
-                    }),
-                    wgpu::BindingType::UniformBuffer { .. } => ubo.cloned().unwrap(),
+                    wgpu::BindingType::UniformBuffer { .. } => {
+                        wgpu::BindingResource::Buffer(ubo.unwrap().clone())
+                    }
+                    wgpu::BindingType::Sampler { comparison: _ } => {
+                        wgpu::BindingResource::Sampler(match name {
+                            "linear" => &linear,
+                            "linear_wrap" => &linear_wrap,
+                            _ => unreachable!("unrecognized sampler: {}", name),
+                        })
+                    }
                     wgpu::BindingType::StorageTexture { .. }
                     | wgpu::BindingType::SampledTexture { .. } => {
                         wgpu::BindingResource::TextureView(match name {
@@ -67,6 +69,7 @@ impl GpuState {
                         })
                     }
                     wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
+                    _ => unimplemented!(),
                 },
             });
         }

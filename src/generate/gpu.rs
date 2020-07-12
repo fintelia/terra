@@ -22,14 +22,20 @@ pub(crate) struct GenDisplacementsUniforms {
 unsafe impl bytemuck::Zeroable for GenDisplacementsUniforms {}
 unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
 
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub(crate) struct GenNormalsUniforms {
-    pub origin: [i32; 2],
-    pub world_origin: [f32; 2],
-    pub spacing: f32,
+    pub cspace_origin: [f64; 4],
+    pub cspace_dx: [f64; 4],
+    pub cspace_dy: [f64; 4],
+    pub heightmaps_origin: [i32; 2],
+    pub parent_origin: [u32; 2],
     pub heightmaps_slot: i32,
     pub normals_slot: i32,
     pub albedo_slot: i32,
+    pub parent_slot: i32,
+    pub spacing: f32,
+    pub padding: i32,
 }
 unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
 unsafe impl bytemuck::Pod for GenNormalsUniforms {}
@@ -48,6 +54,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             uniforms: device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+                mapped_at_creation: false,
                 label: None,
             }),
             _phantom: std::marker::PhantomData,
@@ -75,10 +82,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(&wgpu::BindingResource::Buffer {
-                    buffer: &self.uniforms,
-                    range: 0..mem::size_of::<U>() as u64,
-                }),
+                Some(self.uniforms.slice(..mem::size_of::<U>() as u64)),
             );
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -87,9 +91,9 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         bind_group_layouts: &[&bind_group_layout],
                     }),
                     compute_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(
-                            &wgpu::read_spirv(std::io::Cursor::new(self.shader.compute())).unwrap(),
-                        ),
+                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+                            self.shader.compute(),
+                        )),
                         entry_point: "main",
                     },
                 }),

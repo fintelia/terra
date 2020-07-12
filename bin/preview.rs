@@ -1,11 +1,10 @@
 use cgmath::EuclideanSpace;
-use cgmath::MetricSpace;
 use gilrs::{Axis, Button, Gilrs};
+use std::f64::consts::PI;
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
 };
-use std::f64::consts::PI;
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     let aspect = width as f32 / height as f32;
@@ -41,7 +40,6 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
     device
         .create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width, height, depth: 1 },
-            array_layer_count: 1,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -63,45 +61,40 @@ fn main() {
 
     let event_loop = EventLoop::new();
 
-    let (window, mut size, surface) = {
-        let window = winit::window::Window::new(&event_loop).unwrap();
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
 
-        for monitor in window.available_monitors() {
-            if monitor.video_modes().any(|mode| mode.size().width == 1920.0) {
-                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
-                break;
-            }
+    let window = winit::window::Window::new(&event_loop).unwrap();
+    for monitor in window.available_monitors() {
+        if monitor.video_modes().any(|mode| mode.size().width == 1920) {
+            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+            break;
         }
+    }
+    let mut size = window.inner_size();
+    let surface = unsafe { instance.create_surface(&window) };
 
-        let size = window.inner_size().to_physical(window.hidpi_factor());
-
-        let surface = wgpu::Surface::create(&window);
-        (window, size, surface)
-    };
-
-    let adapter = futures::executor::block_on(wgpu::Adapter::request(
-        &wgpu::RequestAdapterOptions {
+    let adapter =
+        futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: Some(&surface),
-        },
-        wgpu::BackendBit::PRIMARY,
-    ))
-    .unwrap();
+        }))
+        .unwrap();
 
-    let (device, mut queue) =
-        futures::executor::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            extensions: wgpu::Extensions { anisotropic_filtering: false },
+    let (device, mut queue) = futures::executor::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            features: wgpu::Features::empty(),
             limits: wgpu::Limits::default(),
-        }));
+            shader_validation: true,
+        },
+        None,
+    )).unwrap();
 
     let mapfile = terra::MapFileBuilder::build().unwrap();
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
-    let mut swap_chain =
-        make_swapchain(&device, &surface, size.width.round() as u32, size.height.round() as u32);
-    let mut depth_buffer =
-        make_depth_buffer(&device, size.width.round() as u32, size.height.round() as u32);
+    let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
+    let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
 
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
@@ -135,34 +128,25 @@ fn main() {
                     ..
                 } => match keycode {
                     event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
-                    event::VirtualKeyCode::Space => eye.y += 0.01 * eye.y,
-                    event::VirtualKeyCode::Semicolon => eye.y -= 0.01 * eye.y,
-                    event::VirtualKeyCode::Left => eye.x -= 50.0,
-                    event::VirtualKeyCode::Right => eye.x += 50.0,
-                    event::VirtualKeyCode::Up => eye.z -= 50.0,
-                    event::VirtualKeyCode::Down => eye.z += 50.0,
+                    event::VirtualKeyCode::Space => altitude += 0.1 * altitude,
+                    event::VirtualKeyCode::Semicolon => altitude -= 0.1 * altitude,
+                    // event::VirtualKeyCode::Left => eye.x -= 50.0,
+                    // event::VirtualKeyCode::Right => eye.x += 50.0,
+                    // event::VirtualKeyCode::Up => eye.z -= 50.0,
+                    // event::VirtualKeyCode::Down => eye.z += 50.0,
                     _ => {}
                 },
                 event::WindowEvent::Resized(new_size) => {
-                    size = new_size.to_physical(window.hidpi_factor());
-                    swap_chain = make_swapchain(
-                        &device,
-                        &surface,
-                        size.width.round() as u32,
-                        size.height.round() as u32,
-                    );
-                    depth_buffer = make_depth_buffer(
-                        &device,
-                        size.width.round() as u32,
-                        size.height.round() as u32,
-                    );
+                    size = new_size;
+                    swap_chain = make_swapchain(&device, &surface, size.width, size.height);
+                    depth_buffer = make_depth_buffer(&device, size.width, size.height);
                 }
                 _ => {}
             },
-            event::Event::EventsCleared => {
-                let frame = swap_chain
-                    .get_next_texture()
-                    .expect("Timeout when acquiring next swap chain texture");
+            event::Event::MainEventsCleared => {
+                let frame = &swap_chain
+                    .get_next_frame()
+                    .unwrap().output.view;
 
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
@@ -170,7 +154,6 @@ fn main() {
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
                     lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
                         - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
-
 
                     long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
                         + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
@@ -194,12 +177,20 @@ fn main() {
                 }
 
                 let r = altitude + planet_radius;
-                let eye = cgmath::Point3::new(r*lat.cos()*long.cos(), r*lat.cos()*long.sin(), r*lat.sin());
+                let eye = cgmath::Point3::new(
+                    r * lat.cos() * long.cos(),
+                    r * lat.cos() * long.sin(),
+                    r * lat.sin(),
+                );
 
                 let latc = lat + angle.cos() * 0.001;
                 let longc = long - angle.sin() * 0.001;
 
-                let center = cgmath::Point3::new(planet_radius*latc.cos()*longc.cos() - eye.x, planet_radius*latc.cos()*longc.sin() - eye.y, planet_radius*latc.sin() - eye.z);
+                let center = cgmath::Point3::new(
+                    planet_radius * latc.cos() * longc.cos() - eye.x,
+                    planet_radius * latc.cos() * longc.sin() - eye.y,
+                    planet_radius * latc.sin() - eye.z,
+                );
                 let up = cgmath::Vector3::new(eye.x as f32, eye.y as f32, eye.z as f32);
 
                 let view = cgmath::Matrix4::look_at(
@@ -221,7 +212,7 @@ fn main() {
                     &mut queue,
                     &frame,
                     &depth_buffer,
-                    (size.width.round() as u32, size.height.round() as u32),
+                    (size.width, size.height),
                     view_proj,
                     eye.into(),
                 );
