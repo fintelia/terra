@@ -26,7 +26,7 @@ impl AssetLoadContextBuf {
     pub fn new() -> Self {
         let mut mb = MultiBar::<Stdout>::new();
         let mut bars = Vec::new();
-        for i in 0..8 {
+        for _ in 0..8 {
             let mut b = mb.create_bar(100);
             b.is_visible = false;
             b.format("[=> ]");

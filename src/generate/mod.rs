@@ -111,11 +111,11 @@ impl MapFileBuilder {
 
         let mut mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Heightmaps, n, true);
+            mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
             n.level() < 3
         });
         VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Albedo, n, true);
+            mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
             n.level() < 5
         });
 
@@ -142,7 +142,7 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
 
     let global_dem = GlobalDem.load(context)?;
 
-    let mut context = &mut context.increment_level("Writing heightmaps... ", missing.len());
+    let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
         let mut heightmap = Vec::new();
@@ -204,9 +204,9 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
                 let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
 
                 let color = if spacing < bluemarble_spacing {
-                    let r = bluemarble_cache.interpolate(context, lat, long, 0).unwrap_or(0.0) as u8;
-                    let g = bluemarble_cache.interpolate(context, lat, long, 1).unwrap_or(0.0) as u8;
-                    let b = bluemarble_cache.interpolate(context, lat, long, 2).unwrap_or(0.0) as u8;
+                    let r = bluemarble_cache.nearest(context, lat, long, 0).unwrap_or(255.0) as u8;
+                    let g = bluemarble_cache.nearest(context, lat, long, 1).unwrap_or(0.0) as u8;
+                    let b = bluemarble_cache.nearest(context, lat, long, 2).unwrap_or(0.0) as u8;
                     let roughness = (0.7 * 255.0) as u8;
                     [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
                 } else {

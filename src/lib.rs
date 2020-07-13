@@ -301,16 +301,15 @@ impl Terrain {
 
         let mut missing = VecMap::new();
         for (i, texture) in &self.gpu_state.tile_cache {
-            missing.insert(
-                i,
-                self.tile_cache.upload_tiles(
-                    device,
-                    &mut encoder,
-                    &texture,
-                    &mut self.mapfile,
-                    LayerType::from_index(i),
-                ),
+            let mut layer_missing = self.tile_cache.upload_tiles(
+                device,
+                &mut encoder,
+                &texture,
+                &mut self.mapfile,
+                LayerType::from_index(i),
             );
+            layer_missing.sort_by_key(|n| n.level());
+            missing.insert(i, layer_missing);
         }
 
         let heightmaps_resolution = self.tile_cache.resolution(LayerType::Heightmaps);
@@ -322,7 +321,7 @@ impl Terrain {
 
         for (i, node) in missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
         {
-            if node.level() > 0 && i >= 20 {
+            if node.level() > 0 && i >= 16 {
                 continue;
             }
 
@@ -430,12 +429,12 @@ impl Terrain {
                         if parent_slot.1 % 2 == 0 {
                             normals_border / 2
                         } else {
-                            normals_resolution / 2
+                            (normals_resolution - normals_border) / 2
                         },
                         if parent_slot.1 / 2 == 0 {
                             normals_border / 2
                         } else {
-                            normals_resolution / 2
+                            (normals_resolution - normals_border) / 2
                         },
                     ],
                     padding: 0,

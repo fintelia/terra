@@ -56,26 +56,6 @@ void main() {
 
 	if (ubo.parent_slot >= 0) {
 		albedo_roughness = imageLoad(albedo, ivec3(ubo.parent_origin + out_pos/2, ubo.parent_slot));
-		// if(ubo.spacing < 150)
-		// 	albedo_roughness.rgb = vec3(0,0,0);
-		// else if(ubo.spacing < 300)
-		// 	albedo_roughness.rgb += vec3(0.1,0,-0.1);
-		// else
-		// 	albedo_roughness.rgb += vec3(0,0,0.1);
-
-		// if (ubo.spacing < 150 && max(abs(out_pos.x-260), abs(out_pos.y-260)) > 228)
-		// 	albedo_roughness = vec4(1,0,0,1);
-		// else if(ubo.spacing < 300 && max(abs(out_pos.x-260), abs(out_pos.y-260)) > 244)
-		// 	albedo_roughness = vec4(0,1,0,1);
-		// else if(max(abs(out_pos.x-260), abs(out_pos.y-260)) > 252)
-		// 	albedo_roughness = vec4(0,0,1,1);
-
-		// albedo_roughness.xy = vec2(ubo.parent_origin) / 4000;
-		// albedo_roughness.z = 0;
-		// if(ubo.parent_origin.x > 256)
-		// 	albedo_roughness.xyz = vec3(1,0,0);
-	} else {
-		albedo_roughness = vec4(0,1,0,1);
 	}
 
 	if (ubo.normals_slot >= 0)

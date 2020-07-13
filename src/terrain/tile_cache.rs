@@ -411,10 +411,10 @@ impl TileCache {
     //     &tile_data[index..(index + self.bytes_per_texel(ty))]
     // }
 
-    pub fn capacity(&self) -> usize {
-        self.size
-    }
-    pub fn utilization(&self) -> usize {
-        self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid != 0).count()
-    }
+    // pub fn capacity(&self) -> usize {
+    //     self.size
+    // }
+    // pub fn utilization(&self) -> usize {
+    //     self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid != 0).count()
+    // }
 }

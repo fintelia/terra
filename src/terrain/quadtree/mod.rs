@@ -1,7 +1,6 @@
 // use crate::coordinates::PLANET_RADIUS;
 use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
-use byteorder::{ByteOrder, NativeEndian};
 use cgmath::*;
 use collision::Frustum;
 use std::collections::HashMap;
@@ -74,10 +73,6 @@ impl QuadTree {
                         }
                     }
                 }
-                for j in 0..64 {
-                    print!("{} ", data[j]);
-                }
-                println!();
             }
             encoder.copy_buffer_to_buffer(
                 &upload_buffer,

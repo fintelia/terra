@@ -186,7 +186,7 @@ impl MapFile {
     pub(crate) fn reload_texture(&self, name: &str) -> bool {
         let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
         let desc = self.lookup_texture(name);
-        if let Ok(Some(d)) = desc {
+        if let Ok(Some(_)) = desc {
             filename.exists()
         } else {
             false
@@ -231,7 +231,7 @@ impl MapFile {
         base: bool,
     ) -> Result<TileState, Error> {
         let filename = Self::tile_name(layer, node);
-        let mut meta = self.lookup_tile_meta(layer, node);
+        let meta = self.lookup_tile_meta(layer, node);
 
         let exists = filename.exists();
 
@@ -255,15 +255,15 @@ impl MapFile {
         self.update_tile_meta(layer, node, new_meta)?;
         Ok(target_state)
     }
-    pub(crate) fn set_missing(
-        &self,
-        layer: LayerType,
-        node: VNode,
-        base: bool,
-    ) -> Result<(), Error> {
-        let state = if base { TileState::MissingBase } else { TileState::Missing };
-        self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
-    }
+    // pub(crate) fn set_missing(
+    //     &self,
+    //     layer: LayerType,
+    //     node: VNode,
+    //     base: bool,
+    // ) -> Result<(), Error> {
+    //     let state = if base { TileState::MissingBase } else { TileState::Missing };
+    //     self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
+    // }
     pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
         self.scan_tile_meta(layer, |node, meta| {
             if let TileState::Generated = meta.state {

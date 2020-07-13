@@ -97,17 +97,37 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
 
-        if x < 0.0 || fx >= self.width - 1 || y < 0.0 || fy >= self.height - 1 {
+        if x < 0.0 || fx >= self.width || y < 0.0 || fy >= self.height {
             return None;
         }
 
+        // TODO: These should be interpolating across tiles...
+        let fx_1 = (fx + 1).min(self.width - 1);
+        let fy_1 = (fy + 1).min(self.height - 1);
+
         let h00 = self.values[(fx + fy * self.width) * self.bands + band].into();
-        let h10 = self.values[(fx + 1 + fy * self.width) * self.bands + band].into();
-        let h01 = self.values[(fx + (fy + 1) * self.width) * self.bands + band].into();
-        let h11 = self.values[(fx + 1 + (fy + 1) * self.width) * self.bands + band].into();
+        let h10 = self.values[(fx_1 + fy * self.width) * self.bands + band].into();
+        let h01 = self.values[(fx + fy_1 * self.width) * self.bands + band].into();
+        let h11 = self.values[(fx_1 + fy_1 * self.width) * self.bands + band].into();
         let h0 = h00 + (h01 - h00) * (y - fy as f64);
         let h1 = h10 + (h11 - h10) * (y - fy as f64);
         Some(h0 + (h1 - h0) * (x - fx as f64))
+    }
+
+    pub fn nearest(&self, latitude: f64, longitude: f64, band: usize) -> Option<f64> {
+        assert!(band < self.bands);
+
+        let x = (longitude - self.longitude_llcorner) / self.cell_size;
+        let y = self.height as f64 - (latitude - self.latitude_llcorner) / self.cell_size;
+
+        let fx = x.floor() as usize;
+        let fy = y.floor() as usize;
+
+        if x < 0.0 || fx >= self.width || y < 0.0 || fy >= self.height {
+            return None;
+        }
+
+        Some(self.values[(fx + fy * self.width) * self.bands + band].into())
     }
 
     pub fn ambient_occlusion(&self) -> Raster<u8> {
@@ -252,6 +272,16 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
     ) -> Option<f64> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
             .and_then(|raster| raster.interpolate(latitude, longitude, band))
+    }
+    pub fn nearest(
+        &mut self,
+        context: &mut AssetLoadContext,
+        latitude: f64,
+        longitude: f64,
+        band: usize,
+    ) -> Option<f64> {
+        self.get(context, latitude.floor() as i16, longitude.floor() as i16)
+            .and_then(|raster| raster.nearest(latitude, longitude, band))
     }
     pub fn bands(&self) -> usize {
         self.source.bands()

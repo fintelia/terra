@@ -26,6 +26,7 @@ pub enum DemSource {
     Usgs10m,
     /// Use DEMs Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global data source. Data is
     /// available globally between 60° north and 56° south latitude.
+    #[allow(unused)]
     Srtm30m,
 }
 impl DemSource {
