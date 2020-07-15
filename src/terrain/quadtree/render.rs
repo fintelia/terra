@@ -203,6 +203,8 @@ impl QuadTree {
         let slice = bytemuck::cast_slice_mut(&mut *buffer_view);
         slice.copy_from_slice(&self.node_states[..]);
 
+        drop(buffer_view);
+        buffer.unmap();
         encoder.copy_buffer_to_buffer(
             &buffer,
             0,

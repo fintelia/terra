@@ -59,7 +59,7 @@ sled = "0.31.0"
 toml = "0.5.3"
 vec_map = { version = "0.8.1", features = ["serde"] }
 vecmath = "1.0.0"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "6ca03f8354db2e827b17d0af40c5c33083a15908" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "32de700ef908029cc5f8ac3b0befd7439f5bd7bd" }
 winit = "0.20.0-alpha5"
 xdg = "2.2.0"
 zerocopy = "0.2.8"

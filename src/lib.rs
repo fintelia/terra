@@ -46,17 +46,29 @@ struct UniformBlock {
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
 
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct SkyUniformBlock {
+    view_proj: mint::ColumnMatrix4<f32>,
+    camera: mint::Point3<f64>,
+    padding: f64,
+}
+unsafe impl bytemuck::Pod for SkyUniformBlock {}
+unsafe impl bytemuck::Zeroable for SkyUniformBlock {}
+
 pub struct Terrain {
-    bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-
-    watcher: rshader::ShaderDirectoryWatcher,
     shader: rshader::ShaderSet,
-
+    bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     uniform_buffer: wgpu::Buffer,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_buffer_partial: wgpu::Buffer,
 
+    sky_shader: rshader::ShaderSet,
+    sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
+    sky_uniform_buffer: wgpu::Buffer,
+
+    watcher: rshader::ShaderDirectoryWatcher,
     gen_heightmaps: ComputeShader<GenHeightmapsUniforms>,
     gen_displacements: ComputeShader<GenDisplacementsUniforms>,
     gen_normals: ComputeShader<GenNormalsUniforms>,
@@ -117,6 +129,19 @@ impl Terrain {
 
         let gpu_state = GpuState { noise, tile_cache: tile_cache.make_cache_textures(device) };
 
+        let sky_shader = rshader::ShaderSet::simple(
+            &mut watcher,
+            rshader::shader_source!("shaders", "version", "sky.vert"),
+            rshader::shader_source!("shaders", "version", "sky.frag"),
+        )
+        .unwrap();
+        let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: std::mem::size_of::<SkyUniformBlock>() as u64,
+            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+            label: Some("sky.uniforms"),
+            mapped_at_creation: false,
+        });
+
         let gen_heightmaps = ComputeShader::new(
             device,
             rshader::ShaderSet::compute_only(
@@ -162,6 +187,10 @@ impl Terrain {
             vertex_buffer,
             index_buffer,
             index_buffer_partial,
+
+            sky_shader,
+            sky_uniform_buffer,
+            sky_bindgroup_pipeline: None,
 
             gen_heightmaps,
             gen_displacements,
@@ -241,6 +270,7 @@ impl Terrain {
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: &[&bind_group_layout],
+                    push_constant_ranges: &[],
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -288,6 +318,64 @@ impl Terrain {
                             step_mode: wgpu::InputStepMode::Instance,
                             attributes: self.shader.input_attributes(),
                         }],
+                    },
+                    sample_count: 1,
+                    sample_mask: !0,
+                    alpha_to_coverage_enabled: false,
+                }),
+            ));
+        }
+
+        if self.sky_shader.refresh(&mut self.watcher) {
+            self.sky_bindgroup_pipeline = None;
+        }
+        if self.sky_bindgroup_pipeline.is_none() {
+            let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
+                device,
+                &self.sky_shader,
+                Some(self.sky_uniform_buffer.slice(0..mem::size_of::<SkyUniformBlock>() as u64)),
+            );
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    bind_group_layouts: &[&bind_group_layout],
+                    push_constant_ranges: &[],
+                });
+            self.sky_bindgroup_pipeline = Some((
+                bind_group,
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    layout: &render_pipeline_layout,
+                    vertex_stage: wgpu::ProgrammableStageDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+                            self.sky_shader.vertex(),
+                        )),
+                        entry_point: "main",
+                    },
+                    fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
+                            self.sky_shader.fragment(),
+                        )),
+                        entry_point: "main",
+                    }),
+                    rasterization_state: Some(wgpu::RasterizationStateDescriptor::default()),
+                    primitive_topology: wgpu::PrimitiveTopology::TriangleList,
+                    color_states: &[wgpu::ColorStateDescriptor {
+                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                        color_blend: wgpu::BlendDescriptor::REPLACE,
+                        alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                        write_mask: wgpu::ColorWrite::ALL,
+                    }],
+                    depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_write_enabled: false,
+                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        stencil_front: Default::default(),
+                        stencil_back: Default::default(),
+                        stencil_read_mask: 0,
+                        stencil_write_mask: 0,
+                    }),
+                    vertex_state: wgpu::VertexStateDescriptor {
+                        index_format: wgpu::IndexFormat::Uint16,
+                        vertex_buffers: &[],
                     },
                     sample_count: 1,
                     sample_mask: !0,
@@ -573,6 +661,8 @@ impl Terrain {
         bytemuck::cast_slice_mut(&mut *buffer_view)[0] =
             UniformBlock { view_proj, camera, padding: 0.0 };
 
+        drop(buffer_view);
+        buffer.unmap();
         encoder.copy_buffer_to_buffer(
             &buffer,
             0,
@@ -609,6 +699,31 @@ impl Terrain {
                 &self.index_buffer,
                 &self.index_buffer_partial,
             );
+        }
+
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: color_buffer,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
+                    attachment: depth_buffer,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: false,
+                    }),
+                    stencil_ops: None,
+                }),
+            });
+
+            rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
+            rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
+            rpass.draw(0..30, 0..1);
         }
 
         // {

@@ -89,6 +89,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     layout: &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         bind_group_layouts: &[&bind_group_layout],
+                        push_constant_ranges: &[],
                     }),
                     compute_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(

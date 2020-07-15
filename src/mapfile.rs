@@ -143,6 +143,8 @@ impl MapFile {
                 .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
         }
 
+        drop(buffer_view);
+        buffer.unmap();
         encoder.copy_buffer_to_texture(
             wgpu::BufferCopyView {
                 buffer: &buffer,

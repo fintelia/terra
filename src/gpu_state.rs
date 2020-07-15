@@ -41,15 +41,12 @@ impl GpuState {
         let bind_group_layout = device.create_bind_group_layout(&shader.layout_descriptor());
         let mut bindings = Vec::new();
         for (name, layout) in
-            shader.desc_names().iter().zip(shader.layout_descriptor().bindings.iter())
+            shader.desc_names().iter().zip(shader.layout_descriptor().entries.iter())
         {
             let name = &**name.as_ref().unwrap();
-            bindings.push(wgpu::Binding {
+            bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::UniformBuffer { .. } => {
-                        wgpu::BindingResource::Buffer(ubo.unwrap().clone())
-                    }
                     wgpu::BindingType::Sampler { comparison: _ } => {
                         wgpu::BindingResource::Sampler(match name {
                             "linear" => &linear,
@@ -68,15 +65,17 @@ impl GpuState {
                             _ => unreachable!("unrecognized image: {}", name),
                         })
                     }
+                    wgpu::BindingType::UniformBuffer { .. } => {
+                        wgpu::BindingResource::Buffer(ubo.unwrap().clone())
+                    }
                     wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
-                    _ => unimplemented!(),
                 },
             });
         }
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            bindings: &*bindings,
+            entries: &*bindings,
             label: None,
         });
 

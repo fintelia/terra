@@ -300,6 +300,8 @@ impl TileCache {
             }
         }
 
+        drop(buffer_view);
+        buffer.unmap();
         for (index, (slot, _)) in pending_uploads.drain(..).enumerate() {
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
