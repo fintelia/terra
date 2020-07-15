@@ -108,7 +108,7 @@ impl MapFile {
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: desc.resolution, height: desc.resolution, depth: 1 },
+            size: wgpu::Extent3d { width: desc.width, height: desc.height, depth: 1 },
             format: desc.format.to_wgpu(),
             mip_level_count: 1,
             sample_count: 1,
@@ -120,9 +120,9 @@ impl MapFile {
             label: None,
         });
 
-        let resolution = desc.resolution as usize;
+        let (width, height) = (desc.width as usize, desc.height as usize);
         let bytes_per_texel = desc.format.bytes_per_texel();
-        let row_bytes = resolution * bytes_per_texel;
+        let row_bytes = width * bytes_per_texel;
         let row_pitch = (row_bytes + 255) & !255;
         // let data = &self.file[desc.offset..][..desc.bytes];
 
@@ -131,14 +131,14 @@ impl MapFile {
         let data = image.to_rgba().into_vec();
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (row_pitch * resolution) as u64,
+            size: (row_pitch * height) as u64,
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
             label: None,
             mapped_at_creation: true,
         });
 
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        for row in 0..resolution {
+        for row in 0..height {
             buffer_view[row * row_pitch..][..row_bytes]
                 .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
         }
@@ -151,7 +151,7 @@ impl MapFile {
                 layout: wgpu::TextureDataLayout {
                     offset: 0,
                     bytes_per_row: row_pitch as u32,
-                    rows_per_image: resolution as u32,
+                    rows_per_image: height as u32,
                 },
             },
             wgpu::TextureCopyView {
@@ -159,7 +159,7 @@ impl MapFile {
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
             },
-            wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
+            wgpu::Extent3d { width: width as u32, height: height as u32, depth: 1 },
         );
 
         Ok(texture)
@@ -173,13 +173,12 @@ impl MapFile {
     ) -> Result<(), Error> {
         assert_eq!(desc.format, TextureFormat::RGBA8);
         let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
-        let resolution = desc.resolution as u32;
         self.update_texture(name, desc)?;
         Ok(image::save_buffer_with_format(
             &filename,
             data,
-            resolution,
-            resolution,
+            desc.width,
+            desc.height,
             image::ColorType::Rgba8,
             image::ImageFormat::Bmp,
         )?)

@@ -120,7 +120,7 @@ impl MapFileBuilder {
         });
 
         let mut context = AssetLoadContextBuf::new();
-        let mut context = context.context("Generating mapfile...", 3);
+        let mut context = context.context("Generating mapfile...", 4);
         generate_heightmaps(&mut mapfile, &mut context)?;
         context.set_progress(1);
         generate_colormaps(&mut mapfile, &mut context)?;
@@ -128,6 +128,13 @@ impl MapFileBuilder {
         generate_noise(&mut mapfile)?;
         context.set_progress(3);
 
+        let sky = WebTextureAsset {
+            url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
+            filename: "eso0932a.tif".to_owned(),
+        }.load(&mut context)?;
+        mapfile.write_texture("sky", sky.0, &sky.1);
+
+        context.set_progress(4);
         Ok(mapfile)
     }
 }
@@ -231,7 +238,8 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
     if !mapfile.reload_texture("noise") {
         let noise = NoiseParams {
             texture: TextureDescriptor {
-                resolution: 2048,
+                width: 2048,
+                height: 2048,
                 format: TextureFormat::RGBA8,
                 bytes: 4 * 2048 * 2048,
             },
@@ -254,4 +262,32 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
         mapfile.write_texture("noise", noise.texture, &heights[..])?;
     }
     Ok(())
+}
+
+struct WebTextureAsset {
+    url: String,
+    filename: String,
+}
+impl WebAsset for WebTextureAsset {
+    type Type = (TextureDescriptor, Vec<u8>);
+
+    fn url(&self) -> String {
+        self.url.clone()
+    }
+    fn filename(&self) -> String {
+        self.filename.clone()
+    }
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
+        // TODO: handle other pixel formats
+        let img = image::load_from_memory(&data)?.into_rgba();
+        Ok((
+            TextureDescriptor {
+                format: TextureFormat::RGBA8,
+                width: img.width(),
+                height: img.height(),
+                bytes: (*img).len(),
+            },
+            img.into_raw(),
+        ))
+    }
 }

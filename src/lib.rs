@@ -118,16 +118,17 @@ impl Terrain {
             r
         };
 
-        let noise = {
+        let (noise, sky) = {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("generate_noise"),
+                label: Some("load_textures"),
             });
             let noise = mapfile.read_texture(device, &mut encoder, "noise")?;
+            let sky = mapfile.read_texture(device, &mut encoder, "sky")?;
             queue.submit(Some(encoder.finish()));
-            noise
+            (noise, sky)
         };
 
-        let gpu_state = GpuState { noise, tile_cache: tile_cache.make_cache_textures(device) };
+        let gpu_state = GpuState { noise, sky, tile_cache: tile_cache.make_cache_textures(device) };
 
         let sky_shader = rshader::ShaderSet::simple(
             &mut watcher,
@@ -670,6 +671,13 @@ impl Terrain {
             0,
             mem::size_of::<UniformBlock>() as u64,
         );
+        encoder.copy_buffer_to_buffer(
+            &buffer,
+            0,
+            &self.sky_uniform_buffer,
+            0,
+            mem::size_of::<SkyUniformBlock>() as u64,
+        );
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -706,24 +714,18 @@ impl Terrain {
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: color_buffer,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: true },
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: false,
-                    }),
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: true }),
                     stencil_ops: None,
                 }),
             });
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
-            rpass.draw(0..30, 0..1);
+            rpass.draw(0..3, 0..1);
         }
 
         // {

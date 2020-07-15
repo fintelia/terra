@@ -34,7 +34,7 @@ generic-array = { version = "0.12.3", features = ["serde"] }
 gilrs = "0.7.3"
 glsl-layout = "0.3.2"
 hex = "0.4.0"
-image = { git = "https://github.com/fintelia/image", branch = "tiff-no-limit" }
+image = "0.23.7"
 lazy_static = "1.4.0"
 linked-hash-map = "0.5.2"
 log = "0.4.8"

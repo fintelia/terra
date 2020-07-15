@@ -3,6 +3,7 @@ use vec_map::VecMap;
 
 pub(crate) struct GpuState {
     pub noise: wgpu::Texture,
+    pub sky: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
 }
@@ -35,6 +36,7 @@ impl GpuState {
         });
 
         let noise = &self.noise.create_default_view();
+        let sky = &self.sky.create_default_view();
         let tile_cache_views: VecMap<_> =
             self.tile_cache.iter().map(|(i, tex)| (i, tex.create_default_view())).collect();
 
@@ -58,6 +60,7 @@ impl GpuState {
                     | wgpu::BindingType::SampledTexture { .. } => {
                         wgpu::BindingResource::TextureView(match name {
                             "noise" => noise,
+                            "sky" => sky,
                             "displacements" => &tile_cache_views[LayerType::Displacements],
                             "normals" => &tile_cache_views[LayerType::Normals],
                             "albedo" => &tile_cache_views[LayerType::Albedo],

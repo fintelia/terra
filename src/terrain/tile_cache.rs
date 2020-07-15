@@ -129,9 +129,10 @@ pub(crate) struct MeshDescriptor {
     pub num_vertices: usize,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct TextureDescriptor {
-    pub resolution: u32,
+    pub width: u32,
+    pub height: u32,
     pub format: TextureFormat,
     pub bytes: usize,
 }
