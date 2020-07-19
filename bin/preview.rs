@@ -100,7 +100,7 @@ fn main() {
 
     let planet_radius = 6371000.0;
 
-    let mut angle = 3.14159f64;
+    let mut angle = 0.0f64;
 
     let mut lat = 0.0f64;
     let mut long = 0.0f64;
