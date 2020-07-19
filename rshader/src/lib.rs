@@ -93,17 +93,17 @@ fn reflect(
         if let wgpu::ShaderStage::VERTEX = stage {
             let mut inputs = BTreeMap::new();
             for input in manifest.inputs() {
-                inputs.entry(u32::from(input.location)).or_insert(Vec::new()).push(input);
+                inputs.entry(u32::from(input.location.loc())).or_insert(Vec::new()).push(input);
             }
             for (shader_location, mut input) in inputs {
-                input.sort_by_key(|i| u32::from(i.component));
+                input.sort_by_key(|i| u32::from(i.location.bind()));
                 let i = input.last().unwrap();
                 let (scalar_ty, nscalar) = match i.ty {
                     Type::Scalar(s) => (s, 1),
                     Type::Vector(VectorType { scalar_ty, nscalar }) => (scalar_ty, *nscalar),
                     _ => return Err(anyhow!("Unsupported attribute type")),
                 };
-                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.component)) {
+                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.location.bind())) {
                     (ScalarType::Signed(4), 1) => (wgpu::VertexFormat::Int, 4),
                     (ScalarType::Signed(4), 2) => (wgpu::VertexFormat::Int2, 8),
                     (ScalarType::Signed(4), 3) => (wgpu::VertexFormat::Int3, 12),
@@ -129,44 +129,43 @@ fn reflect(
         }
 
         for desc in manifest.descs() {
-            if let Some((set, binding)) = desc.desc_bind.into_inner() {
-                assert_eq!(set, 0);
-                let name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
-                let ty = match desc.desc_ty {
-                    DescriptorType::Sampler => wgpu::BindingType::Sampler { comparison: false },
-                    DescriptorType::UniformBuffer(..) => {
-                        wgpu::BindingType::UniformBuffer {
-                            dynamic: false,
-                            min_binding_size: None,
-                        }
+            let (set, binding) = desc.desc_bind.into_inner();
+            assert_eq!(set, 0);
+            let name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
+            let ty = match desc.desc_ty {
+                DescriptorType::Sampler(_) => wgpu::BindingType::Sampler { comparison: false },
+                DescriptorType::UniformBuffer(..) => {
+                    wgpu::BindingType::UniformBuffer {
+                        dynamic: false,
+                        min_binding_size: None,
                     }
-                    DescriptorType::Image(spirq::ty::Type::Image(ty)) => {
-                        wgpu::BindingType::SampledTexture {
-                            multisampled: false,
-                            dimension: match ty.arng {
-                                ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
-                                ImageArrangement::Image2DArray => {
-                                    wgpu::TextureViewDimension::D2Array
-                                }
-                                _ => unimplemented!(),
-                            },
-                            component_type: wgpu::TextureComponentType::Uint,
-                        }
+                }
+                DescriptorType::Image(_, spirq::ty::Type::Image(ty)) => {
+                    wgpu::BindingType::SampledTexture {
+                        multisampled: false,
+                        dimension: match ty.arng {
+                            ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
+                            ImageArrangement::Image2DArray => {
+                                wgpu::TextureViewDimension::D2Array
+                            }
+                            _ => unimplemented!(),
+                        },
+                        component_type: wgpu::TextureComponentType::Uint,
                     }
-                    v => unimplemented!("{:?}", v),
-                };
+                }
+                v => unimplemented!("{:?}", v),
+            };
 
-                match binding_map.entry(binding) {
-                    Entry::Vacant(v) => {
-                        v.insert((name, ty, stage));
-                    }
-                    Entry::Occupied(mut e) => {
-                        let (ref n, ref t, ref mut s) = e.get_mut();
-                        *s = *s | stage;
+            match binding_map.entry(binding) {
+                Entry::Vacant(v) => {
+                    v.insert((name, ty, stage));
+                }
+                Entry::Occupied(mut e) => {
+                    let (ref n, ref t, ref mut s) = e.get_mut();
+                    *s = *s | stage;
 
-                        if *n != name || *t != ty {
-                            return Err(anyhow!("descriptor mismatch"));
-                        }
+                    if *n != name || *t != ty {
+                        return Err(anyhow!("descriptor mismatch"));
                     }
                 }
             }
