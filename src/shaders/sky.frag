@@ -33,7 +33,7 @@ void main() {
 	vec4 r1 = view_proj_inv * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
 
-	vec2 p = rsi(vec3(ubo.camera), r, 6371000.0 + 100000.0);
+	vec2 p = rsi(r0.xyz / r0.w + vec3(ubo.camera), r, 6371000.0 + 100000.0);
 	if (p.x > p.y || p.y < 0.0) {
 		float lat = acos(r.z)/3.141592 * 0.5 + 0.5;
 		float lon = atan(r.y, r.x) / 3.141592 * 0.5 + 0.5;
