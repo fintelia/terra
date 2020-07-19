@@ -1,13 +1,10 @@
 use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use failure::{bail, ensure, Error, Fail};
-use image::tiff::TiffDecoder;
-use image::ImageDecoder;
 use safe_transmute;
 use std::io::{Cursor, Read};
 use std::mem;
 use std::str::FromStr;
-use zerocopy::AsBytes;
 use zip::ZipArchive;
 
 #[derive(Debug, Fail)]
@@ -278,20 +275,35 @@ impl WebAsset for GlobalDem {
     fn filename(&self) -> String {
         "dems/ETOPO1_Ice_c_geotiff.zip".to_string()
     }
-    fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         let mut zip = ZipArchive::new(Cursor::new(data))?;
         ensure!(zip.len() == 1, "Unexpected zip file contents");
         let mut file = zip.by_index(0)?;
         ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
 
+        context.reset("Decompressing ETOPO1_Ice_c_geotiff.tif...", 100);
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)?;
 
-        let tiff_decoder = TiffDecoder::new(Cursor::new(contents))?;
-        let (width, height) = tiff_decoder.dimensions();
+        context.reset("Decoding ETOPO1_Ice_c_geotiff.tif...", 100);
+        let mut tiff_decoder = tiff::decoder::Decoder::new(Cursor::new(contents))?;
+        let (width, height) = tiff_decoder.dimensions()?;
 
+        let mut offset = 0;
         let mut values: Vec<i16> = vec![0; width as usize * height as usize];
-        tiff_decoder.into_reader()?.read_exact(values.as_bytes_mut())?;
+        let strip_count = tiff_decoder.strip_count()?;
+
+        context.set_progress_and_total(0, strip_count);
+        for i in 0..strip_count {
+            if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
+				context.set_progress(i);
+                values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
+                offset += v.len();
+            } else {
+                unreachable!();
+            }
+        }
+
         Ok(GlobalRaster { bands: 1, width: width as usize, height: height as usize, values })
     }
 }

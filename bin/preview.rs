@@ -59,10 +59,10 @@ fn main() {
         current_gamepad = Some(gamepad.id());
     }
 
+    let mapfile = terra::MapFileBuilder::build().unwrap();
+
     let event_loop = EventLoop::new();
-
     let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
-
     let window = winit::window::Window::new(&event_loop).unwrap();
     for monitor in window.available_monitors() {
         if monitor.video_modes().any(|mode| mode.size().width == 1920) {
@@ -72,14 +72,12 @@ fn main() {
     }
     let mut size = window.inner_size();
     let surface = unsafe { instance.create_surface(&window) };
-
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: Some(&surface),
         }))
         .unwrap();
-
     let (device, mut queue) = futures::executor::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             features: wgpu::Features::empty(),
@@ -88,23 +86,17 @@ fn main() {
         },
         None,
     )).unwrap();
-
-    let mapfile = terra::MapFileBuilder::build().unwrap();
-
-    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
-
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
     let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
-
     let proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
     let planet_radius = 6371000.0;
-
     let mut angle = 0.0f64;
-
     let mut lat = 0.0f64;
     let mut long = 0.0f64;
     let mut altitude = 100.0f64;
+
+    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {

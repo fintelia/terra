@@ -159,6 +159,7 @@ pub(crate) trait WebAsset {
             use curl::easy::Easy;
             let mut easy = Easy::new();
             easy.url(&self.url())?;
+            easy.progress(true)?;
             easy.follow_location(true)?;
             if let Some((username, password)) = self.credentials() {
                 easy.cookie_file("")?;
@@ -172,7 +173,7 @@ pub(crate) trait WebAsset {
                 data.extend(d);
                 Ok(len)
             })?;
-            easy.progress_function(|c, t, _, _| {
+            easy.progress_function(|t, c, _, _| {
                 if t > 0.0 {
                     context.set_progress_and_total(c, t);
                 }

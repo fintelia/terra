@@ -114,8 +114,8 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
         Some(h0 + (h1 - h0) * (x - fx as f64))
     }
 
-    pub fn nearest(&self, latitude: f64, longitude: f64, band: usize) -> Option<f64> {
-        assert!(band < self.bands);
+    pub fn nearest3(&self, latitude: f64, longitude: f64) -> Option<[f64;3]> {
+        assert!(self.bands >= 3);
 
         let x = (longitude - self.longitude_llcorner) / self.cell_size;
         let y = self.height as f64 - (latitude - self.latitude_llcorner) / self.cell_size;
@@ -127,7 +127,8 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
             return None;
         }
 
-        Some(self.values[(fx + fy * self.width) * self.bands + band].into())
+        let slice = &self.values[(fx + fy * self.width) * self.bands..][..3];
+        Some([slice[0].into(), slice[1].into(), slice[2].into()])
     }
 
     pub fn ambient_occlusion(&self) -> Raster<u8> {
@@ -273,15 +274,14 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
             .and_then(|raster| raster.interpolate(latitude, longitude, band))
     }
-    pub fn nearest(
+    pub fn nearest3(
         &mut self,
         context: &mut AssetLoadContext,
         latitude: f64,
         longitude: f64,
-        band: usize,
-    ) -> Option<f64> {
+    ) -> Option<[f64;3]> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
-            .and_then(|raster| raster.nearest(latitude, longitude, band))
+            .and_then(|raster| raster.nearest3(latitude, longitude))
     }
     pub fn bands(&self) -> usize {
         self.source.bands()

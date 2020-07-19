@@ -132,7 +132,7 @@ impl MapFileBuilder {
             url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
             filename: "eso0932a.tif".to_owned(),
         }.load(&mut context)?;
-        mapfile.write_texture("sky", sky.0, &sky.1);
+        mapfile.write_texture("sky", sky.0, &sky.1)?;
 
         context.set_progress(4);
         Ok(mapfile)
@@ -211,11 +211,16 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
                 let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
 
                 let color = if spacing < bluemarble_spacing {
-                    let r = bluemarble_cache.nearest(context, lat, long, 0).unwrap_or(255.0) as u8;
-                    let g = bluemarble_cache.nearest(context, lat, long, 1).unwrap_or(0.0) as u8;
-                    let b = bluemarble_cache.nearest(context, lat, long, 2).unwrap_or(0.0) as u8;
+                    let [r, g, b] =
+                        bluemarble_cache.nearest3(context, lat, long).unwrap_or([255.0, 0.0, 0.0]);
+
                     let roughness = (0.7 * 255.0) as u8;
-                    [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
+                    [
+                        SRGB_TO_LINEAR[r as u8],
+                        SRGB_TO_LINEAR[g as u8],
+                        SRGB_TO_LINEAR[b as u8],
+                        roughness,
+                    ]
                 } else {
                     let r = bluemarble.interpolate(lat, long, 0) as u8;
                     let g = bluemarble.interpolate(lat, long, 1) as u8;

@@ -178,7 +178,7 @@ void main() {
 						position,
 						normal,
 						vec3(ubo.camera.xyz),
-						vec3(0.4, 0.7, 0.2),
+						vec3(-0.4, 0.7, 0.2),
 						vec3(100000.0));
 
 	float ev100 = 15.0;
