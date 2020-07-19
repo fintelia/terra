@@ -17,54 +17,53 @@ path = "bin/preview.rs"
 
 [dependencies]
 astro = "2.0.0"
-bincode = "1.2.0"
-bit-vec = "0.6.1"
-bytemuck = "1.1.0"
-byteorder = "1.3.2"
+bincode = "1.3.1"
+bit-vec = "0.6.2"
+bytemuck = "1.2.0"
+byteorder = "1.3.4"
 cgmath = { version = "0.17.0", features = ["mint"] }
 collision = "0.20.1"
-coord_transforms = { git = "https://github.com/fintelia/coord_transforms" }
+coord_transforms = { git = "https://github.com/fintelia/coord_transforms", rev = "57cc67d9e3b380bc4d17d23442246bd0140f46c2" }
 curl = "0.4.30"
-derivative = "1.0.3"
-dirs = "2.0.2"
-env_logger = "0.7.0"
-failure = "0.1.6"
-futures = "0.3.1"
-generic-array = { version = "0.12.3", features = ["serde"] }
-gilrs = "0.7.3"
+derivative = "2.1.1"
+dirs = "3.0.1"
+env_logger = "0.7.1"
+failure = "0.1.8"
+futures = "0.3.5"
+generic-array = { version = "0.14.3", features = ["serde"] }
+gilrs = "0.7.4"
 glsl-layout = "0.3.2"
-hex = "0.4.0"
+hex = "0.4.2"
 image = "0.23.7"
 lazy_static = "1.4.0"
-linked-hash-map = "0.5.2"
-log = "0.4.8"
+linked-hash-map = "0.5.3"
+log = "0.4.11"
 lru-cache = "0.1.2"
 maplit = "1.0.2"
 memmap = "0.7.0"
-mint = "0.5.4"
-nalgebra = "0.18.1"
-num = "0.2.0"
+mint = "0.5.5"
+nalgebra = "0.21.1"
+num = "0.3.0"
 open-location-code = "0.1.0"
 pbr = { git = "https://github.com/fintelia/pb", rev = "7740234295184f84b4fbcd55c8c3fd5528b474ad" }
-petgraph = "0.4.13"
-rand = "0.7.2"
+petgraph = "0.5.1"
+rand = "0.7.3"
 rand_distr = "0.2.2"
 rshader = { path = "rshader", features = ["dynamic_shaders"] }
-safe-transmute = "0.10.1"
-serde = { version = "1.0.101", features = ["derive"] }
-serde_json = "1.0.41"
-sha2 = "0.8.0"
-shred = { version = "0.9.3", features = ["nightly"] }
-sled = "0.31.0"
-toml = "0.5.3"
-vec_map = { version = "0.8.1", features = ["serde"] }
+serde = { version = "1.0.114", features = ["derive"] }
+serde_json = "1.0.56"
+sha2 = "0.9.1"
+shred = "0.10.2"
+sled = "0.33.0"
+tiff = "0.5.0"
+toml = "0.5.6"
+vec_map = { version = "0.8.2", features = ["serde"] }
 vecmath = "1.0.0"
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "32de700ef908029cc5f8ac3b0befd7439f5bd7bd" }
-winit = "0.20.0-alpha5"
+winit = "0.22.2"
 xdg = "2.2.0"
-zerocopy = "0.2.8"
-zip = "0.5.3"
-tiff = "0.5.0"
+zerocopy = "0.3.0"
+zip = "0.5.6"
 
 [profile]
 [profile.dev]

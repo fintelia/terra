@@ -1,9 +1,7 @@
 use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use failure::{bail, ensure, Error, Fail};
-use safe_transmute;
 use std::io::{Cursor, Read};
-use std::mem;
 use std::str::FromStr;
 use zip::ZipArchive;
 
@@ -209,14 +207,13 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
         Err(DemParseError)?;
     }
 
-    let flt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<u32>(&flt[..]).unwrap() };
+    let flt: &[u32] = bytemuck::cast_slice(&flt[..]);
     let mut elevations: Vec<f32> = Vec::with_capacity(size);
     for f in flt {
-        let e = match byte_order {
+        let e = bytemuck::cast(match byte_order {
             ByteOrder::LsbFirst => f.to_le(),
             ByteOrder::MsbFirst => f.to_be(),
-        };
-        let e = unsafe { mem::transmute::<u32, f32>(e) };
+        });
         elevations.push(if e == nodata_value { 0.0 } else { e });
     }
 
@@ -240,7 +237,7 @@ fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
         bail!(DemParseError);
     }
 
-    let hgt = unsafe { safe_transmute::guarded_transmute_many_pedantic::<i16>(&hgt[..]).unwrap() };
+    let hgt = bytemuck::cast_slice(&hgt[..]);
     let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
 
     for y in 0..resolution {
@@ -296,7 +293,7 @@ impl WebAsset for GlobalDem {
         context.set_progress_and_total(0, strip_count);
         for i in 0..strip_count {
             if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
-				context.set_progress(i);
+                context.set_progress(i);
                 values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
                 offset += v.len();
             } else {
