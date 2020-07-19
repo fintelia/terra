@@ -5,7 +5,7 @@ use crate::terrain::heightmap::Heightmap;
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
 use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
-use failure::Error;
+use anyhow::Error;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;

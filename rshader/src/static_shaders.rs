@@ -24,7 +24,7 @@ impl ShaderSet {
         _: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         fragment_source: ShaderSource,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let vertex = Some(create_vertex_shader(&vertex_source.source.unwrap()).unwrap());
         let fragment = Some(create_fragment_shader(&fragment_source.source.unwrap()).unwrap());
         Ok(Self { vertex, fragment, compute: None })
@@ -32,7 +32,7 @@ impl ShaderSet {
     pub fn compute_only(
         _: &mut ShaderDirectoryWatcher,
         compute_source: ShaderSource,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let compute = Some(create_compute_shader(&compute_source.source.unwrap()).unwrap());
         Ok(Self { vertex: None, fragment: None, compute })
     }

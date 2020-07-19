@@ -29,13 +29,13 @@ pub struct Dataset<B: Backend> {
     pub tile_cache: TileCache<(i16, i16), B>,
 }
 impl<B: Backend> Dataset<B> {
-    fn parse(&mut self, data: Vec<u8>) -> Result<Vec<u8>, failure::Error> {
+    fn parse(&mut self, data: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
         match self.desc.file_format {
             DatasetFormat::ZippedGridFloat => parse_ned_zip(data),
         }
     }
 
-    pub fn get_tile(&mut self, lat: i16, long: i16) -> Result<Option<Vec<u8>>, failure::Error> {
+    pub fn get_tile(&mut self, lat: i16, long: i16) -> Result<Option<Vec<u8>>, anyhow::Error> {
         let mut url = self.desc.url.clone();
         url = url.replace("{ns}", if lat >= 0 { "n" } else { "s" });
         url = url.replace("{ew}", if long >= 0 { "e" } else { "w" });
@@ -83,7 +83,7 @@ impl<B: Backend> Dataset<B> {
 
 /// Load a zip file in the format for the USGS's National Elevation Dataset.
 #[allow(unused)]
-fn parse_ned_zip(data: Vec<u8>) -> Result<Vec<u8>, failure::Error> {
+fn parse_ned_zip(data: Vec<u8>) -> Result<Vec<u8>, anyhow::Error> {
     let mut hdr = String::new();
     let mut flt = Vec::new();
 

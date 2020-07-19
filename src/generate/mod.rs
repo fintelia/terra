@@ -14,7 +14,7 @@ use crate::terrain::tile_cache::{
     LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat,
 };
 use byteorder::{LittleEndian, WriteBytesExt};
-use failure::Error;
+use anyhow::Error;
 use maplit::hashmap;
 // use rand;
 // use rand::distributions::Distribution;

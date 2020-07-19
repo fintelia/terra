@@ -9,7 +9,7 @@ use amethyst::renderer::{
     submodules::gather::CameraGatherer,
     Factory, RenderPlugin,
 };
-use failure::Error;
+use anyhow::Error;
 use gfx_hal::buffer::Usage;
 use gfx_hal::device::Device;
 use gfx_hal::format::Format;

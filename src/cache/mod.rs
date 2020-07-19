@@ -7,7 +7,7 @@ use std::ops::Drop;
 
 use bincode;
 use dirs;
-use failure::Error;
+use anyhow::Error;
 use memmap::MmapMut;
 use num::ToPrimitive;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};

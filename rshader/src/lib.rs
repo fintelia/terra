@@ -1,6 +1,7 @@
 pub mod dynamic_shaders;
 pub mod static_shaders;
 
+use anyhow::anyhow;
 use spirq::ty::{DescriptorType, ImageArrangement, Type, ScalarType, VectorType};
 use spirq::{ExecutionModel, SpirvBinary};
 use std::collections::{btree_map::Entry, BTreeMap};
@@ -47,21 +48,21 @@ macro_rules! shader_source {
     };
 }
 
-fn create_vertex_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
+fn create_vertex_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Vertex, "[VERTEX]", "main", None)?
         .as_binary()
         .to_vec())
 }
-fn create_fragment_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
+fn create_fragment_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Fragment, "[FRAGMENT]", "main", None)?
         .as_binary()
         .to_vec())
 }
-fn create_compute_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
+fn create_compute_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
     Ok(glsl_compiler
         .compile_into_spirv(source, shaderc::ShaderKind::Compute, "[COMPUTE]", "main", None)?
@@ -71,7 +72,7 @@ fn create_compute_shader(source: &str) -> Result<Vec<u32>, failure::Error> {
 
 fn reflect(
     stages: &[&[u32]],
-) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>), failure::Error> {
+) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>), anyhow::Error> {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
         BTreeMap::new();
 
@@ -100,7 +101,7 @@ fn reflect(
                 let (scalar_ty, nscalar) = match i.ty {
                     Type::Scalar(s) => (s, 1),
                     Type::Vector(VectorType { scalar_ty, nscalar }) => (scalar_ty, *nscalar),
-                    _ => return Err(failure::format_err!("Unsupported attribute type")),
+                    _ => return Err(anyhow!("Unsupported attribute type")),
                 };
                 let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.component)) {
                     (ScalarType::Signed(4), 1) => (wgpu::VertexFormat::Int, 4),
@@ -115,7 +116,7 @@ fn reflect(
                     (ScalarType::Float(4), 2) => (wgpu::VertexFormat::Float2, 8),
                     (ScalarType::Float(4), 3) => (wgpu::VertexFormat::Float3, 12),
                     (ScalarType::Float(4), 4) => (wgpu::VertexFormat::Float4, 16),
-                    _ => return Err(failure::format_err!("Unsupported attribute type")),
+                    _ => return Err(anyhow!("Unsupported attribute type")),
                 };
 
                 attributes.push(wgpu::VertexAttributeDescriptor {
@@ -164,7 +165,7 @@ fn reflect(
                         *s = *s | stage;
 
                         if *n != name || *t != ty {
-                            return Err(failure::format_err!("descriptor mismatch"));
+                            return Err(anyhow!("descriptor mismatch"));
                         }
                     }
                 }

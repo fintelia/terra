@@ -1,6 +1,6 @@
 use std::io::{Cursor, Read};
 
-use failure::Error;
+use anyhow::Error;
 use image::png::PngDecoder;
 use image::{self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat};
 use memmap::Mmap;

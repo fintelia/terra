@@ -1,4 +1,4 @@
-use failure::Error;
+use anyhow::Error;
 use gfx;
 use gfx::texture::{AaMode, Kind, Mipmap};
 use gfx_core::{format, handle};

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-use failure::Error;
+use anyhow::Error;
 use gfx;
 use gfx::format::*;
 use gfx::texture::Kind;

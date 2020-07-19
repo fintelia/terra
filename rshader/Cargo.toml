@@ -10,7 +10,7 @@ categories = ["game-engines", "rendering"]
 edition = "2018"
 
 [dependencies]
-failure = "0.1.8"
+anyhow = "1.0.31"
 notify = "4.0.15"
 shaderc = "0.6.2"
 spirq = { git = "https://github.com/fintelia/spirq-rs", rev = "7b80ba366f9c8eb94450ba5d119dd6d8effa2dd5" }

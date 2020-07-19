@@ -3,7 +3,7 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{
     LayerParams, LayerType, TextureDescriptor, TextureFormat,
 };
-use failure::Error;
+use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;

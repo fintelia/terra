@@ -1,12 +1,13 @@
 use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
-use failure::{bail, ensure, Error, Fail};
+use anyhow::{Error, ensure};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
+use thiserror::Error;
 use zip::ZipArchive;
 
-#[derive(Debug, Fail)]
-#[fail(display = "failed to parse DEM file")]
+#[derive(Debug, Error)]
+#[error("failed to parse DEM file")]
 pub struct DemParseError;
 
 /// Which data source to use for digital elevation models.
@@ -234,7 +235,7 @@ fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
     let cell_size = 1.0 / 3600.0;
 
     if hgt.len() != resolution * resolution * 2 {
-        bail!(DemParseError);
+        Err(DemParseError)?;
     }
 
     let hgt = bytemuck::cast_slice(&hgt[..]);

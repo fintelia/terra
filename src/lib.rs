@@ -25,7 +25,7 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use cgmath::Vector2;
-use failure::Error;
+use anyhow::Error;
 use futures::executor;
 use gpu_state::GpuState;
 use std::mem;

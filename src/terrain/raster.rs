@@ -1,5 +1,5 @@
 use bit_vec::BitVec;
-use failure::Error;
+use anyhow::Error;
 use lru_cache::LruCache;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,5 @@
 use cache::{AssetLoadContext, GeneratedAsset, WebAsset};
-use failure::Error;
+use anyhow::Error;
 use image::{self, PNG};
 use lightbox::{Lightbox, Model};
 use obj::{Mtl, Obj};

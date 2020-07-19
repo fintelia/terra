@@ -1,6 +1,6 @@
 use std::io::{Cursor, Read};
 
-use failure::Error;
+use anyhow::Error;
 use image::{self, GenericImage, GenericImageView};
 use zip::ZipArchive;
 

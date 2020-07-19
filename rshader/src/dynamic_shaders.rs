@@ -66,7 +66,7 @@ impl ShaderSet {
         watcher: &mut ShaderDirectoryWatcher,
         vertex_source: ShaderSource,
         fragment_source: ShaderSource,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let vertex_filenames = vertex_source
             .filenames
             .unwrap()
@@ -101,7 +101,7 @@ impl ShaderSet {
     pub fn compute_only(
         watcher: &mut ShaderDirectoryWatcher,
         compute_source: ShaderSource,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, anyhow::Error> {
         let compute_filenames = compute_source
             .filenames
             .unwrap()
@@ -143,7 +143,7 @@ impl ShaderSet {
         if needs_update {
             self.last_update = Instant::now();
 
-            let new_shaders = || -> Result<_, failure::Error> {
+            let new_shaders = || -> Result<_, anyhow::Error> {
                 let (mut vs, mut fs, mut cs) = (None, None, None);
                 let mut stages = Vec::new();
                 if !self.vertex_filenames.is_empty() {
