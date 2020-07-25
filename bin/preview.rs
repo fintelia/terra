@@ -53,16 +53,9 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 fn main() {
     env_logger::init();
 
-    let mut gilrs = Gilrs::new().unwrap();
-    let mut current_gamepad = None;
-    for (_id, gamepad) in gilrs.gamepads() {
-        current_gamepad = Some(gamepad.id());
-    }
-
     let mapfile = terra::MapFileBuilder::build().unwrap();
 
     let event_loop = EventLoop::new();
-    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
     let window = winit::window::Window::new(&event_loop).unwrap();
     for monitor in window.available_monitors() {
         if monitor.video_modes().any(|mode| mode.size().width == 1920) {
@@ -70,7 +63,7 @@ fn main() {
             break;
         }
     }
-    let mut size = window.inner_size();
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -86,15 +79,23 @@ fn main() {
         },
         None,
     )).unwrap();
+
+    let mut size = window.inner_size();
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
     let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
     let mut proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
+    let mut gilrs = Gilrs::new().unwrap();
+    let mut current_gamepad = None;
+    for (_id, gamepad) in gilrs.gamepads() {
+        current_gamepad = Some(gamepad.id());
+    }
+
     let planet_radius = 6371000.0;
     let mut angle = 0.0f64;
-    let mut lat = 0.85271f64;
-    let mut long = 0.041054f64;
-    let mut altitude = 1000000.0f64;
+    let mut lat = 41.3851f64.to_radians();
+    let mut long = 2.1734f64.to_radians();
+    let mut altitude = 200000.0f64;
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
@@ -121,10 +122,22 @@ fn main() {
                     event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
                     event::VirtualKeyCode::Space => altitude += 0.1 * altitude,
                     event::VirtualKeyCode::Semicolon => altitude -= 0.1 * altitude,
-                    // event::VirtualKeyCode::Left => eye.x -= 50.0,
-                    // event::VirtualKeyCode::Right => eye.x += 50.0,
-                    // event::VirtualKeyCode::Up => eye.z -= 50.0,
-                    // event::VirtualKeyCode::Down => eye.z += 50.0,
+                    event::VirtualKeyCode::Left => {
+                        lat += -angle.sin() * -0.01;
+                        long += angle.cos() * -0.01;
+                    }
+                    event::VirtualKeyCode::Right => {
+                        lat += -angle.sin() * 0.01;
+                        long += angle.cos() * 0.01;
+                    }
+                    event::VirtualKeyCode::Up => {
+                        lat += angle.cos() * 0.01;
+                        long += -angle.sin() * 0.01;
+                    }
+                    event::VirtualKeyCode::Down => {
+                        lat += angle.cos() * -0.01;
+                        long += -angle.sin() * -0.01;
+                    }
                     _ => {}
                 },
                 event::WindowEvent::Resized(new_size) => {
@@ -175,8 +188,8 @@ fn main() {
                     r * lat.sin(),
                 );
 
-                let latc = lat + angle.cos() * 0.001;
-                let longc = long - angle.sin() * 0.001;
+                let latc = lat + angle.cos() * 0.1;
+                let longc = long - angle.sin() * 0.1;
 
                 let center = cgmath::Point3::new(
                     planet_radius * latc.cos() * longc.cos() - eye.x,
