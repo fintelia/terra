@@ -92,9 +92,9 @@ fn main() {
 
     let planet_radius = 6371000.0;
     let mut angle = 0.0f64;
-    let mut lat = 0.0f64;
-    let mut long = 0.0f64;
-    let mut altitude = 100.0f64;
+    let mut lat = 0.85271f64;
+    let mut long = 0.041054f64;
+    let mut altitude = 1000000.0f64;
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
