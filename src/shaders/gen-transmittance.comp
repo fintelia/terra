@@ -1,0 +1,81 @@
+#line 2
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform UniformBlock {
+	float padding;
+} ubo;
+layout(rgba16f, binding = 1) uniform image2D transmittance;
+
+const float Rg = 6371000.0;
+const float Rt = 6471000.0;
+
+void compute_parameters(ivec2 size, float u_r, float u_mu, out float r, out float mu) {
+	float H = sqrt(Rt * Rt - Rg * Rg);
+	float rho = u_r * H;
+	r = sqrt(rho * rho + Rg * Rg);
+
+	float hp = (size.y / 2 - 1) / (size.y - 1);
+	float mu_horizon = -sqrt(r * r - Rg * Rg) / r;
+	if (u_mu > 0.5) {
+		float uu = (u_mu - (1.0 - hp)) / hp;
+		mu = pow(uu, 5.0) * (1.0 - mu_horizon) + mu_horizon;
+	} else {
+		float uu = u_mu / hp;
+		mu = -pow(uu, 5.0) * (1.0 + mu_horizon) + mu_horizon;
+	}
+}
+
+void main() {
+	const int steps = 16;
+
+	vec3 rayleigh_Beta_e = vec3(5.8e-6, 13.5e-6, 33.1e-6);
+	vec3 rayleigh_Beta_s = rayleigh_Beta_e;
+	float rayleigh_H = 8000.0;
+
+	float mie_Beta_s = 2.0e-6;
+	float mie_Beta_e = mie_Beta_s / 0.9;
+	float mie_H = 1200.0;
+	float mie_g = 0.76;
+
+	float r, v;
+	ivec2 tsize = imageSize(transmittance).xy;
+	compute_parameters(tsize,
+					  float(gl_GlobalInvocationID.x) / (tsize.x - 1),
+					  float(gl_GlobalInvocationID.y) / (tsize.y - 1),
+					  r, v);
+
+	float theta = acos(v);
+    float b = 2.0 * r * cos(theta);
+    float c_atmosphere = r * r - Rt * Rt;
+    float c_ground = r * r - Rg * Rg;
+
+	float len = 0;
+    if (gl_GlobalInvocationID.y < tsize.y / 2) { // force hit against planet surface
+        if (b * b - 4.0 * c_ground >= 0.0) {
+				len = (-b - sqrt(b * b - 4.0 * c_ground)) / 2.0;
+        } else {
+            // Doesn't actually hit planet surface. Fake it by taking closest point.
+            len = -b / 2.0;
+        }
+    } else {
+		len = (-b + sqrt(b * b - 4.0 * c_atmosphere)) / 2.0;
+    };
+
+	vec3 t = vec3(0);
+    if (len > 0.0) {
+		float step_length = len / steps;
+		vec2 x = vec2(0.0, r);
+		vec2 v = vec2(sin(theta), cos(theta)) * step_length;
+		for (int i = 0; i < steps; i++) {
+			vec2 y = x + v * (i + 0.5);
+            float height = length(y) - Rg;
+            vec3 Beta_e_R = rayleigh_Beta_e * exp(-height / rayleigh_H);
+            float Beta_e_M = mie_Beta_e * exp(-height / mie_H);
+			t = t + (Beta_e_R + vec3(Beta_e_M, Beta_e_M, Beta_e_M)) * step_length;
+		}
+	}
+
+	vec4 result = vec4(exp(-t.x), exp(-t.y), exp(-t.z), 0.0);
+	imageStore(transmittance, ivec2(gl_GlobalInvocationID.xy), result);
+}

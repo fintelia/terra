@@ -33,13 +33,13 @@ void main() {
 	vec4 r1 = view_proj_inv * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
 
-	vec2 p = rsi(r0.xyz / r0.w + vec3(ubo.camera), r, 6371000.0 + 100000.0);
-	if (p.x > p.y || p.y < 0.0) {
+	// vec2 p = rsi(r0.xyz / r0.w + vec3(ubo.camera), r, 6371000.0 + 100000.0);
+	// if (p.x > p.y || p.y < 0.0) {
 		float lat = acos(r.z)/3.141592 * 0.5 + 0.5;
 		float lon = atan(r.y, r.x) / 3.141592 * 0.5 + 0.5;
 		vec3 s = texture(sampler2D(sky, linear), vec2(lon, lat)).rgb * 0.1;
 		OutColor = vec4(s, 1);
-	} else {
-		OutColor = vec4(0, 0.3, 1, 1);
-	}
+	// } else {
+	// 	OutColor = vec4(0, 0.3, 1, 1);
+	// }
 }
