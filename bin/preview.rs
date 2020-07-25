@@ -63,7 +63,7 @@ fn main() {
             break;
         }
     }
-    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN);
+    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
