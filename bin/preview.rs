@@ -7,16 +7,16 @@ use winit::{
 };
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
-    let aspect = width as f32 / height as f32;
+    let aspect = width / height;
     let f = 1.0 / (45.0f32.to_radians() / aspect).tan();
     let near = 0.1;
 
     #[cfg_attr(rustfmt, rustfmt_skip)]
     cgmath::Matrix4::new(
-        f,           0.0,  0.0,  0.0,
-        0.0,        f * aspect,  0.0,  0.0,
-        0.0,        0.0,  0.0,  -1.0,
-        0.0,        0.0,  near,  0.0)
+        f/aspect,  0.0,  0.0,   0.0,
+        0.0,       f,    0.0,   0.0,
+        0.0,       0.0,  0.0,  -1.0,
+        0.0,       0.0,  near,  0.0)
 }
 
 fn make_swapchain(
@@ -88,7 +88,7 @@ fn main() {
     )).unwrap();
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
     let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
-    let proj = compute_projection_matrix(size.width as f32, size.height as f32);
+    let mut proj = compute_projection_matrix(size.width as f32, size.height as f32);
 
     let planet_radius = 6371000.0;
     let mut angle = 0.0f64;
@@ -131,6 +131,7 @@ fn main() {
                     size = new_size;
                     swap_chain = make_swapchain(&device, &surface, size.width, size.height);
                     depth_buffer = make_depth_buffer(&device, size.width, size.height);
+                    proj = compute_projection_matrix(size.width as f32, size.height as f32);
                 }
                 _ => {}
             },
