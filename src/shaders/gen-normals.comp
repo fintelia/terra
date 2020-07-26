@@ -55,7 +55,9 @@ void main() {
 	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
 
 	if (ubo.parent_slot >= 0) {
-		albedo_roughness = imageLoad(albedo, ivec3(ubo.parent_origin + out_pos/2, ubo.parent_slot));
+		vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
+		ivec2 offset = clamp(ivec2(round(nv)), ivec2(-1), ivec2(1));
+		albedo_roughness = imageLoad(albedo, ivec3(ubo.parent_origin + (out_pos+offset)/2, ubo.parent_slot));
 	}
 
 	if (ubo.normals_slot >= 0)

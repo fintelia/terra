@@ -163,7 +163,7 @@ impl Terrain {
             device,
             rshader::ShaderSet::compute_only(
                 &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-normals.comp"),
+                rshader::shader_source!("shaders", "version", "hash", "gen-normals.comp"),
             )
             .unwrap(),
         );
