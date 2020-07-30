@@ -3,9 +3,9 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
-	dvec4 cspace_origin;
-	dvec4 cspace_dx;
-	dvec4 cspace_dy;
+	vec4 cspace_origin;
+	vec4 cspace_dx;
+	vec4 cspace_dy;
 	ivec2 heightmaps_origin;
 	ivec2 parent_origin;
 	int heightmaps_slot;
@@ -27,7 +27,7 @@ void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
-	dvec3 cspace_pos = ubo.cspace_origin.xyz
+	vec3 cspace_pos = ubo.cspace_origin.xyz
 		+ gl_GlobalInvocationID.x * ubo.cspace_dx.xyz
 		+ gl_GlobalInvocationID.y * ubo.cspace_dy.xyz;
 

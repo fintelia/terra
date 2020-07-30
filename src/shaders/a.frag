@@ -4,8 +4,8 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;

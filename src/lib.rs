@@ -40,8 +40,8 @@ pub use generate::MapFileBuilder;
 #[derive(Copy, Clone)]
 struct UniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f64>,
-    padding: f64,
+    camera: mint::Point3<f32>,
+    padding: f32,
 }
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
@@ -50,8 +50,8 @@ unsafe impl bytemuck::Zeroable for UniformBlock {}
 #[derive(Copy, Clone)]
 struct SkyUniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f64>,
-    padding: f64,
+    camera: mint::Point3<f32>,
+    padding: f32,
 }
 unsafe impl bytemuck::Pod for SkyUniformBlock {}
 unsafe impl bytemuck::Zeroable for SkyUniformBlock {}
@@ -496,17 +496,17 @@ impl Terrain {
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,
                     ],
-                    cspace_origin: [cspace_origin.x, cspace_origin.y, cspace_origin.z, 0.0],
+                    cspace_origin: [cspace_origin.x as f32, cspace_origin.y as f32, cspace_origin.z as f32, 0.0],
                     cspace_dx: [
-                        cspace_origin_dx.x - cspace_origin.x,
-                        cspace_origin_dx.y - cspace_origin.y,
-                        cspace_origin_dx.z - cspace_origin.z,
+                        (cspace_origin_dx.x - cspace_origin.x) as f32,
+                        (cspace_origin_dx.y - cspace_origin.y) as f32,
+                        (cspace_origin_dx.z - cspace_origin.z) as f32,
                         0.0,
                     ],
                     cspace_dy: [
-                        cspace_origin_dy.x - cspace_origin.x,
-                        cspace_origin_dy.y - cspace_origin.y,
-                        cspace_origin_dy.z - cspace_origin.z,
+                        (cspace_origin_dy.x - cspace_origin.x) as f32,
+                        (cspace_origin_dy.y - cspace_origin.y) as f32,
+                        (cspace_origin_dy.z - cspace_origin.z) as f32,
                         0.0,
                     ],
                     spacing,
@@ -660,7 +660,7 @@ impl Terrain {
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
         bytemuck::cast_slice_mut(&mut *buffer_view)[0] =
-            UniformBlock { view_proj, camera, padding: 0.0 };
+            UniformBlock { view_proj, camera: mint::Point3 {x: camera.x as f32, y: camera.y as f32, z: camera.z as f32}, padding: 0.0 };
 
         drop(buffer_view);
         buffer.unmap();

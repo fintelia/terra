@@ -20,8 +20,8 @@ layout(location = 7, component=1) in float min_distance;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 5) uniform texture2DArray displacements;
@@ -39,29 +39,29 @@ layout(location = 9) out float out_elevation;
 layout(location = 10) out float out_face;
 layout(location = 11) out float out_level_resolution;
 
-const double planetRadius = 6371000.0;
+const float planetRadius = 6371000.0;
 
 struct Positions {
-	dvec2 face; // Range of [-1, 1] along a cube face
-	dvec3 cube; // Ranges between [-1, 1] for all 3 axis's
-	dvec3 sphere; // Position on a unit sphere
+	vec2 face; // Range of [-1, 1] along a cube face
+	vec3 cube; // Ranges between [-1, 1] for all 3 axis's
+	vec3 sphere; // Position on a unit sphere
 	vec3 world; // In world space
 };
 
-dvec3 cube_position(vec2 iPosition) {
-	dvec2 facePosition = 2.0 * (dvec2(iPosition) + dvec2(in_position)) / double(level_resolution);
-	dvec3 cubePosition = dvec3(0);
-	if(face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
-	else if(face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
-	else if(face == 2) cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
-	else if(face == 3) cubePosition = dvec3(-facePosition.x, -1.0, facePosition.y);
-	else if(face == 4) cubePosition = dvec3(facePosition.x, -facePosition.y, 1.0);
-    else if(face == 5) cubePosition = dvec3(-facePosition.x, -facePosition.y, -1.0);
+vec3 cube_position(vec2 iPosition) {
+	vec2 facePosition = 2.0 * (vec2(iPosition) + vec2(in_position)) / float(level_resolution);
+	vec3 cubePosition = vec3(0);
+	if(face == 0) cubePosition = vec3(1.0, facePosition.x, -facePosition.y);
+	else if(face == 1) cubePosition = vec3(-1.0, -facePosition.x, -facePosition.y);
+	else if(face == 2) cubePosition = vec3(facePosition.x, 1.0, facePosition.y);
+	else if(face == 3) cubePosition = vec3(-facePosition.x, -1.0, facePosition.y);
+	else if(face == 4) cubePosition = vec3(facePosition.x, -facePosition.y, 1.0);
+    else if(face == 5) cubePosition = vec3(-facePosition.x, -facePosition.y, -1.0);
 	return cubePosition;
 }
 
 vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, out vec3 bitangent) {
-	dvec3 spherePosition = normalize(cube_position(iPosition));
+	vec3 spherePosition = normalize(cube_position(iPosition));
 
 	normal = vec3(spherePosition);
 	tangent = vec3(1,0,0); // TODO
@@ -72,7 +72,7 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 
 float compute_morph(vec2 iPosition) {
 	return 0;
-	dvec3 cubePosition = cube_position(iPosition);
+	vec3 cubePosition = cube_position(iPosition);
 
 	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
 	float r = max(max(abs(camera.x), abs(camera.y)), abs(camera.z));
