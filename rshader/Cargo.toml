@@ -10,7 +10,7 @@ categories = ["game-engines", "rendering"]
 edition = "2018"
 
 [dependencies]
-anyhow = "1.0.31"
+anyhow = "1.0.32"
 notify = "4.0.15"
 shaderc = "0.6.2"
 spirq = "0.4.1"
