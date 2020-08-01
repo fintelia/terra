@@ -41,7 +41,11 @@ pub struct MapFile {
 }
 impl MapFile {
     pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
-        let db = sled::open(TERRA_DIRECTORY.join("tiles/meta")).unwrap();
+        let directory = TERRA_DIRECTORY.join("tiles/meta");
+        let db = sled::open(&directory).expect(&format!(
+            "Failed to open/create sled database. Deleting the '{}' directory may fix this",
+            directory.display()
+        ));
         Self { layers, db }
     }
 
