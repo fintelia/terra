@@ -1,8 +1,6 @@
 use crate::cache::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
-use crate::terrain::tile_cache::{
-    LayerParams, LayerType, TextureDescriptor, TextureFormat,
-};
+use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TextureFormat};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -55,20 +53,15 @@ impl MapFile {
     }
     pub(crate) fn read_tile(&self, layer: LayerType, node: VNode) -> Option<Vec<u8>> {
         let filename = Self::tile_name(layer, node);
+        if !filename.exists() {
+            return None;
+        }
         match layer {
-            LayerType::Albedo => {
-                if !filename.exists() {
-                    return None;
-                }
-                let image = image::open(filename).ok()?;
-                Some(image.to_rgba().into_vec())
-            }
-            LayerType::Heightmaps | LayerType::Normals | LayerType::Displacements => {
-                if !filename.exists() {
-                    return None;
-                }
-                fs::read(filename).ok()
-            }
+            LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba().into_vec()),
+            LayerType::Heightmaps
+            | LayerType::Normals
+            | LayerType::Displacements
+            | LayerType::Roughness => fs::read(filename).ok(),
         }
     }
     pub(crate) fn write_tile(
@@ -88,7 +81,10 @@ impl MapFile {
                 image::ColorType::Rgba8,
                 image::ImageFormat::Bmp,
             )?,
-            LayerType::Heightmaps | LayerType::Normals | LayerType::Displacements => {
+            LayerType::Heightmaps
+            | LayerType::Normals
+            | LayerType::Displacements
+            | LayerType::Roughness => {
                 fs::write(filename, data)?;
             }
         }
@@ -211,6 +207,7 @@ impl MapFile {
         let (layer, ext) = match layer {
             LayerType::Displacements => ("displacements", "raw"),
             LayerType::Albedo => ("albedo", "bmp"),
+            LayerType::Roughness => ("roughness", "raw"),
             LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
         };

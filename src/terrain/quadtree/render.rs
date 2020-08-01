@@ -7,6 +7,7 @@ use std::mem;
 pub(crate) struct NodeState {
     displacements_desc: [[f32; 4]; 2],
     albedo_desc: [[f32; 4]; 2],
+    roughness_desc: [[f32; 4]; 2],
     normals_desc: [[f32; 4]; 2],
     resolution: u32,
     level_resolution: u32,
@@ -106,6 +107,15 @@ impl QuadTree {
                 texture_ratio,
                 texture_step,
             );
+            let roughness_desc = Self::find_descs(
+                node,
+                &tile_cache,
+                LayerType::Roughness,
+                Vector2::new(texture_origin, texture_origin),
+                Vector2::new(0.0, 0.0),
+                texture_ratio,
+                texture_step,
+            );
             let normals_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -127,6 +137,7 @@ impl QuadTree {
                 min_distance: node.min_distance() as f32,
                 displacements_desc,
                 albedo_desc,
+                roughness_desc,
                 normals_desc,
                 resolution,
                 level_resolution,
@@ -159,6 +170,15 @@ impl QuadTree {
                         texture_ratio,
                         texture_step,
                     );
+                    let roughness_desc = Self::find_descs(
+                        node,
+                        &tile_cache,
+                        LayerType::Roughness,
+                        Vector2::new(texture_origin, texture_origin),
+                        base_origin,
+                        texture_ratio,
+                        texture_step,
+                    );
                     let normals_desc = Self::find_descs(
                         node,
                         &tile_cache,
@@ -181,8 +201,9 @@ impl QuadTree {
                         // side_length: node.side_length() * 0.5,
                         min_distance: node.min_distance() as f32,
                         displacements_desc,
-                        normals_desc,
                         albedo_desc,
+                        roughness_desc,
+                        normals_desc,
                         resolution: resolution / 2,
                         level_resolution,
                         face: node.face() as u32,

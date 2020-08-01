@@ -13,8 +13,8 @@ use crate::terrain::raster::RasterCache;
 use crate::terrain::tile_cache::{
     LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat,
 };
-use byteorder::{LittleEndian, WriteBytesExt};
 use anyhow::Error;
+use byteorder::{LittleEndian, WriteBytesExt};
 use maplit::hashmap;
 // use rand;
 // use rand::distributions::Distribution;
@@ -99,6 +99,12 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::RGBA8,
                 },
+            LayerType::Roughness.index() => LayerParams {
+                    layer_type: LayerType::Roughness,
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: TextureFormat::R8,
+                },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
                     texture_resolution: 516,
@@ -118,23 +124,32 @@ impl MapFileBuilder {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
             n.level() < 5
         });
+        VNode::breadth_first(|n| {
+            mapfile.reload_tile_state(LayerType::Roughness, n, true).unwrap();
+            false
+        });
 
         let mut context = AssetLoadContextBuf::new();
-        let mut context = context.context("Generating mapfile...", 4);
+        let mut context = context.context("Generating mapfile...", 5);
         generate_heightmaps(&mut mapfile, &mut context)?;
         context.set_progress(1);
-        generate_colormaps(&mut mapfile, &mut context)?;
+        generate_albedo(&mut mapfile, &mut context)?;
         context.set_progress(2);
-        generate_noise(&mut mapfile)?;
+        generate_roughness(&mut mapfile, &mut context)?;
         context.set_progress(3);
-
-        let sky = WebTextureAsset {
-            url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
-            filename: "eso0932a.tif".to_owned(),
-        }.load(&mut context)?;
-        mapfile.write_texture("sky", sky.0, &sky.1)?;
-
+        generate_noise(&mut mapfile)?;
         context.set_progress(4);
+
+        if !mapfile.reload_texture("sky") {
+            let sky = WebTextureAsset {
+                url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
+                filename: "eso0932a.tif".to_owned(),
+            }
+            .load(&mut context)?;
+            mapfile.write_texture("sky", sky.0, &sky.1)?;
+        }
+
+        context.set_progress(5);
         Ok(mapfile)
     }
 }
@@ -174,7 +189,7 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
     Ok(())
 }
 
-fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
+fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
     let missing = mapfile.get_missing_base(LayerType::Albedo)?;
     if missing.is_empty() {
         return Ok(());
@@ -214,19 +229,12 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
                     let [r, g, b] =
                         bluemarble_cache.nearest3(context, lat, long).unwrap_or([255.0, 0.0, 0.0]);
 
-                    let roughness = (0.7 * 255.0) as u8;
-                    [
-                        SRGB_TO_LINEAR[r as u8],
-                        SRGB_TO_LINEAR[g as u8],
-                        SRGB_TO_LINEAR[b as u8],
-                        roughness,
-                    ]
+                    [SRGB_TO_LINEAR[r as u8], SRGB_TO_LINEAR[g as u8], SRGB_TO_LINEAR[b as u8], 255]
                 } else {
                     let r = bluemarble.interpolate(lat, long, 0) as u8;
                     let g = bluemarble.interpolate(lat, long, 1) as u8;
                     let b = bluemarble.interpolate(lat, long, 2) as u8;
-                    let roughness = (0.7 * 255.0) as u8;
-                    [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], roughness]
+                    [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], 255]
                 };
 
                 colormap.extend_from_slice(&color);
@@ -234,6 +242,27 @@ fn generate_colormaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
         }
 
         mapfile.write_tile(LayerType::Albedo, n, &colormap, true)?;
+    }
+
+    Ok(())
+}
+
+fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
+    let missing = mapfile.get_missing_base(LayerType::Roughness)?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let layer = mapfile.layers()[LayerType::Roughness].clone();
+    assert!(layer.texture_border_size >= 2);
+
+    let context = &mut context.increment_level("Generating roughness... ", missing.len());
+    for (i, n) in missing.into_iter().enumerate() {
+        context.set_progress(i as u64);
+
+        let data =
+            vec![179u8; layer.texture_resolution as usize * layer.texture_resolution as usize];
+        mapfile.write_tile(LayerType::Roughness, n, &data, true)?;
     }
 
     Ok(())

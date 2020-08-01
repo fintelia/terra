@@ -8,15 +8,19 @@ layout(location = 2, component=0) in vec3 albedo_origin;
 layout(location = 2, component=3) in float albedo_step;
 layout(location = 3, component=0) in vec3 palbedo_origin;
 layout(location = 3, component=3) in float palbedo_step;
-layout(location = 4, component=0) in vec3 normals_origin;
-layout(location = 4, component=3) in float normals_step;
-layout(location = 5, component=0) in vec3 pnormals_origin;
-layout(location = 5, component=3) in float pnormals_step;
-layout(location = 6, component=0) in uint resolution;
-layout(location = 6, component=1) in uint level_resolution;
-layout(location = 6, component=2) in ivec2 in_position;
-layout(location = 7, component=0) in uint face;
-layout(location = 7, component=1) in float min_distance;
+layout(location = 4, component=0) in vec3 roughness_origin;
+layout(location = 4, component=3) in float roughness_step;
+layout(location = 5, component=0) in vec3 proughness_origin;
+layout(location = 5, component=3) in float proughness_step;
+layout(location = 6, component=0) in vec3 normals_origin;
+layout(location = 6, component=3) in float normals_step;
+layout(location = 7, component=0) in vec3 pnormals_origin;
+layout(location = 7, component=3) in float pnormals_step;
+layout(location = 8, component=0) in uint resolution;
+layout(location = 8, component=1) in uint level_resolution;
+layout(location = 8, component=2) in ivec2 in_position;
+layout(location = 9, component=0) in uint face;
+layout(location = 9, component=1) in float min_distance;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
@@ -24,20 +28,22 @@ layout(set = 0, binding = 0) uniform UniformBlock {
 	double padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 5) uniform texture2DArray displacements;
+layout(set = 0, binding = 6) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
 layout(location = 1) out vec3 out_albedo_texcoord;
 layout(location = 2) out vec3 out_palbedo_texcoord;
-layout(location = 3) out vec3 out_normals_texcoord;
-layout(location = 4) out vec3 out_pnormals_texcoord;
-layout(location = 5) out float out_morph;
-layout(location = 6) out vec2 out_i_position;
-layout(location = 7) out float out_resolution;
-layout(location = 8) out float out_min_distance;
-layout(location = 9) out float out_elevation;
-layout(location = 10) out float out_face;
-layout(location = 11) out float out_level_resolution;
+layout(location = 3) out vec3 out_roughness_texcoord;
+layout(location = 4) out vec3 out_proughness_texcoord;
+layout(location = 5) out vec3 out_normals_texcoord;
+layout(location = 6) out vec3 out_pnormals_texcoord;
+layout(location = 7) out float out_morph;
+layout(location = 8) out vec2 out_i_position;
+layout(location = 9) out float out_resolution;
+layout(location = 10) out float out_min_distance;
+layout(location = 11) out float out_elevation;
+layout(location = 12) out float out_face;
+layout(location = 13) out float out_level_resolution;
 
 const double planetRadius = 6371000.0;
 
@@ -113,6 +119,8 @@ void main() {
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);
 	out_palbedo_texcoord = palbedo_origin + vec3(nPosition * palbedo_step, 0);
+	out_roughness_texcoord = roughness_origin + vec3(nPosition * roughness_step, 0);
+	out_proughness_texcoord = proughness_origin + vec3(nPosition * proughness_step, 0);
 	out_normals_texcoord = normals_origin + vec3(nPosition * normals_step, 0);
 	out_pnormals_texcoord = pnormals_origin + vec3(nPosition * pnormals_step, 0);
 	out_morph = morph;

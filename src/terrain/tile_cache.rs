@@ -66,8 +66,9 @@ impl Ord for Priority {
 pub(crate) enum LayerType {
     Displacements = 0,
     Albedo = 1,
-    Normals = 2,
-    Heightmaps = 3,
+    Roughness = 2,
+    Normals = 3,
+    Heightmaps = 4,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -77,8 +78,9 @@ impl LayerType {
         match i {
             0 => LayerType::Displacements,
             1 => LayerType::Albedo,
-            2 => LayerType::Normals,
-            3 => LayerType::Heightmaps,
+            2 => LayerType::Roughness,
+            3 => LayerType::Normals,
+            4 => LayerType::Heightmaps,
             _ => unreachable!(),
         }
     }

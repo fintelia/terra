@@ -62,8 +62,9 @@ impl GpuState {
                             "noise" => noise,
                             "sky" => sky,
                             "displacements" => &tile_cache_views[LayerType::Displacements],
-                            "normals" => &tile_cache_views[LayerType::Normals],
                             "albedo" => &tile_cache_views[LayerType::Albedo],
+                            "roughness" => &tile_cache_views[LayerType::Roughness],
+                            "normals" => &tile_cache_views[LayerType::Normals],
                             "heightmaps" => &tile_cache_views[LayerType::Heightmaps],
                             _ => unreachable!("unrecognized image: {}", name),
                         })

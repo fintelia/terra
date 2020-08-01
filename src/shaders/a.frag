@@ -11,19 +11,22 @@ layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2DArray heights;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
 layout(set = 0, binding = 4) uniform texture2DArray albedo;
+layout(set = 0, binding = 5) uniform texture2DArray roughness;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 albedo_texcoord;
 layout(location = 2) in vec3 albedo_parent_texcoord;
-layout(location = 3) in vec3 normals_texcoord;
-layout(location = 4) in vec3 normals_parent_texcoord;
-layout(location = 5) in float morph;
-layout(location = 6) in vec2 i_position;
-layout(location = 7) in float resolution;
-layout(location = 8) in float min_distance;
-layout(location = 9) in float elevation;
-layout(location = 10) in float face;
-layout(location = 11) in float level_resolution;
+layout(location = 3) in vec3 roughness_texcoord;
+layout(location = 4) in vec3 roughness_parent_texcoord;
+layout(location = 5) in vec3 normals_texcoord;
+layout(location = 6) in vec3 normals_parent_texcoord;
+layout(location = 7) in float morph;
+layout(location = 8) in vec2 i_position;
+layout(location = 9) in float resolution;
+layout(location = 10) in float min_distance;
+layout(location = 11) in float elevation;
+layout(location = 12) in float face;
+layout(location = 13) in float level_resolution;
 
 layout(location = 0) out vec4 out_color;
 
@@ -157,11 +160,16 @@ void main() {
 		normal = mix(pn, normal, morph);
 	}
 
-	vec4 albedo_roughness = texture(sampler2DArray(albedo, linear), albedo_texcoord);
+	vec3 albedo_value = texture(sampler2DArray(albedo, linear), albedo_texcoord).rgb;
 	if (albedo_parent_texcoord.z >= 0) {
-		albedo_roughness = mix(texture(sampler2DArray(albedo, linear), albedo_parent_texcoord),
-							   albedo_roughness,
-							   morph);
+		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), albedo_parent_texcoord).rgb;
+		albedo_value = mix(parent_albedo, albedo_value, morph);
+	}
+
+	float roughness_value = texture(sampler2DArray(roughness, linear), roughness_texcoord).r;
+	if (roughness_parent_texcoord.z >= 0) {
+		float parent_roughness = texture(sampler2DArray(roughness, linear), roughness_parent_texcoord).r;
+		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 
 	// if (length(position.xz-ubo.camera.xz) < 5000 && position.y < 50) {
@@ -173,8 +181,8 @@ void main() {
 	// 	albedo_roughness.a = 0.7;
 
 	out_color = vec4(1);
-	out_color.rgb = pbr(albedo_roughness.rgb,
-						albedo_roughness.a,
+	out_color.rgb = pbr(albedo_value,
+						roughness_value,
 						position,
 						normal,
 						vec3(ubo.camera.xyz),
