@@ -100,18 +100,18 @@ impl Terrain {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: std::mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("terrain.uniforms"),
+            label: Some("terrain.uniforms".into()),
             mapped_at_creation: false,
         });
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
-            label: Some("terrain.vertex_buffer"),
+            label: Some("terrain.vertex_buffer".into()),
             mapped_at_creation: false,
         });
         let (index_buffer, index_buffer_partial) = {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("generate_index_buffers"),
+                label: Some("generate_index_buffers".into()),
             });
             let r = quadtree.create_index_buffers(device, &mut encoder);
             queue.submit(Some(encoder.finish()));
@@ -120,7 +120,7 @@ impl Terrain {
 
         let (noise, sky) = {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("load_textures"),
+                label: Some("load_textures".into()),
             });
             let noise = mapfile.read_texture(device, &mut encoder, "noise")?;
             let sky = mapfile.read_texture(device, &mut encoder, "sky")?;
@@ -139,7 +139,7 @@ impl Terrain {
         let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: std::mem::size_of::<SkyUniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("sky.uniforms"),
+            label: Some("sky.uniforms".into()),
             mapped_at_creation: false,
         });
 
@@ -270,8 +270,8 @@ impl Terrain {
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: vec![&bind_group_layout].into(),
+                    push_constant_ranges: vec![].into(),
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -279,30 +279,28 @@ impl Terrain {
                     layout: &render_pipeline_layout,
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.vertex(),
+                            self.shader.vertex().into(),
                         )),
-                        entry_point: "main",
+                        entry_point: "main".into(),
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.fragment(),
+                            self.shader.fragment().into(),
                         )),
-                        entry_point: "main",
+                        entry_point: "main".into(),
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                         front_face: wgpu::FrontFace::Ccw,
                         cull_mode: wgpu::CullMode::Front,
-                        depth_bias: 0,
-                        depth_bias_slope_scale: 0.0,
-                        depth_bias_clamp: 0.0,
+                        ..Default::default()
                     }),
                     primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: &[wgpu::ColorStateDescriptor {
+                    color_states: [wgpu::ColorStateDescriptor {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }],
+                    }][..].into(),
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
@@ -314,11 +312,11 @@ impl Terrain {
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
                         index_format: wgpu::IndexFormat::Uint16,
-                        vertex_buffers: &[wgpu::VertexBufferDescriptor {
+                        vertex_buffers: [wgpu::VertexBufferDescriptor {
                             stride: std::mem::size_of::<NodeState>() as u64,
                             step_mode: wgpu::InputStepMode::Instance,
-                            attributes: self.shader.input_attributes(),
-                        }],
+                            attributes: self.shader.input_attributes().into(),
+                        }][..].into(),
                     },
                     sample_count: 1,
                     sample_mask: !0,
@@ -338,8 +336,8 @@ impl Terrain {
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
+                    bind_group_layouts: [&bind_group_layout][..].into(),
+                    push_constant_ranges: vec![].into(),
                 });
             self.sky_bindgroup_pipeline = Some((
                 bind_group,
@@ -347,24 +345,24 @@ impl Terrain {
                     layout: &render_pipeline_layout,
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.sky_shader.vertex(),
+                            self.sky_shader.vertex().into(),
                         )),
-                        entry_point: "main",
+                        entry_point: "main".into(),
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.sky_shader.fragment(),
+                            self.sky_shader.fragment().into(),
                         )),
-                        entry_point: "main",
+                        entry_point: "main".into(),
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor::default()),
                     primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: &[wgpu::ColorStateDescriptor {
+                    color_states: [wgpu::ColorStateDescriptor {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }],
+                    }][..].into(),
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: false,
@@ -376,7 +374,7 @@ impl Terrain {
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
                         index_format: wgpu::IndexFormat::Uint16,
-                        vertex_buffers: &[],
+                        vertex_buffers: vec![].into(),
                     },
                     sample_count: 1,
                     sample_mask: !0,
@@ -539,7 +537,7 @@ impl Terrain {
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                    label: Some("download_tiles.normals"),
+                    label: Some("download_tiles.normals".into()),
                     mapped_at_creation: false,
                 });
                 encoder.copy_texture_to_buffer(
@@ -616,7 +614,7 @@ impl Terrain {
                 let download = device.create_buffer(&wgpu::BufferDescriptor {
                     size,
                     usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                    label: Some("download_tiles.displacements"),
+                    label: Some("download_tiles.displacements".into()),
                     mapped_at_creation: false,
                 });
                 encoder.copy_texture_to_buffer(
@@ -655,7 +653,7 @@ impl Terrain {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-            label: Some("terrain_uniforms_upload"),
+            label: Some("terrain_uniforms_upload".into()),
             mapped_at_creation: true,
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
@@ -681,14 +679,14 @@ impl Terrain {
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                color_attachments: [wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 }),
                         store: true,
                     },
-                }],
+                }][..].into(),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
                     depth_ops: Some(wgpu::Operations {
@@ -711,11 +709,11 @@ impl Terrain {
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                color_attachments: [wgpu::RenderPassColorAttachmentDescriptor {
                     attachment: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: true },
-                }],
+                }][..].into(),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: true }),

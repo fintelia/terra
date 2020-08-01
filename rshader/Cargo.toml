@@ -14,7 +14,7 @@ anyhow = "1.0.31"
 notify = "4.0.15"
 shaderc = "0.6.2"
 spirq = "0.4.1"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "32de700ef908029cc5f8ac3b0befd7439f5bd7bd" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "8ac6145ce6b987a29df4d4f2f75fd6262ca67651" }
 
 [features]
 default = []

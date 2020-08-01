@@ -88,21 +88,31 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 bind_group,
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                     layout: &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        bind_group_layouts: &[&bind_group_layout],
-                        push_constant_ranges: &[],
+                        bind_group_layouts: [&bind_group_layout][..].into(),
+                        push_constant_ranges: vec![].into(),
                     }),
                     compute_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.compute(),
+                            self.shader.compute().into(),
                         )),
-                        entry_point: "main",
+                        entry_point: "main".into(),
                     },
                 }),
             ));
         }
 
         let staging = device
-            .create_buffer_with_data(bytemuck::bytes_of(uniforms), wgpu::BufferUsage::COPY_SRC);
+            .create_buffer(&wgpu::BufferDescriptor {
+                size: mem::size_of::<U>() as u64,
+                usage: wgpu::BufferUsage::COPY_SRC,
+                label: None,
+                mapped_at_creation: true,
+            });
+        let mut buffer_view = staging.slice(..).get_mapped_range_mut();
+        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = *uniforms;
+        drop(buffer_view);
+        staging.unmap();
+
         encoder.copy_buffer_to_buffer(&staging, 0, &self.uniforms, 0, mem::size_of::<U>() as u64);
 
         let mut cpass = encoder.begin_compute_pass();

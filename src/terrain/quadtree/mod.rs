@@ -47,7 +47,15 @@ impl QuadTree {
         encoder: &mut wgpu::CommandEncoder,
     ) -> (wgpu::Buffer, wgpu::Buffer) {
         let mut make_index_buffer = |resolution: u16| -> wgpu::Buffer {
-            let mut data = vec![0u16; 6 * (resolution as usize + 1) * (resolution as usize + 1)];
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                size: 12 * (resolution as u64 + 1) * (resolution as u64 + 1),
+                usage: wgpu::BufferUsage::INDEX,
+                label: None,
+                mapped_at_creation: true,
+            });
+            let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
+            let data: &mut [u16] = bytemuck::cast_slice_mut(&mut buffer_view);
+
             let mut i = 0;
             let width = resolution + 1;
             for y in 0..resolution {
@@ -58,7 +66,10 @@ impl QuadTree {
                     }
                 }
             }
-            device.create_buffer_with_data(bytemuck::cast_slice(&data), wgpu::BufferUsage::INDEX)
+
+            drop(buffer_view);
+            buffer.unmap();
+            buffer
         };
         let resolution = self.heights_resolution as u16;
 

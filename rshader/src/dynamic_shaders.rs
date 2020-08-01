@@ -184,7 +184,7 @@ impl ShaderSet {
     }
 
     pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
-        wgpu::BindGroupLayoutDescriptor { entries: &self.layout_descriptor[..], label: None }
+        wgpu::BindGroupLayoutDescriptor { entries: self.layout_descriptor[..].into(), label: None }
     }
     pub fn desc_names(&self) -> &[Option<String>] {
         &self.desc_names[..]

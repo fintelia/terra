@@ -21,7 +21,7 @@ impl GpuState {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            label: Some("linear"),
+            label: Some("linear".into()),
             ..Default::default()
         });
         let linear_wrap = &device.create_sampler(&wgpu::SamplerDescriptor {
@@ -31,7 +31,7 @@ impl GpuState {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Nearest,
-            label: Some("linear_wrap"),
+            label: Some("linear_wrap".into()),
             ..Default::default()
         });
 
@@ -79,7 +79,7 @@ impl GpuState {
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: &*bindings,
+            entries: bindings.into(),
             label: None,
         });
 

@@ -150,7 +150,7 @@ fn main() {
             },
             event::Event::MainEventsCleared => {
                 let frame = &swap_chain
-                    .get_next_frame()
+                    .get_current_frame()
                     .unwrap().output.view;
 
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
