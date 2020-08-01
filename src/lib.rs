@@ -24,8 +24,8 @@ use crate::mapfile::TileState;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
-use cgmath::Vector2;
 use anyhow::Error;
+use cgmath::Vector2;
 use futures::executor;
 use gpu_state::GpuState;
 use std::mem;
@@ -127,8 +127,38 @@ impl Terrain {
             queue.submit(Some(encoder.finish()));
             (noise, sky)
         };
+        let bc4_staging = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
+            format: wgpu::TextureFormat::Rg32Uint,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            usage: wgpu::TextureUsage::COPY_SRC
+                | wgpu::TextureUsage::COPY_DST
+                | wgpu::TextureUsage::STORAGE
+                | wgpu::TextureUsage::SAMPLED,
+            label: None,
+        });
+        let bc5_staging = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
+            format: wgpu::TextureFormat::Rgba32Uint,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            usage: wgpu::TextureUsage::COPY_SRC
+                | wgpu::TextureUsage::COPY_DST
+                | wgpu::TextureUsage::STORAGE
+                | wgpu::TextureUsage::SAMPLED,
+            label: None,
+        });
 
-        let gpu_state = GpuState { noise, sky, tile_cache: tile_cache.make_cache_textures(device) };
+        let gpu_state = GpuState {
+            noise,
+            sky,
+            bc4_staging,
+            bc5_staging,
+            tile_cache: tile_cache.make_cache_textures(device),
+        };
 
         let sky_shader = rshader::ShaderSet::simple(
             &mut watcher,
@@ -230,7 +260,8 @@ impl Terrain {
             device.poll(wgpu::Maintain::Wait);
 
             if executor::block_on(future).is_ok() {
-                let mut tile_data = vec![0; resolution_blocks * resolution_blocks * bytes_per_block];
+                let mut tile_data =
+                    vec![0; resolution_blocks * resolution_blocks * bytes_per_block];
                 let buffer_data = &*buffer_slice.get_mapped_range();
                 for row in 0..resolution_blocks {
                     tile_data[row * row_bytes..][..row_bytes]
@@ -301,7 +332,8 @@ impl Terrain {
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }][..].into(),
+                    }][..]
+                        .into(),
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
@@ -317,7 +349,8 @@ impl Terrain {
                             stride: std::mem::size_of::<NodeState>() as u64,
                             step_mode: wgpu::InputStepMode::Instance,
                             attributes: self.shader.input_attributes().into(),
-                        }][..].into(),
+                        }][..]
+                            .into(),
                     },
                     sample_count: 1,
                     sample_mask: !0,
@@ -363,7 +396,8 @@ impl Terrain {
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }][..].into(),
+                    }][..]
+                        .into(),
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: false,
@@ -489,7 +523,7 @@ impl Terrain {
                 device,
                 &mut encoder,
                 &self.gpu_state,
-                ((normals_resolution + 7) / 8, (normals_resolution + 7) / 8, 1),
+                ((normals_resolution + 3) / 4, (normals_resolution + 3) / 4, 1),
                 &GenNormalsUniforms {
                     heightmaps_origin: [
                         (heightmaps_border - normals_border) as i32,
@@ -532,6 +566,53 @@ impl Terrain {
             if albedo_slot >= 0 {
                 self.tile_cache.set_slot_valid(albedo_slot as usize, LayerType::Albedo);
             }
+
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                size: 1024 * 1024 * 4, // TODO
+                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: false,
+                label: None,
+            });
+            encoder.copy_texture_to_buffer(
+                wgpu::TextureCopyView {
+                    texture: &self.gpu_state.bc5_staging,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::default(),
+                },
+                wgpu::BufferCopyView {
+                    buffer: &buffer,
+                    layout: wgpu::TextureDataLayout {
+                        bytes_per_row: 4096,
+                        rows_per_image: normals_resolution as u32 / 4,
+                        offset: 0,
+                    },
+                },
+                wgpu::Extent3d {
+                    width: normals_resolution as u32 / 4,
+                    height: normals_resolution as u32 / 4,
+                    depth: 1,
+                },
+            );
+            encoder.copy_buffer_to_texture(
+                wgpu::BufferCopyView {
+                    buffer: &buffer,
+                    layout: wgpu::TextureDataLayout {
+                        bytes_per_row: 4096,
+                        rows_per_image: normals_resolution as u32,
+                        offset: 0,
+                    },
+                },
+                wgpu::TextureCopyView {
+                    texture: &self.gpu_state.tile_cache[LayerType::Normals],
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: normals_slot as u32 },
+                },
+                wgpu::Extent3d {
+                    width: normals_resolution as u32,
+                    height: normals_resolution as u32,
+                    depth: 1,
+                },
+            );
 
             if let TileState::Missing = self.mapfile.tile_state(LayerType::Normals, node).unwrap() {
                 let size = normals_resolution as u64 * normals_row_pitch as u64;
@@ -687,7 +768,8 @@ impl Terrain {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 }),
                         store: true,
                     },
-                }][..].into(),
+                }][..]
+                    .into(),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
                     depth_ops: Some(wgpu::Operations {
@@ -714,7 +796,8 @@ impl Terrain {
                     attachment: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: true },
-                }][..].into(),
+                }][..]
+                    .into(),
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
                     attachment: depth_buffer,
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: true }),

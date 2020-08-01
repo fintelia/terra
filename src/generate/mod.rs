@@ -109,7 +109,7 @@ impl MapFileBuilder {
                     layer_type: LayerType::Normals,
                     texture_resolution: 516,
                     texture_border_size: 2,
-                    texture_format: TextureFormat::RG8,
+                    texture_format: TextureFormat::BC5,
                 },
         ]
         .into_iter()

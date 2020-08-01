@@ -6,6 +6,9 @@ pub(crate) struct GpuState {
     pub sky: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
+
+    pub bc4_staging: wgpu::Texture,
+    pub bc5_staging: wgpu::Texture,
 }
 impl GpuState {
     pub(crate) fn bind_group_for_shader(
@@ -37,6 +40,8 @@ impl GpuState {
 
         let noise = &self.noise.create_default_view();
         let sky = &self.sky.create_default_view();
+        let bc4_staging = &self.bc4_staging.create_default_view();
+        let bc5_staging = &self.bc5_staging.create_default_view();
         let tile_cache_views: VecMap<_> =
             self.tile_cache.iter().map(|(i, tex)| (i, tex.create_default_view())).collect();
 
@@ -66,6 +71,8 @@ impl GpuState {
                             "roughness" => &tile_cache_views[LayerType::Roughness],
                             "normals" => &tile_cache_views[LayerType::Normals],
                             "heightmaps" => &tile_cache_views[LayerType::Heightmaps],
+                            "bc4_staging" => &bc4_staging,
+                            "bc5_staging" => &bc5_staging,
                             _ => unreachable!("unrecognized image: {}", name),
                         })
                     }

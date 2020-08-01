@@ -1,6 +1,6 @@
 #line 2
 
-layout(local_size_x = 8, local_size_y = 8) in;
+layout(local_size_x = 4, local_size_y = 4) in;
 
 layout(binding = 0) uniform UniformBlock {
 	dvec4 cspace_origin;
@@ -17,11 +17,13 @@ layout(binding = 0) uniform UniformBlock {
 } ubo;
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
-layout(rg8, binding = 2) uniform image2DArray normals;
+layout(rg32ui, binding = 2) uniform uimage2D bc5_staging;
 layout(rgba8, binding = 3) uniform image2DArray albedo;
 
 layout(set = 0, binding = 4) uniform texture2D noise;
 layout(set = 0, binding = 5) uniform sampler linear_wrap;
+
+shared vec2 group_normals[16];
 
 void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
@@ -60,8 +62,53 @@ void main() {
 		albedo_roughness = imageLoad(albedo, ivec3(ubo.parent_origin + (out_pos+offset)/2, ubo.parent_slot));
 	}
 
-	if (ubo.normals_slot >= 0)
-		imageStore(normals, ivec3(out_pos, ubo.normals_slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
+	// if (ubo.normals_slot >= 0)
+	// 	imageStore(normals, ivec3(out_pos, ubo.normals_slot), vec4(normal.x*0.5+0.5, normal.z*0.5+0.5,0.0, 0.0));
 	if (ubo.albedo_slot >= 0)
 		imageStore(albedo, ivec3(out_pos, ubo.albedo_slot), albedo_roughness);
+
+	if (gl_LocalInvocationID == uvec3(0)) {
+		for (int i = 0; i < 16; i++)
+			group_normals[i] = vec2(0);
+	}
+
+	group_normals[gl_LocalInvocationID.x + 4*gl_LocalInvocationID.y] =
+		vec2(normal.x*0.5+0.5, normal.z*0.5+0.5);
+	memoryBarrierShared();
+	if (gl_LocalInvocationID == uvec3(0)) {
+		vec2 nmin = group_normals[0];
+		vec2 nmax = group_normals[0];
+		for (int i = 1; i < 16; i++) {
+			nmin = min(nmin, group_normals[i]);
+			nmax = max(nmax, group_normals[i]);
+		}
+
+		nmin = clamp(nmin, vec2(0), vec2(250.0/255.0));
+		nmax = clamp(nmax, vec2(nmin+2.0/255.0), vec2(1));
+
+		uvec2 weights[16];
+		uint permute[8] = uint[](1, 7, 6, 5, 4, 3, 2, 0);
+		for (int i = 0; i < 16; i++) {
+			weights[i] = uvec2(7.0 * (group_normals[i] - nmin) / (nmax - nmin));
+			weights[i] = uvec2(permute[weights[i].x], permute[weights[i].y]);
+		}
+
+		uvec2 qnmin = uvec2(nmin * 255.0);
+		uvec2 qnmax = uvec2(nmax * 255.0);
+
+		uvec4 bc5_output = uvec4(0);
+		bc5_output.xz = qnmax | qnmin << 8
+			| weights[0] << 16 | weights[1] << 19 | weights[2] << 22
+			| weights[3] << 25 | weights[4] << 28 | (weights[5]&1) << 31;
+		bc5_output.yw = ((weights[5]&6) >> 1) | weights[6] << 2 | weights[7] << 5 | weights[8] << 8
+			| weights[9] << 11 | weights[10] << 14 | weights[11] << 17 | weights[12] << 20
+			| weights[13] << 23 | weights[14] << 26 | weights[15] << 29;
+
+		if (qnmin.x >= qnmax.x)
+			bc5_output.xy = uvec2(qnmin.x, 0);
+		if (qnmin.y >= qnmax.y)
+			bc5_output.zw = uvec2(qnmin.y, 0);
+
+		imageStore(bc5_staging, ivec2(gl_WorkGroupID.xy), bc5_output);
+	}
 }
