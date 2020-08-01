@@ -217,11 +217,12 @@ impl Terrain {
         camera: mint::Point3<f64>,
     ) {
         for (layer, node, buffer) in self.pending_tiles.drain(..) {
-            let resolution = self.tile_cache.resolution(layer) as usize;
-            let bytes_per_texel = self.tile_cache.bytes_per_texel(layer);
+            let resolution_blocks = self.tile_cache.resolution_blocks(layer) as usize;
+            let bytes_per_block = self.tile_cache.bytes_per_block(layer);
             let row_pitch = self.tile_cache.row_pitch(layer);
-            let row_bytes = resolution * bytes_per_texel;
-            let size = row_pitch * resolution;
+
+            let row_bytes = resolution_blocks * bytes_per_block;
+            let size = row_pitch * resolution_blocks;
 
             let buffer_slice = buffer.slice(..size as u64);
             let future = buffer_slice.map_async(wgpu::MapMode::Read);
@@ -229,9 +230,9 @@ impl Terrain {
             device.poll(wgpu::Maintain::Wait);
 
             if executor::block_on(future).is_ok() {
-                let mut tile_data = vec![0; resolution * resolution * bytes_per_texel];
+                let mut tile_data = vec![0; resolution_blocks * resolution_blocks * bytes_per_block];
                 let buffer_data = &*buffer_slice.get_mapped_range();
-                for row in 0..resolution {
+                for row in 0..resolution_blocks {
                     tile_data[row * row_bytes..][..row_bytes]
                         .copy_from_slice(&buffer_data[row * row_pitch..][..row_bytes]);
                 }
@@ -551,7 +552,7 @@ impl Terrain {
                         layout: wgpu::TextureDataLayout {
                             offset: 0,
                             bytes_per_row: normals_row_pitch as u32,
-                            rows_per_image: normals_resolution as u32,
+                            rows_per_image: 0,
                         },
                     },
                     wgpu::Extent3d {
@@ -628,7 +629,7 @@ impl Terrain {
                         layout: wgpu::TextureDataLayout {
                             offset: 0,
                             bytes_per_row: displacements_row_pitch as u32,
-                            rows_per_image: displacements_resolution as u32,
+                            rows_per_image: 0,
                         },
                     },
                     wgpu::Extent3d {

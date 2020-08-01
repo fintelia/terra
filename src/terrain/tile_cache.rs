@@ -15,9 +15,13 @@ pub enum TextureFormat {
     RG32F,
     RGBA32F,
     SRGBA,
+    BC4,
+    BC5,
 }
 impl TextureFormat {
-    pub fn bytes_per_texel(&self) -> usize {
+    /// Returns the number of bytes in a single texel of the format. Actually reports bytes per
+    /// block for compressed formats.
+    pub fn bytes_per_block(&self) -> usize {
         match *self {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
@@ -26,6 +30,8 @@ impl TextureFormat {
             TextureFormat::RG32F => 8,
             TextureFormat::RGBA32F => 16,
             TextureFormat::SRGBA => 4,
+            TextureFormat::BC4 => 8,
+            TextureFormat::BC5 => 16,
         }
     }
     pub fn to_wgpu(&self) -> wgpu::TextureFormat {
@@ -37,6 +43,20 @@ impl TextureFormat {
             TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
             TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
             TextureFormat::SRGBA => wgpu::TextureFormat::Rgba8UnormSrgb,
+            TextureFormat::BC4 => wgpu::TextureFormat::Bc4RUnorm,
+            TextureFormat::BC5 => wgpu::TextureFormat::Bc5RgUnorm,
+        }
+    }
+    pub fn block_size(&self) -> u32 {
+        match *self {
+            TextureFormat::BC4 | TextureFormat::BC5 => 4,
+            TextureFormat::R8
+            | TextureFormat::RG8
+            | TextureFormat::RGBA8
+            | TextureFormat::R32F
+            | TextureFormat::RG32F
+            | TextureFormat::RGBA32F
+            | TextureFormat::SRGBA => 1,
         }
     }
 }
@@ -280,13 +300,14 @@ impl TileCache {
         }
 
         let resolution = self.resolution(ty) as usize;
-        let bytes_per_texel = self.layers[ty].texture_format.bytes_per_texel();
-        let row_bytes = resolution * bytes_per_texel;
+        let resolution_blocks = self.resolution_blocks(ty) as usize;
+        let bytes_per_block = self.layers[ty].texture_format.bytes_per_block();
+        let row_bytes = resolution_blocks * bytes_per_block;
         let row_pitch = (row_bytes + 255) & !255;
         let tiles = pending_uploads.len();
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (row_pitch * resolution * tiles) as u64,
+            size: (row_pitch * resolution_blocks * tiles) as u64,
             usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
             label: None,
             mapped_at_creation: true,
@@ -296,7 +317,7 @@ impl TileCache {
         let mut i = 0;
         for upload in &pending_uploads {
             let data = mapfile.read_tile(ty, upload.1).unwrap();
-            for row in 0..resolution {
+            for row in 0..resolution_blocks {
                 buffer_view[i..][..row_bytes]
                     .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
                 i += row_pitch;
@@ -310,9 +331,9 @@ impl TileCache {
                 wgpu::BufferCopyView {
                     buffer: &buffer,
                     layout: wgpu::TextureDataLayout {
-                        offset: (index * row_pitch * resolution) as u64,
+                        offset: (index * row_pitch * resolution_blocks) as u64,
                         bytes_per_row: row_pitch as u32,
-                        rows_per_image: resolution as u32,
+                        rows_per_image: 0,
                     },
                 },
                 wgpu::TextureCopyView {
@@ -386,11 +407,17 @@ impl TileCache {
     pub fn resolution(&self, ty: LayerType) -> u32 {
         self.layers[ty].texture_resolution
     }
-    pub fn bytes_per_texel(&self, ty: LayerType) -> usize {
-        self.layers[ty].texture_format.bytes_per_texel()
+    pub fn resolution_blocks(&self, ty: LayerType) -> u32 {
+        let resolution = self.layers[ty].texture_resolution ;
+        let block_size = self.layers[ty].texture_format.block_size();
+        assert_eq!(resolution % block_size, 0);
+        resolution / block_size
+    }
+    pub fn bytes_per_block(&self, ty: LayerType) -> usize {
+        self.layers[ty].texture_format.bytes_per_block()
     }
     pub fn row_pitch(&self, ty: LayerType) -> usize {
-        let row_bytes = self.resolution(ty) as usize * self.bytes_per_texel(ty);
+        let row_bytes = self.resolution_blocks(ty) as usize * self.bytes_per_block(ty);
         let row_pitch = (row_bytes + 255) & !255;
         row_pitch
     }

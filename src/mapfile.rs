@@ -121,10 +121,13 @@ impl MapFile {
         });
 
         let (width, height) = (desc.width as usize, desc.height as usize);
-        let bytes_per_texel = desc.format.bytes_per_texel();
-        let row_bytes = width * bytes_per_texel;
+        assert_eq!(width % desc.format.block_size() as usize, 0);
+        assert_eq!(height % desc.format.block_size() as usize, 0);
+        let (width, height) =
+            (width / desc.format.block_size() as usize, height / desc.format.block_size() as usize);
+
+        let row_bytes = width * desc.format.bytes_per_block();
         let row_pitch = (row_bytes + 255) & !255;
-        // let data = &self.file[desc.offset..][..desc.bytes];
 
         let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
         let image = image::open(filename)?;
@@ -151,7 +154,7 @@ impl MapFile {
                 layout: wgpu::TextureDataLayout {
                     offset: 0,
                     bytes_per_row: row_pitch as u32,
-                    rows_per_image: height as u32,
+                    rows_per_image: 0,
                 },
             },
             wgpu::TextureCopyView {

@@ -103,7 +103,7 @@ impl MapFileBuilder {
                     layer_type: LayerType::Roughness,
                     texture_resolution: 516,
                     texture_border_size: 2,
-                    texture_format: TextureFormat::R8,
+                    texture_format: TextureFormat::BC4,
                 },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
@@ -255,13 +255,20 @@ fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
 
     let layer = mapfile.layers()[LayerType::Roughness].clone();
     assert!(layer.texture_border_size >= 2);
+    assert_eq!(layer.texture_resolution % 4, 0);
 
     let context = &mut context.increment_level("Generating roughness... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
 
-        let data =
-            vec![179u8; layer.texture_resolution as usize * layer.texture_resolution as usize];
+        let mut data =
+            Vec::with_capacity(layer.texture_resolution as usize * layer.texture_resolution as usize / 2);
+        for y in 0..(layer.texture_resolution / 4) {
+            for x in 0..(layer.texture_resolution / 4) {
+                data.extend_from_slice(&[179, 180, 0, 0, 0, 0, 0, 0]);
+            }
+        }
+
         mapfile.write_tile(LayerType::Roughness, n, &data, true)?;
     }
 

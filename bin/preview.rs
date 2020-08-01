@@ -63,22 +63,22 @@ fn main() {
             break;
         }
     }
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN | wgpu::BackendBit::DX12);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: Some(&surface),
         }))
-        .unwrap();
+        .expect("Unable to create compatible wgpu adapter");
     let (device, mut queue) = futures::executor::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
-            features: wgpu::Features::empty(),
+            features: wgpu::Features::TEXTURE_COMPRESSION_BC,
             limits: wgpu::Limits::default(),
             shader_validation: true,
         },
         None,
-    )).unwrap();
+    )).expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
