@@ -13,10 +13,8 @@ pub(crate) struct NodeState {
     level_resolution: u32,
     position: [i32; 2],
     face: u32,
-    _padding0: [u32; 3],
-
     min_distance: f32,
-    _padding1: [f32; 3 + 7*4],
+    _padding: [u32; 5*4+6],
     // side_length: f32,
     // padding0: f32,
     // padding1: u32,
@@ -89,6 +87,7 @@ impl QuadTree {
 
         self.node_states.clear();
         for &node in self.visible_nodes.iter() {
+            assert!(node.min_distance() as f32 != 0.0);
             let displacements_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -127,8 +126,7 @@ impl QuadTree {
             );
             let level_resolution = resolution << node.level();
             self.node_states.push(NodeState {
-                _padding0: [0; 3],
-                _padding1: [0.0; 31],
+                _padding: [0; 26],
                 position: [
                     (node.x() * resolution) as i32 - level_resolution as i32 / 2,
                     (node.y() * resolution) as i32 - level_resolution as i32 / 2,
@@ -142,12 +140,11 @@ impl QuadTree {
                 resolution,
                 level_resolution,
                 face: node.face() as u32,
-                // padding0: 0.0,
-                // padding1: 0,
             });
         }
         for &(node, mask) in self.partially_visible_nodes.iter() {
             assert!(mask < 15);
+            assert!(node.min_distance() as f32 != 0.0);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
                     let offset = ((i % 2) as f32, (i / 2) as f32);
@@ -190,8 +187,7 @@ impl QuadTree {
                     );
                     let level_resolution = resolution << node.level();
                     self.node_states.push(NodeState {
-                        _padding0: [0; 3],
-                        _padding1: [0.0; 31],
+                        _padding: [0; 26],
                         position: [
                             (node.x() * resolution) as i32 - level_resolution as i32 / 2
                                 + offset.0 as i32 * resolution as i32 / 2,
@@ -207,8 +203,6 @@ impl QuadTree {
                         resolution: resolution / 2,
                         level_resolution,
                         face: node.face() as u32,
-                        // padding0: 0.0,
-                        // padding1: 0,
                     });
                 }
             }
@@ -223,6 +217,8 @@ impl QuadTree {
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
         let slice = bytemuck::cast_slice_mut(&mut *buffer_view);
         slice.copy_from_slice(&self.node_states[..]);
+
+        assert_eq!(mem::size_of::<NodeState>(), 256);
 
         drop(buffer_view);
         buffer.unmap();

@@ -42,28 +42,28 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,1), 0.3);
 
-	vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
-	vec2 tc = normals_texcoord.xy;//;
-	float ml = mipmap_level(tc * ts);
+	// vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
+	// vec2 tc = normals_texcoord.xy;//;
+	// float ml = mipmap_level(tc * ts);
 
 	// vec3 pc = normalize((position+vec3(0,6371000.0,0)) / (position.y+6371000.0));
 	// vec3 cc = normalize((ubo.camera.xyz+vec3(0,6371000.0,0)) / (ubo.camera.y+6371000.0));
 	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
 	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
 
-	vec3 level_color = vec3(0);
-	if(level_resolution <= 256) level_color = vec3(1,0,0);
-	else if(level_resolution <= 512) level_color = vec3(1,1,0);
-	else if(level_resolution <= 1024) level_color = vec3(0,1,0);
-	else if(level_resolution <= 2048) level_color = vec3(0,1,1);
-	else if(level_resolution <= 4096) level_color = vec3(0,0,1);
-	else if(level_resolution <= 8192) level_color = vec3(1,1,1);
+	// vec3 level_color = vec3(0);
+	// if(level_resolution <= 256) level_color = vec3(1,0,0);
+	// else if(level_resolution <= 512) level_color = vec3(1,1,0);
+	// else if(level_resolution <= 1024) level_color = vec3(0,1,0);
+	// else if(level_resolution <= 2048) level_color = vec3(0,1,1);
+	// else if(level_resolution <= 4096) level_color = vec3(0,0,1);
+	// else if(level_resolution <= 8192) level_color = vec3(1,1,1);
 
-	vec2 ip = vec2(1) - abs(vec2(1) - 2*tc);
-	if(ip.x < 0.05 || ip.y < 0.05)
-		color.rgb = mix(color.rgb, level_color, 0.8);
-	else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
-		color.rgb = mix(color.rgb, level_color, 0.2);
+	// vec2 ip = vec2(1) - abs(vec2(1) - 2*tc);
+	// if(ip.x < 0.05 || ip.y < 0.05)
+	// 	color.rgb = mix(color.rgb, level_color, 0.4);
+	// else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
+	// 	color.rgb = mix(color.rgb, level_color, 0.2);
 
 	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
 	// vec3 overlay_color = vec3(0);

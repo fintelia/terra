@@ -3,7 +3,8 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TextureFormat};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 use vec_map::VecMap;
 
@@ -62,10 +63,30 @@ impl MapFile {
         }
         match layer {
             LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba().into_vec()),
-            LayerType::Heightmaps
-            | LayerType::Normals
-            | LayerType::Displacements
-            | LayerType::Roughness => fs::read(filename).ok(),
+            LayerType::Heightmaps => {
+                let mut data = Vec::new();
+                snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
+                    .read_to_end(&mut data)
+                    .ok()?;
+
+                let mut qdata = vec![0i16; data.len() / 2];
+                bytemuck::cast_slice_mut(&mut qdata).copy_from_slice(&data);
+
+                let mut prev = 0;
+                let mut fdata = vec![0f32; qdata.len()];
+                for (f, q) in fdata.iter_mut().zip(qdata.iter()) {
+                    let x = (*q).wrapping_add(prev);
+                    *f = x as f32;
+                    prev = x;
+                }
+
+                data.clear();
+                data.extend_from_slice(bytemuck::cast_slice(&fdata));
+                Some(data)
+            }
+            LayerType::Normals | LayerType::Displacements | LayerType::Roughness => {
+                fs::read(filename).ok()
+            }
         }
     }
     pub(crate) fn write_tile(
@@ -85,10 +106,21 @@ impl MapFile {
                 image::ColorType::Rgba8,
                 image::ImageFormat::Bmp,
             )?,
-            LayerType::Heightmaps
-            | LayerType::Normals
-            | LayerType::Displacements
-            | LayerType::Roughness => {
+            LayerType::Heightmaps => {
+                let data: &[f32] = bytemuck::cast_slice(data);
+                let mut qdata = vec![0i16; data.len()];
+
+                let mut prev = 0;
+                for (q, d) in qdata.iter_mut().zip(data.iter()) {
+                    let x = ((*d as i16) / 4) * 4;
+                    *q = x.wrapping_sub(prev);
+                    prev = x;
+                }
+
+                snap::write::FrameEncoder::new(BufWriter::new(File::create(filename)?))
+                    .write_all(bytemuck::cast_slice(&qdata))?;
+            }
+            LayerType::Normals | LayerType::Displacements | LayerType::Roughness => {
                 fs::write(filename, data)?;
             }
         }
@@ -216,7 +248,7 @@ impl MapFile {
             LayerType::Albedo => ("albedo", "bmp"),
             LayerType::Roughness => ("roughness", "raw"),
             LayerType::Normals => ("normals", "raw"),
-            LayerType::Heightmaps => ("heightmaps", "raw"),
+            LayerType::Heightmaps => ("heightmaps", "raw.sz"),
         };
         TERRA_DIRECTORY.join(&format!(
             "tiles/{}_{}_{}_{}x{}.{}",

@@ -279,9 +279,12 @@ impl WebAsset for GlobalDem {
         let mut file = zip.by_index(0)?;
         ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
 
-        context.reset("Decompressing ETOPO1_Ice_c_geotiff.tif...", 100);
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)?;
+        context.reset("Decompressing ETOPO1_Ice_c_geotiff.tif...", file.size());
+        let mut contents = vec![0; file.size() as usize];
+        for (i, chunk) in contents.chunks_mut(4096).enumerate() {
+            file.read_exact(chunk)?;
+            context.set_progress(i * 4096);
+        }
 
         context.reset("Decoding ETOPO1_Ice_c_geotiff.tif...", 100);
         let mut tiff_decoder = tiff::decoder::Decoder::new(Cursor::new(contents))?;

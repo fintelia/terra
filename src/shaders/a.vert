@@ -20,7 +20,7 @@ layout(location = 8, component=0) in uint resolution;
 layout(location = 8, component=1) in uint level_resolution;
 layout(location = 8, component=2) in ivec2 in_position;
 layout(location = 9, component=0) in uint face;
-layout(location = 9, component=1) in float min_distance;
+layout(location = 10, component=0) in float min_distance;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
@@ -77,12 +77,14 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 }
 
 float compute_morph(vec2 iPosition) {
-	return 0;
 	dvec3 cubePosition = cube_position(iPosition);
 
 	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
 	float r = max(max(abs(camera.x), abs(camera.y)), abs(camera.z));
 	camera = camera / r;
+
+	if (min_distance == 0)
+		return 0;
 
 	float morph = 1 - smoothstep(0.9, 1, float(distance(cubePosition, camera)) / min_distance);
 	// morph = min(morph * 20000, 1);
@@ -114,7 +116,7 @@ void main() {
 	}
 
 	vec3 position = compute_local_position(nPosition, tangent, normal, bitangent);
-	// position += mat3(tangent, normal, bitangent) * offset;
+	position += mat3(tangent, normal, bitangent) * offset;
 
 	out_position = position;
 	out_albedo_texcoord = albedo_origin + vec3(nPosition * albedo_step, 0);

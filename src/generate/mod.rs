@@ -118,7 +118,7 @@ impl MapFileBuilder {
         let mut mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < 3
+            n.level() < 4
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
@@ -170,7 +170,7 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
         let mut heightmap = Vec::new();
         for y in 0..layer.texture_resolution {
             for x in 0..layer.texture_resolution {
-                let cspace = n.cell_position_cspace(
+                let cspace = n.grid_position_cspace(
                     x as i32,
                     y as i32,
                     layer.texture_border_size as u16,
@@ -263,8 +263,8 @@ fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
 
         let mut data =
             Vec::with_capacity(layer.texture_resolution as usize * layer.texture_resolution as usize / 2);
-        for y in 0..(layer.texture_resolution / 4) {
-            for x in 0..(layer.texture_resolution / 4) {
+        for _ in 0..(layer.texture_resolution / 4) {
+            for _ in 0..(layer.texture_resolution / 4) {
                 data.extend_from_slice(&[179, 180, 0, 0, 0, 0, 0, 0]);
             }
         }

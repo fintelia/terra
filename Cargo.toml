@@ -65,6 +65,7 @@ xdg = "2.2.0"
 zerocopy = "0.3.0"
 zip = "0.5.6"
 thiserror = "1.0.20"
+snap = "1.0.1"
 
 [profile]
 [profile.dev]
