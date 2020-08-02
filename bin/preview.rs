@@ -32,7 +32,7 @@ fn make_swapchain(
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             width,
             height,
-            present_mode: wgpu::PresentMode::Mailbox,
+            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
         },
     )
 }
@@ -78,7 +78,8 @@ fn main() {
             shader_validation: true,
         },
         None,
-    )).expect("Unable to create compatible wgpu device");
+    ))
+    .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
@@ -123,20 +124,20 @@ fn main() {
                     event::VirtualKeyCode::Space => altitude += 0.1 * altitude,
                     event::VirtualKeyCode::Semicolon => altitude -= 0.1 * altitude,
                     event::VirtualKeyCode::Left => {
-                        lat += -angle.sin() * -0.01;
-                        long += angle.cos() * -0.01;
+                        lat += -angle.sin() * -(0.0000001 * altitude).min(0.01);
+                        long += angle.cos() * -(0.0000001 * altitude).min(0.01);
                     }
                     event::VirtualKeyCode::Right => {
-                        lat += -angle.sin() * 0.01;
-                        long += angle.cos() * 0.01;
+                        lat += -angle.sin() * (0.0000001 * altitude).min(0.01);
+                        long += angle.cos() * (0.0000001 * altitude).min(0.01);
                     }
                     event::VirtualKeyCode::Up => {
-                        lat += angle.cos() * 0.01;
-                        long += -angle.sin() * 0.01;
+                        lat += angle.cos() * (0.0000001 * altitude).min(0.01);
+                        long += -angle.sin() * (0.0000001 * altitude).min(0.01);
                     }
                     event::VirtualKeyCode::Down => {
-                        lat += angle.cos() * -0.01;
-                        long += -angle.sin() * -0.01;
+                        lat += angle.cos() * -(0.0000001 * altitude).min(0.01);
+                        long += -angle.sin() * -(0.0000001 * altitude).min(0.01);
                     }
                     _ => {}
                 },
@@ -149,9 +150,11 @@ fn main() {
                 _ => {}
             },
             event::Event::MainEventsCleared => {
-                let frame = &swap_chain
-                    .get_current_frame()
-                    .unwrap().output.view;
+                let frame = swap_chain.get_current_frame();
+                let frame = match frame {
+                    Ok(ref f) => &f.output.view,
+                    Err(_) => return,
+                };
 
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
