@@ -155,6 +155,7 @@ pub(crate) struct MeshDescriptor {
 pub(crate) struct TextureDescriptor {
     pub width: u32,
     pub height: u32,
+    pub depth: u32,
     pub format: TextureFormat,
     pub bytes: usize,
 }

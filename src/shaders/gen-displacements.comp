@@ -15,5 +15,5 @@ layout(rgba32f, binding = 3) uniform image2DArray displacements;
 void main() {
 	ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
 	float height = imageLoad(heightmaps, ivec3(ubo.origin + pos.xy*ubo.stride, ubo.heightmaps_slot)).x;
-	imageStore(displacements, pos, vec4(0.0, height, 0.0, 0.0));
+	imageStore(displacements, pos, vec4(0.0, max(height,0), 0.0, 0.0));
 }

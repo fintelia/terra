@@ -4,6 +4,8 @@ use vec_map::VecMap;
 pub(crate) struct GpuState {
     pub noise: wgpu::Texture,
     pub sky: wgpu::Texture,
+    pub transmittance: wgpu::Texture,
+    pub inscattering: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
 
@@ -40,6 +42,8 @@ impl GpuState {
 
         let noise = &self.noise.create_default_view();
         let sky = &self.sky.create_default_view();
+        let transmittance = &self.transmittance.create_default_view();
+        let inscattering = &self.inscattering.create_default_view();
         let bc4_staging = &self.bc4_staging.create_default_view();
         let bc5_staging = &self.bc5_staging.create_default_view();
         let tile_cache_views: VecMap<_> =
@@ -66,6 +70,8 @@ impl GpuState {
                         wgpu::BindingResource::TextureView(match name {
                             "noise" => noise,
                             "sky" => sky,
+                            "transmittance" => transmittance,
+                            "inscattering" => inscattering,
                             "displacements" => &tile_cache_views[LayerType::Displacements],
                             "albedo" => &tile_cache_views[LayerType::Albedo],
                             "roughness" => &tile_cache_views[LayerType::Roughness],

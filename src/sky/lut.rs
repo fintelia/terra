@@ -1,14 +1,11 @@
 use anyhow::Error;
-use gfx;
-use gfx::texture::{AaMode, Kind, Mipmap};
-use gfx_core::{format, handle};
-
-use cache::{AssetLoadContext, GeneratedAsset};
+use crate::cache::{AssetLoadContext, GeneratedAsset};
+use serde::{Serialize, Deserialize};
 
 pub trait LookupTableDefinition {
     fn filename(&self) -> String;
     fn size(&self) -> [u16; 3];
-    fn compute(&self, [u16; 3]) -> [f32; 4];
+    fn compute(&self, _: [u16; 3]) -> [f32; 4];
 
     fn inv_size(&self) -> [f64; 3] {
         let s = self.size();
@@ -54,7 +51,7 @@ impl<T: LookupTableDefinition> GeneratedAsset for T {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct LookupTable {
     pub size: [u16; 3],
     pub data: Vec<[f32; 4]>,
@@ -72,29 +69,29 @@ impl LookupTable {
         self.data[x + y * self.size[0] as usize]
     }
 }
-pub struct GpuLookupTable<R: gfx::Resources> {
-    pub(crate) texture_view: handle::ShaderResourceView<R, [f32; 4]>,
+// pub struct GpuLookupTable<R: gfx::Resources> {
+//     pub(crate) texture_view: handle::ShaderResourceView<R, [f32; 4]>,
 
-    #[allow(unused)]
-    pub(crate) texture: handle::Texture<R, format::R32_G32_B32_A32>,
-}
-impl<R: gfx::Resources> GpuLookupTable<R> {
-    pub fn new<F: gfx::Factory<R>>(factory: &mut F, table: &LookupTable) -> Result<Self, Error> {
-        let kind = match table.size {
-            [x, 1, 1] => Kind::D1(x),
-            [x, y, 1] => Kind::D2(x, y, AaMode::Single),
-            [x, y, z] => Kind::D3(x, y, z),
-        };
+//     #[allow(unused)]
+//     pub(crate) texture: handle::Texture<R, format::R32_G32_B32_A32>,
+// }
+// impl<R: gfx::Resources> GpuLookupTable<R> {
+//     pub fn new<F: gfx::Factory<R>>(factory: &mut F, table: &LookupTable) -> Result<Self, Error> {
+//         let kind = match table.size {
+//             [x, 1, 1] => Kind::D1(x),
+//             [x, y, 1] => Kind::D2(x, y, AaMode::Single),
+//             [x, y, z] => Kind::D3(x, y, z),
+//         };
 
-        let (texture, texture_view) = factory.create_texture_immutable::<format::Rgba32F>(
-            kind,
-            Mipmap::Provided,
-            &[gfx::memory::cast_slice(&table.data[..])],
-        )?;
+//         let (texture, texture_view) = factory.create_texture_immutable::<format::Rgba32F>(
+//             kind,
+//             Mipmap::Provided,
+//             &[gfx::memory::cast_slice(&table.data[..])],
+//         )?;
 
-        Ok(Self {
-            texture_view,
-            texture,
-        })
-    }
-}
+//         Ok(Self {
+//             texture_view,
+//             texture,
+//         })
+//     }
+// }

@@ -148,6 +148,7 @@ fn reflect(
                             ImageArrangement::Image2DArray => {
                                 wgpu::TextureViewDimension::D2Array
                             }
+                            ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
                             _ => unimplemented!(),
                         },
                         component_type: wgpu::TextureComponentType::Uint,

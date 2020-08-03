@@ -142,6 +142,12 @@ vec3 debug_overlay(vec3 color) {
 	// if(resolution == 32 && sin(gl_FragCoord.x) * sin(gl_FragCoord.y) < 0.4 )discard;
 	// if(face == 2) discard;
 
+	// if (level_resolution > 512*pow(2,4) || level_resolution == 512*pow(2,4) && morph > 0.99)
+	// 	color = mix(color, vec3(0,0,1), .4);
+
+	// if (abs(length(position) - 100000) < 100)
+	// 	color = vec3(1);
+
  	return color;
 }
 
@@ -193,5 +199,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// out_color.rgb = debug_overlay(out_color.rgb);
+	out_color.rgb = debug_overlay(out_color.rgb);
 }

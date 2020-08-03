@@ -23,7 +23,7 @@ pub enum DemSource {
     /// Use DEMs Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global data source. Data is
     /// available globally between 60° north and 56° south latitude.
     #[allow(unused)]
-    Srtm30m,
+    Srtm90m,
 }
 impl DemSource {
     pub(crate) fn url_str(&self) -> &str {
@@ -34,8 +34,8 @@ impl DemSource {
             DemSource::Usgs10m => {
                 "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/GridFloat/USGS_NED_13_"
             }
-            DemSource::Srtm30m => {
-                "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/SRTM_GL1/SRTM_GL1_srtm/"
+            DemSource::Srtm90m => {
+                "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/SRTM_GL3/SRTM_GL3_srtm/"
             }
         }
     }
@@ -43,7 +43,7 @@ impl DemSource {
         match *self {
             DemSource::Usgs30m => "dems/ned1",
             DemSource::Usgs10m => "dems/ned13",
-            DemSource::Srtm30m => "dems/srtm1",
+            DemSource::Srtm90m => "dems/srtm3",
         }
     }
     /// Returns the approximate resolution of data from this source in meters.
@@ -51,7 +51,7 @@ impl DemSource {
         match *self {
             DemSource::Usgs30m => 30,
             DemSource::Usgs10m => 10,
-            DemSource::Srtm30m => 30,
+            DemSource::Srtm90m => 90,
         }
     }
     /// Returns the size of cells from this data source in arcseconds.
@@ -59,7 +59,7 @@ impl DemSource {
         match *self {
             DemSource::Usgs30m => 1.0,
             DemSource::Usgs10m => 1.0 / 3.0,
-            DemSource::Srtm30m => 1.0,
+            DemSource::Srtm90m => 3.0,
         }
     }
 }
@@ -105,7 +105,7 @@ impl WebAsset for DigitalElevationModelParams {
                 e_or_w,
                 longitude.abs()
             ),
-            DemSource::Srtm30m => format!(
+            DemSource::Srtm90m => format!(
                 "{}{}/{}{:02}{}{:03}.hgt",
                 self.source.url_str(),
                 if latitude >= 30 {
@@ -137,7 +137,7 @@ impl WebAsset for DigitalElevationModelParams {
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => parse_ned_zip(data),
-            DemSource::Srtm30m => parse_srtm1_hgt(self.latitude, self.longitude, data),
+            DemSource::Srtm90m => parse_srtm3_hgt(self.latitude, self.longitude, data),
         }
     }
 }
@@ -229,10 +229,10 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
     })
 }
 
-/// Load a HGT file in the format for the NASA's STRM 30m dataset.
-fn parse_srtm1_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster<f32>, Error> {
-    let resolution = 3601;
-    let cell_size = 1.0 / 3600.0;
+/// Load a HGT file in the format for the NASA's STRM 90m dataset.
+fn parse_srtm3_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster<f32>, Error> {
+    let resolution = 1201;
+    let cell_size = 1.0 / 1200.0;
 
     if hgt.len() != resolution * resolution * 2 {
         Err(DemParseError)?;

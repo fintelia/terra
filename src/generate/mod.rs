@@ -118,7 +118,7 @@ impl MapFileBuilder {
         let mut mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < 4
+            n.level() < 3
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
@@ -139,17 +139,9 @@ impl MapFileBuilder {
         context.set_progress(3);
         generate_noise(&mut mapfile)?;
         context.set_progress(4);
-
-        if !mapfile.reload_texture("sky") {
-            let sky = WebTextureAsset {
-                url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
-                filename: "eso0932a.tif".to_owned(),
-            }
-            .load(&mut context)?;
-            mapfile.write_texture("sky", sky.0, &sky.1)?;
-        }
-
+        generate_sky(&mut mapfile, &mut context)?;
         context.set_progress(5);
+
         Ok(mapfile)
     }
 }
@@ -261,8 +253,9 @@ fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
 
-        let mut data =
-            Vec::with_capacity(layer.texture_resolution as usize * layer.texture_resolution as usize / 2);
+        let mut data = Vec::with_capacity(
+            layer.texture_resolution as usize * layer.texture_resolution as usize / 2,
+        );
         for _ in 0..(layer.texture_resolution / 4) {
             for _ in 0..(layer.texture_resolution / 4) {
                 data.extend_from_slice(&[179, 180, 0, 0, 0, 0, 0, 0]);
@@ -281,6 +274,7 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
             texture: TextureDescriptor {
                 width: 2048,
                 height: 2048,
+                depth: 1,
                 format: TextureFormat::RGBA8,
                 bytes: 4 * 2048 * 2048,
             },
@@ -301,6 +295,44 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
         }
 
         mapfile.write_texture("noise", noise.texture, &heights[..])?;
+    }
+    Ok(())
+}
+
+fn generate_sky(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
+    if !mapfile.reload_texture("sky") {
+        let context = &mut context.increment_level("Generating sky texture... ", 1);
+        let sky = WebTextureAsset {
+            url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
+            filename: "eso0932a.tif".to_owned(),
+        }
+        .load(context)?;
+        mapfile.write_texture("sky", sky.0, &sky.1)?;
+    }
+    if !mapfile.reload_texture("transmittance") || !mapfile.reload_texture("inscattering") {
+        let atmosphere = crate::sky::Atmosphere::new(context)?;
+        mapfile.write_texture(
+            "transmittance",
+            TextureDescriptor {
+                width: atmosphere.transmittance.size[0] as u32,
+                height: atmosphere.transmittance.size[1] as u32,
+                depth: 1,
+                format: TextureFormat::RGBA32F,
+                bytes: atmosphere.transmittance.data.len() * 4,
+            },
+            bytemuck::cast_slice(&atmosphere.transmittance.data),
+        )?;
+        mapfile.write_texture(
+            "inscattering",
+            TextureDescriptor {
+                width: atmosphere.inscattering.size[0] as u32,
+                height: atmosphere.inscattering.size[1] as u32,
+                depth: atmosphere.inscattering.size[2] as u32,
+                format: TextureFormat::RGBA32F,
+                bytes: atmosphere.inscattering.data.len() * 4,
+            },
+            bytemuck::cast_slice(&atmosphere.inscattering.data),
+        )?;
     }
     Ok(())
 }
@@ -326,6 +358,7 @@ impl WebAsset for WebTextureAsset {
                 format: TextureFormat::RGBA8,
                 width: img.width(),
                 height: img.height(),
+                depth: 1,
                 bytes: (*img).len(),
             },
             img.into_raw(),

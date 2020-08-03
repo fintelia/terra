@@ -1,8 +1,9 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
 #![feature(async_closure)]
+#![feature(is_sorted)]
+#![feature(non_ascii_idents)]
 #![feature(stmt_expr_attributes)]
 #![feature(with_options)]
-#![feature(is_sorted)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -13,6 +14,7 @@ mod coordinates;
 mod generate;
 mod gpu_state;
 mod mapfile;
+mod sky;
 mod srgb;
 mod terrain;
 mod utils;
@@ -118,15 +120,18 @@ impl Terrain {
             r
         };
 
-        let (noise, sky) = {
+        let (noise, sky, transmittance, inscattering);
+        {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("load_textures".into()),
             });
-            let noise = mapfile.read_texture(device, &mut encoder, "noise")?;
-            let sky = mapfile.read_texture(device, &mut encoder, "sky")?;
+            noise = mapfile.read_texture(device, &mut encoder, "noise")?;
+            sky = mapfile.read_texture(device, &mut encoder, "sky")?;
+            transmittance = mapfile.read_texture(device, &mut encoder, "transmittance")?;
+            inscattering = mapfile.read_texture(device, &mut encoder, "inscattering")?;
             queue.submit(Some(encoder.finish()));
-            (noise, sky)
-        };
+        }
+
         let bc4_staging = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
             format: wgpu::TextureFormat::Rg32Uint,
@@ -155,6 +160,8 @@ impl Terrain {
         let gpu_state = GpuState {
             noise,
             sky,
+            transmittance,
+            inscattering,
             bc4_staging,
             bc5_staging,
             tile_cache: tile_cache.make_cache_textures(device),
