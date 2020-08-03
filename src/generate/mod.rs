@@ -1,6 +1,6 @@
 use crate::cache::{AssetLoadContext, AssetLoadContextBuf, WebAsset};
 use crate::coordinates::CoordinateSystem;
-use crate::mapfile::MapFile;
+use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap;
@@ -11,7 +11,7 @@ use crate::terrain::raster::RasterCache;
 //     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 // };
 use crate::terrain::tile_cache::{
-    LayerParams, LayerType, NoiseParams, TextureDescriptor, TextureFormat,
+    LayerParams, LayerType, TextureFormat,
 };
 use anyhow::Error;
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -270,16 +270,15 @@ fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
 
 fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
     if !mapfile.reload_texture("noise") {
-        let noise = NoiseParams {
-            texture: TextureDescriptor {
-                width: 2048,
-                height: 2048,
-                depth: 1,
-                format: TextureFormat::RGBA8,
-                bytes: 4 * 2048 * 2048,
-            },
-            wavelength: 1.0 / 256.0,
+        // wavelength = 1.0 / 256.0;
+        let noise_desc = TextureDescriptor {
+            width: 2048,
+            height: 2048,
+            depth: 1,
+            format: TextureFormat::RGBA8,
+            bytes: 4 * 2048 * 2048,
         };
+
 
         let noise_heightmaps: Vec<_> =
             (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
@@ -294,7 +293,7 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
             }
         }
 
-        mapfile.write_texture("noise", noise.texture, &heights[..])?;
+        mapfile.write_texture("noise", noise_desc, &heights[..])?;
     }
     Ok(())
 }

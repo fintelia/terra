@@ -138,34 +138,6 @@ pub(crate) struct LayerParams {
     pub texture_format: TextureFormat,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct NoiseParams {
-    pub texture: TextureDescriptor,
-    pub wavelength: f32,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct MeshDescriptor {
-    pub offset: usize,
-    pub bytes: usize,
-    pub num_vertices: usize,
-}
-
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct TextureDescriptor {
-    pub width: u32,
-    pub height: u32,
-    pub depth: u32,
-    pub format: TextureFormat,
-    pub bytes: usize,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct TileHeader {
-    pub layers: VecMap<LayerParams>,
-    pub noise: NoiseParams,
-}
-
 struct Entry {
     priority: Priority,
     node: VNode,

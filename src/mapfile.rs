@@ -1,6 +1,6 @@
 use crate::cache::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
-use crate::terrain::tile_cache::{LayerParams, LayerType, TextureDescriptor, TextureFormat};
+use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
@@ -28,6 +28,15 @@ pub(crate) enum TileKind {
 struct TileMeta {
     crc32: u32,
     state: TileState,
+}
+
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct TextureDescriptor {
+    pub width: u32,
+    pub height: u32,
+    pub depth: u32,
+    pub format: TextureFormat,
+    pub bytes: usize,
 }
 
 pub struct MapFile {
