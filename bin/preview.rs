@@ -191,8 +191,9 @@ fn main() {
                     r * lat.sin(),
                 );
 
-                let latc = lat + angle.cos() * 0.1;
-                let longc = long - angle.sin() * 0.1;
+                let dt = (planet_radius / (planet_radius + altitude)).acos() * 0.3;
+                let latc = lat + angle.cos() *  dt;
+                let longc = long - angle.sin() * dt;
 
                 let center = cgmath::Point3::new(
                     planet_radius * latc.cos() * longc.cos() - eye.x,
