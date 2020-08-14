@@ -28,7 +28,7 @@ layout(set = 0, binding = 0) uniform UniformBlock {
 	double padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 6) uniform texture2DArray displacements;
+layout(set = 0, binding = 8) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
 layout(location = 1) out vec3 out_albedo_texcoord;
@@ -38,12 +38,17 @@ layout(location = 4) out vec3 out_proughness_texcoord;
 layout(location = 5) out vec3 out_normals_texcoord;
 layout(location = 6) out vec3 out_pnormals_texcoord;
 layout(location = 7) out float out_morph;
-layout(location = 8) out vec2 out_i_position;
-layout(location = 9) out float out_resolution;
-layout(location = 10) out float out_min_distance;
-layout(location = 11) out float out_elevation;
-layout(location = 12) out float out_face;
-layout(location = 13) out float out_level_resolution;
+layout(location = 8) out vec3 out_normal;
+layout(location = 9) out vec3 out_tangent;
+layout(location = 10) out vec3 out_bitangent;
+
+layout(location = 11) out vec2 out_i_position;
+// layout(location = 9) out float out_resolution;
+// layout(location = 10) out float out_min_distance;
+// layout(location = 11) out float out_elevation;
+// layout(location = 12) out float out_face;
+// layout(location = 13) out float out_level_resolution;
+
 
 const double planetRadius = 6371000.0;
 
@@ -68,10 +73,12 @@ dvec3 cube_position(vec2 iPosition) {
 
 vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, out vec3 bitangent) {
 	dvec3 spherePosition = normalize(cube_position(iPosition));
+	dvec3 spherePositionDx = normalize(cube_position(iPosition+vec2(0.01)));
 
 	normal = vec3(spherePosition);
-	tangent = vec3(1,0,0); // TODO
-	bitangent = vec3(0,0,1); // TODO
+	tangent = normalize(vec3(spherePositionDx - spherePosition));
+	bitangent = normalize(cross(tangent, normal));
+	tangent = normalize(cross(normal, bitangent));
 
 	return vec3(spherePosition * planetRadius - ubo.camera.xyz);
 }
@@ -126,12 +133,16 @@ void main() {
 	out_normals_texcoord = normals_origin + vec3(nPosition * normals_step, 0);
 	out_pnormals_texcoord = pnormals_origin + vec3(nPosition * pnormals_step, 0);
 	out_morph = morph;
+	out_normal = normal;
+	out_tangent = tangent;
+	out_bitangent = bitangent;
+
 	out_i_position = vec2(iPosition);
-	out_resolution = resolution;
-	out_min_distance = min_distance;
-	out_elevation = texture(sampler2DArray(displacements, linear),
-							heights_origin + vec3(nPosition * heights_step, 0)).g;
-	out_face = face;
-	out_level_resolution = level_resolution;
+	// out_resolution = resolution;
+	// out_min_distance = min_distance;
+	// out_elevation = texture(sampler2DArray(displacements, linear),
+	// 						heights_origin + vec3(nPosition * heights_step, 0)).g;
+	// out_face = face;
+	// out_level_resolution = level_resolution;
 	gl_Position = ubo.view_proj * vec4(position, 1.0);
 }

@@ -2,8 +2,8 @@ use anyhow::Error;
 use crate::cache::{AssetLoadContext, GeneratedAsset};
 use serde::{Serialize, Deserialize};
 
-pub trait LookupTableDefinition {
-    fn filename(&self) -> String;
+pub(crate) trait LookupTableDefinition {
+    fn name(&self) -> String;
     fn size(&self) -> [u16; 3];
     fn compute(&self, _: [u16; 3]) -> [f32; 4];
 
@@ -15,17 +15,11 @@ pub trait LookupTableDefinition {
             1.0 / f64::from(s[2]),
         ]
     }
-}
-impl<T: LookupTableDefinition> GeneratedAsset for T {
-    type Type = LookupTable;
 
-    fn filename(&self) -> String {
-        LookupTableDefinition::filename(self)
-    }
-    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
+    fn generate(&self, context: &mut AssetLoadContext) -> Result<LookupTable, Error> {
         let size = self.size();
         let total = size[0] as u64 * size[1] as u64 * size[2] as u64;
-        context.set_progress_and_total(0, total);
+        context.reset(&format!("Generating {}... ", &self.name()), total);
 
         let mut data = Vec::new();
         for z in 0..size[2] {
@@ -34,7 +28,7 @@ impl<T: LookupTableDefinition> GeneratedAsset for T {
                     let i = z as u64 * size[1] as u64 * size[0] as u64
                         + y as u64 * size[0] as u64
                         + x as u64;
-                    if i % 100 == 0 {
+                    if i % 1000 == 0 {
                         context.set_progress(i);
                     }
                     let value = self.compute([x, y, z]);
@@ -46,13 +40,12 @@ impl<T: LookupTableDefinition> GeneratedAsset for T {
             }
         }
         context.set_progress(total);
-
         Ok(LookupTable { size, data })
     }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct LookupTable {
+pub(crate) struct LookupTable {
     pub size: [u16; 3],
     pub data: Vec<[f32; 4]>,
 }

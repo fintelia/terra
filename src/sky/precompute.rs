@@ -9,7 +9,8 @@ use crate::sky::lut::{LookupTable, LookupTableDefinition};
 // Simulation is done at λ = (680, 550, 440) nm = (red, green, blue).
 // See https://hal.inria.fr/inria-00288758/document
 // https://media.contentapi.ea.com/content/dam/eacom/frostbite/files/s2016-pbs-frostbite-sky-clouds-new.pdf
-
+// http://publications.lib.chalmers.se/records/fulltext/203057/203057.pdf
+// https://sebh.github.io/publications/egsr2020.pdf
 const Rg: f64 = 6371000.0;
 const Rt: f64 = 6471000.0;
 
@@ -17,18 +18,14 @@ mod rayleigh {
     use super::*;
 
     // For rayleigh scattering there is no absorbsion so βe = βs.
-    pub const βe: Vector3<f64> = Vector3 {
-        x: 5.8e-6,
-        y: 13.5e-6,
-        z: 33.1e-6,
-    };
+    pub const βe: Vector3<f64> = Vector3 { x: 5.8e-6, y: 13.5e-6, z: 33.1e-6 };
     pub const βs: Vector3<f64> = βe;
     pub const H: f64 = 8000.0;
 
-    #[allow(unused)]
-    pub fn P(μ: f64) -> f64 {
-        3.0 / (16.0 * PI) * (1.0 + μ * μ)
-    }
+    // #[allow(unused)]
+    // pub fn P(μ: f64) -> f64 {
+    //     3.0 / (16.0 * PI) * (1.0 + μ * μ)
+    // }
 }
 
 mod mie {
@@ -39,11 +36,11 @@ mod mie {
     pub const H: f64 = 1200.0;
     pub const g: f64 = 0.76;
 
-    #[allow(unused)]
-    pub fn P(μ: f64) -> f64 {
-        3.0 / (8.0 * PI) * ((1.0 - g * g) * (1.0 + μ * μ))
-            / ((2.0 + g * g) * f64::powf(1.0 + g * g - 2.0 * g * μ, 1.5))
-    }
+    // #[allow(unused)]
+    // pub fn P(μ: f64) -> f64 {
+    //     3.0 / (8.0 * PI) * ((1.0 - g * g) * (1.0 + μ * μ))
+    //         / ((2.0 + g * g) * f64::powf(1.0 + g * g - 2.0 * g * μ, 1.5))
+    // }
 }
 
 fn integral<V, F>(r: f64, theta: f64, steps: u32, force_hit_planet_surface: bool, f: F) -> V
@@ -102,7 +99,8 @@ impl TransmittanceTable {
         let hp = (size[1] / 2 - 1) as f64 / (size[1] - 1) as f64;
         let μ_horizon = -f64::sqrt(r * r - Rg * Rg) / r;
         let μ = if u_μ > 0.5 {
-            let uu = (u_μ - (1.0 - hp)) / hp;
+            let uu = 1.0 + (u_μ - 1.0) / hp;
+            // eprintln!("hp={} uu={} u_horizon={}", hp, uu, μ_horizon);
             f64::powf(uu, 5.0) * (1.0 - μ_horizon) + μ_horizon
         } else {
             let uu = u_μ / hp;
@@ -139,16 +137,11 @@ impl TransmittanceTable {
     }
 }
 impl LookupTableDefinition for TransmittanceTable {
-    fn filename(&self) -> String {
-        format!(
-            "sky/transmittance.{}x{}.{:02}.bin",
-            self.size()[0],
-            self.size()[1],
-            self.steps
-        )
+    fn name(&self) -> String {
+        "transmittance table".to_owned()
     }
     fn size(&self) -> [u16; 3] {
-        [1024, 1024, 1]
+        [512, 512, 1]
     }
     fn compute(&self, [x, y, _]: [u16; 3]) -> [f32; 4] {
         let (r, v) = Self::compute_parameters(
@@ -181,12 +174,7 @@ impl LookupTableDefinition for TransmittanceTable {
         assert!(!(f64::exp(-t.y) as f32).is_nan());
         assert!(!(f64::exp(-t.z) as f32).is_nan());
 
-        [
-            f64::exp(-t.x) as f32,
-            f64::exp(-t.y) as f32,
-            f64::exp(-t.z) as f32,
-            0.0,
-        ]
+        [f64::exp(-t.x) as f32, f64::exp(-t.y) as f32, f64::exp(-t.z) as f32, 0.0]
     }
 }
 
@@ -240,24 +228,17 @@ impl<'a> InscatteringTable<'a> {
             uu * hp
         };
 
-        let u_μ_s =
-            0.5 * (f64::atan(μ_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
+        let u_μ_s = 0.5 * (f64::atan(μ_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
 
         (u_r, u_μ, u_μ_s)
     }
 }
 impl<'a> LookupTableDefinition for InscatteringTable<'a> {
-    fn filename(&self) -> String {
-        format!(
-            "sky/inscattering.{}x{}x{}.{:02}.bin",
-            self.size()[0],
-            self.size()[1],
-            self.size()[2],
-            self.steps
-        )
+    fn name(&self) -> String {
+        "inscattering table".to_owned()
     }
     fn size(&self) -> [u16; 3] {
-        [1024, 1024, 32]
+        [128, 256, 32]
     }
     fn compute(&self, [x, y, z]: [u16; 3]) -> [f32; 4] {
         let (r, μ, μ_s) = Self::compute_parameters(
@@ -279,10 +260,21 @@ impl<'a> LookupTableDefinition for InscatteringTable<'a> {
         //     Vector2::new(-f64::sqrt(1.0 - μ * μ), -μ)
         // };
         let vv = Vector2::new(f64::sqrt(1.0 - μ * μ), μ);
+        let ss = Vector2::new(f64::sqrt(1.0 - μ_s * μ_s), μ_s);
 
-        let L_sun = 1.0;
+        let L_sun = 100000.0;
         let s = integral(r, f64::acos(μ), self.steps, intersects_ground, |y| {
+            // // Check if the sun is below the horizon
+            // if y.dot(ss) < 0.0 {
+            //     return Vector4::new(0.0, 0.0, 0.0, 0.0);
+            // }
+
             let y_magnitude = y.magnitude();
+
+            if y_magnitude < Rg {
+                return Vector4::new(0.0, 0.0, 0.0, 0.0);
+            }
+
             let r = (y_magnitude).max(Rg);
             let h = r - Rg;
 
@@ -356,11 +348,8 @@ mod tests {
         let mut rng = rand::thread_rng();
         let size = [32, 256, 32];
         for _ in 0..1000 {
-            let (x, y, z) = (
-                rng.gen_range(0.0, 1.0),
-                rng.gen_range(0.0, 1.0),
-                rng.gen_range(0.0, 1.0),
-            );
+            let (x, y, z) =
+                (rng.gen_range(0.0, 1.0), rng.gen_range(0.0, 1.0), rng.gen_range(0.0, 1.0));
 
             let (r, μ, μ_s) = InscatteringTable::compute_parameters(size.clone(), x, y, z);
             let (x2, y2, z2) = InscatteringTable::reverse_parameters(size.clone(), r, μ, μ_s);

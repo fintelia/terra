@@ -12,6 +12,8 @@ layout(set = 0, binding = 2) uniform texture2DArray heights;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
 layout(set = 0, binding = 4) uniform texture2DArray albedo;
 layout(set = 0, binding = 5) uniform texture2DArray roughness;
+layout(set = 0, binding = 6) uniform texture2D transmittance;
+layout(set = 0, binding = 7) uniform texture3D inscattering;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 albedo_texcoord;
@@ -21,14 +23,27 @@ layout(location = 4) in vec3 roughness_parent_texcoord;
 layout(location = 5) in vec3 normals_texcoord;
 layout(location = 6) in vec3 normals_parent_texcoord;
 layout(location = 7) in float morph;
-layout(location = 8) in vec2 i_position;
-layout(location = 9) in float resolution;
-layout(location = 10) in float min_distance;
-layout(location = 11) in float elevation;
-layout(location = 12) in float face;
-layout(location = 13) in float level_resolution;
+layout(location = 8) in vec3 normal;
+layout(location = 9) in vec3 tangent;
+layout(location = 10) in vec3 bitangent;
+
+layout(location = 11) in vec2 i_position;
+// layout(location = 9) in float resolution;
+// layout(location = 10) in float min_distance;
+// layout(location = 11) in float elevation;
+// layout(location = 12) in float face;
+// layout(location = 13) in float level_resolution;
 
 layout(location = 0) out vec4 out_color;
+
+const float planetRadius = 6371000.0;
+const float atmosphereRadius = 6371000.0 + 100000.0;
+
+vec2 rsi(vec3 r0, vec3 rd, float sr);
+vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
+
+vec3 precomputed_aerial_perspective(vec3 color, vec3 x1, vec3 x0, vec3 sun_normalized);
+vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
 
 float mipmap_level(in vec2 texture_coordinate)
 {
@@ -159,12 +174,13 @@ vec3 extract_normal(vec2 n) {
 
 void main() {
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
-	vec3 normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
+	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
 	if (normals_parent_texcoord.z >= 0) {
 		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear),
 										 normals_parent_texcoord).xy);
-		normal = mix(pn, normal, morph);
+		tex_normal = mix(pn, tex_normal, morph);
 	}
+	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
 	vec3 albedo_value = texture(sampler2DArray(albedo, linear), albedo_texcoord).rgb;
 	if (albedo_parent_texcoord.z >= 0) {
@@ -186,18 +202,34 @@ void main() {
 	// if(albedo_roughness.a == float(int(0.35*255))/255)
 	// 	albedo_roughness.a = 0.7;
 
+	vec3 sunDirection = normalize(vec3(0.4, .7, 0.2));
+
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_value,
 						roughness_value,
 						position,
-						normal,
+						bent_normal,
 						vec3(ubo.camera.xyz),
-						vec3(-0.4, 0.7, 0.2),
+						sunDirection,
 						vec3(100000.0));
+
+	vec3 x0 = vec3(ubo.camera);
+	vec3 x1 = x0 + position;
+	vec3 r = normalize(position);
+	vec2 p = rsi(x0, r, atmosphereRadius);
+	if (p.x < p.y && p.y >= 0) {
+		x0 += r * max(p.x, 0.0);
+		out_color.rgb += atmosphere(x0, x1,	sunDirection);
+	}
+
+	// if (length(x0) > planetRadius + 200001.0)
+	// 	out_color.rgb = vec3(1,0,0);
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	out_color.rgb = debug_overlay(out_color.rgb);
+	// out_color.rgb = debug_overlay(out_color.rgb);
+	// out_color.rgb = bent_normal;
+	// out_color.rgb = vec3(.1, .3, .1);
 }

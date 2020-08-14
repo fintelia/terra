@@ -95,7 +95,7 @@ impl Terrain {
         let shader = rshader::ShaderSet::simple(
             &mut watcher,
             rshader::shader_source!("shaders", "version", "a.vert"),
-            rshader::shader_source!("shaders", "version", "pbr", "a.frag"),
+            rshader::shader_source!("shaders", "version", "pbr", "a.frag", "atmosphere"),
         )
         .unwrap();
 
@@ -170,7 +170,7 @@ impl Terrain {
         let sky_shader = rshader::ShaderSet::simple(
             &mut watcher,
             rshader::shader_source!("shaders", "version", "sky.vert"),
-            rshader::shader_source!("shaders", "version", "sky.frag"),
+            rshader::shader_source!("shaders", "version", "pbr", "sky.frag", "atmosphere"),
         )
         .unwrap();
         let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {

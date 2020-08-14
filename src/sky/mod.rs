@@ -1,5 +1,5 @@
 use crate::cache::{AssetLoadContext, GeneratedAsset};
-use crate::sky::lut::LookupTable;
+use crate::sky::lut::{LookupTable, LookupTableDefinition};
 use crate::sky::precompute::{InscatteringTable, TransmittanceTable};
 use anyhow::Error;
 
@@ -12,9 +12,9 @@ pub(crate) struct Atmosphere {
 }
 impl Atmosphere {
     pub fn new(context: &mut AssetLoadContext) -> Result<Self, Error> {
-        let transmittance = TransmittanceTable { steps: 1000 }.load(context)?;
+        let transmittance = TransmittanceTable { steps: 1000 }.generate(context)?;
         let inscattering =
-            InscatteringTable { steps: 30, transmittance: &transmittance }.load(context)?;
+            InscatteringTable { steps: 30, transmittance: &transmittance }.generate(context)?;
 
         Ok(Self { transmittance, inscattering })
     }
