@@ -48,6 +48,11 @@ with the arrow keeps, and increase/decrease your altitude via the Space and Z
 keys respectively. Joystick controls are also supported if one is detected. To
 exit, press Escape.
 
+### System Requirements
+
+* Windows or Linux operating system (Terra cannot run on MacOS because the Metal API lacks support for double precision floating point)
+* A fast internet connection
+
 # Data Sources / Credits
 
 During operation, this library downloads and merges datasets from a variety of sources. If you integrate
