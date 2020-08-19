@@ -1,13 +1,13 @@
 use std::fs::{self, File};
-use std::io::{BufWriter, Read, Stdout, Write};
-use std::path::PathBuf;
-use std::thread;
-use std::time::{Duration, Instant};
+use std::io::{BufWriter, Cursor, Read, Stdout, Write};
 use std::ops::Drop;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use std::{mem, thread};
 
+use anyhow::Error;
 use bincode;
 use dirs;
-use anyhow::Error;
 use memmap::MmapMut;
 use num::ToPrimitive;
 use pbr::{MultiBar, Pipe, ProgressBar, Units};
@@ -131,6 +131,9 @@ pub(crate) trait WebAsset {
     fn filename(&self) -> String;
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error>;
 
+    fn compressed(&self) -> bool {
+        false
+    }
     fn credentials(&self) -> Option<(String, String)> {
         None
     }
@@ -141,7 +144,13 @@ pub(crate) trait WebAsset {
         let filename = TERRA_DIRECTORY.join(self.filename());
 
         if let Ok(file) = File::open(&filename) {
-            if let Ok(data) = read_file(context, file) {
+            if let Ok(mut data) = read_file(context, file) {
+                if self.compressed() {
+                    context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
+                    let mut uncompressed = Vec::new();
+                    snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed);
+                    data = uncompressed;
+                }
                 context.reset(&format!("Parsing {}... ", &self.filename()), 100);
                 if let Ok(asset) = self.parse(context, data) {
                     return Ok(asset);
@@ -187,7 +196,11 @@ pub(crate) trait WebAsset {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(&filename)?;
-        file.write_all(&data)?;
+        if self.compressed() {
+            snap::write::FrameEncoder::new(&mut file).write_all(&data)?;
+        } else {
+            file.write_all(&data)?;
+        }
         file.sync_all()?;
         context.reset(&format!("Parsing {}... ", &self.filename()), 100);
         Ok(self.parse(context, data)?)

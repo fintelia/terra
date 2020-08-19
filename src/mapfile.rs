@@ -128,7 +128,7 @@ impl MapFile {
                     prev = x;
                 }
 
-                snap::write::FrameEncoder::new(BufWriter::new(File::create(filename)?))
+                snap::write::FrameEncoder::new(File::create(filename)?)
                     .write_all(bytemuck::cast_slice(&qdata))?;
             }
             LayerType::Normals | LayerType::Displacements | LayerType::Roughness => {

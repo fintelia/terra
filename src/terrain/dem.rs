@@ -1,6 +1,6 @@
 use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
-use anyhow::{Error, ensure};
+use anyhow::{ensure, Error};
 use std::io::{Cursor, Read};
 use std::str::FromStr;
 use thiserror::Error;
@@ -87,6 +87,12 @@ pub struct DigitalElevationModelParams {
 impl WebAsset for DigitalElevationModelParams {
     type Type = Raster<f32>;
 
+    fn compressed(&self) -> bool {
+        match self.source {
+            DemSource::Usgs30m | DemSource::Usgs10m => false,
+            DemSource::Srtm90m => true,
+        }
+    }
     fn url(&self) -> String {
         let (latitude, longitude) = match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => (self.latitude + 1, self.longitude),
@@ -125,14 +131,24 @@ impl WebAsset for DigitalElevationModelParams {
     fn filename(&self) -> String {
         let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
-        format!(
-            "{}/{}{:02}_{}{:03}.zip",
-            self.source.directory_str(),
-            n_or_s,
-            self.latitude.abs(),
-            e_or_w,
-            self.longitude.abs()
-        )
+        match self.source {
+            DemSource::Usgs30m | DemSource::Usgs10m => format!(
+                "{}/{}{:02}_{}{:03}.zip",
+                self.source.directory_str(),
+                n_or_s,
+                self.latitude.abs(),
+                e_or_w,
+                self.longitude.abs()
+            ),
+            DemSource::Srtm90m => format!(
+                "{}/{}{:02}_{}{:03}.hgt.sz",
+                self.source.directory_str(),
+                n_or_s,
+                self.latitude.abs(),
+                e_or_w,
+                self.longitude.abs()
+            ),
+        }
     }
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         match self.source {
