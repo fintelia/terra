@@ -40,14 +40,17 @@ impl GpuState {
             ..Default::default()
         });
 
-        let noise = &self.noise.create_default_view();
-        let sky = &self.sky.create_default_view();
-        let transmittance = &self.transmittance.create_default_view();
-        let inscattering = &self.inscattering.create_default_view();
-        let bc4_staging = &self.bc4_staging.create_default_view();
-        let bc5_staging = &self.bc5_staging.create_default_view();
-        let tile_cache_views: VecMap<_> =
-            self.tile_cache.iter().map(|(i, tex)| (i, tex.create_default_view())).collect();
+        let noise = &self.noise.create_view(&Default::default());
+        let sky = &self.sky.create_view(&Default::default());
+        let transmittance = &self.transmittance.create_view(&Default::default());
+        let inscattering = &self.inscattering.create_view(&Default::default());
+        let bc4_staging = &self.bc4_staging.create_view(&Default::default());
+        let bc5_staging = &self.bc5_staging.create_view(&Default::default());
+        let tile_cache_views: VecMap<_> = self
+            .tile_cache
+            .iter()
+            .map(|(i, tex)| (i, tex.create_view(&Default::default())))
+            .collect();
 
         let bind_group_layout = device.create_bind_group_layout(&shader.layout_descriptor());
         let mut bindings = Vec::new();
@@ -92,7 +95,7 @@ impl GpuState {
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
-            entries: bindings.into(),
+            entries: &*bindings,
             label: None,
         });
 

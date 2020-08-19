@@ -309,24 +309,25 @@ impl Terrain {
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    bind_group_layouts: vec![&bind_group_layout].into(),
-                    push_constant_ranges: vec![].into(),
+                    bind_group_layouts: &[&bind_group_layout],
+                    push_constant_ranges: &[],
+                    label: None,
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    layout: &render_pipeline_layout,
+                    layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
                             self.shader.vertex().into(),
                         )),
-                        entry_point: "main".into(),
+                        entry_point: "main",
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
                             self.shader.fragment().into(),
                         )),
-                        entry_point: "main".into(),
+                        entry_point: "main",
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                         front_face: wgpu::FrontFace::Ccw,
@@ -334,34 +335,30 @@ impl Terrain {
                         ..Default::default()
                     }),
                     primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: [wgpu::ColorStateDescriptor {
+                    color_states: &[wgpu::ColorStateDescriptor {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }][..]
-                        .into(),
+                    }],
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
                         depth_compare: wgpu::CompareFunction::Greater,
-                        stencil_front: Default::default(),
-                        stencil_back: Default::default(),
-                        stencil_read_mask: 0,
-                        stencil_write_mask: 0,
+                        stencil: Default::default(),
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
                         index_format: wgpu::IndexFormat::Uint16,
-                        vertex_buffers: [wgpu::VertexBufferDescriptor {
+                        vertex_buffers: &[wgpu::VertexBufferDescriptor {
                             stride: std::mem::size_of::<NodeState>() as u64,
                             step_mode: wgpu::InputStepMode::Instance,
                             attributes: self.shader.input_attributes().into(),
-                        }][..]
-                            .into(),
+                        }],
                     },
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
+                    label: None,
                 }),
             ));
         }
@@ -378,49 +375,47 @@ impl Terrain {
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: [&bind_group_layout][..].into(),
-                    push_constant_ranges: vec![].into(),
+                    push_constant_ranges: &[],
+                    label: None,
                 });
             self.sky_bindgroup_pipeline = Some((
                 bind_group,
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    layout: &render_pipeline_layout,
+                    layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
                             self.sky_shader.vertex().into(),
                         )),
-                        entry_point: "main".into(),
+                        entry_point: "main",
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
                             self.sky_shader.fragment().into(),
                         )),
-                        entry_point: "main".into(),
+                        entry_point: "main",
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor::default()),
                     primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: [wgpu::ColorStateDescriptor {
+                    color_states: &[wgpu::ColorStateDescriptor {
                         format: wgpu::TextureFormat::Bgra8UnormSrgb,
                         color_blend: wgpu::BlendDescriptor::REPLACE,
                         alpha_blend: wgpu::BlendDescriptor::REPLACE,
                         write_mask: wgpu::ColorWrite::ALL,
-                    }][..]
-                        .into(),
+                    }],
                     depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: false,
                         depth_compare: wgpu::CompareFunction::GreaterEqual,
-                        stencil_front: Default::default(),
-                        stencil_back: Default::default(),
-                        stencil_read_mask: 0,
-                        stencil_write_mask: 0,
+                        stencil: Default::default(),
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
                         index_format: wgpu::IndexFormat::Uint16,
-                        vertex_buffers: vec![].into(),
+                        vertex_buffers: &[],
                     },
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
+                    label: None,
                 }),
             ));
         }

@@ -177,7 +177,7 @@ fn reflect(
     let mut bindings = Vec::new();
     for (binding, (name, ty, visibility)) in binding_map.into_iter() {
         names.push(name);
-        bindings.push(wgpu::BindGroupLayoutEntry::new(binding, visibility, ty));
+        bindings.push(wgpu::BindGroupLayoutEntry { binding, visibility, ty, count: None });
     }
 
     Ok((attributes, names, bindings))

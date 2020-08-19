@@ -87,16 +87,18 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             self.bindgroup_pipeline = Some((
                 bind_group,
                 device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    layout: &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         bind_group_layouts: [&bind_group_layout][..].into(),
-                        push_constant_ranges: vec![].into(),
-                    }),
+                        push_constant_ranges: &[],
+                        label: None,
+                    })),
                     compute_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
                             self.shader.compute().into(),
                         )),
                         entry_point: "main".into(),
                     },
+                    label: None,
                 }),
             ));
         }

@@ -47,7 +47,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             label: None,
         })
-        .create_default_view()
+        .create_view(&Default::default())
 }
 
 fn main() {
