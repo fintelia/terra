@@ -31,22 +31,20 @@ vec2 rsi(vec3 r0, vec3 rd, float sr) {
 
 vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
 	float iSun = 100000.0;
-	vec3 kRlh = vec3(5.5e-6, 13.0e-6, 22.4e-6);
-	float kMie = 21e-6;
-	float shRlh = 8e3;
-	float shMie = 1.2e3;
-	float g = 0.758;
+	vec3 kRlh = vec3(5.8e-6, 13.5e-6, 33.1e-6);
+	float kMie = 2.0e-6;
+	float shRlh = 8000.0;
+	float shMie = 1200.0;
+	float g = 0.76;
 
 	const int iSteps = 32;
-	const int jSteps = 8;
-	
 
     // Normalize the sun and view directions.
     vec3 r = normalize(r1 - r0);
 
 	// Primary ray initialization.
     float iStepSize = distance(r0, r1) / float(iSteps);
-    float iTime = 0.0;
+    float iTime = iStepSize * 0.5;
 
     // Initialize accumulators for Rayleigh and Mie scattering.
     vec3 totalRlh = vec3(0,0,0);
@@ -56,21 +54,10 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
     float iOdRlh = 0.0;
     float iOdMie = 0.0;
 
-    // Calculate the Rayleigh and Mie phases.
-    float mu = dot(r, pSun);
-    float mumu = mu * mu;
-    float gg = g * g;
-    float pRlh = 3.0 / (16.0 * 3.141592) * (1.0 + mumu);
-    float pMie = 3.0 / (8.0 * 3.141592) * ((1.0 - gg) * (mumu + 1.0)) / (pow(1.0 + gg - 2.0 * mu * g, 1.5) * (2.0 + gg));
-
-
-	vec3 sum = vec3(0);
-
     // Sample the primary ray.
     for (int i = 0; i < iSteps; i++) {
-
         // Calculate the primary ray sample position.
-        vec3 iPos = r0 + r * (iTime + iStepSize * 0.5);
+        vec3 iPos = r0 + r * iTime;
 
         // Calculate the height of the sample.
         float iHeight = length(iPos) - planetRadius;
@@ -86,38 +73,11 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
 		// Check whether ray hits the earth
 		vec2 p = rsi(iPos, pSun, planetRadius);
 		if (p.x > p.y || p.y < 0) {
-			// Calculate the step size of the secondary ray.
-			float jStepSize = rsi(iPos, pSun, atmosphereRadius).y / float(jSteps);
-
-			// Initialize the secondary ray time.
-			float jTime = 0.0;
-
-			// Initialize optical depth accumulators for the secondary ray.
-			float jOdRlh = 0.0;
-			float jOdMie = 0.0;
-
-			// Sample the secondary ray.
-			for (int j = 0; j < jSteps; j++) {
-
-				// Calculate the secondary ray sample position.
-				vec3 jPos = iPos + pSun * (jTime + jStepSize * 0.5);
-
-				// Calculate the height of the sample.
-				float jHeight = length(jPos) - planetRadius;
-
-				// Accumulate the optical depth.
-				jOdRlh += exp(-jHeight / shRlh) * jStepSize;
-				jOdMie += exp(-jHeight / shMie) * jStepSize;
-
-				// Increment the secondary ray time.
-				jTime += jStepSize;
-			}
+			float mu = dot(pSun, normalize(iPos));
+			vec3 t = precomputed_transmittance(length(iPos), mu);
 
 			// Calculate attenuation.
-			vec3 attn = exp(-(kMie * (iOdMie + jOdMie) + kRlh * (iOdRlh + jOdRlh)));
-
-			// float mu = dot(r, normalize(iPos));
-			// sum += (vec3(1) - precomputed_transmittance(iHeight+planetRadius, mu)) * attn * 500;
+			vec3 attn = exp(-kRlh * iOdRlh) * exp(-kMie * iOdMie) * t;
 
 			// Accumulate scattering.
 			totalRlh += odStepRlh * attn;
@@ -126,12 +86,11 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
 
         // Increment the primary ray time.
         iTime += iStepSize;
-
     }
 
-	//return sum;
     // Calculate and return the final color.
-    return iSun * (pRlh * kRlh * totalRlh + pMie * kMie * totalMie);
+    float mu = dot(r, pSun);
+    return iSun * (rayleigh_phase(mu) * kRlh * totalRlh + mie_phase(mu) * kMie * totalMie);
 }
 
 void reverse_parameters(float r, float mu, float mu_s,
@@ -158,12 +117,15 @@ void reverse_parameters(float r, float mu, float mu_s,
 
 vec3 precomputed_transmittance(float r, float mu) {
 	vec2 size = textureSize(transmittance, 0);
-	float u_r = clamp((r - planetRadius) / (atmosphereRadius - planetRadius), 0, 1);
+
+	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
+	float rho = sqrt(r * r - planetRadius * planetRadius);
+	float u_r = clamp(rho / H, 0, 1);
 
 	float u_mu;
 	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
 
-	float mu_horizon = -sqrt(1.0 - (planetRadius / r) * (planetRadius / r));
+	float mu_horizon = -sqrt(r * r - planetRadius * planetRadius) / r;
 	if (mu > mu_horizon) {
 		float uu = pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
 		u_mu = uu * hp + (1.0 - hp);

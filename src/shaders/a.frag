@@ -44,6 +44,7 @@ vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
 
 vec3 precomputed_aerial_perspective(vec3 color, vec3 x1, vec3 x0, vec3 sun_normalized);
 vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
+vec3 precomputed_transmittance2(vec3 x, vec3 y);
 
 float mipmap_level(in vec2 texture_coordinate)
 {
@@ -219,17 +220,13 @@ void main() {
 	vec2 p = rsi(x0, r, atmosphereRadius);
 	if (p.x < p.y && p.y >= 0) {
 		x0 += r * max(p.x, 0.0);
+		out_color.rgb *= precomputed_transmittance2(x1, x0);
 		out_color.rgb += atmosphere(x0, x1,	sunDirection);
 	}
-
-	// if (length(x0) > planetRadius + 200001.0)
-	// 	out_color.rgb = vec3(1,0,0);
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
 	// out_color.rgb = debug_overlay(out_color.rgb);
-	// out_color.rgb = bent_normal;
-	// out_color.rgb = vec3(.1, .3, .1);
 }
