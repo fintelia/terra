@@ -5,6 +5,17 @@ use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
 };
+use structopt::StructOpt;
+
+#[derive(Debug, StructOpt)]
+struct Opt {
+    #[structopt(short, long, default_value="8FH495PF+29")]
+    plus: String,
+    #[structopt(short, long, default_value="0")]
+    heading: f64,
+    #[structopt(short, long, default_value="200000")]
+    elevation: f64,
+}
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
     let aspect = width / height;
@@ -92,11 +103,16 @@ fn main() {
         current_gamepad = Some(gamepad.id());
     }
 
+    let opt = Opt::from_args();
+    let plus_center = open_location_code::decode(&opt.plus)
+        .expect("Failed to parse plus code")
+        .center;
+
     let planet_radius = 6371000.0;
-    let mut angle = 0.0f64;
-    let mut lat = 41.3851f64.to_radians();
-    let mut long = 2.1734f64.to_radians();
-    let mut altitude = 200000.0f64;
+    let mut angle = opt.heading.to_radians();
+    let mut lat = plus_center.y().to_radians();
+    let mut long = plus_center.x().to_radians();
+    let mut altitude = opt.elevation;
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
