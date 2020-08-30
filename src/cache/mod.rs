@@ -148,7 +148,7 @@ pub(crate) trait WebAsset {
                 if self.compressed() {
                     context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
                     let mut uncompressed = Vec::new();
-                    snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed);
+                    snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed)?;
                     data = uncompressed;
                 }
                 context.reset(&format!("Parsing {}... ", &self.filename()), 100);
@@ -170,25 +170,26 @@ pub(crate) trait WebAsset {
             easy.url(&self.url())?;
             easy.progress(true)?;
             easy.follow_location(true)?;
+            easy.fail_on_error(true)?;
             if let Some((username, password)) = self.credentials() {
                 easy.cookie_file("")?;
                 easy.unrestricted_auth(true)?;
                 easy.username(&username)?;
                 easy.password(&password)?;
             }
-            let mut easy = easy.transfer();
-            easy.write_function(|d| {
+            let mut transfer = easy.transfer();
+            transfer.write_function(|d| {
                 let len = d.len();
                 data.extend(d);
                 Ok(len)
             })?;
-            easy.progress_function(|t, c, _, _| {
+            transfer.progress_function(|t, c, _, _| {
                 if t > 0.0 {
                     context.set_progress_and_total(c, t);
                 }
                 true
             })?;
-            easy.perform()?;
+            transfer.perform()?;
         }
 
         context.reset(&format!("Saving {}... ", &self.filename()), 100);

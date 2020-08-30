@@ -63,6 +63,11 @@ impl VNode {
     }
 
     fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
+        // let x = x.signum() * (1.4511 - (1.4511*1.4511 - 4.0*(1.4511 - 1.0)*x.abs()).sqrt()) / (2.0 * (1.4511 - 1.0));
+        // let y = y.signum() * (1.4511 - (1.4511*1.4511 - 4.0*(1.4511 - 1.0)*y.abs()).sqrt()) / (2.0 * (1.4511 - 1.0));
+        let x = x * (1.4511 + (1.0 - 1.4511)*x.abs());
+        let y = y * (1.4511 + (1.0 - 1.4511)*y.abs());
+
         match self.face() {
             0 => Vector3::new(1.0, x, -y),
             1 => Vector3::new(-1.0, -x, -y),
@@ -130,7 +135,7 @@ impl VNode {
         let dz = ((center.z - r) - camera_cspace.z).max(0.0).max(camera_cspace.z - (center.z + r));
         let distance = dx * dx + dy * dy + dz * dz;
 
-        Priority::from_f32(((min_distance * min_distance) / distance.max(1e-8)) as f32)
+        Priority::from_f32(((min_distance * min_distance) / distance.max(1e-12)) as f32)
     }
 
     pub fn parent(&self) -> Option<(VNode, u8)> {

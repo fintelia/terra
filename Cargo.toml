@@ -67,6 +67,7 @@ zip = "0.5.6"
 thiserror = "1.0.20"
 snap = "1.0.1"
 structopt = "0.3.16"
+rayon = "1.4.0"
 
 [profile]
 [profile.dev]

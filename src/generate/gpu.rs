@@ -3,11 +3,12 @@ use std::mem;
 
 #[derive(Copy, Clone)]
 pub(crate) struct GenHeightmapsUniforms {
-    pub position: [f32; 2],
+    pub position: [i32; 2],
     pub origin: [i32; 2],
     pub spacing: f32,
     pub in_slot: i32,
     pub out_slot: i32,
+    pub level_resolution: i32,
 }
 unsafe impl bytemuck::Zeroable for GenHeightmapsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}

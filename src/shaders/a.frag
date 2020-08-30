@@ -31,8 +31,8 @@ layout(location = 11) in vec2 i_position;
 // layout(location = 9) in float resolution;
 // layout(location = 10) in float min_distance;
 // layout(location = 11) in float elevation;
-// layout(location = 12) in float face;
-// layout(location = 13) in float level_resolution;
+layout(location = 12) in float face;
+layout(location = 13) in float level_resolution;
 
 layout(location = 0) out vec4 out_color;
 
@@ -142,16 +142,28 @@ vec3 debug_overlay(vec3 color) {
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
 
-	// if(face == 0) color = mix(color, vec3(1,0,0), .3);
-	// if(face == 1) color = mix(color, vec3(0,1,0), .3);
-	// if(face == 2) color = mix(color, vec3(0,0,1), .3);
-	// if(face == 3) color = mix(color, vec3(1,1,0), .3);
-	// if(face == 4) color = mix(color, vec3(1,1,1), .3);
-	// if(face == 5) color = mix(color, vec3(0,0,0), .3);
+	vec2 v = vec2(i_position) / float(level_resolution) *2;
+
+	// v = atan(v) * 4 / 3.141592;
+	// v = sign(v)*(11./6 - 1./6 * sqrt(121 - 96.*v));
+	// v = sign(v)*(1.375 - sqrt(1.375*1.375 - 4*(1.375 - 1)*abs(v))) / (2*(1.375 - 1));
+	v = v * (1.375 + (1 - 1.375)*abs(v));
+
+	v = fract((v*.25+0.25)*90*5);
+	float s = 0.2;
+	if (v.x < 0.5 != v.y < 0.5) {
+		s = 0.4;
+	}
+	if(face == 0) color = mix(color, vec3(1,0,0), s);
+	if(face == 1) color = mix(color, vec3(0,1,0), s);
+	if(face == 2) color = mix(color, vec3(0,0,1), s);
+	if(face == 3) color = mix(color, vec3(1,1,0), s);
+	if(face == 4) color = mix(color, vec3(1,1,1), s);
+	if(face == 5) color = mix(color, vec3(0,0,0), s);
 	// if(level_resolution == 128*1024)color = mix(color, vec3(1,0,0), .4);
 	// if(level_resolution == 64*1024)color = mix(color, vec3(0,1,0), .4);
 	// if(level_resolution == 32*1024)color = mix(color, vec3(0,0,1), .4);
-	// if(level_resolution == 16*1024)color = mix(color, vec3(1,1,1), .4);
+	// if(level_resolution == (1<<18)*512)color = mix(color, vec3(1,1,1), .4);
 
 	// if(resolution == 64)color = mix(color, vec3(0,0,1), .4);
 
@@ -160,9 +172,21 @@ vec3 debug_overlay(vec3 color) {
 
 	// if (level_resolution > 512*pow(2,4) || level_resolution == 512*pow(2,4) && morph > 0.99)
 	// 	color = mix(color, vec3(0,0,1), .4);
+	// if (abs(max(max(position.x, position.y), position.z)-1050) <10)
+	// // if (abs(length(position)-1000) < 100)
+	// 	color = mix(color, vec3(0), 0.5);
 
-	// if (abs(length(position) - 100000) < 100)
-	// 	color = vec3(1);
+ 	// vec2 grid = abs(fract(position.xy/150 + 0.5) - 0.5) / fwidth(position.xy/150);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+
+	// vec3 p = normalize(position + vec3(ubo.camera));
+	// vec2 coord = vec2((acos(p.z) * 180.0 / 3.141592),
+	// 				  (atan(p.x, p.y)*180.0/3.141592));
+	// vec2 grid = .5*fract(coord) / fwidth(fract(coord));
+	// float line = min(grid.x, grid.y);
+	// if (coord.x > 90-60 && coord.x < 90+56)
+	// color = mix(color, vec3(0.), smoothstep(1, 0, line) * 0.6);
 
  	return color;
 }

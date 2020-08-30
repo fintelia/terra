@@ -46,8 +46,8 @@ layout(location = 11) out vec2 out_i_position;
 // layout(location = 9) out float out_resolution;
 // layout(location = 10) out float out_min_distance;
 // layout(location = 11) out float out_elevation;
-// layout(location = 12) out float out_face;
-// layout(location = 13) out float out_level_resolution;
+layout(location = 12) out float out_face;
+layout(location = 13) out float out_level_resolution;
 
 
 const double planetRadius = 6371000.0;
@@ -61,6 +61,11 @@ struct Positions {
 
 dvec3 cube_position(vec2 iPosition) {
 	dvec2 facePosition = 2.0 * (dvec2(iPosition) + dvec2(in_position)) / double(level_resolution);
+
+	// See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
+	// http://jcgt.org/published/0007/02/01/paper.pdf
+	facePosition = facePosition * (1.4511 + (1 - 1.4511)*abs(facePosition));
+
 	dvec3 cubePosition = dvec3(0);
 	if(face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
 	else if(face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
@@ -137,12 +142,12 @@ void main() {
 	out_tangent = tangent;
 	out_bitangent = bitangent;
 
-	out_i_position = vec2(iPosition);
+	out_i_position = vec2(in_position + iPosition);
 	// out_resolution = resolution;
 	// out_min_distance = min_distance;
 	// out_elevation = texture(sampler2DArray(displacements, linear),
 	// 						heights_origin + vec3(nPosition * heights_step, 0)).g;
-	// out_face = face;
-	// out_level_resolution = level_resolution;
+	out_face = face;
+	out_level_resolution = level_resolution;
 	gl_Position = ubo.view_proj * vec4(position, 1.0);
 }

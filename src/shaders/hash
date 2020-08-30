@@ -34,6 +34,11 @@ float random( vec2  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
 float random( vec3  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
 float random( vec4  v ) { return floatConstruct(hash(floatBitsToUint(v))); }
 
+float random(uint v)  { return floatConstruct(hash(v)); }
+float random(uvec2 v) { return floatConstruct(hash(v)); }
+float random(uvec3 v) { return floatConstruct(hash(v)); }
+float random(uvec4 v) { return floatConstruct(hash(v)); }
+
 vec2 box_muller_transform(float u1, float u2) {
 	float r = sqrt(-2.0 * log(1-u1));
 	float theta = 2.0*3.14159265*u2;

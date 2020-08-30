@@ -3,11 +3,12 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
-	vec2 position;
-    ivec2 origin;
+	ivec2 position;
+	ivec2 origin;
 	float spacing;
 	int in_slot;
 	int out_slot;
+	int level_resolution;
 } ubo;
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
@@ -63,10 +64,9 @@ void main() {
 	float slope = length(vec2(dx, dy));
 
 	// Apply noise
-	vec2 position = ubo.position + vec2(gl_GlobalInvocationID.xy) * ubo.spacing;
-	vec2 n = abs(vec2(pow(random(position),2)));
-	if(ubo.spacing < 0.25)
-	height += n.x * ubo.spacing * mix(0.05, .4, smoothstep(0.4, 0.5, 2+slope*1000));
+	uvec2 position = (gl_GlobalInvocationID.xy+ubo.position)%ubo.level_resolution;
+	float n = pow(random(uvec2(position)), 2);
+	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
 	// height += 100 * sin(length(position.xy)/500);
 
 	// Write output

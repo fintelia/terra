@@ -487,13 +487,22 @@ impl Terrain {
                         / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
                     // let position = node.bounds().min
                     //     - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
+                    let resolution = heightmaps_resolution - heightmaps_border * 2 - 1;
+                    let level_resolution = resolution << node.level();
                     self.gen_heightmaps.run(
                         device,
                         &mut encoder,
                         &self.gpu_state,
                         ((heightmaps_resolution + 7) / 8, (heightmaps_resolution + 7) / 8, 1),
                         &GenHeightmapsUniforms {
-                            position: [0.0, 0.0],
+                            position: [
+                                (node.x() * resolution) as i32
+                                    - level_resolution as i32 / 2
+                                    - heightmaps_border as i32,
+                                (node.y() * resolution) as i32
+                                    - level_resolution as i32 / 2
+                                    - heightmaps_border as i32,
+                            ],
                             origin: [
                                 origin[parent_offset.x as usize],
                                 origin[parent_offset.y as usize],
@@ -501,6 +510,7 @@ impl Terrain {
                             spacing,
                             in_slot,
                             out_slot,
+                            level_resolution: level_resolution as i32,
                         },
                     );
                     self.tile_cache.set_slot_valid(out_slot as usize, LayerType::Heightmaps);
@@ -781,6 +791,7 @@ impl Terrain {
                     stencil_ops: None,
                 }),
             });
+            rpass.push_debug_group("Terrain");
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
 
@@ -790,6 +801,7 @@ impl Terrain {
                 &self.index_buffer,
                 &self.index_buffer_partial,
             );
+            rpass.pop_debug_group();
         }
 
         {
@@ -807,9 +819,11 @@ impl Terrain {
                 }),
             });
 
+            rpass.push_debug_group("Atmosphere");
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
+            rpass.pop_debug_group();
         }
 
         // {

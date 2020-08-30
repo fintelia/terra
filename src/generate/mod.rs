@@ -10,9 +10,7 @@ use crate::terrain::raster::RasterCache;
 // use crate::terrain::reprojected_raster::{
 //     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
 // };
-use crate::terrain::tile_cache::{
-    LayerParams, LayerType, TextureFormat,
-};
+use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
 use byteorder::{LittleEndian, WriteBytesExt};
 use maplit::hashmap;
@@ -23,6 +21,8 @@ use maplit::hashmap;
 use std::f64::consts::PI;
 // use std::io::Write;
 // use std::rc::Rc;
+use rayon::prelude::*;
+use std::collections::HashMap;
 use vec_map::VecMap;
 
 mod gpu;
@@ -142,6 +142,17 @@ impl MapFileBuilder {
         generate_sky(&mut mapfile, &mut context)?;
         context.set_progress(5);
 
+        // for y in -44..61 {
+        //     for x in -180..180 {
+        //         let _ = crate::terrain::dem::DigitalElevationModelParams {
+        //             latitude: y,
+        //             longitude: x,
+        //             source: crate::terrain::dem::DemSource::Srtm90m,
+        //         }
+        //         .load(&mut context);
+        //     }
+        // }
+
         Ok(mapfile)
     }
 }
@@ -159,21 +170,25 @@ fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
     let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
-        let mut heightmap = Vec::new();
-        for y in 0..layer.texture_resolution {
-            for x in 0..layer.texture_resolution {
+
+        let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
+            .into_par_iter()
+            .map(|i| {
                 let cspace = n.grid_position_cspace(
-                    x as i32,
-                    y as i32,
+                    (i % layer.texture_resolution) as i32,
+                    (i / layer.texture_resolution) as i32,
                     layer.texture_border_size as u16,
                     layer.texture_resolution as u16,
                 );
                 let sspace = CoordinateSystem::cspace_to_sspace(cspace);
                 let polar = CoordinateSystem::sspace_to_polar(sspace);
-                let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
+                (polar.x.to_degrees(), polar.y.to_degrees())
+            })
+            .collect();
 
-                heightmap.write_f32::<LittleEndian>(global_dem.interpolate(lat, long, 0) as f32)?;
-            }
+        let mut heightmap = Vec::new();
+        for (lat, long) in coordinates {
+            heightmap.write_f32::<LittleEndian>(global_dem.interpolate(lat, long, 0) as f32)?;
         }
         mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;
     }
@@ -198,6 +213,7 @@ fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Res
     let context = &mut context.increment_level("Generating colormaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
+        let start = std::time::Instant::now();
 
         let mut colormap = Vec::with_capacity(
             layer.texture_resolution as usize * layer.texture_resolution as usize,
@@ -205,31 +221,61 @@ fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Res
         let spacing = n.aprox_side_length()
             / (layer.texture_resolution - 2 * layer.texture_border_size) as f32;
 
-        for y in 0..layer.texture_resolution {
-            for x in 0..layer.texture_resolution {
+        let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
+            .into_par_iter()
+            .map(|i| {
                 let cspace = n.cell_position_cspace(
-                    x as i32,
-                    y as i32,
+                    (i % layer.texture_resolution) as i32,
+                    (i / layer.texture_resolution) as i32,
                     layer.texture_border_size as u16,
                     layer.texture_resolution as u16,
                 );
                 let sspace = CoordinateSystem::cspace_to_sspace(cspace);
                 let polar = CoordinateSystem::sspace_to_polar(sspace);
-                let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
+                (polar.x.to_degrees(), polar.y.to_degrees())
+            })
+            .collect();
 
-                let color = if spacing < bluemarble_spacing {
-                    let [r, g, b] =
-                        bluemarble_cache.nearest3(context, lat, long).unwrap_or([255.0, 0.0, 0.0]);
+        if spacing < bluemarble_spacing {
+            colormap.resize(coordinates.len() * 4, 255);
 
-                    [SRGB_TO_LINEAR[r as u8], SRGB_TO_LINEAR[g as u8], SRGB_TO_LINEAR[b as u8], 255]
-                } else {
-                    let r = bluemarble.interpolate(lat, long, 0) as u8;
-                    let g = bluemarble.interpolate(lat, long, 1) as u8;
-                    let b = bluemarble.interpolate(lat, long, 2) as u8;
-                    [SRGB_TO_LINEAR[r], SRGB_TO_LINEAR[g], SRGB_TO_LINEAR[b], 255]
-                };
+            let mut samples: HashMap<(i16, i16), Vec<(usize, f64, f64)>> = Default::default();
+            for (i, (lat, long)) in coordinates.into_iter().enumerate() {
+                samples
+                    .entry((lat.floor() as i16, long.floor() as i16))
+                    .or_default()
+                    .push((i, lat, long));
+            }
 
-                colormap.extend_from_slice(&color);
+            for (tile, v) in samples {
+                let tile = bluemarble_cache.get(context, tile.0, tile.1).unwrap();
+                let v: Vec<_> = v
+                    .into_par_iter()
+                    .map(|(i, lat, long)| {
+                        let [r, g, b] = tile.nearest3(lat, long).unwrap_or([255.0, 0.0, 0.0]);
+                        (
+                            i,
+                            SRGB_TO_LINEAR[r as u8],
+                            SRGB_TO_LINEAR[g as u8],
+                            SRGB_TO_LINEAR[b as u8],
+                        )
+                    })
+                    .collect();
+
+                for (i, r, g, b) in v {
+                    colormap[i * 4] = r;
+                    colormap[i * 4 + 1] = g;
+                    colormap[i * 4 + 2] = b;
+                }
+            }
+        } else {
+            for (lat, long) in coordinates {
+                colormap.extend_from_slice(&[
+                    SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 0) as u8],
+                    SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 1) as u8],
+                    SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 2) as u8],
+                    255,
+                ]);
             }
         }
 
@@ -278,7 +324,6 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
             format: TextureFormat::RGBA8,
             bytes: 4 * 2048 * 2048,
         };
-
 
         let noise_heightmaps: Vec<_> =
             (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
