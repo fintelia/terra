@@ -63,10 +63,8 @@ impl VNode {
     }
 
     fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
-        // let x = x.signum() * (1.4511 - (1.4511*1.4511 - 4.0*(1.4511 - 1.0)*x.abs()).sqrt()) / (2.0 * (1.4511 - 1.0));
-        // let y = y.signum() * (1.4511 - (1.4511*1.4511 - 4.0*(1.4511 - 1.0)*y.abs()).sqrt()) / (2.0 * (1.4511 - 1.0));
-        let x = x * (1.4511 + (1.0 - 1.4511)*x.abs());
-        let y = y * (1.4511 + (1.0 - 1.4511)*y.abs());
+        let x = x.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * x.abs()).sqrt()) / 0.9022;
+        let y = y.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * y.abs()).sqrt()) / 0.9022;
 
         match self.face() {
             0 => Vector3::new(1.0, x, -y),
@@ -94,7 +92,13 @@ impl VNode {
     ///     +---+---+---+
     ///       |       |
     ///
-    pub fn grid_position_cspace(&self, x: i32, y: i32, skirt: u16, resolution: u16) -> Vector3<f64> {
+    pub fn grid_position_cspace(
+        &self,
+        x: i32,
+        y: i32,
+        skirt: u16,
+        resolution: u16,
+    ) -> Vector3<f64> {
         let fx = (x - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;
         let fy = (y - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;
         let scale = 2.0 / (1u32 << self.level()) as f64;
@@ -114,7 +118,13 @@ impl VNode {
     ///   --+---+---+--
     ///     |       |
     ///
-    pub fn cell_position_cspace(&self, x: i32, y: i32, skirt: u16, resolution: u16) -> Vector3<f64> {
+    pub fn cell_position_cspace(
+        &self,
+        x: i32,
+        y: i32,
+        skirt: u16,
+        resolution: u16,
+    ) -> Vector3<f64> {
         let fx = ((x - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;
         let fy = ((y - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;
         let scale = 2.0 / (1u32 << self.level()) as f64;
@@ -128,11 +138,20 @@ impl VNode {
     /// not be rendered (they are too detailed).
     pub fn priority(&self, camera_cspace: Point3<f64>) -> Priority {
         let min_distance = self.min_distance();
-        let center = self.center_cspace();
+
+        let c = Vector3::new(camera_cspace.x * (1.4511 + (1.0 - 1.4511) * camera_cspace.x.abs()),
+                             camera_cspace.y * (1.4511 + (1.0 - 1.4511) * camera_cspace.y.abs()),
+                             camera_cspace.z * (1.4511 + (1.0 - 1.4511) * camera_cspace.z.abs()));
+
+        let a = self.cell_position_cspace(0, 0, 0, 1);
+        let a = Vector3::new(a.x * (1.4511 + (1.0 - 1.4511) * a.x.abs()),
+                             a.y * (1.4511 + (1.0 - 1.4511) * a.y.abs()),
+                             a.z * (1.4511 + (1.0 - 1.4511) * a.z.abs()));
+
         let r = 1.0 / (1u64 << (self.level())) as f64;
-        let dx = ((center.x - r) - camera_cspace.x).max(0.0).max(camera_cspace.x - (center.x + r));
-        let dy = ((center.y - r) - camera_cspace.y).max(0.0).max(camera_cspace.y - (center.y + r));
-        let dz = ((center.z - r) - camera_cspace.z).max(0.0).max(camera_cspace.z - (center.z + r));
+        let dx = ((a.x - r) - c.x).max(c.x - (a.x + r)).max(0.0);
+        let dy = ((a.y - r) - c.y).max(c.y - (a.y + r)).max(0.0);
+        let dz = ((a.z - r) - c.z).max(c.z - (a.z + r)).max(0.0);
         let distance = dx * dx + dy * dy + dz * dz;
 
         Priority::from_f32(((min_distance * min_distance) / distance.max(1e-12)) as f32)

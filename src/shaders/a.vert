@@ -64,7 +64,7 @@ dvec3 cube_position(vec2 iPosition) {
 
 	// See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
 	// http://jcgt.org/published/0007/02/01/paper.pdf
-	facePosition = facePosition * (1.4511 + (1 - 1.4511)*abs(facePosition));
+	facePosition = sign(facePosition) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(facePosition))) / 0.9022;
 
 	dvec3 cubePosition = dvec3(0);
 	if(face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
@@ -89,18 +89,19 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 }
 
 float compute_morph(vec2 iPosition) {
-	dvec3 cubePosition = cube_position(iPosition);
+	vec3 cubePosition = vec3(cube_position(iPosition));
 
 	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
 	float r = max(max(abs(camera.x), abs(camera.y)), abs(camera.z));
 	camera = camera / r;
 
+	camera = camera * (1.4511 + (1 - 1.4511)*abs(camera));
+	cubePosition = cubePosition * (1.4511 + (1 - 1.4511)*abs(cubePosition));
+
 	if (min_distance == 0)
 		return 0;
 
-	float morph = 1 - smoothstep(0.9, 1, float(distance(cubePosition, camera)) / min_distance);
-	// morph = min(morph * 20000, 1);
-	return morph;
+	return 1 - smoothstep(0.9, 1, float(distance(cubePosition, camera)) / min_distance);
 }
 
 void main() {
