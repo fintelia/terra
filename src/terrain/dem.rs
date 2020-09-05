@@ -5,10 +5,17 @@ use std::io::{Cursor, Read};
 use std::str::FromStr;
 use thiserror::Error;
 use zip::ZipArchive;
+use std::collections::HashSet;
+use lazy_static::lazy_static;
 
 #[derive(Debug, Error)]
 #[error("failed to parse DEM file")]
 pub struct DemParseError;
+
+lazy_static! {
+    static ref SRTM3_FILES: HashSet<&'static str> =
+        include_str!("../../file_list_srtm3.txt").split('\n').collect();
+}
 
 /// Which data source to use for digital elevation models.
 #[derive(Copy, Clone)]
