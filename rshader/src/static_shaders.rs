@@ -1,6 +1,6 @@
-use std::path::PathBuf;
-
 use notify;
+use sha2::{Digest, Sha256};
+use std::path::PathBuf;
 
 use super::*;
 
@@ -15,9 +15,7 @@ impl ShaderDirectoryWatcher {
 }
 
 pub struct ShaderSet {
-    vertex: Option<Vec<u32>>,
-    fragment: Option<Vec<u32>>,
-    compute: Option<Vec<u32>>,
+    inner: ShaderSetInner,
 }
 impl ShaderSet {
     pub fn simple(
@@ -25,27 +23,46 @@ impl ShaderSet {
         vertex_source: ShaderSource,
         fragment_source: ShaderSource,
     ) -> Result<Self, anyhow::Error> {
-        let vertex = Some(create_vertex_shader(&vertex_source.source.unwrap()).unwrap());
-        let fragment = Some(create_fragment_shader(&fragment_source.source.unwrap()).unwrap());
-        Ok(Self { vertex, fragment, compute: None })
+        Ok(Self {
+            inner: ShaderSetInner::simple(
+                vertex_source.source.unwrap(),
+                fragment_source.source.unwrap(),
+            )?,
+        })
     }
     pub fn compute_only(
         _: &mut ShaderDirectoryWatcher,
         compute_source: ShaderSource,
     ) -> Result<Self, anyhow::Error> {
-        let compute = Some(create_compute_shader(&compute_source.source.unwrap()).unwrap());
-        Ok(Self { vertex: None, fragment: None, compute })
+        Ok(Self { inner: ShaderSetInner::compute_only(compute_source.source.unwrap())? })
     }
     pub fn refresh(&mut self, _: &mut ShaderDirectoryWatcher) -> bool {
         false
     }
+
+    pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
+        wgpu::BindGroupLayoutDescriptor {
+            entries: self.inner.layout_descriptor[..].into(),
+            label: None,
+        }
+    }
+    pub fn desc_names(&self) -> &[Option<String>] {
+        &self.inner.desc_names[..]
+    }
+    pub fn input_attributes(&self) -> &[wgpu::VertexAttributeDescriptor] {
+        &self.inner.input_attributes[..]
+    }
+
     pub fn vertex(&self) -> &[u32] {
-        self.vertex.as_ref().unwrap()
+        self.inner.vertex.as_ref().unwrap()
     }
     pub fn fragment(&self) -> &[u32] {
-        self.fragment.as_ref().unwrap()
+        self.inner.fragment.as_ref().unwrap()
     }
     pub fn compute(&self) -> &[u32] {
-        self.compute.as_ref().unwrap()
+        self.inner.compute.as_ref().unwrap()
+    }
+    pub fn digest(&self) -> &[u8] {
+        &self.inner.digest
     }
 }

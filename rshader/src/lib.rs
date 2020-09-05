@@ -1,10 +1,16 @@
+#![feature(try_blocks)]
+
 pub mod dynamic_shaders;
 pub mod static_shaders;
 
 use anyhow::anyhow;
-use spirq::ty::{DescriptorType, ImageArrangement, Type, ScalarType, VectorType};
+use sha2::{Digest, Sha256};
+use spirq::ty::{DescriptorType, ImageArrangement, ScalarType, Type, VectorType};
 use spirq::{ExecutionModel, SpirvBinary};
 use std::collections::{btree_map::Entry, BTreeMap};
+use std::fs::{self, File};
+use std::io::{self, Read};
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "dynamic_shaders")]
 pub use dynamic_shaders::*;
@@ -13,7 +19,68 @@ pub use static_shaders::*;
 
 pub struct ShaderSource {
     pub source: Option<String>,
-    pub filenames: Option<Vec<String>>,
+    pub filenames: Option<Vec<PathBuf>>,
+}
+impl ShaderSource {
+    pub fn load(&self, base_directory: &Path) -> Result<String, anyhow::Error> {
+        if let Some(ref src) = self.source {
+            return Ok(src.clone());
+        }
+
+        let mut contents = String::new();
+        for filename in self.filenames.as_ref().unwrap() {
+            File::open(fs::canonicalize(base_directory.join(filename))?)?
+                .read_to_string(&mut contents)?;
+        }
+        Ok(contents)
+    }
+}
+
+pub(crate) struct ShaderSetInner {
+    pub vertex: Option<Vec<u32>>,
+    pub fragment: Option<Vec<u32>>,
+    pub compute: Option<Vec<u32>>,
+
+    pub input_attributes: Vec<wgpu::VertexAttributeDescriptor>,
+    pub layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
+    pub desc_names: Vec<Option<String>>,
+    pub digest: Vec<u8>,
+}
+impl ShaderSetInner {
+    pub fn simple(vsrc: String, fsrc: String) -> Result<Self, anyhow::Error> {
+        let vertex = create_vertex_shader(&vsrc)?;
+        let fragment = create_fragment_shader(&fsrc)?;
+        let digest = Sha256::digest(format!("v={}\0f={}", vsrc, fsrc).as_bytes()).to_vec();
+        let (input_attributes, desc_names, layout_descriptor) =
+            crate::reflect(&[&vertex[..], &fragment[..]])?;
+
+        Ok(Self {
+            vertex: Some(vertex),
+            fragment: Some(fragment),
+            compute: None,
+            desc_names,
+            layout_descriptor,
+            input_attributes,
+            digest,
+        })
+    }
+
+    pub fn compute_only(src: String) -> Result<Self, anyhow::Error> {
+        let compute = create_compute_shader(&src)?;
+        let digest = Sha256::digest(format!("c={}", src).as_bytes()).to_vec();
+        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&compute[..]])?;
+        assert!(input_attributes.is_empty());
+
+        Ok(Self {
+            vertex: None,
+            fragment: None,
+            compute: Some(compute),
+            desc_names,
+            layout_descriptor,
+            input_attributes,
+            digest,
+        })
+    }
 }
 
 #[macro_export]
@@ -41,7 +108,7 @@ macro_rules! shader_source {
             source: None,
             filenames: Some({
                 let mut tmp_vec = Vec::new();
-                $( tmp_vec.push($filename.to_string()); )*
+                $( tmp_vec.push(std::path::Path::from($filename)); )*
                     tmp_vec
             }),
         }
@@ -72,7 +139,10 @@ fn create_compute_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
 
 fn reflect(
     stages: &[&[u32]],
-) -> Result<(Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>), anyhow::Error> {
+) -> Result<
+    (Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
+    anyhow::Error,
+> {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
         BTreeMap::new();
 
@@ -122,7 +192,7 @@ fn reflect(
                 attributes.push(wgpu::VertexAttributeDescriptor {
                     offset: attribute_offset,
                     format,
-                    shader_location
+                    shader_location,
                 });
                 attribute_offset += nbytes;
             }
@@ -135,19 +205,14 @@ fn reflect(
             let ty = match desc.desc_ty {
                 DescriptorType::Sampler(_) => wgpu::BindingType::Sampler { comparison: false },
                 DescriptorType::UniformBuffer(..) => {
-                    wgpu::BindingType::UniformBuffer {
-                        dynamic: false,
-                        min_binding_size: None,
-                    }
+                    wgpu::BindingType::UniformBuffer { dynamic: false, min_binding_size: None }
                 }
                 DescriptorType::Image(_, spirq::ty::Type::Image(ty)) => {
                     wgpu::BindingType::SampledTexture {
                         multisampled: false,
                         dimension: match ty.arng {
                             ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
-                            ImageArrangement::Image2DArray => {
-                                wgpu::TextureViewDimension::D2Array
-                            }
+                            ImageArrangement::Image2DArray => wgpu::TextureViewDimension::D2Array,
                             ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
                             _ => unimplemented!(),
                         },

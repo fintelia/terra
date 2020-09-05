@@ -1,3 +1,5 @@
+use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -5,8 +7,6 @@ use std::iter::Iterator;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
-
-use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::*;
 
@@ -39,26 +39,11 @@ impl ShaderDirectoryWatcher {
     }
 }
 
-fn concat_file_contents<'a, I: Iterator<Item = &'a PathBuf>>(filenames: I) -> io::Result<String> {
-    let mut contents = String::new();
-    for filename in filenames {
-        File::open(filename)?.read_to_string(&mut contents)?;
-    }
-    Ok(contents)
-}
-
 pub struct ShaderSet {
-    vertex: Option<Vec<u32>>,
-    fragment: Option<Vec<u32>>,
-    compute: Option<Vec<u32>>,
-
-    input_attributes: Vec<wgpu::VertexAttributeDescriptor>,
-    layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
-    desc_names: Vec<Option<String>>,
-
-    vertex_filenames: Vec<PathBuf>,
-    fragment_filenames: Vec<PathBuf>,
-    compute_filenames: Vec<PathBuf>,
+    inner: ShaderSetInner,
+    vertex_source: Option<ShaderSource>,
+    fragment_source: Option<ShaderSource>,
+    compute_source: Option<ShaderSource>,
     last_update: Instant,
 }
 impl ShaderSet {
@@ -67,64 +52,27 @@ impl ShaderSet {
         vertex_source: ShaderSource,
         fragment_source: ShaderSource,
     ) -> Result<Self, anyhow::Error> {
-        let vertex_filenames = vertex_source
-            .filenames
-            .unwrap()
-            .into_iter()
-            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
-            .collect::<Vec<_>>();
-        let fragment_filenames = fragment_source
-            .filenames
-            .unwrap()
-            .into_iter()
-            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
-            .collect::<Vec<_>>();
-        let vertex = create_vertex_shader(&concat_file_contents(vertex_filenames.iter())?)?;
-        let fragment = create_fragment_shader(&concat_file_contents(fragment_filenames.iter())?)?;
-
-        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&vertex[..], &fragment[..]])?;
-
         Ok(Self {
-            vertex: Some(vertex),
-            fragment: Some(fragment),
-            compute: None,
+            inner: ShaderSetInner::simple(
+                vertex_source.load(&watcher.directory)?,
+                fragment_source.load(&watcher.directory)?,
+            )?,
+            vertex_source: Some(vertex_source),
+            fragment_source: Some(fragment_source),
+            compute_source: None,
             last_update: Instant::now(),
-            vertex_filenames: vertex_filenames,
-            fragment_filenames: fragment_filenames,
-            compute_filenames: Vec::new(),
-            desc_names,
-            layout_descriptor,
-            input_attributes,
         })
     }
-
     pub fn compute_only(
         watcher: &mut ShaderDirectoryWatcher,
         compute_source: ShaderSource,
     ) -> Result<Self, anyhow::Error> {
-        let compute_filenames = compute_source
-            .filenames
-            .unwrap()
-            .into_iter()
-            .map(|f| fs::canonicalize(watcher.directory.join(f)).unwrap())
-            .collect::<Vec<_>>();
-        let compute = create_compute_shader(&concat_file_contents(compute_filenames.iter())?)?;
-
-        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&compute[..]])?;
-
-        assert!(input_attributes.is_empty());
-
         Ok(Self {
-            vertex: None,
-            fragment: None,
-            compute: Some(compute),
+            inner: ShaderSetInner::compute_only(compute_source.load(&watcher.directory)?)?,
+            vertex_source: None,
+            fragment_source: None,
+            compute_source: Some(compute_source),
             last_update: Instant::now(),
-            vertex_filenames: Vec::new(),
-            fragment_filenames: Vec::new(),
-            compute_filenames: compute_filenames,
-            desc_names,
-            layout_descriptor,
-            input_attributes,
         })
     }
 
@@ -132,74 +80,54 @@ impl ShaderSet {
     pub fn refresh(&mut self, directory_watcher: &mut ShaderDirectoryWatcher) -> bool {
         directory_watcher.detect_changes();
 
-        let needs_update = self
-            .vertex_filenames
-            .iter()
-            .chain(self.fragment_filenames.iter())
-            .chain(self.compute_filenames.iter())
+        if ![&self.vertex_source, &self.fragment_source, &self.compute_source]
+            .into_iter()
+            .flat_map(|s| s.iter())
+            .map(|s| &s.filenames)
+            .flatten()
+            .flatten()
             .filter_map(|n| directory_watcher.last_modifications.get(n))
-            .any(|&t| t > self.last_update);
-
-        if needs_update {
-            self.last_update = Instant::now();
-
-            let new_shaders = || -> Result<_, anyhow::Error> {
-                let (mut vs, mut fs, mut cs) = (None, None, None);
-                let mut stages = Vec::new();
-                if !self.vertex_filenames.is_empty() {
-                    vs = Some(create_vertex_shader(&concat_file_contents(
-                        self.vertex_filenames.iter(),
-                    )?)?);
-                    stages.push(&vs.as_ref().unwrap()[..]);
-                }
-                if !self.fragment_filenames.is_empty() {
-                    fs = Some(create_fragment_shader(&concat_file_contents(
-                        self.fragment_filenames.iter(),
-                    )?)?);
-                    stages.push(&fs.as_ref().unwrap()[..]);
-                }
-                if !self.compute_filenames.is_empty() {
-                    cs = Some(create_compute_shader(&concat_file_contents(
-                        self.compute_filenames.iter(),
-                    )?)?);
-                    stages.push(&cs.as_ref().unwrap()[..]);
-                }
-
-                let (ia, dn, ld) = crate::reflect(&stages[..])?;
-
-                Ok((vs, fs, cs, ia, dn, ld))
-            }();
-
-            if let Ok((vs, fs, cs, ia, dn, ld)) = new_shaders {
-                self.input_attributes = ia;
-                self.desc_names = dn;
-                self.layout_descriptor = ld;
-                self.vertex = vs;
-                self.fragment = fs;
-                self.compute = cs;
-                return true;
-            }
+            .any(|&t| t > self.last_update)
+        {
+            return false;
         }
-        false
+
+        let r: Result<(), anyhow::Error> = try {
+            self.inner = match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
+                (Some(ref vs), Some(ref fs), None) => ShaderSetInner::simple(
+                    vs.load(&directory_watcher.directory)?,
+                    fs.load(&directory_watcher.directory)?,
+                ),
+                (None, None, Some(ref cs)) => {
+                    ShaderSetInner::compute_only(cs.load(&directory_watcher.directory)?)
+                }
+                _ => unreachable!(),
+            }?;
+        };
+        self.last_update = Instant::now();
+        r.is_ok()
     }
 
     pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
-        wgpu::BindGroupLayoutDescriptor { entries: self.layout_descriptor[..].into(), label: None }
+        wgpu::BindGroupLayoutDescriptor {
+            entries: self.inner.layout_descriptor[..].into(),
+            label: None,
+        }
     }
     pub fn desc_names(&self) -> &[Option<String>] {
-        &self.desc_names[..]
+        &self.inner.desc_names[..]
     }
     pub fn input_attributes(&self) -> &[wgpu::VertexAttributeDescriptor] {
-        &self.input_attributes[..]
+        &self.inner.input_attributes[..]
     }
 
     pub fn vertex(&self) -> &[u32] {
-        self.vertex.as_ref().unwrap()
+        self.inner.vertex.as_ref().unwrap()
     }
     pub fn fragment(&self) -> &[u32] {
-        self.fragment.as_ref().unwrap()
+        self.inner.fragment.as_ref().unwrap()
     }
     pub fn compute(&self) -> &[u32] {
-        self.compute.as_ref().unwrap()
+        self.inner.compute.as_ref().unwrap()
     }
 }
