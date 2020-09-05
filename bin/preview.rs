@@ -62,7 +62,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 }
 
 fn main() {
-    env_logger::init();
+    // env_logger::init();
 
     let mapfile = terra::MapFileBuilder::build().unwrap();
 
