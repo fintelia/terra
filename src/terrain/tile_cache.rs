@@ -1,3 +1,4 @@
+use crate::generate::heightmap::HeightmapCache;
 use crate::mapfile::{MapFile, TileState};
 use crate::terrain::quadtree::VNode;
 use cgmath::Point3;
@@ -157,6 +158,8 @@ pub(crate) struct TileCache {
 
     /// Resolution of each tile in this cache.
     layers: VecMap<LayerParams>,
+
+    heightmap_tiles: HeightmapCache,
 }
 impl TileCache {
     pub fn new(layers: VecMap<LayerParams>, size: usize) -> Self {
@@ -166,6 +169,7 @@ impl TileCache {
             reverse: HashMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
+            heightmap_tiles: HeightmapCache::new(layers[LayerType::Heightmaps].clone(), 32),
             layers,
         }
     }
@@ -232,7 +236,7 @@ impl TileCache {
         self.missing.clear();
     }
 
-    pub(crate) fn upload_tiles(
+    pub(crate) async fn upload_tiles(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
@@ -289,12 +293,32 @@ impl TileCache {
 
         let mut i = 0;
         for upload in &pending_uploads {
-            let data = mapfile.read_tile(ty, upload.1).unwrap();
-            for row in 0..resolution_blocks {
-                buffer_view[i..][..row_bytes]
-                    .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
-                i += row_pitch;
-            }
+            match ty {
+                LayerType::Heightmaps => {
+                    let data: Vec<_> = self
+                        .heightmap_tiles
+                        .get_tile(mapfile, upload.1)
+                        .await
+                        .unwrap()
+                        .iter()
+                        .map(|&i| i as f32)
+                        .collect();
+                    let data = bytemuck::cast_slice(&data);
+                    for row in 0..resolution_blocks {
+                        buffer_view[i..][..row_bytes]
+                            .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
+                        i += row_pitch;
+                    }
+                }
+                _ => {
+                    let data = mapfile.read_tile(ty, upload.1).unwrap();
+                    for row in 0..resolution_blocks {
+                        buffer_view[i..][..row_bytes]
+                            .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
+                        i += row_pitch;
+                    }
+                }
+            };
         }
 
         drop(buffer_view);
@@ -381,7 +405,7 @@ impl TileCache {
         self.layers[ty].texture_resolution
     }
     pub fn resolution_blocks(&self, ty: LayerType) -> u32 {
-        let resolution = self.layers[ty].texture_resolution ;
+        let resolution = self.layers[ty].texture_resolution;
         let block_size = self.layers[ty].texture_format.block_size();
         assert_eq!(resolution % block_size, 0);
         resolution / block_size

@@ -2,8 +2,6 @@
 #![allow(non_upper_case_globals)]
 
 use cgmath::{ElementWise, InnerSpace, Vector2, Vector3, Vector4, VectorSpace, Zero};
-use std::f64::consts::PI;
-
 use crate::sky::lut::{LookupTable, LookupTableDefinition};
 
 // Simulation is done at λ = (680, 550, 440) nm = (red, green, blue).
@@ -29,12 +27,10 @@ mod rayleigh {
 }
 
 mod mie {
-    use super::*;
-
     pub const βs: f64 = 2.0e-6;
     pub const βe: f64 = βs / 0.9;
     pub const H: f64 = 1200.0;
-    pub const g: f64 = 0.76;
+    // pub const g: f64 = 0.76;
 
     // #[allow(unused)]
     // pub fn P(μ: f64) -> f64 {
@@ -260,7 +256,7 @@ impl<'a> LookupTableDefinition for InscatteringTable<'a> {
         //     Vector2::new(-f64::sqrt(1.0 - μ * μ), -μ)
         // };
         let vv = Vector2::new(f64::sqrt(1.0 - μ * μ), μ);
-        let ss = Vector2::new(f64::sqrt(1.0 - μ_s * μ_s), μ_s);
+        // let ss = Vector2::new(f64::sqrt(1.0 - μ_s * μ_s), μ_s);
 
         let L_sun = 100000.0;
         let s = integral(r, f64::acos(μ), self.steps, intersects_ground, |y| {
@@ -324,8 +320,8 @@ impl<'a> LookupTableDefinition for InscatteringTable<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cache::{AssetLoadContext, GeneratedAsset};
     use rand::{self, Rng};
+	use approx::assert_relative_eq;
 
     #[test]
     fn invert_transmittance_parameters() {
@@ -360,25 +356,25 @@ mod tests {
         }
     }
 
-    #[test]
-    #[ignore]
-    fn transmittance_enough_steps() {
-        let t1 = TransmittanceTable { steps: 1000 };
-        let t2 = TransmittanceTable { steps: 2000 };
+    // #[test]
+    // #[ignore]
+    // fn transmittance_enough_steps() {
+    //     let t1 = TransmittanceTable { steps: 1000 };
+    //     let t2 = TransmittanceTable { steps: 2000 };
 
-        let mut context = AssetLoadContext::new();
-        let t1 = t1.load(&mut context).unwrap();
-        let t2 = t2.load(&mut context).unwrap();
-        assert_eq!(t1.size, t2.size);
+    //     let mut context = AssetLoadContext::new();
+    //     let t1 = t1.load(&mut context).unwrap();
+    //     let t2 = t2.load(&mut context).unwrap();
+    //     assert_eq!(t1.size, t2.size);
 
-        for x in 0..t1.size[0] as usize {
-            for y in 0..t1.size[1] as usize {
-                let v1 = t1.data[x + y * t1.size[0] as usize];
-                let v2 = t2.data[x + y * t2.size[0] as usize];
-                for i in 0..4 {
-                    assert_relative_eq!(v1[i], v2[i], max_relative = 0.05);
-                }
-            }
-        }
-    }
+    //     for x in 0..t1.size[0] as usize {
+    //         for y in 0..t1.size[1] as usize {
+    //             let v1 = t1.data[x + y * t1.size[0] as usize];
+    //             let v2 = t2.data[x + y * t2.size[0] as usize];
+    //             for i in 0..4 {
+    //                 assert_relative_eq!(v1[i], v2[i], max_relative = 0.05);
+    //             }
+    //         }
+    //     }
+    // }
 }

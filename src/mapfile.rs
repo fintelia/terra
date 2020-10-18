@@ -4,7 +4,7 @@ use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::PathBuf;
 use vec_map::VecMap;
 
@@ -39,11 +39,17 @@ pub(crate) struct TextureDescriptor {
     pub bytes: usize,
 }
 
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct ShaderDescriptor {
+    hash: [u8; 32],
+}
+
 pub struct MapFile {
     layers: VecMap<LayerParams>,
     _db: sled::Db,
     tiles: sled::Tree,
     textures: sled::Tree,
+    shaders: sled::Tree,
 }
 impl MapFile {
     pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
@@ -52,11 +58,27 @@ impl MapFile {
             "Failed to open/create sled database. Deleting the '{}' directory may fix this",
             directory.display()
         ));
-        db.insert("version", "1").unwrap();
+
+        const CURRENT_VERSION: i32 = 2;
+        let version = db.get("version").unwrap();
+        let version = version
+            .as_ref()
+            .map(|v| std::str::from_utf8(v).unwrap_or("0"))
+            .map(|s| s.parse())
+            .unwrap_or(Ok(CURRENT_VERSION))
+            .unwrap();
+        if version < CURRENT_VERSION {
+            db.drop_tree("tiles").unwrap();
+            db.drop_tree("textures").unwrap();
+            db.drop_tree("shaders").unwrap();
+        }
+        db.insert("version", &*format!("{}", CURRENT_VERSION)).unwrap();
+
         Self {
             layers,
             tiles: db.open_tree("tiles").unwrap(),
             textures: db.open_tree("textures").unwrap(),
+            shaders: db.open_tree("shaders").unwrap(),
             _db: db,
         }
     }
@@ -74,7 +96,16 @@ impl MapFile {
         }
         match layer {
             LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba().into_vec()),
-            LayerType::Heightmaps => {
+            LayerType::Normals => {
+                let mut data = Vec::new();
+                // snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
+                //     .read_to_end(&mut data)
+                //     .ok()?;
+				lz4::Decoder::new(BufReader::new(File::open(filename).ok()?)).ok()?
+					.read_to_end(&mut data).ok()?;
+				Some(data)
+			}
+            LayerType::Heightmaps |/*=> {
                 let mut data = Vec::new();
                 snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
                     .read_to_end(&mut data)
@@ -94,20 +125,40 @@ impl MapFile {
                 data.clear();
                 data.extend_from_slice(bytemuck::cast_slice(&fdata));
                 Some(data)
-            }
-            LayerType::Normals | LayerType::Displacements | LayerType::Roughness => {
+            }*/
+            LayerType::Displacements | LayerType::Roughness => {
                 fs::read(filename).ok()
             }
         }
     }
+
+    pub(crate) async fn read_tile_async_raw(
+        &self,
+        layer: LayerType,
+        node: VNode,
+    ) -> Option<Vec<u8>> {
+        let filename = Self::tile_name(layer, node);
+        if !filename.exists() {
+            return None;
+        }
+
+        use tokio::prelude::*;
+        let mut contents = Vec::new();
+        tokio::fs::File::open(filename).await.ok()?.read_to_end(&mut contents).await.ok()?;
+        Some(contents)
+    }
+
     pub(crate) fn write_tile(
-        &mut self,
+        &self,
         layer: LayerType,
         node: VNode,
         data: &[u8],
         base: bool,
     ) -> Result<(), Error> {
         let filename = Self::tile_name(layer, node);
+        if let Some(parent) = filename.parent() {
+            fs::create_dir_all(parent)?;
+        }
         match layer {
             LayerType::Albedo => image::save_buffer_with_format(
                 &filename,
@@ -117,7 +168,14 @@ impl MapFile {
                 image::ColorType::Rgba8,
                 image::ImageFormat::Bmp,
             )?,
-            LayerType::Heightmaps => {
+			LayerType::Normals => {
+				let mut e = lz4::EncoderBuilder::new().level(9).build(File::create(filename)?)?;
+				e.write_all(&data)?;
+				e.finish().1?;
+                // snap::write::FrameEncoder::new(File::create(filename)?)
+                //     .write_all(bytemuck::cast_slice(&data))?;
+			}
+            LayerType::Heightmaps |/*=> {
                 let data: &[f32] = bytemuck::cast_slice(data);
                 let mut qdata = vec![0i16; data.len()];
 
@@ -130,8 +188,8 @@ impl MapFile {
 
                 snap::write::FrameEncoder::new(File::create(filename)?)
                     .write_all(bytemuck::cast_slice(&qdata))?;
-            }
-            LayerType::Normals | LayerType::Displacements | LayerType::Roughness => {
+            }*/
+            LayerType::Displacements | LayerType::Roughness => {
                 fs::write(filename, data)?;
             }
         }
@@ -276,10 +334,11 @@ impl MapFile {
             LayerType::Albedo => ("albedo", "bmp"),
             LayerType::Roughness => ("roughness", "raw"),
             LayerType::Normals => ("normals", "raw"),
-            LayerType::Heightmaps => ("heightmaps", "raw.sz"),
+            LayerType::Heightmaps => ("heightmaps", "raw"),
         };
         TERRA_DIRECTORY.join(&format!(
-            "tiles/{}_{}_{}_{}x{}.{}",
+            "tiles/{}/{}_{}_{}_{}x{}.{}",
+            layer,
             layer,
             node.level(),
             face,
@@ -320,16 +379,7 @@ impl MapFile {
         self.update_tile_meta(layer, node, new_meta)?;
         Ok(target_state)
     }
-    // pub(crate) fn set_missing(
-    //     &self,
-    //     layer: LayerType,
-    //     node: VNode,
-    //     base: bool,
-    // ) -> Result<(), Error> {
-    //     let state = if base { TileState::MissingBase } else { TileState::Missing };
-    //     self.update_tile_meta(layer, node, TileMeta { crc32: 0, state })
-    // }
-    pub(crate) fn clear_generated(&mut self, layer: LayerType) -> Result<(), Error> {
+    pub(crate) fn clear_generated(&self, layer: LayerType) -> Result<(), Error> {
         self.scan_tile_meta(layer, |node, meta| {
             if let TileState::Generated = meta.state {
                 self.remove_tile_meta(layer, node)?;
@@ -387,6 +437,14 @@ impl MapFile {
     fn update_texture(&self, name: &str, desc: TextureDescriptor) -> Result<(), Error> {
         let value = serde_json::to_vec(&desc).unwrap();
         self.textures.insert(name, value)?;
+        Ok(())
+    }
+
+    pub(crate) fn lookup_shader_hash(&self, name: &str) -> Result<Option<Vec<u8>>, Error> {
+        Ok(self.shaders.get(name)?.map(|v| v.to_vec()))
+    }
+    pub(crate) fn update_shader_hash(&self, name: &str, hash: &[u8]) -> Result<(), Error> {
+        self.shaders.insert(name, hash)?;
         Ok(())
     }
 }

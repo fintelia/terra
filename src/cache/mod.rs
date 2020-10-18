@@ -2,8 +2,8 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Cursor, Read, Stdout, Write};
 use std::ops::Drop;
 use std::path::PathBuf;
+use std::thread;
 use std::time::{Duration, Instant};
-use std::{mem, thread};
 
 use anyhow::Error;
 use bincode;
@@ -148,7 +148,8 @@ pub(crate) trait WebAsset {
                 if self.compressed() {
                     context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
                     let mut uncompressed = Vec::new();
-                    snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed)?;
+                    snap::read::FrameDecoder::new(Cursor::new(data))
+                        .read_to_end(&mut uncompressed)?;
                     data = uncompressed;
                 }
                 context.reset(&format!("Parsing {}... ", &self.filename()), 100);

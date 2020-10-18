@@ -1,12 +1,12 @@
 use crate::cache::{AssetLoadContext, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use anyhow::{ensure, Error};
+use lazy_static::lazy_static;
+use std::collections::HashSet;
 use std::io::{Cursor, Read};
 use std::str::FromStr;
 use thiserror::Error;
 use zip::ZipArchive;
-use std::collections::HashSet;
-use lazy_static::lazy_static;
 
 #[derive(Debug, Error)]
 #[error("failed to parse DEM file")]
@@ -54,6 +54,7 @@ impl DemSource {
         }
     }
     /// Returns the approximate resolution of data from this source in meters.
+    #[allow(unused)]
     pub(crate) fn resolution(&self) -> u32 {
         match *self {
             DemSource::Usgs30m => 30,
@@ -62,11 +63,30 @@ impl DemSource {
         }
     }
     /// Returns the size of cells from this data source in arcseconds.
+    #[allow(unused)]
     pub(crate) fn cell_size(&self) -> f32 {
         match *self {
             DemSource::Usgs30m => 1.0,
             DemSource::Usgs10m => 1.0 / 3.0,
             DemSource::Srtm90m => 3.0,
+        }
+    }
+
+    pub(crate) fn tile_exists(&self, latitude: i16, longitude: i16) -> bool {
+        let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+        let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+        match *self {
+            DemSource::Srtm90m => {
+				let s = format!(
+					"{}{:02}_{}{:03}.hgt",
+					n_or_s,
+					latitude.abs(),
+					e_or_w,
+					longitude.abs()
+				);
+				SRTM3_FILES.contains(&*s)
+			}
+            _ => unimplemented!(),
         }
     }
 }

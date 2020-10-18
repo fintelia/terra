@@ -1,5 +1,4 @@
 use notify;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 use super::*;

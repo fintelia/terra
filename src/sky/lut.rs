@@ -1,5 +1,5 @@
 use anyhow::Error;
-use crate::cache::{AssetLoadContext, GeneratedAsset};
+use crate::cache::AssetLoadContext;
 use serde::{Serialize, Deserialize};
 
 pub(crate) trait LookupTableDefinition {

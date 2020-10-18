@@ -2,30 +2,22 @@ use crate::cache::{AssetLoadContext, AssetLoadContextBuf, WebAsset};
 use crate::coordinates::CoordinateSystem;
 use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
+use crate::terrain::dem::DemSource;
 use crate::terrain::dem::GlobalDem;
-use crate::terrain::heightmap;
 use crate::terrain::landcover::{BlueMarble, BlueMarbleTileSource};
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::RasterCache;
-// use crate::terrain::reprojected_raster::{
-//     DataType, RasterSource, ReprojectedDemDef, ReprojectedRaster, ReprojectedRasterDef,
-// };
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
-use byteorder::{LittleEndian, WriteBytesExt};
 use maplit::hashmap;
-// use rand;
-// use rand::distributions::Distribution;
-// use rand_distr::Normal;
-// use std::cell::RefCell;
-use std::f64::consts::PI;
-// use std::io::Write;
-// use std::rc::Rc;
 use rayon::prelude::*;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use vec_map::VecMap;
 
 mod gpu;
+pub mod heightmap;
+
 pub(crate) use gpu::*;
 
 /// The radius of the earth in meters.
@@ -62,8 +54,24 @@ mod levels {
     pub const LEVEL_60_CM: i32 = 24;
     pub const LEVEL_30_CM: i32 = 25;
     pub const LEVEL_15_CM: i32 = 26;
+
+    pub const TILE_CELL_20_KM: u8 = 0;
+    pub const TILE_CELL_10_KM: u8 = 1;
+    pub const TILE_CELL_5_KM: u8 = 2;
+    pub const TILE_CELL_2_KM: u8 = 3;
+    pub const TILE_CELL_1_KM: u8 = 4;
+    pub const TILE_CELL_625M: u8 = 5;
+    pub const TILE_CELL_305M: u8 = 6;
+    pub const TILE_CELL_153M: u8 = 7;
+    pub const TILE_CELL_76M: u8 = 8;
+    pub const TILE_CELL_38M: u8 = 9;
+    pub const TILE_CELL_19M: u8 = 10;
+    pub const TILE_CELL_10M: u8 = 11;
+    pub const TILE_CELL_5M: u8 = 12;
+    pub const TILE_CELL_2M: u8 = 13;
+    pub const TILE_CELL_1M: u8 = 14;
 }
-// use levels::*;
+use levels::*;
 
 /// Used to construct a `QuadTree`.
 pub struct MapFileBuilder;
@@ -79,7 +87,7 @@ impl MapFileBuilder {
     /// of CPU resources. You can expect it to run at full load continiously for several full
     /// minutes, even in release builds (you *really* don't want to wait for generation in debug
     /// mode...).
-    pub fn build() -> Result<MapFile, Error> {
+    pub async fn build() -> Result<MapFile, Error> {
         let layers: VecMap<LayerParams> = hashmap![
             LayerType::Heightmaps.index() => LayerParams {
                     layer_type: LayerType::Heightmaps,
@@ -118,20 +126,25 @@ impl MapFileBuilder {
         let mut mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < 3
+            n.level() < TILE_CELL_153M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
-            n.level() < 5
+            n.level() < TILE_CELL_625M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Roughness, n, true).unwrap();
             false
         });
 
+        VNode::breadth_first(|n| {
+            mapfile.reload_tile_state(LayerType::Normals, n, false).unwrap();
+            n.level() < TILE_CELL_625M
+        });
+
         let mut context = AssetLoadContextBuf::new();
         let mut context = context.context("Generating mapfile...", 5);
-        generate_heightmaps(&mut mapfile, &mut context)?;
+        generate_heightmaps(&mut mapfile, &mut context).await?;
         context.set_progress(1);
         generate_albedo(&mut mapfile, &mut context)?;
         context.set_progress(2);
@@ -142,55 +155,34 @@ impl MapFileBuilder {
         generate_sky(&mut mapfile, &mut context)?;
         context.set_progress(5);
 
-        // for y in -44..61 {
-        //     for x in -180..180 {
-        //         let _ = crate::terrain::dem::DigitalElevationModelParams {
-        //             latitude: y,
-        //             longitude: x,
-        //             source: crate::terrain::dem::DemSource::Srtm90m,
-        //         }
-        //         .load(&mut context);
-        //     }
-        // }
-
         Ok(mapfile)
     }
 }
 
-fn generate_heightmaps(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
-    let missing = mapfile.get_missing_base(LayerType::Heightmaps)?;
+async fn generate_heightmaps<'a>(
+    mapfile: &mut MapFile,
+    context: &mut AssetLoadContext<'a>,
+) -> Result<(), Error> {
+    let mut missing = mapfile.get_missing_base(LayerType::Heightmaps)?;
     if missing.is_empty() {
         return Ok(());
     }
 
-    let layer = mapfile.layers()[LayerType::Heightmaps].clone();
+    missing.sort_by_key(|n| n.level());
 
-    let global_dem = GlobalDem.load(context)?;
+    let mut gen = heightmap::HeightmapGen {
+        tile_cache: heightmap::HeightmapCache::new(
+            mapfile.layers()[LayerType::Heightmaps].clone(),
+            32,
+        ),
+        dems: RasterCache::new(Box::new(DemSource::Srtm90m), 256),
+        global_dem: GlobalDem.load(context)?,
+    };
 
     let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
-        context.set_progress(i as u64);
-
-        let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
-            .into_par_iter()
-            .map(|i| {
-                let cspace = n.grid_position_cspace(
-                    (i % layer.texture_resolution) as i32,
-                    (i / layer.texture_resolution) as i32,
-                    layer.texture_border_size as u16,
-                    layer.texture_resolution as u16,
-                );
-                let sspace = CoordinateSystem::cspace_to_sspace(cspace);
-                let polar = CoordinateSystem::sspace_to_polar(sspace);
-                (polar.x.to_degrees(), polar.y.to_degrees())
-            })
-            .collect();
-
-        let mut heightmap = Vec::new();
-        for (lat, long) in coordinates {
-            heightmap.write_f32::<LittleEndian>(global_dem.interpolate(lat, long, 0) as f32)?;
-        }
-        mapfile.write_tile(LayerType::Heightmaps, n, &heightmap, true)?;
+		context.set_progress(i as u64);
+        gen.generate_heightmaps(context, mapfile, n).await?;
     }
 
     Ok(())
@@ -213,8 +205,6 @@ fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Res
     let context = &mut context.increment_level("Generating colormaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
         context.set_progress(i as u64);
-        let start = std::time::Instant::now();
-
         let mut colormap = Vec::with_capacity(
             layer.texture_resolution as usize * layer.texture_resolution as usize,
         );
@@ -326,7 +316,7 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
         };
 
         let noise_heightmaps: Vec<_> =
-            (0..4).map(|i| heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
+            (0..4).map(|i| crate::terrain::heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
 
         let len = noise_heightmaps[0].heights.len();
         let mut heights = vec![0u8; len * 4];

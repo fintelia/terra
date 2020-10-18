@@ -1,38 +1,55 @@
 #![feature(try_blocks)]
 
-pub mod dynamic_shaders;
-pub mod static_shaders;
-
 use anyhow::anyhow;
+use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use spirq::ty::{DescriptorType, ImageArrangement, ScalarType, Type, VectorType};
 use spirq::{ExecutionModel, SpirvBinary};
+use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
-use std::fs::{self, File};
-use std::io::{self, Read};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-#[cfg(feature = "dynamic_shaders")]
-pub use dynamic_shaders::*;
-#[cfg(not(feature = "dynamic_shaders"))]
-pub use static_shaders::*;
-
-pub struct ShaderSource {
-    pub source: Option<String>,
-    pub filenames: Option<Vec<PathBuf>>,
+pub enum ShaderSource {
+    Inline(String),
+    Files(Vec<PathBuf>),
 }
 impl ShaderSource {
-    pub fn load(&self, base_directory: &Path) -> Result<String, anyhow::Error> {
-        if let Some(ref src) = self.source {
-            return Ok(src.clone());
-        }
+    pub fn new(directory: PathBuf, mut filenames: Vec<PathBuf>) -> Self {
+        DIRECTORY_WATCHER.lock().unwrap().watch(&directory);
 
-        let mut contents = String::new();
-        for filename in self.filenames.as_ref().unwrap() {
-            File::open(fs::canonicalize(base_directory.join(filename))?)?
-                .read_to_string(&mut contents)?;
+        for filename in &mut filenames {
+            *filename = std::fs::canonicalize(directory.join(&filename)).unwrap();
         }
-        Ok(contents)
+        ShaderSource::Files(filenames)
+    }
+    pub(crate) fn load(&self) -> Result<String, anyhow::Error> {
+        match self {
+            ShaderSource::Inline(s) => Ok(s.clone()),
+            ShaderSource::Files(fs) => {
+                let mut contents = String::new();
+                for filename in fs {
+                    File::open(filename)?.read_to_string(&mut contents)?;
+                }
+                Ok(contents)
+            }
+        }
+    }
+    pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
+        match self {
+            ShaderSource::Inline(_) => false,
+            ShaderSource::Files(v) => {
+                let mut directory_watcher = DIRECTORY_WATCHER.lock().unwrap();
+                directory_watcher.detect_changes();
+                v.iter()
+                    .filter_map(|f| directory_watcher.last_modifications.get(f))
+                    .any(|&t| t > last_update)
+            }
+        }
     }
 }
 
@@ -83,20 +100,136 @@ impl ShaderSetInner {
     }
 }
 
+pub(crate) struct DirectoryWatcher {
+    watcher: RecommendedWatcher,
+    watcher_rx: Receiver<DebouncedEvent>,
+    last_modifications: HashMap<PathBuf, Instant>,
+}
+impl DirectoryWatcher {
+    pub fn new() -> Self {
+        let (tx, watcher_rx) = mpsc::channel();
+        let watcher = notify::watcher(tx, Duration::from_millis(50)).unwrap();
+
+        Self { watcher, watcher_rx, last_modifications: HashMap::new() }
+    }
+
+    pub fn detect_changes(&mut self) {
+        while let Ok(event) = self.watcher_rx.try_recv() {
+            if let DebouncedEvent::Write(p) = event {
+                self.last_modifications.insert(p, Instant::now());
+            }
+        }
+    }
+
+    pub fn watch(&mut self, directory: &Path) {
+        self.watcher
+            .watch(directory, RecursiveMode::Recursive)
+            .expect(&format!("rshader: Failed to watch path '{}'", directory.display()))
+    }
+}
+
+pub struct ShaderSet {
+    inner: ShaderSetInner,
+    vertex_source: Option<ShaderSource>,
+    fragment_source: Option<ShaderSource>,
+    compute_source: Option<ShaderSource>,
+    last_update: Instant,
+}
+impl ShaderSet {
+    pub fn simple(
+        vertex_source: ShaderSource,
+        fragment_source: ShaderSource,
+    ) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            inner: ShaderSetInner::simple(vertex_source.load()?, fragment_source.load()?)?,
+            vertex_source: Some(vertex_source),
+            fragment_source: Some(fragment_source),
+            compute_source: None,
+            last_update: Instant::now(),
+        })
+    }
+    pub fn compute_only(compute_source: ShaderSource) -> Result<Self, anyhow::Error> {
+        Ok(Self {
+            inner: ShaderSetInner::compute_only(compute_source.load()?)?,
+            vertex_source: None,
+            fragment_source: None,
+            compute_source: Some(compute_source),
+            last_update: Instant::now(),
+        })
+    }
+
+    /// Refreshes the shader if necessary. Returns whether a refresh happened.
+    pub fn refresh(&mut self) -> bool {
+        if !self.vertex_source.as_ref().map(|s| s.needs_update(self.last_update)).unwrap_or(false)
+            && !self
+                .fragment_source
+                .as_ref()
+                .map(|s| s.needs_update(self.last_update))
+                .unwrap_or(false)
+            && !self
+                .compute_source
+                .as_ref()
+                .map(|s| s.needs_update(self.last_update))
+                .unwrap_or(false)
+        {
+            return false;
+        }
+
+        let r: Result<(), anyhow::Error> = try {
+            self.inner = match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
+                (Some(ref vs), Some(ref fs), None) => {
+                    ShaderSetInner::simple(vs.load()?, fs.load()?)
+                }
+                (None, None, Some(ref cs)) => ShaderSetInner::compute_only(cs.load()?),
+                _ => unreachable!(),
+            }?;
+        };
+        self.last_update = Instant::now();
+        r.is_ok()
+    }
+
+    pub fn layout_descriptor(&self) -> wgpu::BindGroupLayoutDescriptor {
+        wgpu::BindGroupLayoutDescriptor {
+            entries: self.inner.layout_descriptor[..].into(),
+            label: None,
+        }
+    }
+    pub fn desc_names(&self) -> &[Option<String>] {
+        &self.inner.desc_names[..]
+    }
+    pub fn input_attributes(&self) -> &[wgpu::VertexAttributeDescriptor] {
+        &self.inner.input_attributes[..]
+    }
+
+    pub fn vertex(&self) -> &[u32] {
+        self.inner.vertex.as_ref().unwrap()
+    }
+    pub fn fragment(&self) -> &[u32] {
+        self.inner.fragment.as_ref().unwrap()
+    }
+    pub fn compute(&self) -> &[u32] {
+        self.inner.compute.as_ref().unwrap()
+    }
+    pub fn digest(&self) -> &[u8] {
+        &self.inner.digest
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref DIRECTORY_WATCHER: Mutex<DirectoryWatcher> = Mutex::new(DirectoryWatcher::new());
+}
+
 #[macro_export]
 #[cfg(not(feature = "dynamic_shaders"))]
 macro_rules! shader_source {
     ($directory:expr, $( $filename:expr ),+ ) => {
-        $crate::ShaderSource{
-            source: Some({
-                let mut tmp = String::new();
-                $( tmp.push_str(
-                    include_str!(concat!($directory, "/", $filename)));
-                )*
+        $crate::ShaderSource::Inline({
+            let mut tmp = String::new();
+            $( tmp.push_str(
+                include_str!(concat!($directory, "/", $filename)));
+            )*
                 tmp
-            }),
-            filenames: None,
-        }
+        })
     };
 }
 
@@ -104,14 +237,14 @@ macro_rules! shader_source {
 #[cfg(feature = "dynamic_shaders")]
 macro_rules! shader_source {
     ($directory:expr, $( $filename:expr ),+ ) => {
-        $crate::ShaderSource {
-            source: None,
-            filenames: Some({
-                let mut tmp_vec = Vec::new();
-                $( tmp_vec.push(std::path::Path::from($filename)); )*
-                    tmp_vec
-            }),
-        }
+		{
+			let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+				.join(file!()).parent().unwrap().join($directory);
+			let mut files = Vec::new();
+			$( files.push(std::path::PathBuf::from($filename)); )*
+
+			$crate::ShaderSource::new(directory, files)
+		}
     };
 }
 

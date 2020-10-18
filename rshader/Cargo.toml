@@ -17,6 +17,7 @@ sha2 = "0.9.1"
 shaderc = "0.6.2"
 spirq = "0.4.1"
 wgpu = "0.6.0"
+lazy_static = "1.4.0"
 
 [features]
 default = []

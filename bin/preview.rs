@@ -1,19 +1,19 @@
 use cgmath::EuclideanSpace;
 use gilrs::{Axis, Button, Gilrs};
 use std::f64::consts::PI;
+use structopt::StructOpt;
 use winit::{
     event,
     event_loop::{ControlFlow, EventLoop},
 };
-use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
-    #[structopt(short, long, default_value="8FH495PF+29")]
+    #[structopt(short, long, default_value = "8FH495PF+29")]
     plus: String,
-    #[structopt(short, long, default_value="0")]
+    #[structopt(short, long, default_value = "0")]
     heading: f64,
-    #[structopt(short, long, default_value="200000")]
+    #[structopt(short, long, default_value = "200000")]
     elevation: f64,
 }
 
@@ -64,7 +64,9 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 fn main() {
     // env_logger::init();
 
-    let mapfile = terra::MapFileBuilder::build().unwrap();
+    let mut runtime = tokio::runtime::Runtime::new().unwrap();
+
+    let mapfile = runtime.block_on(terra::MapFileBuilder::build()).unwrap();
 
     let event_loop = EventLoop::new();
     let window = winit::window::Window::new(&event_loop).unwrap();
@@ -76,21 +78,22 @@ fn main() {
     }
     let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN | wgpu::BackendBit::DX12);
     let surface = unsafe { instance.create_surface(&window) };
-    let adapter =
-        futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+    let adapter = runtime
+        .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::Default,
             compatible_surface: Some(&surface),
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let (device, mut queue) = futures::executor::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            features: wgpu::Features::TEXTURE_COMPRESSION_BC,
-            limits: wgpu::Limits::default(),
-            shader_validation: true,
-        },
-        None,
-    ))
-    .expect("Unable to create compatible wgpu device");
+    let (device, mut queue) = runtime
+        .block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+                limits: wgpu::Limits::default(),
+                shader_validation: true,
+            },
+            None,
+        ))
+        .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
     let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
@@ -104,9 +107,8 @@ fn main() {
     }
 
     let opt = Opt::from_args();
-    let plus_center = open_location_code::decode(&opt.plus)
-        .expect("Failed to parse plus code")
-        .center;
+    let plus_center =
+        open_location_code::decode(&opt.plus).expect("Failed to parse plus code").center;
 
     let planet_radius = 6371000.0;
     let mut angle = opt.heading.to_radians();
@@ -208,7 +210,7 @@ fn main() {
                 );
 
                 let dt = (planet_radius / (planet_radius + altitude)).acos() * 0.3;
-                let latc = lat + angle.cos() *  dt;
+                let latc = lat + angle.cos() * dt;
                 let longc = long - angle.sin() * dt;
 
                 let center = cgmath::Point3::new(
@@ -232,7 +234,7 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                terrain.render(
+                runtime.block_on(terrain.render(
                     &device,
                     &mut queue,
                     &frame,
@@ -240,7 +242,7 @@ fn main() {
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
-                );
+                ));
             }
             _ => (),
         }

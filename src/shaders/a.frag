@@ -58,9 +58,9 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,1), 0.3);
 
-	// vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
-	// vec2 tc = normals_texcoord.xy;//;
-	// float ml = mipmap_level(tc * ts);
+	vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
+	vec2 tc = normals_texcoord.xy;//;
+	float ml = mipmap_level(tc * ts);
 
 	// vec3 pc = normalize((position+vec3(0,6371000.0,0)) / (position.y+6371000.0));
 	// vec3 cc = normalize((ubo.camera.xyz+vec3(0,6371000.0,0)) / (ubo.camera.y+6371000.0));
@@ -81,24 +81,24 @@ vec3 debug_overlay(vec3 color) {
 	// else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
 	// 	color.rgb = mix(color.rgb, level_color, 0.2);
 
-	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
-	// vec3 overlay_color = vec3(0);
-	// if (ml < 0.0 && side_length <= 16.0)
-	// 	overlay_color = vec3(0.4);
-	// else if (ml < -1.0)
-	// 	overlay_color = vec3(1,0,0);
-	// else if (ml < 0.0) // 1024
-	// 	overlay_color = vec3(0.5,0,0);
-	// else if (ml < 1.0) // 512
-	// 	overlay_color = vec3(0,0.2,0);
-	// else if (ml < 2.0) // 256
-	// 	overlay_color = vec3(0,0.4,0);
-	// else if (ml < 3.0) // 128
-	// 	overlay_color = vec3(0,0,.7);
-	// else               // 64
-	// 	overlay_color = vec3(0,0,.3);
-	// // overlay_color = mix(overlay_color, vec3(0), 0.3-0.3*fract(ml));
-	// color = mix(color, overlay_color, 0.9);
+	ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
+	vec3 overlay_color = vec3(0);
+	if (ml < 0.0 /*&& side_length <= 16.0*/)
+		overlay_color = vec3(0.4);
+	else if (ml < -1.0)
+		overlay_color = vec3(1,0,0);
+	else if (ml < 0.0) // 1024
+		overlay_color = vec3(0.5,0,0);
+	else if (ml < 1.0) // 512
+		overlay_color = vec3(0,0.2,0);
+	else if (ml < 2.0) // 256
+		overlay_color = vec3(0,0.4,0);
+	else if (ml < 3.0) // 128
+		overlay_color = vec3(0,0,.7);
+	else               // 64
+		overlay_color = vec3(0,0,.1);
+	// overlay_color = mix(overlay_color, vec3(0), 0.3-0.3*fract(ml));
+	color = mix(color, overlay_color, 0.9);
 
 	// if((fract(0.5*position.x/(4*1024*1024)) < 0.5) != (fract(0.5*position.z/(4*1024*1024)) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
@@ -119,9 +119,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+ 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	float line = min(grid.x, grid.y);
+	color = mix(color, vec3(0.8), smoothstep(1, 0, line));
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -143,27 +143,44 @@ vec3 debug_overlay(vec3 color) {
 	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
 
 	vec2 v = vec2(i_position) / float(level_resolution) *2;
+	// // v = v * (1.4511 + (1 - 1.4511)*abs(v));
+	// // v = v * (1.4511 + (1 - 1.4511)*abs(v));
+	// // v = sign(v) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(v))) / 0.9022;
+	// // v = sign(v) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(v))) / 0.9022;
 
-	// v = atan(v) * 4 / 3.141592;
-	// v = sign(v)*(11./6 - 1./6 * sqrt(121 - 96.*v));
-	// v = sign(v)*(1.375 - sqrt(1.375*1.375 - 4*(1.375 - 1)*abs(v))) / (2*(1.375 - 1));
-	v = v * (1.375 + (1 - 1.375)*abs(v));
+	// float s = 0;
+	// vec2 vv = fract((v*.25+0.25)*16);
+	// if (vv.x < 0.5 != vv.y < 0.5) {
+	// 	s += 0.1;
+	// }
+	// vv = fract((v*.25+0.25)*16*16);
+	// if (vv.x < 0.5 != vv.y < 0.5) {
+	// 	s += 0.05;
+	// }
+	// vv = fract((v*.25+0.25)*16*16*16);
+	// if (vv.x < 0.5 != vv.y < 0.5) {
+	// 	s += 0.05;
+	// }
 
-	v = fract((v*.25+0.25)*90*5);
-	float s = 0.2;
-	if (v.x < 0.5 != v.y < 0.5) {
-		s = 0.4;
-	}
-	if(face == 0) color = mix(color, vec3(1,0,0), s);
-	if(face == 1) color = mix(color, vec3(0,1,0), s);
-	if(face == 2) color = mix(color, vec3(0,0,1), s);
-	if(face == 3) color = mix(color, vec3(1,1,0), s);
-	if(face == 4) color = mix(color, vec3(1,1,1), s);
-	if(face == 5) color = mix(color, vec3(0,0,0), s);
-	// if(level_resolution == 128*1024)color = mix(color, vec3(1,0,0), .4);
-	// if(level_resolution == 64*1024)color = mix(color, vec3(0,1,0), .4);
-	// if(level_resolution == 32*1024)color = mix(color, vec3(0,0,1), .4);
-	// if(level_resolution == (1<<18)*512)color = mix(color, vec3(1,1,1), .4);
+	// if(face == 0) color = mix(color, vec3(1,0,0), s);
+	// if(face == 1) color = mix(color, vec3(0,1,0), s);
+	// if(face == 2) color = mix(color, vec3(0,0,1), s);
+	// if(face == 3) color = mix(color, vec3(1,1,0), s);
+	// if(face == 4) color = mix(color, vec3(1,1,1), s);
+	// if(face == 5) color = mix(color, vec3(0,0,0), s);
+
+
+	// if(level_resolution == 128)color = mix(color, vec3(1,0,0), .74);
+	// if(level_resolution == 256)color = mix(color, vec3(0,1,0), .74);
+	// if(level_resolution == 512)color = mix(color, vec3(0,0,1), .74);
+	// if(level_resolution == 1024)color = mix(color, vec3(0,1,1), .74);
+	// if(level_resolution == 2*1024)color = mix(color, vec3(1,1,0), .74);
+	// if(level_resolution == 4*1024)color = mix(color, vec3(1,0,1), .74);
+	// if(level_resolution == 8*1024)color = mix(color, vec3(1,1,1), .74);
+
+	// if (int(level_resolution/2 + i_position.x / 64) % 2 !=
+	// 	int(level_resolution/2 + i_position.y / 64) % 2)
+	// 	color *= 0.5;
 
 	// if(resolution == 64)color = mix(color, vec3(0,0,1), .4);
 
@@ -176,7 +193,7 @@ vec3 debug_overlay(vec3 color) {
 	// // if (abs(length(position)-1000) < 100)
 	// 	color = mix(color, vec3(0), 0.5);
 
- 	// vec2 grid = abs(fract(position.xy/150 + 0.5) - 0.5) / fwidth(position.xy/150);
+ 	// vec2 grid = vec2(abs(fract(length(position)/100000 + 0.5) - 0.5) / fwidth(length(position)/100000));
 	// float line = min(grid.x, grid.y);
 	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
 
@@ -187,6 +204,8 @@ vec3 debug_overlay(vec3 color) {
 	// float line = min(grid.x, grid.y);
 	// if (coord.x > 90-60 && coord.x < 90+56)
 	// color = mix(color, vec3(0.), smoothstep(1, 0, line) * 0.6);
+
+	// if (face != 2) discard;
 
  	return color;
 }

@@ -58,10 +58,6 @@ impl VNode {
         4.0 / (1u32 << self.level()) as f64
     }
 
-    fn center_cspace(&self) -> Vector3<f64> {
-        self.cell_position_cspace(0, 0, 0, 1)
-    }
-
     fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
         let x = x.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * x.abs()).sqrt()) / 0.9022;
         let y = y.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * y.abs()).sqrt()) / 0.9022;
@@ -81,7 +77,7 @@ impl VNode {
     /// `skirt` cells outside the borders on each edge (but counted in resolution). Assumes [grid
     /// registration](https://www.ngdc.noaa.gov/mgg/global/gridregistration.html). Used for
     /// elevation data.
-    ///
+    ///```text
     ///       |       |
     ///     +---+---+---+
     ///   --|   |   |   |--
@@ -91,7 +87,7 @@ impl VNode {
     ///   --|   |   |   |--
     ///     +---+---+---+
     ///       |       |
-    ///
+    ///```
     pub fn grid_position_cspace(
         &self,
         x: i32,
@@ -109,7 +105,7 @@ impl VNode {
     }
 
     /// Same as `position_cspace_corners` but uses "cell registration". Used for textures/normalmaps.
-    ///
+    ///```text
     ///     |       |
     ///   --+---+---+--
     ///     |   |   |
@@ -117,7 +113,7 @@ impl VNode {
     ///     |   |   |
     ///   --+---+---+--
     ///     |       |
-    ///
+    ///```
     pub fn cell_position_cspace(
         &self,
         x: i32,

@@ -118,6 +118,7 @@ where
 {
     #[allow(unused)]
     GlobalRaster { global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>> },
+    #[allow(unused)]
     Hybrid {
         global: Box<dyn WebAsset<Type = GlobalRaster<T, C>>>,
         cache: Rc<RefCell<RasterCache<T, C2>>>,
@@ -244,6 +245,7 @@ pub(crate) struct ReprojectedRaster {
     header: ReprojectedRasterHeader,
     data: Mmap,
 }
+#[allow(unused)]
 impl ReprojectedRaster {
     pub fn from_dem<'a>(
         def: ReprojectedDemDef<'a>,

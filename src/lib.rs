@@ -3,7 +3,13 @@
 #![feature(is_sorted)]
 #![feature(non_ascii_idents)]
 #![feature(stmt_expr_attributes)]
+#![feature(test)]
 #![feature(with_options)]
+
+#![allow(confusable_idents)]
+
+#[cfg(test)]
+extern crate test;
 
 #[macro_use]
 extern crate lazy_static;
@@ -25,10 +31,9 @@ use crate::generate::{
 use crate::mapfile::TileState;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
-use crate::terrain::tile_cache::{LayerType, TileCache};
+use crate::terrain::tile_cache::{TileCache, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
-use futures::executor;
 use gpu_state::GpuState;
 use std::mem;
 use terrain::quadtree::QuadTree;
@@ -70,7 +75,6 @@ pub struct Terrain {
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     sky_uniform_buffer: wgpu::Buffer,
 
-    watcher: rshader::ShaderDirectoryWatcher,
     gen_heightmaps: ComputeShader<GenHeightmapsUniforms>,
     gen_displacements: ComputeShader<GenDisplacementsUniforms>,
     gen_normals: ComputeShader<GenNormalsUniforms>,
@@ -86,14 +90,12 @@ impl Terrain {
     pub fn new(
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
-        mut mapfile: MapFile,
+        mapfile: MapFile,
     ) -> Result<Self, Error> {
         let tile_cache = TileCache::new(mapfile.layers().clone(), 512);
         let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
 
-        let mut watcher = rshader::ShaderDirectoryWatcher::new("src/shaders").unwrap();
         let shader = rshader::ShaderSet::simple(
-            &mut watcher,
             rshader::shader_source!("shaders", "version", "a.vert"),
             rshader::shader_source!("shaders", "version", "pbr", "a.frag", "atmosphere"),
         )
@@ -168,7 +170,6 @@ impl Terrain {
         };
 
         let sky_shader = rshader::ShaderSet::simple(
-            &mut watcher,
             rshader::shader_source!("shaders", "version", "sky.vert"),
             rshader::shader_source!("shaders", "version", "pbr", "sky.frag", "atmosphere"),
         )
@@ -182,34 +183,56 @@ impl Terrain {
 
         let gen_heightmaps = ComputeShader::new(
             device,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "hash", "gen-heightmaps.comp"),
-            )
+            rshader::ShaderSet::compute_only(rshader::shader_source!(
+                "shaders",
+                "version",
+                "hash",
+                "gen-heightmaps.comp"
+            ))
             .unwrap(),
         );
         let gen_displacements = ComputeShader::new(
             device,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "gen-displacements.comp"),
-            )
+            rshader::ShaderSet::compute_only(rshader::shader_source!(
+                "shaders",
+                "version",
+                "gen-displacements.comp"
+            ))
             .unwrap(),
         );
         let gen_normals = ComputeShader::new(
             device,
-            rshader::ShaderSet::compute_only(
-                &mut watcher,
-                rshader::shader_source!("shaders", "version", "hash", "gen-normals.comp"),
-            )
+            rshader::ShaderSet::compute_only(rshader::shader_source!(
+                "shaders",
+                "version",
+                "hash",
+                "gen-normals.comp"
+            ))
             .unwrap(),
         );
 
-        // TODO: only clear if shader has changed?
-        mapfile.clear_generated(LayerType::Displacements).unwrap();
-        mapfile.clear_generated(LayerType::Normals).unwrap();
-        mapfile.clear_generated(LayerType::Heightmaps).unwrap();
-        mapfile.clear_generated(LayerType::Albedo).unwrap();
+        let heightmaps_changed = mapfile.lookup_shader_hash("heightmaps")?.unwrap_or(Vec::new())
+            != gen_heightmaps.hash();
+        let displacements_changed =
+            mapfile.lookup_shader_hash("displacements")?.unwrap_or(Vec::new())
+                != gen_heightmaps.hash();
+        let normals_changed =
+            mapfile.lookup_shader_hash("normals")?.unwrap_or(Vec::new()) != gen_heightmaps.hash();
+
+        if heightmaps_changed {
+            mapfile.clear_generated(LayerType::Heightmaps).unwrap();
+        }
+        if heightmaps_changed || displacements_changed {
+            mapfile.clear_generated(LayerType::Displacements).unwrap();
+        }
+        if heightmaps_changed || normals_changed {
+            mapfile.clear_generated(LayerType::Normals).unwrap();
+            mapfile.clear_generated(LayerType::Albedo).unwrap();
+        }
+
+        mapfile.update_shader_hash("heightmaps", gen_heightmaps.hash())?;
+        mapfile.update_shader_hash("displacements", gen_displacements.hash())?;
+        mapfile.update_shader_hash("normals", gen_normals.hash())?;
 
         // let font: &'static [u8] = include_bytes!("../assets/UbuntuMono/UbuntuMono-R.ttf");
         // let glyph_brush = wgpu_glyph::GlyphBrushBuilder::using_font_bytes(font)
@@ -218,7 +241,6 @@ impl Terrain {
 
         Ok(Self {
             bindgroup_pipeline: None,
-            watcher,
             shader,
 
             uniform_buffer,
@@ -243,7 +265,7 @@ impl Terrain {
         })
     }
 
-    pub fn render(
+    pub async fn render(
         &mut self,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
@@ -266,7 +288,7 @@ impl Terrain {
 
             device.poll(wgpu::Maintain::Wait);
 
-            if executor::block_on(future).is_ok() {
+            if future.await.is_ok() {
                 let mut tile_data =
                     vec![0; resolution_blocks * resolution_blocks * bytes_per_block];
                 let buffer_data = &*buffer_slice.get_mapped_range();
@@ -278,7 +300,7 @@ impl Terrain {
             }
         }
 
-        if self.gen_heightmaps.refresh(&mut self.watcher) {
+        if self.gen_heightmaps.refresh() {
             self.mapfile.clear_generated(LayerType::Heightmaps).unwrap();
             self.mapfile.clear_generated(LayerType::Displacements).unwrap();
             self.mapfile.clear_generated(LayerType::Normals).unwrap();
@@ -286,18 +308,18 @@ impl Terrain {
             self.tile_cache.clear_generated(LayerType::Displacements);
             self.tile_cache.clear_generated(LayerType::Normals);
         }
-        if self.gen_displacements.refresh(&mut self.watcher) {
+        if self.gen_displacements.refresh() {
             self.mapfile.clear_generated(LayerType::Displacements).unwrap();
             self.tile_cache.clear_generated(LayerType::Displacements);
         }
-        if self.gen_normals.refresh(&mut self.watcher) {
+        if self.gen_normals.refresh() {
             self.mapfile.clear_generated(LayerType::Normals).unwrap();
             self.tile_cache.clear_generated(LayerType::Normals);
             self.tile_cache.clear_generated(LayerType::Albedo);
         }
 
         self.quadtree.update_cache(&mut self.tile_cache, camera);
-        if self.shader.refresh(&mut self.watcher) {
+        if self.shader.refresh() {
             self.bindgroup_pipeline = None;
         }
 
@@ -363,7 +385,7 @@ impl Terrain {
             ));
         }
 
-        if self.sky_shader.refresh(&mut self.watcher) {
+        if self.sky_shader.refresh() {
             self.sky_bindgroup_pipeline = None;
         }
         if self.sky_bindgroup_pipeline.is_none() {
@@ -431,7 +453,7 @@ impl Terrain {
                 &texture,
                 &mut self.mapfile,
                 LayerType::from_index(i),
-            );
+            ).await;
             layer_missing.sort_by_key(|n| n.level());
             missing.insert(i, layer_missing);
         }

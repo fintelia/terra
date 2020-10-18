@@ -274,6 +274,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
             .and_then(|raster| raster.interpolate(latitude, longitude, band))
     }
+    #[allow(unused)]
     pub fn nearest3(
         &mut self,
         context: &mut AssetLoadContext,
