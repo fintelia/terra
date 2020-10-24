@@ -124,6 +124,12 @@ fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, 
     ret
 }
 
+pub(crate) enum CompressionType {
+    None,
+    Snappy,
+    Lz4,
+}
+
 pub(crate) trait WebAsset {
     type Type;
 
@@ -131,8 +137,8 @@ pub(crate) trait WebAsset {
     fn filename(&self) -> String;
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error>;
 
-    fn compressed(&self) -> bool {
-        false
+    fn compression(&self) -> CompressionType {
+        CompressionType::None
     }
     fn credentials(&self) -> Option<(String, String)> {
         None
@@ -145,12 +151,21 @@ pub(crate) trait WebAsset {
 
         if let Ok(file) = File::open(&filename) {
             if let Ok(mut data) = read_file(context, file) {
-                if self.compressed() {
-                    context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
-                    let mut uncompressed = Vec::new();
-                    snap::read::FrameDecoder::new(Cursor::new(data))
-                        .read_to_end(&mut uncompressed)?;
-                    data = uncompressed;
+                match self.compression() {
+                    CompressionType::Snappy => {
+                        context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
+                        let mut uncompressed = Vec::new();
+                        snap::read::FrameDecoder::new(Cursor::new(data))
+                            .read_to_end(&mut uncompressed)?;
+                        data = uncompressed;
+                    }
+                    CompressionType::Lz4 => {
+                        context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
+                        let mut uncompressed = Vec::new();
+                        lz4::Decoder::new(Cursor::new(data))?.read_to_end(&mut uncompressed)?;
+                        data = uncompressed;
+                    }
+                    CompressionType::None => {}
                 }
                 context.reset(&format!("Parsing {}... ", &self.filename()), 100);
                 if let Ok(asset) = self.parse(context, data) {
@@ -198,10 +213,14 @@ pub(crate) trait WebAsset {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(&filename)?;
-        if self.compressed() {
-            snap::write::FrameEncoder::new(&mut file).write_all(&data)?;
-        } else {
-            file.write_all(&data)?;
+        match self.compression() {
+            CompressionType::Snappy => {
+                snap::write::FrameEncoder::new(&mut file).write_all(&data)?
+            }
+            CompressionType::Lz4 => {
+                lz4::EncoderBuilder::new().level(9).build(&mut file)?.write_all(&data)?
+            }
+            CompressionType::None => file.write_all(&data)?,
         }
         file.sync_all()?;
         context.reset(&format!("Parsing {}... ", &self.filename()), 100);

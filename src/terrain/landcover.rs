@@ -1,15 +1,17 @@
-use std::io::{Cursor, Read};
-
+use crate::cache::{AssetLoadContext, CompressionType, WebAsset};
+use crate::terrain::raster::{GlobalRaster, MMappedRasterHeader, Raster, RasterSource};
 use anyhow::Error;
 use image::png::PngDecoder;
-use image::{self, ColorType, DynamicImage, GenericImageView, ImageDecoder, ImageFormat};
+use image::tiff::TiffDecoder;
+use image::{self, ColorType, ImageDecoder};
 use memmap::Mmap;
-use zip::ZipArchive;
+use std::collections::HashSet;
+use std::io::{Cursor, Read};
 
-use crate::cache::{AssetLoadContext, WebAsset};
-use crate::terrain::raster::{
-    BitContainer, GlobalRaster, MMappedRasterHeader, Raster, RasterSource,
-};
+lazy_static! {
+    static ref GFC_DATAMASK_FILES: HashSet<&'static str> =
+        include_str!("../../file_list_GFC2019_datamask.txt").split('\n').collect();
+}
 
 pub struct BlueMarble;
 impl WebAsset for BlueMarble {
@@ -131,38 +133,168 @@ impl RasterSource for BlueMarbleTileSource {
     }
 }
 
-pub struct GlobalWaterMask;
-impl WebAsset for GlobalWaterMask {
-    type Type = GlobalRaster<u8, BitContainer>;
+pub struct GfcWaterTile {
+    latitude_llcorner: i16,
+    longitude_llcorner: i16,
+}
+impl GfcWaterTile {
+    fn name(&self) -> String {
+        let n_or_s = if self.latitude_llcorner >= 0 { 'N' } else { 'S' };
+        let e_or_w = if self.longitude_llcorner >= 0 { 'E' } else { 'W' };
+
+        format!(
+            "GFC-2019-v1.7_datamask_{:02}{}_{:03}{}.tif",
+            self.latitude_llcorner.abs(),
+            n_or_s,
+            self.longitude_llcorner.abs(),
+            e_or_w
+        )
+    }
+}
+impl WebAsset for GfcWaterTile {
+    type Type = Vec<u8>;
 
     fn url(&self) -> String {
-        "https://landcover.usgs.gov/documents/GlobalLandCover_tif.zip".to_owned()
+        format!(
+            "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2019-v1.7/Hansen_{}",
+            self.name()
+        )
     }
     fn filename(&self) -> String {
-        "watermask/GlobalLandCover_tif.zip".to_owned()
+        format!("landcover/datamask/{}.lz4", self.name())
+    }
+    fn compression(&self) -> CompressionType {
+        CompressionType::Lz4
     }
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        context.set_progress_and_total(0, 100);
-        let mut zip = ZipArchive::new(Cursor::new(data))?;
-        assert_eq!(zip.len(), 1);
-
-        let mut data = Vec::new();
-        zip.by_index(0)?.read_to_end(&mut data)?;
-
-        let image = image::load_from_memory_with_format(&data[..], ImageFormat::Tiff)?;
-        context.set_progress(100);
-        let (width, height) = image.dimensions();
+        let decoder = TiffDecoder::new(Cursor::new(data))?;
+        let (width, height) = decoder.dimensions();
         let (width, height) = (width as usize, height as usize);
-        if let DynamicImage::ImageLuma8(image) = image {
-            Ok(GlobalRaster {
-                width,
-                height,
-                bands: 1,
-                values: BitContainer(image.into_raw().into_iter().map(|v| v == 0).collect()),
-            })
-        } else {
-            unreachable!()
+        assert_eq!(decoder.color_type(), ColorType::L8);
+
+        context.set_progress_and_total(0, height / 100);
+        let mut values = vec![0; decoder.total_bytes() as usize];
+        let mut reader = decoder.into_reader()?;
+        for row in 0..height {
+            reader.read_exact(&mut values[(row * width)..][..width])?;
+            if (row + 1) % 100 == 0 {
+                context.set_progress((row + 1) / 108);
+            }
         }
+
+        Ok(values)
+    }
+}
+pub struct GfcWaterTileSource;
+impl RasterSource for GfcWaterTileSource {
+    type Type = u8;
+    type Container = Vec<u8>;
+    fn bands(&self) -> usize {
+        1
+    }
+    fn raster_size(&self) -> i16 {
+        10
+    }
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster<Self::Type, Self::Container>> {
+        let tile = GfcWaterTile { latitude_llcorner: latitude, longitude_llcorner: longitude };
+        if !GFC_DATAMASK_FILES.contains(&*tile.url()) {
+            return None;
+        }
+        Some(Raster {
+            width: 40000,
+            height: 40000,
+            bands: 1,
+            cell_size: 1.0 / (60.0 * 60.0),
+            latitude_llcorner: latitude as f64,
+            longitude_llcorner: longitude as f64,
+            values: tile.load(context).ok()?,
+        })
+    }
+}
+
+pub struct GfcTreeDensityTile {
+    latitude_llcorner: i16,
+    longitude_llcorner: i16,
+}
+impl GfcTreeDensityTile {
+    fn name(&self) -> String {
+        let n_or_s = if self.latitude_llcorner >= 0 { 'N' } else { 'S' };
+        let e_or_w = if self.longitude_llcorner >= 0 { 'E' } else { 'W' };
+
+        format!(
+            "GFC-2019-v1.7_treecover2000_{:02}{}_{:03}{}.tif",
+            self.latitude_llcorner.abs(),
+            n_or_s,
+            self.longitude_llcorner.abs(),
+            e_or_w
+        )
+    }
+}
+impl WebAsset for GfcTreeDensityTile {
+    type Type = Vec<u8>;
+
+    fn url(&self) -> String {
+        format!(
+            "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2019-v1.7/Hansen_{}",
+            self.name()
+        )
+    }
+    fn filename(&self) -> String {
+        format!("landcover/treedensity2000/{}.lz4", self.name())
+    }
+    fn compression(&self) -> CompressionType {
+        CompressionType::Lz4
+    }
+    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
+        let decoder = TiffDecoder::new(Cursor::new(data))?;
+        let (width, height) = decoder.dimensions();
+        let (width, height) = (width as usize, height as usize);
+        assert_eq!(decoder.color_type(), ColorType::L8);
+
+        context.set_progress_and_total(0, height / 100);
+        let mut values = vec![0; decoder.total_bytes() as usize];
+        let mut reader = decoder.into_reader()?;
+        for row in 0..height {
+            reader.read_exact(&mut values[(row * width)..][..width])?;
+            if (row + 1) % 100 == 0 {
+                context.set_progress((row + 1) / 108);
+            }
+        }
+
+        Ok(values)
+    }
+}
+pub struct GfcTreeDensityTileSource;
+impl RasterSource for GfcTreeDensityTileSource {
+    type Type = u8;
+    type Container = Vec<u8>;
+    fn bands(&self) -> usize {
+        1
+    }
+    fn raster_size(&self) -> i16 {
+        10
+    }
+    fn load(
+        &self,
+        context: &mut AssetLoadContext,
+        latitude: i16,
+        longitude: i16,
+    ) -> Option<Raster<Self::Type, Self::Container>> {
+        let tile = GfcTreeDensityTile { latitude_llcorner: latitude, longitude_llcorner: longitude };
+        Some(Raster {
+            width: 40000,
+            height: 40000,
+            bands: 1,
+            cell_size: 1.0 / (60.0 * 60.0),
+            latitude_llcorner: latitude as f64,
+            longitude_llcorner: longitude as f64,
+            values: tile.load(context).ok()?,
+        })
     }
 }
 

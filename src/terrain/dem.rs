@@ -1,4 +1,4 @@
-use crate::cache::{AssetLoadContext, WebAsset};
+use crate::cache::{AssetLoadContext, CompressionType, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use anyhow::{ensure, Error};
 use lazy_static::lazy_static;
@@ -77,15 +77,10 @@ impl DemSource {
         let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
         match *self {
             DemSource::Srtm90m => {
-				let s = format!(
-					"{}{:02}_{}{:03}.hgt",
-					n_or_s,
-					latitude.abs(),
-					e_or_w,
-					longitude.abs()
-				);
-				SRTM3_FILES.contains(&*s)
-			}
+                let s =
+                    format!("{}{:02}_{}{:03}.hgt", n_or_s, latitude.abs(), e_or_w, longitude.abs());
+                SRTM3_FILES.contains(&*s)
+            }
             _ => unimplemented!(),
         }
     }
@@ -114,10 +109,10 @@ pub struct DigitalElevationModelParams {
 impl WebAsset for DigitalElevationModelParams {
     type Type = Raster<f32>;
 
-    fn compressed(&self) -> bool {
+    fn compression(&self) -> CompressionType {
         match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => false,
-            DemSource::Srtm90m => true,
+            DemSource::Usgs30m | DemSource::Usgs10m => CompressionType::Lz4,
+            DemSource::Srtm90m => CompressionType::Snappy,
         }
     }
     fn url(&self) -> String {
@@ -160,7 +155,7 @@ impl WebAsset for DigitalElevationModelParams {
         let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
         match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => format!(
-                "{}/{}{:02}_{}{:03}.zip",
+                "{}/{}{:02}_{}{:03}.zip.lz4",
                 self.source.directory_str(),
                 n_or_s,
                 self.latitude.abs(),

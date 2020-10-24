@@ -58,9 +58,14 @@ exit, press Escape.
 During operation, this library downloads and merges datasets from a variety of sources. If you integrate
 it into your own project, please be sure to give proper credit to all of the following as applicable.
 
-## Elevation data
+## Elevation
 
 * [ETOPO1 Global Relief Model](https://www.ngdc.noaa.gov/mgg/global)
+* [Shuttle Radar Topography Mission](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-digital-elevation-shuttle-radar-topography-mission-srtm-1-arc)
+
+## Landcover
+
+* [Global Forest Change](https://earthenginepartners.appspot.com/science-2013-global-forest/download_v1.7.html)
 
 ## Orthoimagery
 
