@@ -135,14 +135,18 @@ impl VNode {
     pub fn priority(&self, camera_cspace: Point3<f64>) -> Priority {
         let min_distance = self.min_distance();
 
-        let c = Vector3::new(camera_cspace.x * (1.4511 + (1.0 - 1.4511) * camera_cspace.x.abs()),
-                             camera_cspace.y * (1.4511 + (1.0 - 1.4511) * camera_cspace.y.abs()),
-                             camera_cspace.z * (1.4511 + (1.0 - 1.4511) * camera_cspace.z.abs()));
+        let c = Vector3::new(
+            camera_cspace.x * (1.4511 + (1.0 - 1.4511) * camera_cspace.x.abs()),
+            camera_cspace.y * (1.4511 + (1.0 - 1.4511) * camera_cspace.y.abs()),
+            camera_cspace.z * (1.4511 + (1.0 - 1.4511) * camera_cspace.z.abs()),
+        );
 
         let a = self.cell_position_cspace(0, 0, 0, 1);
-        let a = Vector3::new(a.x * (1.4511 + (1.0 - 1.4511) * a.x.abs()),
-                             a.y * (1.4511 + (1.0 - 1.4511) * a.y.abs()),
-                             a.z * (1.4511 + (1.0 - 1.4511) * a.z.abs()));
+        let a = Vector3::new(
+            a.x * (1.4511 + (1.0 - 1.4511) * a.x.abs()),
+            a.y * (1.4511 + (1.0 - 1.4511) * a.y.abs()),
+            a.z * (1.4511 + (1.0 - 1.4511) * a.z.abs()),
+        );
 
         let r = 1.0 / (1u64 << (self.level())) as f64;
         let dx = ((a.x - r) - c.x).max(c.x - (a.x + r)).max(0.0);

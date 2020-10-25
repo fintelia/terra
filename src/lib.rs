@@ -5,7 +5,6 @@
 #![feature(stmt_expr_attributes)]
 #![feature(test)]
 #![feature(with_options)]
-
 #![allow(confusable_idents)]
 
 #[cfg(test)]
@@ -22,6 +21,7 @@ mod gpu_state;
 mod mapfile;
 mod sky;
 mod srgb;
+mod stream;
 mod terrain;
 mod utils;
 
@@ -31,14 +31,13 @@ use crate::generate::{
 use crate::mapfile::TileState;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
-use crate::terrain::tile_cache::{TileCache, LayerType};
+use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use cgmath::Vector2;
 use gpu_state::GpuState;
 use std::mem;
+use std::sync::Arc;
 use terrain::quadtree::QuadTree;
-use vec_map::VecMap;
-// use wgpu_glyph::{GlyphBrush, Section};
 
 pub use crate::mapfile::MapFile;
 pub use generate::MapFileBuilder;
@@ -80,7 +79,7 @@ pub struct Terrain {
     gen_normals: ComputeShader<GenNormalsUniforms>,
     gpu_state: GpuState,
     quadtree: QuadTree,
-    mapfile: MapFile,
+    mapfile: Arc<MapFile>,
     tile_cache: TileCache,
 
     pending_tiles: Vec<(LayerType, VNode, wgpu::Buffer)>,
@@ -92,7 +91,8 @@ impl Terrain {
         queue: &mut wgpu::Queue,
         mapfile: MapFile,
     ) -> Result<Self, Error> {
-        let tile_cache = TileCache::new(mapfile.layers().clone(), 512);
+        let mapfile = Arc::new(mapfile);
+        let tile_cache = TileCache::new(Arc::clone(&mapfile), 512);
         let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
 
         let shader = rshader::ShaderSet::simple(
@@ -265,7 +265,7 @@ impl Terrain {
         })
     }
 
-    pub async fn render(
+    pub fn render(
         &mut self,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
@@ -288,7 +288,7 @@ impl Terrain {
 
             device.poll(wgpu::Maintain::Wait);
 
-            if future.await.is_ok() {
+            if futures::executor::block_on(future).is_ok() {
                 let mut tile_data =
                     vec![0; resolution_blocks * resolution_blocks * bytes_per_block];
                 let buffer_data = &*buffer_slice.get_mapped_range();
@@ -445,17 +445,10 @@ impl Terrain {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let mut missing = VecMap::new();
-        for (i, texture) in &self.gpu_state.tile_cache {
-            let mut layer_missing = self.tile_cache.upload_tiles(
-                device,
-                &mut encoder,
-                &texture,
-                &mut self.mapfile,
-                LayerType::from_index(i),
-            ).await;
+        self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
+        let mut missing = self.tile_cache.compute_missing(&self.mapfile);
+        for layer_missing in missing.values_mut() {
             layer_missing.sort_by_key(|n| n.level());
-            missing.insert(i, layer_missing);
         }
 
         let heightmaps_resolution = self.tile_cache.resolution(LayerType::Heightmaps);
@@ -465,7 +458,8 @@ impl Terrain {
         let normals_border = self.tile_cache.border(LayerType::Normals);
         let normals_row_pitch = self.tile_cache.row_pitch(LayerType::Normals);
 
-        for (i, node) in missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
+        'outer: for (i, node) in
+            missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
         {
             if node.level() > 0 && i >= 16 {
                 continue;
@@ -490,10 +484,11 @@ impl Terrain {
 
             if !self.tile_cache.slot_valid(heightmaps_slot as usize, LayerType::Heightmaps) {
                 let mut nodes_needed = vec![node];
-                let mut parent = node.parent().unwrap().0;
+                let mut parent = if let Some((p, _)) = node.parent() { p } else { continue 'outer };
+
                 while !self.tile_cache.contains(parent, LayerType::Heightmaps) {
                     nodes_needed.push(parent);
-                    parent = parent.parent().unwrap().0;
+                    parent = if let Some((p, _)) = parent.parent() { p } else { continue 'outer };
                 }
 
                 for node in nodes_needed.drain(..).rev() {

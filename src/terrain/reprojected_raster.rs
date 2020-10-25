@@ -4,8 +4,8 @@ use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::Heightmap;
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
-use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use anyhow::Error;
+use byteorder::{ByteOrder, LittleEndian, WriteBytesExt};
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -58,7 +58,8 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                 Vec::with_capacity(self.resolution as usize * self.resolution as usize);
             for y in 0..(self.resolution as i32) {
                 for x in 0..(self.resolution as i32) {
-                    let cspace = self.nodes[i].grid_position_cspace(x, y, self.skirt, self.resolution);
+                    let cspace =
+                        self.nodes[i].grid_position_cspace(x, y, self.skirt, self.resolution);
                     let _sspace = CoordinateSystem::cspace_to_sspace(cspace);
 
                     // let world = world_position(x, y, bounds, self.skirt, self.resolution);
@@ -276,7 +277,7 @@ impl ReprojectedRaster {
         let resolution = self.header.resolution as usize;
         let index = band as usize
             + (x as usize + (y as usize + tile * resolution) * resolution)
-            * self.header.bands as usize;
+                * self.header.bands as usize;
         // if index * 4 >= self.data.len() {
         //     eprintln!("ERROR: tile = {}/{}, x = {}, y = {}, band = {}, resolution = {}", tile, self.header.tiles, x, y, band, resolution);
         // }

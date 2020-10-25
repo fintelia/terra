@@ -170,8 +170,7 @@ fn uncompress_heightmap_tile(
     }
 
     for (y, row) in q_2.chunks_exact_mut(resolution / 2 + 1).enumerate() {
-        for (x, (h, r)) in row.iter_mut().zip(&mut encoded).enumerate()
-        {
+        for (x, (h, r)) in row.iter_mut().zip(&mut encoded).enumerate() {
             let e = x + y * half_resolution;
             let interpolated = (q_0[e] as i32 + q_0[e + half_resolution] as i32) / 2;
             *h = r.wrapping_mul(scale_factor).wrapping_add(interpolated as i16);

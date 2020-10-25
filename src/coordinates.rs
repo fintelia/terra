@@ -227,8 +227,8 @@ impl CoordinateSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::{InnerSpace, Vector4};
     use approx::assert_relative_eq;
+    use cgmath::{InnerSpace, Vector4};
 
     fn vec3_na2cgmath(v: na::Vector3<f64>) -> Vector3<f64> {
         Vector3::new(v.x, v.y, v.z)

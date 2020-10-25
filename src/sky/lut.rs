@@ -1,6 +1,6 @@
-use anyhow::Error;
 use crate::cache::AssetLoadContext;
-use serde::{Serialize, Deserialize};
+use anyhow::Error;
+use serde::{Deserialize, Serialize};
 
 pub(crate) trait LookupTableDefinition {
     fn name(&self) -> String;
@@ -9,11 +9,7 @@ pub(crate) trait LookupTableDefinition {
 
     fn inv_size(&self) -> [f64; 3] {
         let s = self.size();
-        [
-            1.0 / f64::from(s[0]),
-            1.0 / f64::from(s[1]),
-            1.0 / f64::from(s[2]),
-        ]
+        [1.0 / f64::from(s[0]), 1.0 / f64::from(s[1]), 1.0 / f64::from(s[2])]
     }
 
     fn generate(&self, context: &mut AssetLoadContext) -> Result<LookupTable, Error> {

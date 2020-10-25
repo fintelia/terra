@@ -234,7 +234,7 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                runtime.block_on(terrain.render(
+                terrain.render(
                     &device,
                     &mut queue,
                     &frame,
@@ -242,7 +242,7 @@ fn main() {
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
-                ));
+                );
             }
             _ => (),
         }

@@ -1,5 +1,5 @@
-use bit_vec::BitVec;
 use anyhow::Error;
+use bit_vec::BitVec;
 use lru_cache::LruCache;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
@@ -114,7 +114,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
         Some(h0 + (h1 - h0) * (x - fx as f64))
     }
 
-    pub fn nearest3(&self, latitude: f64, longitude: f64) -> Option<[f64;3]> {
+    pub fn nearest3(&self, latitude: f64, longitude: f64) -> Option<[f64; 3]> {
         assert!(self.bands >= 3);
 
         let x = (longitude - self.longitude_llcorner) / self.cell_size;
@@ -280,7 +280,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
         context: &mut AssetLoadContext,
         latitude: f64,
         longitude: f64,
-    ) -> Option<[f64;3]> {
+    ) -> Option<[f64; 3]> {
         self.get(context, latitude.floor() as i16, longitude.floor() as i16)
             .and_then(|raster| raster.nearest3(latitude, longitude))
     }

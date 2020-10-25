@@ -285,7 +285,8 @@ impl RasterSource for GfcTreeDensityTileSource {
         latitude: i16,
         longitude: i16,
     ) -> Option<Raster<Self::Type, Self::Container>> {
-        let tile = GfcTreeDensityTile { latitude_llcorner: latitude, longitude_llcorner: longitude };
+        let tile =
+            GfcTreeDensityTile { latitude_llcorner: latitude, longitude_llcorner: longitude };
         Some(Raster {
             width: 40000,
             height: 40000,

@@ -1,10 +1,11 @@
-use crate::generate::heightmap::HeightmapCache;
 use crate::mapfile::{MapFile, TileState};
+use crate::stream::TileStreamerEndpoint;
 use crate::terrain::quadtree::VNode;
 use cgmath::Point3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
+use std::sync::Arc;
 use vec_map::VecMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -95,6 +96,7 @@ impl LayerType {
     pub fn index(&self) -> usize {
         *self as usize
     }
+    #[allow(unused)]
     pub fn from_index(i: usize) -> Self {
         match i {
             0 => LayerType::Displacements,
@@ -137,6 +139,10 @@ pub(crate) struct LayerParams {
     pub texture_border_size: u32,
     /// Format used by this layer.
     pub texture_format: TextureFormat,
+    // /// Bit mask of the other layers that are used to generate this one.
+    // pub generate_dependencies: u32,
+    // /// Bit mask of the layers (possibly including this one) where the parent of a tile is used to generate it.
+    // pub generate_parent_dependencies: u32,
 }
 
 struct Entry {
@@ -144,6 +150,7 @@ struct Entry {
     node: VNode,
     valid: u32,
     generated: u32,
+    streaming: u32,
 }
 
 pub(crate) struct TileCache {
@@ -159,18 +166,18 @@ pub(crate) struct TileCache {
     /// Resolution of each tile in this cache.
     layers: VecMap<LayerParams>,
 
-    heightmap_tiles: HeightmapCache,
+    streamer: TileStreamerEndpoint,
 }
 impl TileCache {
-    pub fn new(layers: VecMap<LayerParams>, size: usize) -> Self {
+    pub fn new(mapfile: Arc<MapFile>, size: usize) -> Self {
         Self {
             size,
             slots: Vec::new(),
             reverse: HashMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
-            heightmap_tiles: HeightmapCache::new(layers[LayerType::Heightmaps].clone(), 32),
-            layers,
+            layers: mapfile.layers().clone(),
+            streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
         }
     }
 
@@ -196,7 +203,7 @@ impl TileCache {
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
             self.reverse.insert(m.1, self.slots.len());
-            self.slots.push(Entry { priority: m.0, node: m.1, valid: 0, generated: 0 });
+            self.slots.push(Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 });
         }
         if !self.missing.is_empty() {
             let mut possible: Vec<_> = self
@@ -226,7 +233,7 @@ impl TileCache {
 
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
-                self.slots[index] = Entry { priority: m.0, node: m.1, valid: 0, generated: 0 };
+                self.slots[index] = Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -236,55 +243,98 @@ impl TileCache {
         self.missing.clear();
     }
 
-    pub(crate) async fn upload_tiles(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-        mapfile: &mut MapFile,
-        ty: LayerType,
-    ) -> Vec<VNode> {
+    pub(crate) fn compute_missing(&mut self, mapfile: &MapFile) -> VecMap<Vec<VNode>> {
         self.process_missing();
 
-        // Figure out which entries need to be uploaded
-        let mut pending_uploads = Vec::new();
-        let mut pending_generate = Vec::new();
+        let mut pending_generate = VecMap::new();
 
-        for (i, ref mut entry) in self.slots.iter_mut().enumerate() {
-            if entry.valid & ty.bit_mask() != 0 {
-                continue;
-            }
+        for layer in self.layers.values() {
+            let ty = layer.layer_type;
 
-            match mapfile.tile_state(ty, entry.node).unwrap() {
-                TileState::GpuOnly => {
-                    entry.generated |= ty.bit_mask();
-                    pending_generate.push(entry.node);
+            // Figure out which entries need to be uploaded
+            let pending_generate = pending_generate.entry(ty.index()).or_insert(Vec::new());
+            
+            for ref mut entry in self.slots.iter_mut() {
+                if (entry.valid | entry.streaming) & ty.bit_mask() != 0 {
+                    continue;
                 }
-                TileState::Base => {
-                    entry.generated &= !ty.bit_mask();
-                    pending_uploads.push((i, entry.node));
+
+                match mapfile.tile_state(ty, entry.node).unwrap() {
+                    TileState::GpuOnly => {
+                        entry.generated |= ty.bit_mask();
+                        pending_generate.push(entry.node);
+                    }
+                    TileState::Base => {
+                        if self.streamer.num_inflight() < 128 {
+                            entry.streaming |= ty.bit_mask();
+                            entry.generated &= !ty.bit_mask();
+                            self.streamer.request_tile(entry.node, ty);
+                        }
+                    }
+                    TileState::Generated => {
+                        if self.streamer.num_inflight() < 128 {
+                            entry.streaming |= ty.bit_mask();
+                            entry.generated |= ty.bit_mask();
+                            self.streamer.request_tile(entry.node, ty);
+                        }
+                    }
+                    TileState::Missing => {
+                        entry.generated |= ty.bit_mask();
+                        pending_generate.push(entry.node);
+
+                    }
+                    TileState::MissingBase => unreachable!(),
                 }
-                TileState::Generated => {
-                    entry.generated |= ty.bit_mask();
-                    pending_uploads.push((i, entry.node));
-                }
-                TileState::Missing => pending_generate.push(entry.node),
-                TileState::MissingBase => unreachable!(),
             }
         }
-        if pending_uploads.is_empty() {
+
+        if self.streamer.num_inflight() == 0 {
             return pending_generate;
         }
 
-        let resolution = self.resolution(ty) as usize;
-        let resolution_blocks = self.resolution_blocks(ty) as usize;
-        let bytes_per_block = self.layers[ty].texture_format.bytes_per_block();
-        let row_bytes = resolution_blocks * bytes_per_block;
-        let row_pitch = (row_bytes + 255) & !255;
-        let tiles = pending_uploads.len();
+        for (_layer, nodes) in &mut pending_generate {
+        //     let mask = self.layers[layer].generate_dependencies;
+        //     let parent_mask = self.layers[layer].generate_dependencies;
+
+        //     // pending_uploads.retain(|n| {
+        //     //     let entry = self.slots.get(*self.reverse.get(&n).unwrap()).unwrap();
+        //     //     if entry.valid & !mask != 0 {
+        //     //         return false;
+        //     //     }
+
+        //     //     return parent_mask == 0
+        //     //         || n.parent()
+        //     //             .map(|(p, _)| {
+        //     //                 let parent_entry = self.slots.get(*self.reverse.get(&p).unwrap()).unwrap();
+        //     //                 return parent_entry.valid & !parent_mask != 0;
+        //     //             })
+        //     //             .unwrap_or(false);
+        //     // });
+            nodes.clear();
+        }
+        
+        pending_generate
+    }
+
+    pub(crate) fn upload_tiles(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        textures: &VecMap<wgpu::Texture>,
+    ) {
+        let mut buffer_size = 0;
+        let mut pending_uploads = Vec::new();
+        while let Some(tile) = self.streamer.try_complete() {
+            let resolution_blocks = self.resolution_blocks(tile.layer) as usize;
+            let bytes_per_block = self.layers[tile.layer].texture_format.bytes_per_block();
+            let row_bytes = resolution_blocks * bytes_per_block;
+            let row_pitch = (row_bytes + 255) & !255;
+            buffer_size += row_pitch * resolution_blocks;
+            pending_uploads.push(tile);
+        }
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (row_pitch * resolution_blocks * tiles) as u64,
+            size: buffer_size as u64,
             usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::MAP_WRITE,
             label: None,
             mapped_at_creation: true,
@@ -293,57 +343,54 @@ impl TileCache {
 
         let mut i = 0;
         for upload in &pending_uploads {
-            match ty {
-                LayerType::Heightmaps => {
-                    let data: Vec<_> = self
-                        .heightmap_tiles
-                        .get_tile(mapfile, upload.1)
-                        .await
-                        .unwrap()
-                        .iter()
-                        .map(|&i| i as f32)
-                        .collect();
-                    let data = bytemuck::cast_slice(&data);
-                    for row in 0..resolution_blocks {
-                        buffer_view[i..][..row_bytes]
-                            .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
-                        i += row_pitch;
-                    }
-                }
-                _ => {
-                    let data = mapfile.read_tile(ty, upload.1).unwrap();
-                    for row in 0..resolution_blocks {
-                        buffer_view[i..][..row_bytes]
-                            .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
-                        i += row_pitch;
-                    }
-                }
-            };
+            let resolution_blocks = self.resolution_blocks(upload.layer) as usize;
+            let bytes_per_block = self.layers[upload.layer].texture_format.bytes_per_block();
+            let row_bytes = resolution_blocks * bytes_per_block;
+            let row_pitch = (row_bytes + 255) & !255;
+
+            for row in 0..resolution_blocks {
+                buffer_view[i..][..row_bytes]
+                    .copy_from_slice(&upload.data[row * row_bytes..][..row_bytes]);
+                i += row_pitch;
+            }
         }
 
         drop(buffer_view);
         buffer.unmap();
-        for (index, (slot, _)) in pending_uploads.drain(..).enumerate() {
-            encoder.copy_buffer_to_texture(
-                wgpu::BufferCopyView {
-                    buffer: &buffer,
-                    layout: wgpu::TextureDataLayout {
-                        offset: (index * row_pitch * resolution_blocks) as u64,
-                        bytes_per_row: row_pitch as u32,
-                        rows_per_image: 0,
-                    },
-                },
-                wgpu::TextureCopyView {
-                    texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
-                },
-                wgpu::Extent3d { width: resolution as u32, height: resolution as u32, depth: 1 },
-            );
-            self.slots[slot].valid |= ty.bit_mask();
-        }
 
-        pending_generate
+        let mut offset = 0;
+        for tile in pending_uploads.drain(..) {
+            let resolution = self.resolution(tile.layer) as usize;
+            let resolution_blocks = self.resolution_blocks(tile.layer) as usize;
+            let bytes_per_block = self.layers[tile.layer].texture_format.bytes_per_block();
+            let row_bytes = resolution_blocks * bytes_per_block;
+            let row_pitch = (row_bytes + 255) & !255;
+            if let Some(&slot) = self.reverse.get(&tile.node) {
+                encoder.copy_buffer_to_texture(
+                    wgpu::BufferCopyView {
+                        buffer: &buffer,
+                        layout: wgpu::TextureDataLayout {
+                            offset,
+                            bytes_per_row: row_pitch as u32,
+                            rows_per_image: 0,
+                        },
+                    },
+                    wgpu::TextureCopyView {
+                        texture: &textures[tile.layer],
+                        mip_level: 0,
+                        origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
+                    },
+                    wgpu::Extent3d {
+                        width: resolution as u32,
+                        height: resolution as u32,
+                        depth: 1,
+                    },
+                );
+                self.slots[slot].valid |= tile.layer.bit_mask();
+                self.slots[slot].streaming &= !tile.layer.bit_mask();
+            }
+            offset += (row_pitch * resolution_blocks) as u64
+        }
     }
 
     pub fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {

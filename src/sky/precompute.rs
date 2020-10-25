@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 #![allow(non_upper_case_globals)]
 
-use cgmath::{ElementWise, InnerSpace, Vector2, Vector3, Vector4, VectorSpace, Zero};
 use crate::sky::lut::{LookupTable, LookupTableDefinition};
+use cgmath::{ElementWise, InnerSpace, Vector2, Vector3, Vector4, VectorSpace, Zero};
 
 // Simulation is done at λ = (680, 550, 440) nm = (red, green, blue).
 // See https://hal.inria.fr/inria-00288758/document
@@ -320,8 +320,8 @@ impl<'a> LookupTableDefinition for InscatteringTable<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use approx::assert_relative_eq;
     use rand::{self, Rng};
-	use approx::assert_relative_eq;
 
     #[test]
     fn invert_transmittance_parameters() {

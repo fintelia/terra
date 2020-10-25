@@ -104,13 +104,12 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             ));
         }
 
-        let staging = device
-            .create_buffer(&wgpu::BufferDescriptor {
-                size: mem::size_of::<U>() as u64,
-                usage: wgpu::BufferUsage::COPY_SRC,
-                label: None,
-                mapped_at_creation: true,
-            });
+        let staging = device.create_buffer(&wgpu::BufferDescriptor {
+            size: mem::size_of::<U>() as u64,
+            usage: wgpu::BufferUsage::COPY_SRC,
+            label: None,
+            mapped_at_creation: true,
+        });
         let mut buffer_view = staging.slice(..).get_mapped_range_mut();
         bytemuck::cast_slice_mut(&mut *buffer_view)[0] = *uniforms;
         drop(buffer_view);

@@ -181,7 +181,7 @@ async fn generate_heightmaps<'a>(
 
     let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
     for (i, n) in missing.into_iter().enumerate() {
-		context.set_progress(i as u64);
+        context.set_progress(i as u64);
         gen.generate_heightmaps(context, mapfile, n).await?;
     }
 

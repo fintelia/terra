@@ -14,7 +14,7 @@ pub(crate) struct NodeState {
     position: [i32; 2],
     face: u32,
     min_distance: f32,
-    _padding: [u32; 5*4+6],
+    _padding: [u32; 5 * 4 + 6],
     // side_length: f32,
     // padding0: f32,
     // padding1: u32,
