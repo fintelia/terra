@@ -83,7 +83,11 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(self.uniforms.slice(..mem::size_of::<U>() as u64)),
+                Some(wgpu::BindingResource::Buffer {
+                    buffer: &self.uniforms,
+                    offset: 0,
+                    size: None,
+                }),
             );
             self.bindgroup_pipeline = Some((
                 bind_group,

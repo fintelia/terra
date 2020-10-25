@@ -327,7 +327,11 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(self.uniform_buffer.slice(0..mem::size_of::<UniformBlock>() as u64)),
+                Some(wgpu::BindingResource::Buffer {
+                    buffer: &self.uniform_buffer,
+                    offset: 0,
+                    size: None,
+                }),
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -392,7 +396,11 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.sky_shader,
-                Some(self.sky_uniform_buffer.slice(0..mem::size_of::<SkyUniformBlock>() as u64)),
+                Some(wgpu::BindingResource::Buffer {
+                    buffer: &self.sky_uniform_buffer,
+                    offset: 0,
+                    size: None,
+                }),
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

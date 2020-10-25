@@ -17,7 +17,7 @@ impl GpuState {
         &self,
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
-        ubo: Option<wgpu::BufferSlice>,
+        ubo: Option<wgpu::BindingResource>,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let linear = &device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -85,9 +85,7 @@ impl GpuState {
                             _ => unreachable!("unrecognized image: {}", name),
                         })
                     }
-                    wgpu::BindingType::UniformBuffer { .. } => {
-                        wgpu::BindingResource::Buffer(ubo.unwrap().clone())
-                    }
+                    wgpu::BindingType::UniformBuffer { .. } => ubo.clone().unwrap(),
                     wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
                 },
             });
