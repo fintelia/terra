@@ -299,14 +299,14 @@ fn reflect(
                 inputs.entry(u32::from(input.location.loc())).or_insert(Vec::new()).push(input);
             }
             for (shader_location, mut input) in inputs {
-                input.sort_by_key(|i| u32::from(i.location.bind()));
+                input.sort_by_key(|i| u32::from(i.location.comp()));
                 let i = input.last().unwrap();
                 let (scalar_ty, nscalar) = match i.ty {
                     Type::Scalar(s) => (s, 1),
                     Type::Vector(VectorType { scalar_ty, nscalar }) => (scalar_ty, *nscalar),
                     _ => return Err(anyhow!("Unsupported attribute type")),
                 };
-                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.location.bind())) {
+                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.location.comp())) {
                     (ScalarType::Signed(4), 1) => (wgpu::VertexFormat::Int, 4),
                     (ScalarType::Signed(4), 2) => (wgpu::VertexFormat::Int2, 8),
                     (ScalarType::Signed(4), 3) => (wgpu::VertexFormat::Int3, 12),

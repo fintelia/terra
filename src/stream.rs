@@ -31,7 +31,7 @@ impl TileStreamerEndpoint {
         let (sender, requests) = unbounded_channel();
         let (results, receiver) = unbounded_channel();
 
-        let mut rt = Runtime::new()?;
+        let rt = Runtime::new()?;
         thread::spawn(move || {
             rt.block_on(async {
                 TileStreamer {

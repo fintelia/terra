@@ -64,7 +64,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 fn main() {
     // env_logger::init();
 
-    let mut runtime = tokio::runtime::Runtime::new().unwrap();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let mapfile = runtime.block_on(terra::MapFileBuilder::build()).unwrap();
 
@@ -72,7 +72,7 @@ fn main() {
     let window = winit::window::Window::new(&event_loop).unwrap();
     for monitor in window.available_monitors() {
         if monitor.video_modes().any(|mode| mode.size().width == 1920) {
-            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)));
+            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(monitor))));
             break;
         }
     }
