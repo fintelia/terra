@@ -447,28 +447,54 @@ impl Terrain {
 
         self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
         let mut missing = self.tile_cache.compute_missing(&self.mapfile);
-        for layer_missing in missing.values_mut() {
-            layer_missing.sort_by_key(|n| n.level());
-        }
 
         let heightmaps_resolution = self.tile_cache.resolution(LayerType::Heightmaps);
         let heightmaps_border = self.tile_cache.border(LayerType::Heightmaps);
 
         let normals_resolution = self.tile_cache.resolution(LayerType::Normals);
         let normals_border = self.tile_cache.border(LayerType::Normals);
-        let normals_row_pitch = self.tile_cache.row_pitch(LayerType::Normals);
 
-        'outer: for (i, node) in
-            missing.remove(LayerType::Normals.index()).unwrap().into_iter().enumerate()
-        {
-            if node.level() > 0 && i >= 16 {
-                continue;
-            }
+        for node in missing.remove(LayerType::Heightmaps.index()).unwrap().into_iter() {
+            let (parent, parent_index) = node.parent().expect("root node missing");
+            let parent_offset = terrain::quadtree::node::OFFSETS[parent_index as usize];
+            let origin = [
+                heightmaps_border as i32 / 2,
+                heightmaps_resolution as i32 / 2 - heightmaps_border as i32 / 2,
+            ];
+            let in_slot = self.tile_cache.get_slot(parent).unwrap() as i32;
+            let out_slot = self.tile_cache.get_slot(node).unwrap() as i32;
+            let spacing = node.aprox_side_length()
+                / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
+            // let position = node.bounds().min
+            //     - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
+            let resolution = heightmaps_resolution - heightmaps_border * 2 - 1;
+            let level_resolution = resolution << node.level();
+            self.gen_heightmaps.run(
+                device,
+                &mut encoder,
+                &self.gpu_state,
+                ((heightmaps_resolution + 7) / 8, (heightmaps_resolution + 7) / 8, 1),
+                &GenHeightmapsUniforms {
+                    position: [
+                        (node.x() * resolution) as i32
+                            - level_resolution as i32 / 2
+                            - heightmaps_border as i32,
+                        (node.y() * resolution) as i32
+                            - level_resolution as i32 / 2
+                            - heightmaps_border as i32,
+                    ],
+                    origin: [origin[parent_offset.x as usize], origin[parent_offset.y as usize]],
+                    spacing,
+                    in_slot,
+                    out_slot,
+                    level_resolution: level_resolution as i32,
+                },
+            );
+            self.tile_cache.set_slot_valid(out_slot as usize, LayerType::Heightmaps);
+        }
 
-            let heightmaps_slot = match self.tile_cache.get_slot(node) {
-                Some(slot) => slot as i32,
-                None => continue,
-            };
+        for node in missing.remove(LayerType::Normals.index()).unwrap().into_iter() {
+            let slot = self.tile_cache.get_slot(node).unwrap() as i32;
 
             let parent_slot = node
                 .parent()
@@ -477,69 +503,12 @@ impl Terrain {
 
             let spacing =
                 node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
-            // let position = node.bounds().min
-            //     - cgmath::Vector3::new(spacing, 0.0, spacing) * normals_border as f32;
 
-            let normals_slot = self.tile_cache.get_slot(node).unwrap() as i32;
-
-            if !self.tile_cache.slot_valid(heightmaps_slot as usize, LayerType::Heightmaps) {
-                let mut nodes_needed = vec![node];
-                let mut parent = if let Some((p, _)) = node.parent() { p } else { continue 'outer };
-
-                while !self.tile_cache.contains(parent, LayerType::Heightmaps) {
-                    nodes_needed.push(parent);
-                    parent = if let Some((p, _)) = parent.parent() { p } else { continue 'outer };
-                }
-
-                for node in nodes_needed.drain(..).rev() {
-                    let (parent, parent_index) = node.parent().expect("root node missing");
-                    let parent_offset = terrain::quadtree::node::OFFSETS[parent_index as usize];
-                    let origin = [
-                        heightmaps_border as i32 / 2,
-                        heightmaps_resolution as i32 / 2 - heightmaps_border as i32 / 2,
-                    ];
-                    let in_slot = self.tile_cache.get_slot(parent).unwrap() as i32;
-                    let out_slot = self.tile_cache.get_slot(node).unwrap() as i32;
-                    let spacing = node.aprox_side_length()
-                        / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
-                    // let position = node.bounds().min
-                    //     - cgmath::Vector3::new(spacing, 0.0, spacing) * heightmaps_border as f32;
-                    let resolution = heightmaps_resolution - heightmaps_border * 2 - 1;
-                    let level_resolution = resolution << node.level();
-                    self.gen_heightmaps.run(
-                        device,
-                        &mut encoder,
-                        &self.gpu_state,
-                        ((heightmaps_resolution + 7) / 8, (heightmaps_resolution + 7) / 8, 1),
-                        &GenHeightmapsUniforms {
-                            position: [
-                                (node.x() * resolution) as i32
-                                    - level_resolution as i32 / 2
-                                    - heightmaps_border as i32,
-                                (node.y() * resolution) as i32
-                                    - level_resolution as i32 / 2
-                                    - heightmaps_border as i32,
-                            ],
-                            origin: [
-                                origin[parent_offset.x as usize],
-                                origin[parent_offset.y as usize],
-                            ],
-                            spacing,
-                            in_slot,
-                            out_slot,
-                            level_resolution: level_resolution as i32,
-                        },
-                    );
-                    self.tile_cache.set_slot_valid(out_slot as usize, LayerType::Heightmaps);
-                }
-            }
-
-            let albedo_slot =
-                if self.tile_cache.slot_valid(normals_slot as usize, LayerType::Albedo) {
-                    -1
-                } else {
-                    normals_slot
-                };
+            let albedo_slot = if self.tile_cache.slot_valid(slot as usize, LayerType::Albedo) {
+                -1
+            } else {
+                slot
+            };
 
             let cspace_origin =
                 node.cell_position_cspace(0, 0, normals_border as u16, normals_resolution as u16);
@@ -572,8 +541,8 @@ impl Terrain {
                         0.0,
                     ],
                     spacing,
-                    heightmaps_slot,
-                    normals_slot,
+                    heightmaps_slot: slot,
+                    normals_slot: slot,
                     albedo_slot,
                     parent_slot: parent_slot.0,
                     parent_origin: [
@@ -591,7 +560,7 @@ impl Terrain {
                     padding: 0,
                 },
             );
-            self.tile_cache.set_slot_valid(normals_slot as usize, LayerType::Normals);
+            self.tile_cache.set_slot_valid(slot as usize, LayerType::Normals);
             if albedo_slot >= 0 {
                 self.tile_cache.set_slot_valid(albedo_slot as usize, LayerType::Albedo);
             }
@@ -634,7 +603,7 @@ impl Terrain {
                 wgpu::TextureCopyView {
                     texture: &self.gpu_state.tile_cache[LayerType::Normals],
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: normals_slot as u32 },
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                 },
                 wgpu::Extent3d {
                     width: normals_resolution as u32,
@@ -642,37 +611,6 @@ impl Terrain {
                     depth: 1,
                 },
             );
-
-            if let TileState::Missing = self.mapfile.tile_state(LayerType::Normals, node).unwrap() {
-                let size = normals_resolution as u64 * normals_row_pitch as u64;
-                let download = device.create_buffer(&wgpu::BufferDescriptor {
-                    size,
-                    usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                    label: Some("download_tiles.normals".into()),
-                    mapped_at_creation: false,
-                });
-                encoder.copy_texture_to_buffer(
-                    wgpu::TextureCopyView {
-                        texture: &self.gpu_state.tile_cache[LayerType::Normals],
-                        mip_level: 0,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: normals_slot as u32 },
-                    },
-                    wgpu::BufferCopyView {
-                        buffer: &download,
-                        layout: wgpu::TextureDataLayout {
-                            offset: 0,
-                            bytes_per_row: normals_row_pitch as u32,
-                            rows_per_image: 0,
-                        },
-                    },
-                    wgpu::Extent3d {
-                        width: normals_resolution as u32,
-                        height: normals_resolution as u32,
-                        depth: 1,
-                    },
-                );
-                self.pending_tiles.push((LayerType::Normals, node, download));
-            }
         }
         let displacements_resolution = self.tile_cache.resolution(LayerType::Displacements);
         let displacements_row_pitch = self.tile_cache.row_pitch(LayerType::Displacements);
@@ -693,9 +631,7 @@ impl Terrain {
             }
 
             let heightmaps_slot = self.tile_cache.get_slot(ancestor).unwrap();
-            if !self.tile_cache.slot_valid(heightmaps_slot, LayerType::Heightmaps) {
-                continue;
-            }
+            assert!(self.tile_cache.slot_valid(heightmaps_slot, LayerType::Heightmaps));
 
             self.gen_displacements.run(
                 device,
@@ -752,14 +688,27 @@ impl Terrain {
             }
         }
 
+        let mut do_render = true;
+        for &root in &VNode::roots() {
+            if !self.tile_cache.contains(root, LayerType::Heightmaps)
+                || !self.tile_cache.contains(root, LayerType::Albedo)
+                || !self.tile_cache.contains(root, LayerType::Roughness)
+            {
+                do_render = false;
+                break;
+            }
+        }
+
         let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
-        self.quadtree.update_visibility(&self.tile_cache, camera, camera_frustum);
-        self.quadtree.prepare_vertex_buffer(
-            device,
-            &mut encoder,
-            &mut self.vertex_buffer,
-            &self.tile_cache,
-        );
+        if do_render {
+            self.quadtree.update_visibility(&self.tile_cache, camera, camera_frustum);
+            self.quadtree.prepare_vertex_buffer(
+                device,
+                &mut encoder,
+                &mut self.vertex_buffer,
+                &self.tile_cache,
+            );
+        }
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<UniformBlock>() as u64,
@@ -808,16 +757,19 @@ impl Terrain {
                     stencil_ops: None,
                 }),
             });
+
             rpass.push_debug_group("Terrain");
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
 
-            self.quadtree.render(
-                &mut rpass,
-                &self.vertex_buffer,
-                &self.index_buffer,
-                &self.index_buffer_partial,
-            );
+            if do_render {
+                self.quadtree.render(
+                    &mut rpass,
+                    &self.vertex_buffer,
+                    &self.index_buffer,
+                    &self.index_buffer_partial,
+                );
+            }
             rpass.pop_debug_group();
         }
 
@@ -843,29 +795,6 @@ impl Terrain {
             rpass.pop_debug_group();
         }
 
-        // {
-        //     use std::fmt::Write;
-        //     let mut text = String::new();
-        //     writeln!(
-        //         &mut text,
-        //         "tile_cache: {} / {}",
-        //         self.tile_cache.utilization(),
-        //         self.tile_cache.capacity()
-        //     )
-        //     .unwrap();
-
-        //     writeln!(&mut text, "x = {}\ny = {}\nz = {}", camera.x, camera.y, camera.z).unwrap();
-
-        //     self.glyph_brush.queue(Section {
-        //         text: &text,
-        //         screen_position: (10.0, 10.0),
-        //         ..Default::default()
-        //     });
-        // }
-
-        // self.glyph_brush
-        //     .draw_queued(device, &mut encoder, &frame.view, frame_size.0, frame_size.1)
-        //     .unwrap();
         queue.submit(Some(encoder.finish()));
     }
 }

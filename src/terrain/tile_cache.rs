@@ -139,10 +139,12 @@ pub(crate) struct LayerParams {
     pub texture_border_size: u32,
     /// Format used by this layer.
     pub texture_format: TextureFormat,
-    // /// Bit mask of the other layers that are used to generate this one.
-    // pub generate_dependencies: u32,
-    // /// Bit mask of the layers (possibly including this one) where the parent of a tile is used to generate it.
-    // pub generate_parent_dependencies: u32,
+    /// Maximum number of tiles for this layer to generate in a single frame.
+    pub tiles_generated_per_frame: usize,
+    /// Bit mask of the other layers that are used to generate this one.
+    pub peer_dependency_mask: u32,
+    /// Bit mask of the layers (possibly including this one) where the parent of a tile is used to generate it.
+    pub parent_dependency_mask: u32,
 }
 
 struct Entry {
@@ -203,7 +205,13 @@ impl TileCache {
         while !self.missing.is_empty() && self.slots.len() < self.size {
             let m = self.missing.pop().unwrap();
             self.reverse.insert(m.1, self.slots.len());
-            self.slots.push(Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 });
+            self.slots.push(Entry {
+                priority: m.0,
+                node: m.1,
+                valid: 0,
+                generated: 0,
+                streaming: 0,
+            });
         }
         if !self.missing.is_empty() {
             let mut possible: Vec<_> = self
@@ -233,7 +241,8 @@ impl TileCache {
 
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
-                self.slots[index] = Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 };
+                self.slots[index] =
+                    Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -253,7 +262,7 @@ impl TileCache {
 
             // Figure out which entries need to be uploaded
             let pending_generate = pending_generate.entry(ty.index()).or_insert(Vec::new());
-            
+
             for ref mut entry in self.slots.iter_mut() {
                 if (entry.valid | entry.streaming) & ty.bit_mask() != 0 {
                     continue;
@@ -281,38 +290,58 @@ impl TileCache {
                     TileState::Missing => {
                         entry.generated |= ty.bit_mask();
                         pending_generate.push(entry.node);
-
                     }
                     TileState::MissingBase => unreachable!(),
                 }
             }
+
+            pending_generate.sort_by_key(|n| n.level());
+            if pending_generate.len() > layer.tiles_generated_per_frame {
+                let _ = pending_generate.split_off(layer.tiles_generated_per_frame);
+            }
         }
 
-        if self.streamer.num_inflight() == 0 {
-            return pending_generate;
+        let mut will_generate = vec![0; self.slots.len()];
+        for (i, nodes) in &mut pending_generate {
+            let layer = &self.layers[i];
+
+            // If we have any peer dependencies, then remove any node that doesn't have them met.
+            if layer.peer_dependency_mask != 0 {
+                nodes.retain(|n| {
+                    let slot = self.reverse[n];
+                    layer.peer_dependency_mask & !(self.slots[slot].valid | will_generate[slot])
+                        == 0
+                });
+            }
+
+            if layer.parent_dependency_mask != 0 {
+                // If we have parent dependencies, iteratively add tiles that can fill them. This
+                // is slightly tricky since we have to update will_generate in the loop so that
+                // later tiles can depend on earlier ones.VNode
+                nodes.retain(|n| {
+                    let p = match n.parent() {
+                        Some((p, _)) => p,
+                        None => *n,
+                    };
+
+                    let parent_slot = self.reverse[&p];
+                    if layer.parent_dependency_mask
+                        & !(self.slots[parent_slot].valid | will_generate[parent_slot])
+                        == 0
+                    {
+                        will_generate[self.reverse[n]] |= layer.layer_type.bit_mask();
+                        true
+                    } else {
+                        false
+                    }
+                })
+            } else {
+                for n in nodes {
+                    will_generate[self.reverse[n]] |= layer.layer_type.bit_mask();
+                }
+            }
         }
 
-        for (_layer, nodes) in &mut pending_generate {
-        //     let mask = self.layers[layer].generate_dependencies;
-        //     let parent_mask = self.layers[layer].generate_dependencies;
-
-        //     // pending_uploads.retain(|n| {
-        //     //     let entry = self.slots.get(*self.reverse.get(&n).unwrap()).unwrap();
-        //     //     if entry.valid & !mask != 0 {
-        //     //         return false;
-        //     //     }
-
-        //     //     return parent_mask == 0
-        //     //         || n.parent()
-        //     //             .map(|(p, _)| {
-        //     //                 let parent_entry = self.slots.get(*self.reverse.get(&p).unwrap()).unwrap();
-        //     //                 return parent_entry.valid & !parent_mask != 0;
-        //     //             })
-        //     //             .unwrap_or(false);
-        //     // });
-            nodes.clear();
-        }
-        
         pending_generate
     }
 

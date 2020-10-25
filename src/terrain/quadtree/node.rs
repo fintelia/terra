@@ -24,7 +24,7 @@ impl VNode {
         debug_assert!(y <= 0x3ffffff);
         Self((level as u64) << 56 | (face as u64) << 53 | (y as u64) << 26 | (x as u64))
     }
-    fn roots() -> [Self; 6] {
+    pub fn roots() -> [Self; 6] {
         [
             Self::new(0, 0, 0, 0),
             Self::new(0, 1, 0, 0),

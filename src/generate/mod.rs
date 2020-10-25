@@ -80,7 +80,7 @@ impl MapFileBuilder {
     ///
     /// This function will (the first time it is called) download many gigabytes of raw data,
     /// primarily datasets relating to real world land cover and elevation. These files will be
-    /// stored in ~/.terra, so that they don't have to be fetched multiple times. This means that
+    /// stored in ~/.cache/terra, so that they don't have to be fetched multiple times. This means that
     /// this function can largely resume from where it left off if interrupted.
     ///
     /// Even once all needed files have been downloaded, the generation process takes a large amount
@@ -94,30 +94,45 @@ impl MapFileBuilder {
                     texture_resolution: 521,
                     texture_border_size: 4,
                     texture_format: TextureFormat::R32F,
+                    tiles_generated_per_frame: 16,
+                    peer_dependency_mask: 0,
+                    parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
                 },
             LayerType::Displacements.index() => LayerParams {
                     layer_type: LayerType::Displacements,
                     texture_resolution: 65,
                     texture_border_size: 0,
                     texture_format: TextureFormat::RGBA32F,
+                    tiles_generated_per_frame: 128,
+                    peer_dependency_mask: 0,
+                    parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
                 },
             LayerType::Albedo.index() => LayerParams {
                     layer_type: LayerType::Albedo,
                     texture_resolution: 516,
                     texture_border_size: 2,
                     texture_format: TextureFormat::RGBA8,
+                    tiles_generated_per_frame: 16,
+                    peer_dependency_mask: 0,
+                    parent_dependency_mask: LayerType::Albedo.bit_mask(),
                 },
             LayerType::Roughness.index() => LayerParams {
                     layer_type: LayerType::Roughness,
                     texture_resolution: 516,
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC4,
+                    tiles_generated_per_frame: 16,
+                    peer_dependency_mask: 0,
+                    parent_dependency_mask: LayerType::Roughness.bit_mask(),
                 },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
                     texture_resolution: 516,
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC5,
+                    tiles_generated_per_frame: 16,
+                    peer_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    parent_dependency_mask: 0,
                 },
         ]
         .into_iter()
