@@ -218,7 +218,9 @@ pub(crate) trait WebAsset {
                 snap::write::FrameEncoder::new(&mut file).write_all(&data)?
             }
             CompressionType::Lz4 => {
-                lz4::EncoderBuilder::new().level(9).build(&mut file)?.write_all(&data)?
+                let mut writer = lz4::EncoderBuilder::new().level(9).build(&mut file)?;
+                writer.write_all(&data)?;
+                writer.finish().1?
             }
             CompressionType::None => file.write_all(&data)?,
         }

@@ -70,7 +70,7 @@ structopt = "0.3.20"
 rayon = "1.5.0"
 flate2 = "1.0.14"
 tokio = { version = "0.3.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
-approx = "0.4.0"
+approx = "0.3.2"
 lz4 = "1.23.2"
 itertools = "0.9.0"
 

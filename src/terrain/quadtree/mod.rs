@@ -1,5 +1,3 @@
-// use crate::coordinates::PLANET_RADIUS;
-use crate::terrain::tile_cache::LayerType;
 use crate::terrain::tile_cache::{Priority, TileCache};
 use cgmath::*;
 use collision::Frustum;
@@ -77,9 +75,7 @@ impl QuadTree {
     }
 
     pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f64>) {
-        let camera = Point3::new(camera.x, camera.y, camera.z);
-        let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
-        let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
+        let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         tile_cache.update_priorities(camera);
 
@@ -91,7 +87,7 @@ impl QuadTree {
 
             tile_cache.add_missing((priority, node));
 
-            if node.level() >= 22 {
+            if node.level() >= 20 {
                 return false;
             }
 
@@ -105,9 +101,7 @@ impl QuadTree {
         camera: mint::Point3<f64>,
         cull_frustum: Option<Frustum<f32>>,
     ) {
-        let camera = Point3::new(camera.x, camera.y, camera.z);
-        let r = camera.x.abs().max(camera.y.abs()).max(camera.z.abs());
-        let camera = Point3::new(camera.x / r, camera.y / r, camera.z / r);
+        let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
@@ -118,24 +112,24 @@ impl QuadTree {
         VNode::breadth_first(|node| {
             let visible = node.level() == 0 || node.priority(camera) >= Priority::cutoff();
             node_visibilities.insert(node, visible);
-            visible
+            visible && node.level() < 20
         });
-        let min_missing_level = node_visibilities
-            .iter()
-            .filter(|(&n, &v)| v && !tile_cache.contains(n, LayerType::Displacements))
-            .map(|(n, v)| n.level())
-            .min();
-        if let Some(min) = min_missing_level {
-            for (n, v) in node_visibilities.iter_mut() {
-                if n.level() >= min {
-                    *v = false;
-                }
-            }
-        }
+        // let min_missing_level = node_visibilities
+        //     .iter()
+        //     .filter(|(&n, &v)| v && !tile_cache.contains(n, LayerType::Displacements))
+        //     .map(|(n, v)| n.level())
+        //     .min();
+        // if let Some(min) = min_missing_level {
+        //     for (n, v) in node_visibilities.iter_mut() {
+        //         if n.level() >= min {
+        //             *v = false;
+        //         }
+        //     }
+        // }
 
         // ...Except if all its children are visible instead.
         VNode::breadth_first(|node| {
-            if node_visibilities[&node] {
+            if node.level() < 20 && node_visibilities[&node] {
                 let mut mask = 0;
                 for (i, c) in node.children().iter().enumerate() {
                     if !node_visibilities[c] {

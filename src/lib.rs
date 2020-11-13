@@ -639,6 +639,9 @@ impl Terrain {
             }
 
             let heightmaps_slot = self.tile_cache.get_slot(ancestor).unwrap();
+            if !self.tile_cache.slot_valid(heightmaps_slot, LayerType::Heightmaps) {
+                continue;
+            }
             assert!(self.tile_cache.slot_valid(heightmaps_slot, LayerType::Heightmaps));
 
             self.gen_displacements.run(

@@ -132,7 +132,7 @@ impl MapFileBuilder {
                     texture_format: TextureFormat::BC5,
                     tiles_generated_per_frame: 16,
                     peer_dependency_mask: LayerType::Heightmaps.bit_mask(),
-                    parent_dependency_mask: 0,
+                    parent_dependency_mask: LayerType::Albedo.bit_mask(),
                 },
         ]
         .into_iter()

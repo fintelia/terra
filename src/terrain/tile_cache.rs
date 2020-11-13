@@ -1,7 +1,7 @@
 use crate::mapfile::{MapFile, TileState};
 use crate::stream::TileStreamerEndpoint;
 use crate::terrain::quadtree::VNode;
-use cgmath::Point3;
+use cgmath::Vector3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
@@ -63,7 +63,7 @@ impl TextureFormat {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Priority(f32);
 impl Priority {
     pub fn cutoff() -> Self {
@@ -183,9 +183,9 @@ impl TileCache {
         }
     }
 
-    pub fn update_priorities(&mut self, camera_cspace: Point3<f64>) {
+    pub fn update_priorities(&mut self, camera: Vector3<f64>) {
         for entry in &mut self.slots {
-            entry.priority = entry.node.priority(camera_cspace);
+            entry.priority = entry.node.priority(camera);
         }
 
         self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
@@ -324,7 +324,11 @@ impl TileCache {
                         None => *n,
                     };
 
-                    let parent_slot = self.reverse[&p];
+                    let parent_slot = match self.reverse.get(&p) {
+                        Some(slot) => *slot,
+                        None => return false,
+                    };
+
                     if layer.parent_dependency_mask
                         & !(self.slots[parent_slot].valid | will_generate[parent_slot])
                         == 0

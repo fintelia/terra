@@ -1,4 +1,4 @@
-use crate::generate::EARTH_CIRCUMFERENCE;
+use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
 use crate::terrain::tile_cache::Priority;
 use cgmath::*;
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ impl VNode {
     /// Minimum distance from the center of this node on the face of a cube with coordinates from
     /// [-1, 1].
     pub fn min_distance(&self) -> f64 {
-        4.0 / (1u32 << self.level()) as f64
+        ROOT_SIDE_LENGTH as f64 * 2.0 / (1u32 << self.level()) as f64
     }
 
     fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
@@ -130,31 +130,73 @@ impl VNode {
         self.fspace_to_cspace(fx, fy)
     }
 
+    fn distance2(&self, point: Vector3<f64>) -> f64 {
+        let corners = [
+            self.grid_position_cspace(0, 0, 0, 2),
+            self.grid_position_cspace(1, 0, 0, 2),
+            self.grid_position_cspace(1, 1, 0, 2),
+            self.grid_position_cspace(0, 1, 0, 2),
+        ];
+
+        let normals = [
+            corners[0].cross(-corners[1]),
+            corners[1].cross(-corners[2]),
+            corners[2].cross(-corners[3]),
+            corners[3].cross(-corners[0]),
+        ];
+
+        const MIN_RADIUS: f64 = EARTH_RADIUS - 1000.0;
+        const MAX_RADIUS: f64 = EARTH_RADIUS + 9000.0;
+
+        // Top and bottom 
+        if normals.iter().all(|n| n.dot(point) >= 0.0) {
+            let length2 = point.dot(point);
+            if length2 > MIN_RADIUS * MIN_RADIUS && length2 < MAX_RADIUS * MAX_RADIUS {
+                return 0.0;
+            }
+            let length = length2.sqrt();
+            let d = (length - MAX_RADIUS).max(MIN_RADIUS - length);
+            return d * d;
+        }
+
+        // Edges
+        let mut d2 = f64::INFINITY;
+        for i in 0..4 {
+            let corner = corners[i].normalize();
+            let segment_point = point.dot(corner).min(MAX_RADIUS).max(MIN_RADIUS) * corner;
+            d2 = d2.min(segment_point.distance2(point));
+        }
+
+        // Faces
+        for i in 0..4 {
+            if normals[i].dot(point) < 0.0 && corners[i].cross(normals[i]).dot(point) > 0.0 && (-corners[(i+1)%4]).cross(normals[i]).dot(point - corners[(i+1)%4]) > 0.0 {
+                let mut surface_point = point - normals[i] * normals[i].dot(point) / normals[i].dot(normals[i]);
+                let length2 = surface_point.dot(surface_point);
+                if length2 > MAX_RADIUS * MAX_RADIUS {
+                    surface_point = surface_point.normalize() * MAX_RADIUS;
+                    d2 = d2.min(surface_point.distance2(point));
+                } else if length2 < MIN_RADIUS * MIN_RADIUS {
+                    surface_point = surface_point.normalize() * MIN_RADIUS;
+                    d2 = d2.min(surface_point.distance2(point));
+                } else {
+                    let dot = normals[i].dot(point);
+                    let length2 = dot * dot / normals[i].dot(normals[i]);
+                    d2 = d2.min(length2);
+                }
+                
+            }
+        }
+
+        d2
+    }
+
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
-    pub fn priority(&self, camera_cspace: Point3<f64>) -> Priority {
+    pub fn priority(&self, camera: Vector3<f64>) -> Priority {
         let min_distance = self.min_distance();
+        let distance2 = self.distance2(camera);
 
-        let c = Vector3::new(
-            camera_cspace.x * (1.4511 + (1.0 - 1.4511) * camera_cspace.x.abs()),
-            camera_cspace.y * (1.4511 + (1.0 - 1.4511) * camera_cspace.y.abs()),
-            camera_cspace.z * (1.4511 + (1.0 - 1.4511) * camera_cspace.z.abs()),
-        );
-
-        let a = self.cell_position_cspace(0, 0, 0, 1);
-        let a = Vector3::new(
-            a.x * (1.4511 + (1.0 - 1.4511) * a.x.abs()),
-            a.y * (1.4511 + (1.0 - 1.4511) * a.y.abs()),
-            a.z * (1.4511 + (1.0 - 1.4511) * a.z.abs()),
-        );
-
-        let r = 1.0 / (1u64 << (self.level())) as f64;
-        let dx = ((a.x - r) - c.x).max(c.x - (a.x + r)).max(0.0);
-        let dy = ((a.y - r) - c.y).max(c.y - (a.y + r)).max(0.0);
-        let dz = ((a.z - r) - c.z).max(c.z - (a.z + r)).max(0.0);
-        let distance = dx * dx + dy * dy + dz * dz;
-
-        Priority::from_f32(((min_distance * min_distance) / distance.max(1e-12)) as f32)
+        Priority::from_f32(((min_distance * min_distance) / distance2.max(1e-12)) as f32)
     }
 
     pub fn parent(&self) -> Option<(VNode, u8)> {
@@ -211,4 +253,18 @@ impl VNode {
             }
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_distance() {
+        let node = VNode::new(1, 1, 0, 0);
+        let camera = Vector3::new(1.,0.,1.);
+
+        let p = node.priority(camera);
+        assert!(p > Priority::cutoff());
+    }
+
 }

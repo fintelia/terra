@@ -89,14 +89,10 @@ vec3 compute_local_position(vec2 iPosition, out vec3 tangent, out vec3 normal, o
 }
 
 float compute_morph(vec2 iPosition) {
-	vec3 cubePosition = vec3(cube_position(iPosition));
 
-	vec3 camera = vec3(ubo.camera.x, ubo.camera.y, ubo.camera.z);
-	float r = max(max(abs(camera.x), abs(camera.y)), abs(camera.z));
-	camera = camera / r;
+	vec3 cubePosition = vec3(normalize(cube_position(iPosition)) * planetRadius);
+	vec3 camera = vec3(ubo.camera);
 
-	camera = camera * (1.4511 + (1 - 1.4511)*abs(camera));
-	cubePosition = cubePosition * (1.4511 + (1 - 1.4511)*abs(cubePosition));
 
 	if (min_distance == 0)
 		return 0;
