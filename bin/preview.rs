@@ -118,6 +118,18 @@ fn main() {
 
     let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
 
+    {
+        let r = altitude + planet_radius;
+        let eye = cgmath::Point3::new(
+            r * lat.cos() * long.cos(),
+            r * lat.cos() * long.sin(),
+            r * lat.sin(),
+        );
+        while terrain.loading(&device, &mut queue, eye.into()) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
             ControlFlow::Exit

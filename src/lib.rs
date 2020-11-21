@@ -69,7 +69,6 @@ pub struct Terrain {
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     sky_uniform_buffer: wgpu::Buffer,
 
-
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
@@ -175,7 +174,6 @@ impl Terrain {
             mapped_at_creation: false,
         });
 
-
         Ok(Self {
             bindgroup_pipeline: None,
             shader,
@@ -193,6 +191,28 @@ impl Terrain {
             quadtree,
             mapfile,
             tile_cache,
+        })
+    }
+
+    pub fn loading(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &mut wgpu::Queue,
+        camera: mint::Point3<f64>,
+    ) -> bool {
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+
+        self.quadtree.update_cache(&mut self.tile_cache, camera);
+        self.tile_cache.refresh_tile_generators();
+        self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
+        self.tile_cache.generate_tiles(&self.mapfile, device, &mut encoder, &self.gpu_state);
+
+        queue.submit(Some(encoder.finish()));
+
+        VNode::roots().iter().copied().any(|root| {
+            !self.tile_cache.contains(root, LayerType::Heightmaps)
+                || !self.tile_cache.contains(root, LayerType::Albedo)
         })
     }
 
