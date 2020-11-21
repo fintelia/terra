@@ -148,7 +148,7 @@ impl VNode {
         const MIN_RADIUS: f64 = EARTH_RADIUS - 1000.0;
         const MAX_RADIUS: f64 = EARTH_RADIUS + 9000.0;
 
-        // Top and bottom 
+        // Top and bottom
         if normals.iter().all(|n| n.dot(point) >= 0.0) {
             let length2 = point.dot(point);
             if length2 > MIN_RADIUS * MIN_RADIUS && length2 < MAX_RADIUS * MAX_RADIUS {
@@ -169,8 +169,12 @@ impl VNode {
 
         // Faces
         for i in 0..4 {
-            if normals[i].dot(point) < 0.0 && corners[i].cross(normals[i]).dot(point) > 0.0 && (-corners[(i+1)%4]).cross(normals[i]).dot(point - corners[(i+1)%4]) > 0.0 {
-                let mut surface_point = point - normals[i] * normals[i].dot(point) / normals[i].dot(normals[i]);
+            if normals[i].dot(point) < 0.0
+                && corners[i].cross(normals[i]).dot(point) > 0.0
+                && (-corners[(i + 1) % 4]).cross(normals[i]).dot(point - corners[(i + 1) % 4]) > 0.0
+            {
+                let mut surface_point =
+                    point - normals[i] * normals[i].dot(point) / normals[i].dot(normals[i]);
                 let length2 = surface_point.dot(surface_point);
                 if length2 > MAX_RADIUS * MAX_RADIUS {
                     surface_point = surface_point.normalize() * MAX_RADIUS;
@@ -183,7 +187,6 @@ impl VNode {
                     let length2 = dot * dot / normals[i].dot(normals[i]);
                     d2 = d2.min(length2);
                 }
-                
             }
         }
 
@@ -261,10 +264,9 @@ mod tests {
     #[test]
     fn test_distance() {
         let node = VNode::new(1, 1, 0, 0);
-        let camera = Vector3::new(1.,0.,1.);
+        let camera = Vector3::new(1., 0., 1.);
 
         let p = node.priority(camera);
         assert!(p > Priority::cutoff());
     }
-
 }

@@ -1,6 +1,10 @@
-use crate::mapfile::{MapFile, TileState};
 use crate::stream::TileStreamerEndpoint;
 use crate::terrain::quadtree::VNode;
+use crate::{
+    generate::GenerateTile,
+    gpu_state::GpuState,
+    mapfile::{MapFile, TileState},
+};
 use cgmath::Vector3;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -169,9 +173,10 @@ pub(crate) struct TileCache {
     layers: VecMap<LayerParams>,
 
     streamer: TileStreamerEndpoint,
+    generators: Vec<Box<dyn GenerateTile>>,
 }
 impl TileCache {
-    pub fn new(mapfile: Arc<MapFile>, size: usize) -> Self {
+    pub fn new(mapfile: Arc<MapFile>, generators: Vec<Box<dyn GenerateTile>>, size: usize) -> Self {
         Self {
             size,
             slots: Vec::new(),
@@ -180,6 +185,7 @@ impl TileCache {
             min_priority: Priority::none(),
             layers: mapfile.layers().clone(),
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
+            generators,
         }
     }
 
@@ -252,7 +258,24 @@ impl TileCache {
         self.missing.clear();
     }
 
-    pub(crate) fn compute_missing(&mut self, mapfile: &MapFile) -> VecMap<Vec<VNode>> {
+    pub(crate) fn refresh_tile_generators(&mut self) {
+        for gen in self.generators.iter_mut() {
+            if gen.needs_refresh() {
+                for slot in self.slots.iter_mut() {
+                    // TODO: this might clear more than necessary
+                    slot.valid &= !(gen.outputs(slot.node.level()) & slot.generated);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn generate_tiles(
+        &mut self,
+        mapfile: &MapFile,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        gpu_state: &GpuState,
+    ) {
         self.process_missing();
 
         let mut pending_generate = VecMap::new();
@@ -301,52 +324,53 @@ impl TileCache {
             }
         }
 
-        let mut will_generate = vec![0; self.slots.len()];
         for (i, nodes) in &mut pending_generate {
             let layer = &self.layers[i];
 
-            // If we have any peer dependencies, then remove any node that doesn't have them met.
-            if layer.peer_dependency_mask != 0 {
-                nodes.retain(|n| {
-                    let slot = self.reverse[n];
-                    layer.peer_dependency_mask & !(self.slots[slot].valid | will_generate[slot])
-                        == 0
-                });
-            }
+            for n in nodes {
+                let slot = self.reverse[n];
+                if self.slots[slot].valid & (1 << i) != 0 {
+                    continue;
+                }
 
-            if layer.parent_dependency_mask != 0 {
-                // If we have parent dependencies, iteratively add tiles that can fill them. This
-                // is slightly tricky since we have to update will_generate in the loop so that
-                // later tiles can depend on earlier ones.VNode
-                nodes.retain(|n| {
-                    let p = match n.parent() {
-                        Some((p, _)) => p,
-                        None => *n,
-                    };
+                let parent_slot = n.parent().and_then(|(p, _)| self.reverse.get(&p).copied());
 
-                    let parent_slot = match self.reverse.get(&p) {
-                        Some(slot) => *slot,
-                        None => return false,
-                    };
+                for gen in self.generators.iter_mut() {
+                    let outputs = gen.outputs(n.level());
 
-                    if layer.parent_dependency_mask
-                        & !(self.slots[parent_slot].valid | will_generate[parent_slot])
-                        == 0
+                    let generates_layer = outputs & (1 << i) != 0;
+                    let has_peer_inputs = gen.peer_inputs(n.level()) & !self.slots[slot].valid == 0;
+                    let root_input_missing = n.level() == 0 && gen.parent_inputs(0) != 0;
+                    let parent_input_missing = n.level() > 0
+                        && (parent_slot.is_none()
+                            || gen.parent_inputs(n.level())
+                                & !self.slots[*parent_slot.as_ref().unwrap()].valid
+                                != 0);
+
+                    if generates_layer
+                        && has_peer_inputs
+                        && !root_input_missing
+                        && !parent_input_missing
                     {
-                        will_generate[self.reverse[n]] |= layer.layer_type.bit_mask();
-                        true
-                    } else {
-                        false
+                        let output_mask = !self.slots[slot].valid & gen.outputs(n.level());
+                        gen.generate(
+                            device,
+                            encoder,
+                            gpu_state,
+                            &self.layers,
+                            *n,
+                            slot,
+                            parent_slot,
+                            output_mask,
+                        );
+
+                        self.slots[slot].valid |= output_mask;
+                        self.slots[slot].generated |= output_mask;
+                        break;
                     }
-                })
-            } else {
-                for n in nodes {
-                    will_generate[self.reverse[n]] |= layer.layer_type.bit_mask();
                 }
             }
         }
-
-        pending_generate
     }
 
     pub(crate) fn upload_tiles(
