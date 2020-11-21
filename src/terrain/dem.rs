@@ -17,6 +17,11 @@ lazy_static! {
         include_str!("../../file_list_srtm3.txt").split('\n').collect();
 }
 
+lazy_static! {
+    static ref NASADEM_FILES: HashSet<&'static str> =
+        include_str!("../../file_list_nasadem.txt").split('\n').collect();
+}
+
 /// Which data source to use for digital elevation models.
 #[derive(Copy, Clone)]
 pub enum DemSource {
@@ -31,6 +36,8 @@ pub enum DemSource {
     /// available globally between 60° north and 56° south latitude.
     #[allow(unused)]
     Srtm90m,
+    /// Use NASADEM
+    Nasadem,
 }
 impl DemSource {
     pub(crate) fn url_str(&self) -> &str {
@@ -44,6 +51,9 @@ impl DemSource {
             DemSource::Srtm90m => {
                 "https://cloud.sdsc.edu/v1/AUTH_opentopography/Raster/SRTM_GL3/SRTM_GL3_srtm/"
             }
+	        DemSource::Nasadem => {
+		        "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
+	        }
         }
     }
     pub(crate) fn directory_str(&self) -> &str {
@@ -51,6 +61,7 @@ impl DemSource {
             DemSource::Usgs30m => "dems/ned1",
             DemSource::Usgs10m => "dems/ned13",
             DemSource::Srtm90m => "dems/srtm3",
+            DemSource::Nasadem => "dems/nasadem",
         }
     }
     /// Returns the approximate resolution of data from this source in meters.
@@ -60,6 +71,7 @@ impl DemSource {
             DemSource::Usgs30m => 30,
             DemSource::Usgs10m => 10,
             DemSource::Srtm90m => 90,
+            DemSource::Nasadem => 30,
         }
     }
     /// Returns the size of cells from this data source in arcseconds.
@@ -69,6 +81,7 @@ impl DemSource {
             DemSource::Usgs30m => 1.0,
             DemSource::Usgs10m => 1.0 / 3.0,
             DemSource::Srtm90m => 3.0,
+            DemSource::Nasadem => 1.0,
         }
     }
 
@@ -80,6 +93,16 @@ impl DemSource {
                 let s =
                     format!("{}{:02}_{}{:03}.hgt", n_or_s, latitude.abs(), e_or_w, longitude.abs());
                 SRTM3_FILES.contains(&*s)
+            }
+            DemSource::Nasadem => {
+                let s = format!(
+                    "NASADEM_HGT_{}{:02}{}{:03}.zip",
+                    n_or_s,
+                    latitude.abs(),
+                    e_or_w,
+                    longitude.abs()
+                );
+                NASADEM_FILES.contains(&*s)
             }
             _ => unimplemented!(),
         }
@@ -113,6 +136,7 @@ impl WebAsset for DigitalElevationModelParams {
         match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => CompressionType::Lz4,
             DemSource::Srtm90m => CompressionType::Snappy,
+            DemSource::Nasadem => CompressionType::None,
         }
     }
     fn url(&self) -> String {
@@ -148,6 +172,14 @@ impl WebAsset for DigitalElevationModelParams {
                 e_or_w.to_uppercase().next().unwrap(),
                 longitude.abs()
             ),
+            DemSource::Nasadem => format!(
+                "{}{}{:02}{}{:03}.zip",
+                self.source.url_str(),
+                n_or_s,
+                latitude.abs(),
+                e_or_w,
+                longitude.abs()
+            ),
         }
     }
     fn filename(&self) -> String {
@@ -170,12 +202,39 @@ impl WebAsset for DigitalElevationModelParams {
                 e_or_w,
                 self.longitude.abs()
             ),
+            DemSource::Nasadem => format!(
+                "{}/{}{:02}{}{:03}.zip",
+                self.source.directory_str(),
+                n_or_s,
+                self.latitude.abs(),
+                e_or_w,
+                self.longitude.abs()
+            ),
         }
     }
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         match self.source {
             DemSource::Usgs30m | DemSource::Usgs10m => parse_ned_zip(data),
             DemSource::Srtm90m => parse_srtm3_hgt(self.latitude, self.longitude, data),
+            DemSource::Nasadem => Ok(Raster {
+                width: 0,
+                height: 0,
+                bands: 1,
+                latitude_llcorner: 0.0,
+                longitude_llcorner: 0.0,
+                cell_size: 0.0,
+                values: Vec::new(),
+            }),
+        }
+    }
+    fn credentials(&self) -> Option<(String, String)> {
+        match self.source {
+            DemSource::Nasadem => {
+                let cred = std::env::var("EARTHDATA_CREDENTIALS").unwrap();
+                let cred: Vec<_> = cred.split(":").collect();
+                Some((cred[0].to_string(), cred[1].to_string()))
+            }
+            _ => None,
         }
     }
 }
