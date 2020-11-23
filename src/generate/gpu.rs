@@ -115,7 +115,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             mapped_at_creation: true,
         });
         let mut buffer_view = staging.slice(..).get_mapped_range_mut();
-        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = *uniforms;
+        buffer_view[..mem::size_of::<U>()].copy_from_slice(bytemuck::bytes_of(uniforms));
         drop(buffer_view);
         staging.unmap();
 
