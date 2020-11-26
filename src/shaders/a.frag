@@ -7,32 +7,50 @@ layout(set = 0, binding = 0) uniform UniformBlock {
 	dvec3 camera;
 	double padding;
 } ubo;
-layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 2) uniform texture2DArray heights;
-layout(set = 0, binding = 3) uniform texture2DArray normals;
-layout(set = 0, binding = 4) uniform texture2DArray albedo;
-layout(set = 0, binding = 5) uniform texture2DArray roughness;
-layout(set = 0, binding = 6) uniform texture2D transmittance;
-layout(set = 0, binding = 7) uniform texture3D inscattering;
+
+struct LayerDesc {
+	vec3 origin;
+	float _step;
+	vec3 parent_origin;
+	float parent_step;
+};
+layout(set = 0, binding = 1, std140) uniform NodeBlock {
+	LayerDesc displacements;
+	LayerDesc albedo;
+	LayerDesc roughness;
+	LayerDesc normals;
+	uint resolution;
+	uint face;
+	uint level;
+	uint padding0;
+	vec3 relative_position;
+	float min_distance;
+	vec3 parent_relative_position;
+	float padding1;
+} node;
+
+layout(set = 0, binding = 2) uniform sampler linear;
+layout(set = 0, binding = 3) uniform texture2DArray heights;
+layout(set = 0, binding = 4) uniform texture2DArray normals;
+layout(set = 0, binding = 5) uniform texture2DArray albedo;
+layout(set = 0, binding = 6) uniform texture2DArray roughness;
+layout(set = 0, binding = 7) uniform texture2D transmittance;
+layout(set = 0, binding = 8) uniform texture3D inscattering;
 
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec3 albedo_texcoord;
-layout(location = 2) in vec3 albedo_parent_texcoord;
-layout(location = 3) in vec3 roughness_texcoord;
-layout(location = 4) in vec3 roughness_parent_texcoord;
-layout(location = 5) in vec3 normals_texcoord;
-layout(location = 6) in vec3 normals_parent_texcoord;
-layout(location = 7) in float morph;
-layout(location = 8) in vec3 normal;
-layout(location = 9) in vec3 tangent;
-layout(location = 10) in vec3 bitangent;
+layout(location = 1) in vec2 texcoord;
+layout(location = 2) in float morph;
+layout(location = 3) in vec3 normal;
+layout(location = 4) in vec3 tangent;
+layout(location = 5) in vec3 bitangent;
+layout(location = 6) in vec2 i_position;
 
-layout(location = 11) in vec2 i_position;
+//layout(location = 11) in vec2 i_position;
 // layout(location = 9) in float resolution;
 // layout(location = 10) in float min_distance;
 // layout(location = 11) in float elevation;
-layout(location = 12) in float face;
-layout(location = 13) in float level_resolution;
+//layout(location = 12) in float face;
+//layout(location = 13) in float level_resolution;
 
 layout(location = 0) out vec4 out_color;
 
@@ -58,9 +76,9 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,1), 0.3);
 
-	vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
-	vec2 tc = normals_texcoord.xy;//;
-	float ml = mipmap_level(tc * ts);
+	// vec2 ts = vec2(520);//vec2(textureSize(normals, 0).xy);
+	// vec2 tc = normals_texcoord.xy;//;
+	// float ml = mipmap_level(tc * ts);
 
 	// vec3 pc = normalize((position+vec3(0,6371000.0,0)) / (position.y+6371000.0));
 	// vec3 cc = normalize((ubo.camera.xyz+vec3(0,6371000.0,0)) / (ubo.camera.y+6371000.0));
@@ -81,24 +99,24 @@ vec3 debug_overlay(vec3 color) {
 	// else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
 	// 	color.rgb = mix(color.rgb, level_color, 0.2);
 
-	ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
-	vec3 overlay_color = vec3(0);
-	if (ml < 0.0 /*&& side_length <= 16.0*/)
-		overlay_color = vec3(0.4);
-	else if (ml < -1.0)
-		overlay_color = vec3(1,0,0);
-	else if (ml < 0.0) // 1024
-		overlay_color = vec3(0.5,0,0);
-	else if (ml < 1.0) // 512
-		overlay_color = vec3(0,0.2,0);
-	else if (ml < 2.0) // 256
-		overlay_color = vec3(0,0.4,0);
-	else if (ml < 3.0) // 128
-		overlay_color = vec3(0,0,.7);
-	else               // 64
-		overlay_color = vec3(0,0,.1);
-	// overlay_color = mix(overlay_color, vec3(0), 0.3-0.3*fract(ml));
-	color = mix(color, overlay_color, 0.9);
+	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
+	// vec3 overlay_color = vec3(0);
+	// if (ml < 0.0 /*&& side_length <= 16.0*/)
+	// 	overlay_color = vec3(0.4);
+	// else if (ml < -1.0)
+	// 	overlay_color = vec3(1,0,0);
+	// else if (ml < 0.0) // 1024
+	// 	overlay_color = vec3(0.5,0,0);
+	// else if (ml < 1.0) // 512
+	// 	overlay_color = vec3(0,0.2,0);
+	// else if (ml < 2.0) // 256
+	// 	overlay_color = vec3(0,0.4,0);
+	// else if (ml < 3.0) // 128
+	// 	overlay_color = vec3(0,0,.7);
+	// else               // 64
+	// 	overlay_color = vec3(0,0,.1);
+	// // overlay_color = mix(overlay_color, vec3(0), 0.3-0.3*fract(ml));
+	// color = mix(color, overlay_color, 0.9);
 
 	// if((fract(0.5*position.x/(4*1024*1024)) < 0.5) != (fract(0.5*position.z/(4*1024*1024)) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
@@ -119,9 +137,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
- 	vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
-	float line = min(grid.x, grid.y);
-	color = mix(color, vec3(0.8), smoothstep(1, 0, line));
+ 	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
+	// float line = min(grid.x, grid.y);
+	// color = mix(color, vec3(0.8), smoothstep(1, 0, line));
 
 	// if (side_length / 512.0 <= 16.0)
 	// 	color = mix(color, vec3(1,0,0), 0.4);
@@ -142,7 +160,7 @@ vec3 debug_overlay(vec3 color) {
 	// color = mix(color, vec3(1,1,1), .3 * fract(heights_origin.y / 40));
 	// color = mix(color, vec3(1,1,1), .3 * fract(position.y / 100-0.5));
 
-	vec2 v = vec2(i_position) / float(level_resolution) *2;
+	// vec2 v = vec2(i_position) / float(level_resolution) *2;
 	// // v = v * (1.4511 + (1 - 1.4511)*abs(v));
 	// // v = v * (1.4511 + (1 - 1.4511)*abs(v));
 	// // v = sign(v) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(v))) / 0.9022;
@@ -169,14 +187,18 @@ vec3 debug_overlay(vec3 color) {
 	// if(face == 4) color = mix(color, vec3(1,1,1), s);
 	// if(face == 5) color = mix(color, vec3(0,0,0), s);
 
-
-	// if(level_resolution == 128)color = mix(color, vec3(1,0,0), .74);
-	// if(level_resolution == 256)color = mix(color, vec3(0,1,0), .74);
-	// if(level_resolution == 512)color = mix(color, vec3(0,0,1), .74);
-	// if(level_resolution == 1024)color = mix(color, vec3(0,1,1), .74);
-	// if(level_resolution == 2*1024)color = mix(color, vec3(1,1,0), .74);
-	// if(level_resolution == 4*1024)color = mix(color, vec3(1,0,1), .74);
-	// if(level_resolution == 8*1024)color = mix(color, vec3(1,1,1), .74);
+	// if (node.displacements.origin.x < 0.25 || true) {
+	// 	if(node.level == 10)color = mix(color, vec3(1,0,0), .3);
+	// 	if(node.level == 11)color = mix(color, vec3(0,1,0), .3);
+	// 	if(node.level == 12)color = mix(color, vec3(0,0,1), .3);
+	// 	if(node.level == 13)color = mix(color, vec3(0,1,1), .3);
+	// 	if(node.level == 14)color = mix(color, vec3(1,1,0), .3);
+	// 	if(node.level == 15)color = mix(color, vec3(1,0,1), .3);
+	// 	if(node.level == 16)color = mix(color, vec3(1,1,1), .3);
+	// 	//if(node.level > 16 || node.level <= 16) color = vec3(0);
+	// }
+	// if (node.displacements._step == .5/65 )
+	// 	color=vec3(1);
 
 	// if (int(level_resolution/2 + i_position.x / 64) % 2 !=
 	// 	int(level_resolution/2 + i_position.y / 64) % 2)
@@ -207,6 +229,10 @@ vec3 debug_overlay(vec3 color) {
 
 	// if (face != 2) discard;
 
+	// if (node.resolution == 32)
+	// 	color *= 0.5;
+	// color = mix(color, vec3(0,0,0), (1-morph)*.4);
+
  	return color;
 }
 
@@ -217,6 +243,13 @@ vec3 extract_normal(vec2 n) {
 }
 
 void main() {
+	vec3 albedo_texcoord = node.albedo.origin + vec3(texcoord * node.albedo._step, 0);
+	vec3 albedo_parent_texcoord = node.albedo.parent_origin + vec3(texcoord * node.albedo.parent_step, 0);
+	vec3 roughness_texcoord = node.roughness.origin + vec3(texcoord * node.roughness._step, 0);
+	vec3 roughness_parent_texcoord = node.roughness.parent_origin + vec3(texcoord * node.roughness.parent_step, 0);
+	vec3 normals_texcoord = node.normals.origin + vec3(texcoord * node.normals._step, 0);
+	vec3 normals_parent_texcoord = node.normals.parent_origin + vec3(texcoord * node.normals.parent_step, 0);
+
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
 	if (normals_parent_texcoord.z >= 0) {
@@ -237,14 +270,6 @@ void main() {
 		float parent_roughness = texture(sampler2DArray(roughness, linear), roughness_parent_texcoord).r;
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
-
-	// if (length(position.xz-ubo.camera.xz) < 5000 && position.y < 50) {
-	// 	float t = smoothstep(50,40, position.y);
-	// 	albedo_roughness = mix(albedo_roughness, vec4(vec3(0.002,.007,.003), 0.1), t);
-	// 	normal = mix(normal, vec3(0,1,0), t);
-	// }
-	// if(albedo_roughness.a == float(int(0.35*255))/255)
-	// 	albedo_roughness.a = 0.7;
 
 	vec3 sunDirection = normalize(vec3(0.4, .7, 0.2));
 
@@ -271,5 +296,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// out_color.rgb = debug_overlay(out_color.rgb);
+	out_color.rgb = debug_overlay(out_color.rgb);
 }

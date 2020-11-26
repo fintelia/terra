@@ -1,6 +1,9 @@
+use maplit::hashmap;
+
 use crate::GpuState;
 use std::mem;
 
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub(crate) struct GenHeightmapsUniforms {
     pub position: [i32; 2],
@@ -13,12 +16,18 @@ pub(crate) struct GenHeightmapsUniforms {
 unsafe impl bytemuck::Zeroable for GenHeightmapsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}
 
+#[repr(C)]
 #[derive(Copy, Clone)]
 pub(crate) struct GenDisplacementsUniforms {
+    pub node_center: [f64; 3],
+    pub padding0: f64,
     pub origin: [i32; 2],
+    pub position: [i32; 2],
     pub stride: i32,
     pub heightmaps_slot: i32,
     pub displacements_slot: i32,
+    pub face: i32,
+    pub level_resolution: u32,
 }
 unsafe impl bytemuck::Zeroable for GenDisplacementsUniforms {}
 unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
@@ -83,11 +92,11 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(wgpu::BindingResource::Buffer {
+                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
                     buffer: &self.uniforms,
                     offset: 0,
                     size: None,
-                }),
+                })],
             );
             self.bindgroup_pipeline = Some((
                 bind_group,

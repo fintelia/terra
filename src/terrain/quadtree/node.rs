@@ -130,6 +130,10 @@ impl VNode {
         self.fspace_to_cspace(fx, fy)
     }
 
+    pub fn center_wspace(&self) -> Vector3<f64> {
+        self.cell_position_cspace(0, 0, 0, 1).normalize() * crate::coordinates::PLANET_RADIUS
+    }
+
     fn distance2(&self, point: Vector3<f64>) -> f64 {
         let corners = [
             self.grid_position_cspace(0, 0, 0, 2),

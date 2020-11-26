@@ -2,6 +2,7 @@ use crate::terrain::tile_cache::{Priority, TileCache};
 use cgmath::*;
 use collision::Frustum;
 use std::collections::HashMap;
+use std::convert::TryInto;
 
 pub(crate) mod node;
 pub(crate) mod render;
@@ -43,35 +44,36 @@ impl QuadTree {
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-    ) -> (wgpu::Buffer, wgpu::Buffer) {
-        let mut make_index_buffer = |resolution: u16| -> wgpu::Buffer {
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                size: 12 * (resolution as u64 + 1) * (resolution as u64 + 1),
-                usage: wgpu::BufferUsage::INDEX,
-                label: None,
-                mapped_at_creation: true,
-            });
-            let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-            let data: &mut [u16] = bytemuck::cast_slice_mut(&mut buffer_view);
+    ) -> wgpu::Buffer {
+        let mut make_index_buffer = |resolution: u16| -> Vec<u16> {
+            let mut data = Vec::new();
 
-            let mut i = 0;
             let width = resolution + 1;
             for y in 0..resolution {
                 for x in 0..resolution {
                     for offset in [0, 1, width, 1, width + 1, width].iter() {
-                        data[i] = offset + (x + y * width);
-                        i += 1;
+                        data.push(offset + (x + y * width));
                     }
                 }
             }
-
-            drop(buffer_view);
-            buffer.unmap();
-            buffer
+            data
         };
         let resolution = self.heights_resolution as u16;
+        let full = make_index_buffer(resolution);
+        let half = make_index_buffer(resolution / 2);
 
-        (make_index_buffer(resolution), make_index_buffer(resolution / 2))
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: (2*(full.len() + half.len())).try_into().unwrap(),
+            usage: wgpu::BufferUsage::INDEX,
+            label: None,
+            mapped_at_creation: true,
+        });
+        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
+        buffer_view[0..(full.len()*2)].copy_from_slice(bytemuck::cast_slice(&full));
+        buffer_view[(full.len()*2)..].copy_from_slice(bytemuck::cast_slice(&half));
+        drop(buffer_view);
+        buffer.unmap();
+        buffer
     }
 
     pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f64>) {

@@ -3,17 +3,41 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
+    dvec3 node_center;
+    double padding0;
     ivec2 origin;
-	int stride;
-	int heightmaps_slot;
-	int displacements_slot;
+    ivec2 position;
+    int stride;
+    int heightmaps_slot;
+    int displacements_slot;
+    int face;
+    uint level_resolution;
 } ubo;
 
 layout(r32f, binding = 2) uniform image2DArray heightmaps;
 layout(rgba32f, binding = 3) uniform image2DArray displacements;
 
+const double planetRadius = 6371000.0;
+
 void main() {
-	ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
-	float height = imageLoad(heightmaps, ivec3(ubo.origin + pos.xy*ubo.stride, ubo.heightmaps_slot)).x;
-	imageStore(displacements, pos, vec4(0.0, max(height,0), 0.0, 0.0));
+    dvec2 facePosition = 2.0 * dvec2(ivec2(gl_GlobalInvocationID.xy) + ubo.position) / double(ubo.level_resolution);
+
+    // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
+    // http://jcgt.org/published/0007/02/01/paper.pdf
+    facePosition = sign(facePosition) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(facePosition))) / 0.9022;
+
+    dvec3 cubePosition = dvec3(0);
+    if(ubo.face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
+    else if(ubo.face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
+    else if(ubo.face == 2) cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
+    else if(ubo.face == 3) cubePosition = dvec3(-facePosition.x, -1.0, facePosition.y);
+    else if(ubo.face == 4) cubePosition = dvec3(facePosition.x, -facePosition.y, 1.0);
+    else if(ubo.face == 5) cubePosition = dvec3(-facePosition.x, -facePosition.y, -1.0);
+
+    float height = imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x;
+    dvec3 worldPosition = normalize(cubePosition) * (planetRadius + max(height,0));
+    dvec3 relativePosition = worldPosition - ubo.node_center;
+
+    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
+    imageStore(displacements, pos, vec4(relativePosition, 0.0));
 }

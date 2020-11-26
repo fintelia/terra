@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::terrain::tile_cache::LayerType;
 use vec_map::VecMap;
 
@@ -17,7 +19,7 @@ impl GpuState {
         &self,
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
-        ubo: Option<wgpu::BindingResource>,
+        uniform_buffers: HashMap<&str, (bool, wgpu::BindingResource)>,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let linear = &device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -52,11 +54,9 @@ impl GpuState {
             .map(|(i, tex)| (i, tex.create_view(&Default::default())))
             .collect();
 
-        let bind_group_layout = device.create_bind_group_layout(&shader.layout_descriptor());
+        let mut layout_descriptor_entries = shader.layout_descriptor().entries.to_vec();
         let mut bindings = Vec::new();
-        for (name, layout) in
-            shader.desc_names().iter().zip(shader.layout_descriptor().entries.iter())
-        {
+        for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter_mut()) {
             let name = &**name.as_ref().unwrap();
             bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
@@ -85,12 +85,20 @@ impl GpuState {
                             _ => unreachable!("unrecognized image: {}", name),
                         })
                     }
-                    wgpu::BindingType::UniformBuffer { .. } => ubo.clone().unwrap(),
+                    wgpu::BindingType::UniformBuffer { ref mut dynamic, .. } => {
+                        let (d, ref buf) = uniform_buffers[name];
+                        *dynamic = d;
+                        buf.clone()
+                    }
                     wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
                 },
             });
         }
 
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &layout_descriptor_entries,
+            label: None,
+        });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &*bindings,

@@ -16,8 +16,8 @@ use bytemuck::Pod;
 use cgmath::Vector2;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::f64::consts::PI;
 use std::collections::HashMap;
+use std::f64::consts::PI;
 use vec_map::VecMap;
 
 mod gpu;
@@ -365,7 +365,11 @@ pub(crate) fn generators(
                     Some(_) => (Vector2::new(node.x() & 1, node.y() & 1), base_stride / 2),
                     None => (Vector2::new(0, 0), base_stride),
                 };
+                let world_center = node.center_wspace();
+                let resolution = displacements_resolution - 1;
+                let level_resolution = resolution << node.level();
                 GenDisplacementsUniforms {
+                    node_center: world_center.into(),
                     origin: [
                         (heightmaps_border
                             + (heightmaps_resolution - heightmaps_border * 2 - 1) * offset.x / 2)
@@ -377,6 +381,13 @@ pub(crate) fn generators(
                     stride: stride as i32,
                     displacements_slot: slot as i32,
                     heightmaps_slot: parent_slot.unwrap_or(slot) as i32,
+                    position: [
+                        (node.x() * resolution) as i32 - level_resolution as i32 / 2,
+                        (node.y() * resolution) as i32 - level_resolution as i32 / 2,
+                    ],
+                    face: node.face() as i32,
+                    level_resolution,
+                    padding0: 0.0,
                 }
             },
         ),

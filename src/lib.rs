@@ -30,9 +30,11 @@ use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use gpu_state::GpuState;
+use maplit::hashmap;
 use std::mem;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
+use std::convert::TryInto;
 
 pub use crate::mapfile::MapFile;
 pub use generate::MapFileBuilder;
@@ -61,9 +63,8 @@ pub struct Terrain {
     shader: rshader::ShaderSet,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     uniform_buffer: wgpu::Buffer,
-    vertex_buffer: wgpu::Buffer,
+    node_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-    index_buffer_partial: wgpu::Buffer,
 
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
@@ -100,13 +101,13 @@ impl Terrain {
             label: Some("terrain.uniforms".into()),
             mapped_at_creation: false,
         });
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        let node_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::VERTEX,
+            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
             label: Some("terrain.vertex_buffer".into()),
             mapped_at_creation: false,
         });
-        let (index_buffer, index_buffer_partial) = {
+        let index_buffer = {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("generate_index_buffers".into()),
             });
@@ -179,9 +180,8 @@ impl Terrain {
             shader,
 
             uniform_buffer,
-            vertex_buffer,
+            node_buffer,
             index_buffer,
-            index_buffer_partial,
 
             sky_shader,
             sky_uniform_buffer,
@@ -235,17 +235,24 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.shader,
-                Some(wgpu::BindingResource::Buffer {
-                    buffer: &self.uniform_buffer,
-                    offset: 0,
-                    size: None,
-                }),
+                hashmap![
+                    "ubo" => (false, wgpu::BindingResource::Buffer {
+                        buffer: &self.uniform_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                    "node" => (true, wgpu::BindingResource::Buffer {
+                        buffer: &self.node_buffer,
+                        offset: 0,
+                        size: Some((mem::size_of::<NodeState>() as u64).try_into().unwrap()),
+                    })
+                ],
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
-                    label: None,
+                    label: Some("terrain.pipeline.layout"),
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -292,7 +299,7 @@ impl Terrain {
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
-                    label: None,
+                    label: Some("terrain.pipeline"),
                 }),
             ));
         }
@@ -304,17 +311,17 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.sky_shader,
-                Some(wgpu::BindingResource::Buffer {
+                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
                     buffer: &self.sky_uniform_buffer,
                     offset: 0,
                     size: None,
-                }),
+                })],
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: [&bind_group_layout][..].into(),
                     push_constant_ranges: &[],
-                    label: None,
+                    label: Some("sky.pipeline.layout"),
                 });
             self.sky_bindgroup_pipeline = Some((
                 bind_group,
@@ -353,7 +360,7 @@ impl Terrain {
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
-                    label: None,
+                    label: Some("sky.pipeline"),
                 }),
             ));
         }
@@ -382,8 +389,9 @@ impl Terrain {
             self.quadtree.prepare_vertex_buffer(
                 device,
                 &mut encoder,
-                &mut self.vertex_buffer,
+                &mut self.node_buffer,
                 &self.tile_cache,
+                camera,
             );
         }
 
@@ -420,7 +428,7 @@ impl Terrain {
                     attachment: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.3, b: 0.8, a: 1.0 }),
+                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
                         store: true,
                     },
                 }][..]
@@ -437,14 +445,12 @@ impl Terrain {
 
             rpass.push_debug_group("Terrain");
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-            rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
 
             if do_render {
                 self.quadtree.render(
                     &mut rpass,
-                    &self.vertex_buffer,
                     &self.index_buffer,
-                    &self.index_buffer_partial,
+                    &self.bindgroup_pipeline.as_ref().unwrap().0
                 );
             }
             rpass.pop_debug_group();
