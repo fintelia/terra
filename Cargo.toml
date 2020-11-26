@@ -59,7 +59,7 @@ tiff = "0.6.0"
 toml = "0.5.7"
 vec_map = { version = "0.8.2", features = ["serde"] }
 vecmath = "1.0.0"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "86757f4ee82e94868ce7d0c9aac9e433fcd7d11c" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "e59ea495a66ce9606c3a2bbfc2efe8c0c05d413c" }
 winit = "0.23.0"
 xdg = "2.2.0"
 zerocopy = "0.3.0"
@@ -80,3 +80,9 @@ opt-level = 1
 
 [profile.release]
 debug = true
+
+[patch.crates-io]
+wasm-bindgen = { git = "https://github.com/rustwasm/wasm-bindgen", rev = "316c5a70fdc4a052fb65ef82bf02d52107b5671b" }
+wasm-bindgen-futures = { git = "https://github.com/rustwasm/wasm-bindgen", rev = "316c5a70fdc4a052fb65ef82bf02d52107b5671b" }
+web-sys = { git = "https://github.com/rustwasm/wasm-bindgen", rev = "316c5a70fdc4a052fb65ef82bf02d52107b5671b" }
+js-sys = { git = "https://github.com/rustwasm/wasm-bindgen", rev = "316c5a70fdc4a052fb65ef82bf02d52107b5671b" }

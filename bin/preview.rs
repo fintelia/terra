@@ -39,7 +39,7 @@ fn make_swapchain(
     device.create_swap_chain(
         &surface,
         &wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
             width,
             height,
@@ -55,7 +55,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
+            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
             label: None,
         })
         .create_view(&Default::default())
@@ -90,6 +90,7 @@ fn main() {
                 features: wgpu::Features::TEXTURE_COMPRESSION_BC,
                 limits: wgpu::Limits::default(),
                 shader_validation: true,
+                label: None,
             },
             None,
         ))
