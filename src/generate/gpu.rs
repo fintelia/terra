@@ -135,8 +135,4 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         cpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         cpass.dispatch(dimensions.0, dimensions.1, dimensions.2);
     }
-
-    pub fn hash(&self) -> &[u8] {
-        self.shader.digest()
-    }
 }

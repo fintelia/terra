@@ -127,7 +127,6 @@ impl QuadTree {
                 texture_ratio,
                 texture_step,
             ).0;
-            let level_resolution = resolution << node.level();
             self.node_states.push(NodeState {
                 _padding0: 0,
                 _padding1: [0; 21],
@@ -193,7 +192,6 @@ impl QuadTree {
                         texture_ratio,
                         texture_step,
                     ).0;
-                    let level_resolution = resolution << node.level();
                     self.node_states.push(NodeState {
                         _padding0: 0,
                         _padding1: [0; 21],

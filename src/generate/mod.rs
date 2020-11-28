@@ -807,7 +807,7 @@ impl WebAsset for WebTextureAsset {
     }
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         // TODO: handle other pixel formats
-        let img = image::load_from_memory(&data)?.into_rgba();
+        let img = image::load_from_memory(&data)?.into_rgba8();
         Ok((
             TextureDescriptor {
                 format: TextureFormat::RGBA8,

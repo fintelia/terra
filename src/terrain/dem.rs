@@ -37,6 +37,7 @@ pub enum DemSource {
     #[allow(unused)]
     Srtm90m,
     /// Use NASADEM
+    #[allow(unused)]
     Nasadem,
 }
 impl DemSource {

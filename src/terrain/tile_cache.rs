@@ -325,8 +325,6 @@ impl TileCache {
         }
 
         for (i, nodes) in &mut pending_generate {
-            let layer = &self.layers[i];
-
             for n in nodes {
                 let slot = self.reverse[n];
                 if self.slots[slot].valid & (1 << i) != 0 {
@@ -477,14 +475,6 @@ impl TileCache {
             .collect()
     }
 
-    pub fn clear_generated(&mut self, ty: LayerType) {
-        for i in 0..self.slots.len() {
-            if self.slots[i].generated & ty.bit_mask() != 0 {
-                self.slots[i].valid &= !ty.bit_mask();
-            }
-        }
-    }
-
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
         self.reverse
             .get(&node)
@@ -492,17 +482,9 @@ impl TileCache {
             .map(|entry| (entry.valid & ty.bit_mask()) != 0)
             .unwrap_or(false)
     }
-    pub fn set_slot_valid(&mut self, slot: usize, ty: LayerType) {
-        self.slots[slot].valid |= ty.bit_mask();
-        self.slots[slot].generated |= ty.bit_mask();
-    }
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
         self.reverse.get(&node).cloned()
-    }
-
-    pub fn slot_valid(&self, slot: usize, ty: LayerType) -> bool {
-        self.slots.get(slot).map(|entry| entry.valid & ty.bit_mask() != 0).unwrap_or(false)
     }
 
     pub fn resolution(&self, ty: LayerType) -> u32 {
@@ -513,14 +495,6 @@ impl TileCache {
         let block_size = self.layers[ty].texture_format.block_size();
         assert_eq!(resolution % block_size, 0);
         resolution / block_size
-    }
-    pub fn bytes_per_block(&self, ty: LayerType) -> usize {
-        self.layers[ty].texture_format.bytes_per_block()
-    }
-    pub fn row_pitch(&self, ty: LayerType) -> usize {
-        let row_bytes = self.resolution_blocks(ty) as usize * self.bytes_per_block(ty);
-        let row_pitch = (row_bytes + 255) & !255;
-        row_pitch
     }
 
     pub fn border(&self, ty: LayerType) -> u32 {

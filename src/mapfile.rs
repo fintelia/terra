@@ -49,7 +49,6 @@ pub struct MapFile {
     _db: sled::Db,
     tiles: sled::Tree,
     textures: sled::Tree,
-    shaders: sled::Tree,
 }
 impl MapFile {
     pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
@@ -70,7 +69,6 @@ impl MapFile {
         if version < CURRENT_VERSION {
             db.drop_tree("tiles").unwrap();
             db.drop_tree("textures").unwrap();
-            db.drop_tree("shaders").unwrap();
         }
         db.insert("version", &*format!("{}", CURRENT_VERSION)).unwrap();
 
@@ -78,7 +76,6 @@ impl MapFile {
             layers,
             tiles: db.open_tree("tiles").unwrap(),
             textures: db.open_tree("textures").unwrap(),
-            shaders: db.open_tree("shaders").unwrap(),
             _db: db,
         }
     }
@@ -95,7 +92,7 @@ impl MapFile {
             return None;
         }
         match layer {
-            LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba().into_vec()),
+            LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba8().into_vec()),
             LayerType::Normals => {
                 let mut data = Vec::new();
                 // snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
@@ -235,7 +232,7 @@ impl MapFile {
         let row_pitch = (row_bytes + 255) & !255;
 
         let data = if desc.format == TextureFormat::RGBA8 {
-            image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba().into_vec()
+            image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba8().into_vec()
         } else {
             fs::read(TERRA_DIRECTORY.join(format!("{}.raw", name)))?
         };
@@ -379,6 +376,7 @@ impl MapFile {
         self.update_tile_meta(layer, node, new_meta)?;
         Ok(target_state)
     }
+    #[allow(unused)]
     pub(crate) fn clear_generated(&self, layer: LayerType) -> Result<(), Error> {
         self.scan_tile_meta(layer, |node, meta| {
             if let TileState::Generated = meta.state {
@@ -437,14 +435,6 @@ impl MapFile {
     fn update_texture(&self, name: &str, desc: TextureDescriptor) -> Result<(), Error> {
         let value = serde_json::to_vec(&desc).unwrap();
         self.textures.insert(name, value)?;
-        Ok(())
-    }
-
-    pub(crate) fn lookup_shader_hash(&self, name: &str) -> Result<Option<Vec<u8>>, Error> {
-        Ok(self.shaders.get(name)?.map(|v| v.to_vec()))
-    }
-    pub(crate) fn update_shader_hash(&self, name: &str, hash: &[u8]) -> Result<(), Error> {
-        self.shaders.insert(name, hash)?;
         Ok(())
     }
 }
