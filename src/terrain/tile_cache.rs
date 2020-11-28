@@ -145,10 +145,6 @@ pub(crate) struct LayerParams {
     pub texture_format: TextureFormat,
     /// Maximum number of tiles for this layer to generate in a single frame.
     pub tiles_generated_per_frame: usize,
-    /// Bit mask of the other layers that are used to generate this one.
-    pub peer_dependency_mask: u32,
-    /// Bit mask of the layers (possibly including this one) where the parent of a tile is used to generate it.
-    pub parent_dependency_mask: u32,
 }
 
 struct Entry {

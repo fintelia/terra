@@ -501,8 +501,8 @@ impl MapFileBuilder {
                     texture_border_size: 4,
                     texture_format: TextureFormat::R32F,
                     tiles_generated_per_frame: 16,
-                    peer_dependency_mask: 0,
-                    parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    // peer_dependency_mask: 0,
+                    // parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
                 },
             LayerType::Displacements.index() => LayerParams {
                     layer_type: LayerType::Displacements,
@@ -510,8 +510,8 @@ impl MapFileBuilder {
                     texture_border_size: 0,
                     texture_format: TextureFormat::RGBA32F,
                     tiles_generated_per_frame: 128,
-                    peer_dependency_mask: 0,
-                    parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    // peer_dependency_mask: 0,
+                    // parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
                 },
             LayerType::Albedo.index() => LayerParams {
                     layer_type: LayerType::Albedo,
@@ -519,8 +519,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::RGBA8,
                     tiles_generated_per_frame: 16,
-                    peer_dependency_mask: 0,
-                    parent_dependency_mask: LayerType::Albedo.bit_mask(),
+                    // peer_dependency_mask: 0,
+                    // parent_dependency_mask: LayerType::Albedo.bit_mask(),
                 },
             LayerType::Roughness.index() => LayerParams {
                     layer_type: LayerType::Roughness,
@@ -528,8 +528,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC4,
                     tiles_generated_per_frame: 16,
-                    peer_dependency_mask: 0,
-                    parent_dependency_mask: LayerType::Roughness.bit_mask(),
+                    // peer_dependency_mask: 0,
+                    // parent_dependency_mask: LayerType::Roughness.bit_mask(),
                 },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
@@ -537,8 +537,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC5,
                     tiles_generated_per_frame: 16,
-                    peer_dependency_mask: LayerType::Heightmaps.bit_mask(),
-                    parent_dependency_mask: LayerType::Albedo.bit_mask(),
+                    // peer_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    // parent_dependency_mask: LayerType::Albedo.bit_mask(),
                 },
         ]
         .into_iter()
