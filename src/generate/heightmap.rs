@@ -295,7 +295,7 @@ impl HeightmapCache {
 
         let mut n = node;
         loop {
-            if let Some(t) = self.tiles.get(node) {
+            if let Some(t) = self.tiles.get(n) {
                 root = Some(t);
                 break;
             }
