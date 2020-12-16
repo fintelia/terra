@@ -20,6 +20,7 @@ use vec_map::VecMap;
 fn compress_heightmap_tile(
     resolution: usize,
     skirt: usize,
+    log2_scale_factor: i8,
     heights: &[i16],
     parent: Option<(u8, &[i16])>,
 ) -> Vec<u8> {
@@ -28,12 +29,17 @@ fn compress_heightmap_tile(
     let mut output = Vec::new();
     let mut grid = Vec::new();
 
+    assert!(log2_scale_factor >= 0 && log2_scale_factor <= 12);
+    let scale_factor = 1i16 << log2_scale_factor;
+    let inv_scale_factor = 1.0 / scale_factor as f32;
+
     match parent {
         None => {
             for y in 0..half_resolution {
                 for x in 0..half_resolution {
                     output.push(
-                        (heights[(x * 2) + (y * 2) * resolution] as f32 / 8.0).round() as i16
+                        (heights[(x * 2) + (y * 2) * resolution] as f32 * inv_scale_factor).round()
+                            as i16,
                     );
                 }
             }
@@ -47,9 +53,10 @@ fn compress_heightmap_tile(
                 for x in 0..half_resolution {
                     let height = heights[(x * 2) + (y * 2) * resolution];
                     let pheight = parent_heights[(offset.x + x) + (offset.y + y) * resolution];
-                    let delta = (height.wrapping_sub(pheight) as f32 / 8.0).round() as i16;
+                    let delta =
+                        (height.wrapping_sub(pheight) as f32 * inv_scale_factor).round() as i16;
                     output.push(delta);
-                    grid.push(pheight.wrapping_add(delta * 8));
+                    grid.push(pheight.wrapping_add(delta * scale_factor));
                 }
             }
         }
@@ -61,8 +68,9 @@ fn compress_heightmap_tile(
                 + grid[(x + 1) / 2 + y * half_resolution / 2] as i32)
                 / 2;
             output.push(
-                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32 / 8.0).round()
-                    as i16,
+                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32
+                    * inv_scale_factor)
+                    .round() as i16,
             );
         }
     }
@@ -73,8 +81,9 @@ fn compress_heightmap_tile(
                 + grid[x / 2 + (y + 1) * half_resolution / 2] as i32)
                 / 2;
             output.push(
-                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32 / 8.0).round()
-                    as i16,
+                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32
+                    * inv_scale_factor)
+                    .round() as i16,
             );
         }
     }
@@ -87,8 +96,9 @@ fn compress_heightmap_tile(
                 + grid[(x + 1) / 2 + (y + 1) * half_resolution / 2] as i32)
                 / 4;
             output.push(
-                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32 / 8.0).round()
-                    as i16,
+                (heights[x + y * resolution].wrapping_sub(interpolated as i16) as f32
+                    * inv_scale_factor)
+                    .round() as i16,
             );
         }
     }
@@ -101,12 +111,11 @@ fn compress_heightmap_tile(
     // let mut e = flate2::write::ZlibEncoder::new(vec![0, 8], flate2::Compression::default());
     // e.write_all(bytemuck::cast_slice(&output)).unwrap();
     // e.finish().unwrap()
-    let mut e = lz4::EncoderBuilder::new().level(9).build(vec![1, 8]).unwrap();
+    let mut e =
+        lz4::EncoderBuilder::new().level(9).build(vec![2, log2_scale_factor as u8]).unwrap();
     e.write_all(bytemuck::cast_slice(&output)).unwrap();
     e.finish().0
 }
-
-static mut N: u64 = 0;
 
 fn uncompress_heightmap_tile(
     resolution: usize,
@@ -114,11 +123,14 @@ fn uncompress_heightmap_tile(
     parent: Option<(u8, &[i16])>,
     bytes: &[u8],
 ) -> Vec<i16> {
-    unsafe {
-        N += 1;
-    }
-
-    assert_eq!(bytes[0], 1); // version
+    let scale_factor = if bytes[0] == 1 {
+        bytes[1] as i16
+    } else if bytes[0] == 2 {
+        assert!(bytes[1] as i8 >= 0 && bytes[1] <= 12);
+        1i16 << bytes[1]
+    } else {
+        panic!("unknown heightmap tile version.");
+    };
 
     let mut encoded = vec![0i16; resolution * resolution];
     // flate2::read::ZlibDecoder::new(Cursor::new(&bytes[2..]))
@@ -132,8 +144,6 @@ fn uncompress_heightmap_tile(
 
     let encoded: VecDeque<i16> = encoded.into();
     let mut encoded = encoded.into_iter();
-
-    let scale_factor = bytes[1] as i16;
 
     assert_eq!(resolution % 2, 1);
     let half_resolution = resolution / 2 + 1;
@@ -420,6 +430,7 @@ impl HeightmapGen {
             tx.send(compress_heightmap_tile(
                 resolution,
                 border_size,
+                2 + crate::generate::TILE_CELL_76M.saturating_sub(node.level()) as i8,
                 &*heightmap,
                 parent.as_ref().map(|&(i, ref a)| (i, &***a)),
             ))
@@ -449,7 +460,7 @@ mod tests {
         let child: Vec<i16> =
             (0..(resolution * resolution)).map(|_| dist.sample(&mut rng)).collect();
 
-        let bytes = compress_heightmap_tile(resolution, skirt, &*child, Some((0, &*parent)));
+        let bytes = compress_heightmap_tile(resolution, skirt, 3, &*child, Some((0, &*parent)));
         let roundtrip = uncompress_heightmap_tile(resolution, skirt, Some((0, &*parent)), &*bytes);
 
         for i in 0..(resolution * resolution) {
@@ -476,7 +487,7 @@ mod tests {
         let child: Vec<i16> =
             (0..(resolution * resolution)).map(|_| dist.sample(&mut rng)).collect();
 
-        b.iter(|| compress_heightmap_tile(resolution, skirt, &*child, Some((0, &*parent))));
+        b.iter(|| compress_heightmap_tile(resolution, skirt, 3, &*child, Some((0, &*parent))));
     }
 
     #[bench]
@@ -492,7 +503,7 @@ mod tests {
         let child: Vec<i16> =
             (0..(resolution * resolution)).map(|_| dist.sample(&mut rng)).collect();
 
-        let bytes = compress_heightmap_tile(resolution, skirt, &*child, Some((0, &*parent)));
+        let bytes = compress_heightmap_tile(resolution, skirt, 3, &*child, Some((0, &*parent)));
         b.iter(|| uncompress_heightmap_tile(resolution, skirt, Some((0, &*parent)), &*bytes));
     }
 }
