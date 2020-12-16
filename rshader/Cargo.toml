@@ -14,9 +14,9 @@ anyhow = "1.0.33"
 generic-array = "0.14.4"
 notify = "4.0.15"
 sha2 = "0.9.1"
-shaderc = "0.6.2"
+shaderc = "0.7.0"
 spirq = "0.4.7"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "e59ea495a66ce9606c3a2bbfc2efe8c0c05d413c" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "056612a09465d2161087216fd91e21f212c8fed3" }
 lazy_static = "1.4.0"
 
 [features]

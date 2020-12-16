@@ -45,14 +45,20 @@ impl QuadTree {
                     let parent_offset =
                         texture_origin + 0.5 * texture_ratio * (base_origin + parent_offset);
 
-                    return ([
-                        [child_offset.x, child_offset.y, child_slot, texture_step],
-                        [parent_offset.x, parent_offset.y, parent_slot, texture_step * 0.5],
-                    ], node);
+                    return (
+                        [
+                            [child_offset.x, child_offset.y, child_slot, texture_step],
+                            [parent_offset.x, parent_offset.y, parent_slot, texture_step * 0.5],
+                        ],
+                        node,
+                    );
                 }
             }
 
-            ([[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]], node)
+            (
+                [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]],
+                node,
+            )
         } else {
             let (ancestor, generations, offset) = node
                 .find_ancestor(|n| tile_cache.contains(n, ty))
@@ -108,7 +114,8 @@ impl QuadTree {
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
-            ).0;
+            )
+            .0;
             let roughness_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -117,7 +124,8 @@ impl QuadTree {
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
-            ).0;
+            )
+            .0;
             let normals_desc = Self::find_descs(
                 node,
                 &tile_cache,
@@ -126,7 +134,8 @@ impl QuadTree {
                 Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
-            ).0;
+            )
+            .0;
             self.node_states.push(NodeState {
                 _padding0: 0,
                 _padding1: [0; 21],
@@ -138,10 +147,11 @@ impl QuadTree {
                 resolution,
                 face: node.face() as u32,
                 level: node.level() as u32,
-                relative_position: (cgmath::Point3::from(camera) - displacements_node.center_wspace())
-                    .cast::<f32>()
-                    .unwrap()
-                    .into(),
+                relative_position: (cgmath::Point3::from(camera)
+                    - displacements_node.center_wspace())
+                .cast::<f32>()
+                .unwrap()
+                .into(),
                 parent_relative_position: (cgmath::Point3::from(camera)
                     - displacements_node.parent().map(|x| x.0).unwrap_or(node).center_wspace())
                 .cast::<f32>()
@@ -173,7 +183,8 @@ impl QuadTree {
                         base_origin,
                         texture_ratio,
                         texture_step,
-                    ).0;
+                    )
+                    .0;
                     let roughness_desc = Self::find_descs(
                         node,
                         &tile_cache,
@@ -182,7 +193,8 @@ impl QuadTree {
                         base_origin,
                         texture_ratio,
                         texture_step,
-                    ).0;
+                    )
+                    .0;
                     let normals_desc = Self::find_descs(
                         node,
                         &tile_cache,
@@ -191,7 +203,8 @@ impl QuadTree {
                         base_origin,
                         texture_ratio,
                         texture_step,
-                    ).0;
+                    )
+                    .0;
                     self.node_states.push(NodeState {
                         _padding0: 0,
                         _padding1: [0; 21],
@@ -204,12 +217,17 @@ impl QuadTree {
                         resolution: resolution / 2,
                         face: node.face() as u32,
                         level: node.level() as u32,
-                        relative_position: (cgmath::Point3::from(camera) - displacements_node.center_wspace())
-                            .cast::<f32>()
-                            .unwrap()
-                            .into(),
+                        relative_position: (cgmath::Point3::from(camera)
+                            - displacements_node.center_wspace())
+                        .cast::<f32>()
+                        .unwrap()
+                        .into(),
                         parent_relative_position: (cgmath::Point3::from(camera)
-                            - displacements_node.parent().map(|x| x.0).unwrap_or(node).center_wspace())
+                            - displacements_node
+                                .parent()
+                                .map(|x| x.0)
+                                .unwrap_or(node)
+                                .center_wspace())
                         .cast::<f32>()
                         .unwrap()
                         .into(),
@@ -251,7 +269,7 @@ impl QuadTree {
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 
-        rpass.set_index_buffer(index_buffer.slice(..));
+        rpass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
         for i in 0..visible_nodes {
             rpass.set_bind_group(0, &bind_group, &[mem::size_of::<NodeState>() as u32 * i]);
@@ -261,7 +279,8 @@ impl QuadTree {
         for i in visible_nodes..total_nodes {
             rpass.set_bind_group(0, &bind_group, &[mem::size_of::<NodeState>() as u32 * i]);
             rpass.draw_indexed(
-                (resolution * resolution * 6)..((resolution * resolution * 6) + ((resolution / 2) * (resolution / 2) * 6)),
+                (resolution * resolution * 6)
+                    ..((resolution * resolution * 6) + ((resolution / 2) * (resolution / 2) * 6)),
                 0,
                 0..1,
             );

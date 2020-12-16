@@ -336,20 +336,24 @@ fn reflect(
             assert_eq!(set, 0);
             let name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
             let ty = match desc.desc_ty {
-                DescriptorType::Sampler(_) => wgpu::BindingType::Sampler { comparison: false },
-                DescriptorType::UniformBuffer(..) => {
-                    wgpu::BindingType::UniformBuffer { dynamic: false, min_binding_size: None }
+                DescriptorType::Sampler(_) => {
+                    wgpu::BindingType::Sampler { filtering: true, comparison: false }
                 }
+                DescriptorType::UniformBuffer(..) => wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
                 DescriptorType::Image(_, spirq::ty::Type::Image(ty)) => {
-                    wgpu::BindingType::SampledTexture {
+                    wgpu::BindingType::Texture {
                         multisampled: false,
-                        dimension: match ty.arng {
+                        view_dimension: match ty.arng {
                             ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
                             ImageArrangement::Image2DArray => wgpu::TextureViewDimension::D2Array,
                             ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
                             _ => unimplemented!(),
                         },
-                        component_type: wgpu::TextureComponentType::Uint,
+                        sample_type: wgpu::TextureSampleType::Uint,
                     }
                 }
                 v => unimplemented!("{:?}", v),

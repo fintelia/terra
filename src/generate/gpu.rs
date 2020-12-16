@@ -107,9 +107,11 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         label: None,
                     })),
                     compute_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.compute().into(),
-                        )),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                            experimental_translation: false,
+                        }),
                         entry_point: "main".into(),
                     },
                     label: None,

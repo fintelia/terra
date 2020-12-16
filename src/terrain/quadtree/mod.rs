@@ -63,14 +63,14 @@ impl QuadTree {
         let half = make_index_buffer(resolution / 2);
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (2*(full.len() + half.len())).try_into().unwrap(),
+            size: (2 * (full.len() + half.len())).try_into().unwrap(),
             usage: wgpu::BufferUsage::INDEX,
             label: None,
             mapped_at_creation: true,
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        buffer_view[0..(full.len()*2)].copy_from_slice(bytemuck::cast_slice(&full));
-        buffer_view[(full.len()*2)..].copy_from_slice(bytemuck::cast_slice(&half));
+        buffer_view[0..(full.len() * 2)].copy_from_slice(bytemuck::cast_slice(&full));
+        buffer_view[(full.len() * 2)..].copy_from_slice(bytemuck::cast_slice(&half));
         drop(buffer_view);
         buffer.unmap();
         buffer

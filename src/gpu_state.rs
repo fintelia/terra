@@ -61,7 +61,7 @@ impl GpuState {
             bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler { comparison: _ } => {
+                    wgpu::BindingType::Sampler { .. } => {
                         wgpu::BindingResource::Sampler(match name {
                             "linear" => &linear,
                             "linear_wrap" => &linear_wrap,
@@ -69,7 +69,7 @@ impl GpuState {
                         })
                     }
                     wgpu::BindingType::StorageTexture { .. }
-                    | wgpu::BindingType::SampledTexture { .. } => {
+                    | wgpu::BindingType::Texture { .. } => {
                         wgpu::BindingResource::TextureView(match name {
                             "noise" => noise,
                             "sky" => sky,
@@ -85,12 +85,19 @@ impl GpuState {
                             _ => unreachable!("unrecognized image: {}", name),
                         })
                     }
-                    wgpu::BindingType::UniformBuffer { ref mut dynamic, .. } => {
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        ref mut has_dynamic_offset,
+                        ..
+                    } => {
                         let (d, ref buf) = uniform_buffers[name];
-                        *dynamic = d;
+                        *has_dynamic_offset = d;
                         buf.clone()
                     }
-                    wgpu::BindingType::StorageBuffer { .. } => unimplemented!(),
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { .. },
+                        ..
+                    } => unimplemented!(),
                 },
             });
         }

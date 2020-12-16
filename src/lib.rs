@@ -31,10 +31,10 @@ use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use gpu_state::GpuState;
 use maplit::hashmap;
+use std::convert::TryInto;
 use std::mem;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
-use std::convert::TryInto;
 
 pub use crate::mapfile::MapFile;
 pub use generate::MapFileBuilder;
@@ -259,15 +259,19 @@ impl Terrain {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.vertex().into(),
-                        )),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("terrain.shader.vertex"),
+                            source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
+                            experimental_translation: false,
+                        }),
                         entry_point: "main",
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.shader.fragment().into(),
-                        )),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("terrain.shader.fragment"),
+                            source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
+                            experimental_translation: false,
+                        }),
                         entry_point: "main",
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor {
@@ -289,7 +293,7 @@ impl Terrain {
                         stencil: Default::default(),
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
-                        index_format: wgpu::IndexFormat::Uint16,
+                        index_format: None,
                         vertex_buffers: &[wgpu::VertexBufferDescriptor {
                             stride: std::mem::size_of::<NodeState>() as u64,
                             step_mode: wgpu::InputStepMode::Instance,
@@ -328,15 +332,19 @@ impl Terrain {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.sky_shader.vertex().into(),
-                        )),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("sky.shader.vertex"),
+                            source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
+                            experimental_translation: false,
+                        }),
                         entry_point: "main",
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(wgpu::ShaderModuleSource::SpirV(
-                            self.sky_shader.fragment().into(),
-                        )),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("sky.shader.vertex"),
+                            source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
+                            experimental_translation: false,
+                        }),
                         entry_point: "main",
                     }),
                     rasterization_state: Some(wgpu::RasterizationStateDescriptor::default()),
@@ -354,7 +362,7 @@ impl Terrain {
                         stencil: Default::default(),
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
-                        index_format: wgpu::IndexFormat::Uint16,
+                        index_format: None,
                         vertex_buffers: &[],
                     },
                     sample_count: 1,
@@ -450,7 +458,7 @@ impl Terrain {
                 self.quadtree.render(
                     &mut rpass,
                     &self.index_buffer,
-                    &self.bindgroup_pipeline.as_ref().unwrap().0
+                    &self.bindgroup_pipeline.as_ref().unwrap().0,
                 );
             }
             rpass.pop_debug_group();

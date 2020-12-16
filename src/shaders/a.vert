@@ -19,7 +19,8 @@ layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	LayerDesc normals;
 	uint resolution;
 	uint face;
-	uvec2 padding0;
+	uint level;
+	uint padding0;
 	vec3 relative_position;
 	float min_distance;
 	vec3 parent_relative_position;
