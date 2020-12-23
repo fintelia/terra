@@ -328,7 +328,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let size = [256, 1024, 1];
         for _ in 0..10000 {
-            let (r, μ) = (rng.gen_range(Rg, Rt), rng.gen_range(-1.0, 1.0));
+            let (r, μ) = (rng.gen_range(Rg .. Rt), rng.gen_range(-1.0 .. 1.0));
 
             let (x, y) = TransmittanceTable::reverse_parameters(size.clone(), r, μ);
             let (r2, μ2) = TransmittanceTable::compute_parameters(size.clone(), x, y);
@@ -345,7 +345,7 @@ mod tests {
         let size = [32, 256, 32];
         for _ in 0..1000 {
             let (x, y, z) =
-                (rng.gen_range(0.0, 1.0), rng.gen_range(0.0, 1.0), rng.gen_range(0.0, 1.0));
+                (rng.gen_range(0.0 .. 1.0), rng.gen_range(0.0 .. 1.0), rng.gen_range(0.0 .. 1.0));
 
             let (r, μ, μ_s) = InscatteringTable::compute_parameters(size.clone(), x, y, z);
             let (x2, y2, z2) = InscatteringTable::reverse_parameters(size.clone(), r, μ, μ_s);
