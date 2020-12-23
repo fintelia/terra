@@ -57,7 +57,7 @@ void main() {
 	float morph = 1 - smoothstep(0.9, 1, length(position) / node.min_distance);
 	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
 
-	if (node.displacements.parent_origin.z >= 0 && morph > 0.5) {
+	if (node.displacements.parent_origin.z >= 0 && morph < 1.0) {
 		position = mix(
 	 		texture(sampler2DArray(displacements, linear), node.displacements.parent_origin + vec3(nPosition * node.displacements.parent_step, 0)).xyz - node.parent_relative_position,
 	 		texture(sampler2DArray(displacements, linear), node.displacements.origin + vec3(nPosition * node.displacements._step, 0)).xyz - node.relative_position,
