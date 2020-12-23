@@ -23,13 +23,13 @@ pub(crate) struct TileResult {
 
 pub(crate) struct TileStreamerEndpoint {
     sender: UnboundedSender<TileRequest>,
-    receiver: UnboundedReceiver<TileResult>,
+    receiver: crossbeam::channel::Receiver<TileResult>,
     num_inflight: usize,
 }
 impl TileStreamerEndpoint {
     pub(crate) fn new(mapfile: Arc<MapFile>) -> Result<Self, Error> {
         let (sender, requests) = unbounded_channel();
-        let (results, receiver) = unbounded_channel();
+        let (results, receiver) = crossbeam::channel::unbounded();
 
         let rt = Runtime::new()?;
         thread::spawn(move || {
@@ -72,7 +72,7 @@ impl TileStreamerEndpoint {
 
 struct TileStreamer {
     requests: UnboundedReceiver<TileRequest>,
-    results: UnboundedSender<TileResult>,
+    results: crossbeam::channel::Sender<TileResult>,
     mapfile: Arc<MapFile>,
     heightmap_tiles: HeightmapCache,
 }

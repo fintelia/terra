@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Weak};
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use crossbeam::channel::{self, Sender, Receiver};
 use vec_map::VecMap;
 
 fn compress_heightmap_tile(
@@ -234,13 +234,13 @@ fn uncompress_heightmap_tile(
 struct Cache<T: Clone> {
     weak: HashMap<VNode, Weak<T>>,
     strong: VecMap<LruCache<VNode, Arc<T>>>,
-    sender: UnboundedSender<(VNode, Arc<T>)>,
-    receiver: UnboundedReceiver<(VNode, Arc<T>)>,
+    sender: Sender<(VNode, Arc<T>)>,
+    receiver: Receiver<(VNode, Arc<T>)>,
     capacity: usize,
 }
 impl<T: Clone> Cache<T> {
     fn new(capacity: usize) -> Self {
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = channel::unbounded();
         Self { weak: HashMap::default(), strong: VecMap::default(), sender, receiver, capacity }
     }
     fn get(&mut self, n: VNode) -> Option<Arc<T>> {
@@ -281,7 +281,7 @@ impl<T: Clone> Cache<T> {
             .or_insert_with(|| LruCache::new(capacity))
             .insert(n, a);
     }
-    fn sender(&self) -> UnboundedSender<(VNode, Arc<T>)> {
+    fn sender(&self) -> Sender<(VNode, Arc<T>)> {
         self.sender.clone()
     }
 }

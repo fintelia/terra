@@ -139,7 +139,7 @@ impl MapFile {
             return None;
         }
 
-        use tokio::prelude::*;
+        use tokio::io::AsyncReadExt;
         let mut contents = Vec::new();
         tokio::fs::File::open(filename).await.ok()?.read_to_end(&mut contents).await.ok()?;
         Some(contents)
