@@ -358,7 +358,7 @@ impl HeightmapGen {
         context: &mut AssetLoadContext<'a>,
         mapfile: &MapFile,
         node: VNode,
-    ) -> Result<(), Error> {
+    ) -> Result<tokio::sync::oneshot::Receiver<Vec<u8>>, Error> {
         let mut parent: Option<(u8, Arc<Vec<i16>>)> = None;
         if let Some((p, i)) = node.parent() {
             parent = Some((i, self.tile_cache.get_tile(mapfile, p).await.unwrap()));
@@ -425,6 +425,7 @@ impl HeightmapGen {
             self.tile_cache.layer.texture_resolution as usize,
             self.tile_cache.layer.texture_border_size as usize,
         );
+
         let (tx, rx) = tokio::sync::oneshot::channel();
         rayon::spawn(move || {
             tx.send(compress_heightmap_tile(
@@ -436,8 +437,8 @@ impl HeightmapGen {
             ))
             .unwrap();
         });
-        mapfile.write_tile(LayerType::Heightmaps, node, &rx.await.unwrap(), true)?;
-        Ok(())
+
+        Ok(rx)
     }
 }
 

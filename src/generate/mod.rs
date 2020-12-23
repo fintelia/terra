@@ -601,9 +601,17 @@ async fn generate_heightmaps<'a>(
     };
 
     let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
-    for (i, n) in missing.into_iter().enumerate() {
-        context.set_progress(i as u64);
-        gen.generate_heightmaps(context, mapfile, n).await?;
+    for (i, ns) in missing.chunks(16).enumerate() {
+        let mut tile_receivers = Vec::new();
+        for &n in ns {
+            tile_receivers.push(gen.generate_heightmaps(context, mapfile, n).await?);
+        }
+        let tiles = futures::future::join_all(tile_receivers).await;
+
+        for (j, (n, t)) in ns.iter().zip(tiles.into_iter()).enumerate() {
+            context.set_progress((i * ns.len() + j) as u64);
+            mapfile.write_tile(LayerType::Heightmaps, *n, &t?, true)?;
+        }
     }
 
     Ok(())
