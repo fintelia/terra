@@ -4,8 +4,8 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 
 struct LayerDesc {
@@ -278,11 +278,11 @@ void main() {
 						roughness_value,
 						position,
 						bent_normal,
-						vec3(ubo.camera.xyz),
+						ubo.camera,
 						sunDirection,
 						vec3(100000.0));
 
-	vec3 x0 = vec3(ubo.camera);
+	vec3 x0 = ubo.camera;
 	vec3 x1 = x0 + position;
 	vec3 r = normalize(position);
 	vec2 p = rsi(x0, r, atmosphereRadius);

@@ -2,8 +2,8 @@
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 
 struct LayerDesc {
@@ -66,7 +66,7 @@ void main() {
 		position = texture(sampler2DArray(displacements, linear), node.displacements.origin + vec3(nPosition * node.displacements._step, 0)).xyz - node.relative_position;
 	}
 
-	vec3 normal = normalize(position + vec3(ubo.camera));
+	vec3 normal = normalize(position + ubo.camera);
 	vec3 bitangent = normalize(cross(normal, tangents[node.face]));
 	vec3 tangent = normalize(cross(normal, bitangent));
 

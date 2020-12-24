@@ -37,8 +37,8 @@ pub use generate::MapFileBuilder;
 #[derive(Copy, Clone)]
 struct UniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f64>,
-    padding: f64,
+    camera: mint::Point3<f32>,
+    padding: f32,
 }
 unsafe impl bytemuck::Pod for UniformBlock {}
 unsafe impl bytemuck::Zeroable for UniformBlock {}
@@ -47,8 +47,8 @@ unsafe impl bytemuck::Zeroable for UniformBlock {}
 #[derive(Copy, Clone)]
 struct SkyUniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f64>,
-    padding: f64,
+    camera: mint::Point3<f32>,
+    padding: f32,
 }
 unsafe impl bytemuck::Pod for SkyUniformBlock {}
 unsafe impl bytemuck::Zeroable for SkyUniformBlock {}
@@ -404,8 +404,11 @@ impl Terrain {
             mapped_at_creation: true,
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        bytemuck::cast_slice_mut(&mut *buffer_view)[0] =
-            UniformBlock { view_proj, camera, padding: 0.0 };
+        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = UniformBlock { 
+            view_proj, 
+            camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 }, 
+            padding: 0.0 
+        };
 
         drop(buffer_view);
         buffer.unmap();

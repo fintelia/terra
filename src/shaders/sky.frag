@@ -2,8 +2,8 @@
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2D sky;
@@ -32,7 +32,7 @@ void main() {
 	float lon = atan(r.y, r.x) / 3.141592 * 0.5 + 0.5;
 	OutColor.rgb = pow(texture(sampler2D(sky, linear), vec2(lon, lat)).rgb, vec3(5)) * 10000;
 
-	vec3 x0 = r0.xyz / r0.w + vec3(ubo.camera);
+	vec3 x0 = r0.xyz / r0.w + ubo.camera;
 	vec2 p = rsi(x0, r, atmosphereRadius);
 
 	if (p.x < p.y && p.y > 0.0) {

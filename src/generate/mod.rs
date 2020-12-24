@@ -418,42 +418,10 @@ pub(crate) fn generators(
 
                 let parent_index = node.parent().map(|(_, idx)| idx).unwrap_or(0);
 
-                let cspace_origin = node.cell_position_cspace(
-                    0,
-                    0,
-                    normals_border as u16,
-                    normals_resolution as u16,
-                );
-                let cspace_origin_dx = node.cell_position_cspace(
-                    1,
-                    0,
-                    normals_border as u16,
-                    normals_resolution as u16,
-                );
-                let cspace_origin_dy = node.cell_position_cspace(
-                    0,
-                    1,
-                    normals_border as u16,
-                    normals_resolution as u16,
-                );
-
                 GenNormalsUniforms {
                     heightmaps_origin: [
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,
-                    ],
-                    cspace_origin: [cspace_origin.x, cspace_origin.y, cspace_origin.z, 0.0],
-                    cspace_dx: [
-                        cspace_origin_dx.x - cspace_origin.x,
-                        cspace_origin_dx.y - cspace_origin.y,
-                        cspace_origin_dx.z - cspace_origin.z,
-                        0.0,
-                    ],
-                    cspace_dy: [
-                        cspace_origin_dy.x - cspace_origin.x,
-                        cspace_origin_dy.y - cspace_origin.y,
-                        cspace_origin_dy.z - cspace_origin.z,
-                        0.0,
                     ],
                     spacing,
                     heightmaps_slot: slot as i32,

@@ -3,9 +3,6 @@
 layout(local_size_x = 4, local_size_y = 4) in;
 
 layout(binding = 0) uniform UniformBlock {
-	dvec4 cspace_origin;
-	dvec4 cspace_dx;
-	dvec4 cspace_dy;
 	ivec2 heightmaps_origin;
 	ivec2 parent_origin;
 	int heightmaps_slot;
@@ -28,10 +25,6 @@ shared vec2 group_normals[16];
 void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
-
-	dvec3 cspace_pos = ubo.cspace_origin.xyz
-		+ gl_GlobalInvocationID.x * ubo.cspace_dx.xyz
-		+ gl_GlobalInvocationID.y * ubo.cspace_dy.xyz;
 
 	float h00 = max(0, imageLoad(heightmaps, in_pos).x);
 	float h10 = max(0, imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x);

@@ -1,8 +1,8 @@
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
-	dvec3 camera;
-	double padding;
+	vec3 camera;
+	float padding;
 } ubo;
 
 layout(location = 0) out vec4 position;
