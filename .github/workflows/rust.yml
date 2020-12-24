@@ -1,0 +1,26 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-20.04
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y libegl-dev libudev-dev
+    - name: Install nightly Rust
+      run: rustup toolchain add nightly
+    - name: Build
+      run: cargo +nightly build --verbose
+    - name: Run tests
+      run: cargo +nightly test --verbose
