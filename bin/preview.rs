@@ -89,7 +89,6 @@ fn main() {
             &wgpu::DeviceDescriptor {
                 features: wgpu::Features::TEXTURE_COMPRESSION_BC,
                 limits: wgpu::Limits::default(),
-                shader_validation: false,
                 label: None,
             },
             None,

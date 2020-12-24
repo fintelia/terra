@@ -107,7 +107,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: None,
                             source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                            experimental_translation: false,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main".into(),
                     },
@@ -129,7 +129,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
 
         encoder.copy_buffer_to_buffer(&staging, 0, &self.uniforms, 0, mem::size_of::<U>() as u64);
 
-        let mut cpass = encoder.begin_compute_pass();
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
         cpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         cpass.dispatch(dimensions.0, dimensions.1, dimensions.2);

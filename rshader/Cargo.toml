@@ -16,7 +16,7 @@ notify = "4.0.15"
 sha2 = "0.9.1"
 shaderc = "0.7.0"
 spirq = "0.4.7"
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "056612a09465d2161087216fd91e21f212c8fed3" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "c0418b1b8ae22e86fd0e7a7eb486e04dcb0bd6f5" }
 lazy_static = "1.4.0"
 
 [features]

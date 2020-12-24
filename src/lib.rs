@@ -256,7 +256,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("terrain.shader.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
-                            experimental_translation: false,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                     },
@@ -264,7 +264,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("terrain.shader.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
-                            experimental_translation: false,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                     }),
@@ -288,11 +288,7 @@ impl Terrain {
                     }),
                     vertex_state: wgpu::VertexStateDescriptor {
                         index_format: None,
-                        vertex_buffers: &[wgpu::VertexBufferDescriptor {
-                            stride: std::mem::size_of::<NodeState>() as u64,
-                            step_mode: wgpu::InputStepMode::Instance,
-                            attributes: self.shader.input_attributes().into(),
-                        }],
+                        vertex_buffers: &[],
                     },
                     sample_count: 1,
                     sample_mask: !0,
@@ -329,7 +325,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("sky.shader.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
-                            experimental_translation: false,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                     },
@@ -337,7 +333,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("sky.shader.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
-                            experimental_translation: false,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                     }),
@@ -446,9 +442,9 @@ impl Terrain {
                     }),
                     stencil_ops: None,
                 }),
+                label: Some("Terrain"),
             });
 
-            rpass.push_debug_group("Terrain");
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
 
             if do_render {
@@ -458,7 +454,6 @@ impl Terrain {
                     &self.bindgroup_pipeline.as_ref().unwrap().0,
                 );
             }
-            rpass.pop_debug_group();
         }
 
         {
@@ -474,13 +469,12 @@ impl Terrain {
                     depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: true }),
                     stencil_ops: None,
                 }),
+                label: Some("Atmosphere"),
             });
 
-            rpass.push_debug_group("Atmosphere");
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
-            rpass.pop_debug_group();
         }
 
         queue.submit(Some(encoder.finish()));
