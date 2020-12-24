@@ -1,5 +1,5 @@
 use crate::cache::AssetLoadContext;
-use crate::coordinates::CoordinateSystem;
+use crate::coordinates;
 use crate::mapfile::MapFile;
 use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::node::VNode;
@@ -374,8 +374,7 @@ impl HeightmapGen {
                     layer.texture_border_size as u16,
                     layer.texture_resolution as u16,
                 );
-                let sspace = CoordinateSystem::cspace_to_sspace(cspace);
-                let polar = CoordinateSystem::sspace_to_polar(sspace);
+                let polar = coordinates::cspace_to_polar(cspace);
                 (polar.x.to_degrees(), polar.y.to_degrees())
             })
             .collect();

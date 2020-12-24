@@ -1,4 +1,4 @@
-use crate::coordinates::CoordinateSystem;
+use crate::coordinates;
 use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
@@ -626,8 +626,7 @@ fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Res
                     layer.texture_border_size as u16,
                     layer.texture_resolution as u16,
                 );
-                let sspace = CoordinateSystem::cspace_to_sspace(cspace);
-                let polar = CoordinateSystem::sspace_to_polar(sspace);
+                let polar = coordinates::cspace_to_polar(cspace);
                 (polar.x.to_degrees(), polar.y.to_degrees())
             })
             .collect();

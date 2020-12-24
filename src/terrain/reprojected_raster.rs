@@ -1,5 +1,5 @@
 use crate::cache::{AssetLoadContext, MMappedAsset, WebAsset};
-use crate::coordinates::CoordinateSystem;
+use crate::coordinates;
 use crate::terrain::dem::GlobalDem;
 use crate::terrain::heightmap::Heightmap;
 use crate::terrain::quadtree::VNode;
@@ -58,9 +58,8 @@ impl<'a> MMappedAsset for ReprojectedDemDef<'a> {
                 Vec::with_capacity(self.resolution as usize * self.resolution as usize);
             for y in 0..(self.resolution as i32) {
                 for x in 0..(self.resolution as i32) {
-                    let cspace =
+                    let _cspace =
                         self.nodes[i].grid_position_cspace(x, y, self.skirt, self.resolution);
-                    let _sspace = CoordinateSystem::cspace_to_sspace(cspace);
 
                     // let world = world_position(x, y, bounds, self.skirt, self.resolution);
                     // let mut world3 = Vector3::new(
@@ -179,8 +178,7 @@ where
             for y in 0..(self.resolution as i32) {
                 for x in 0..(self.resolution as i32) {
                     let cspace = node.cell_position_cspace(x, y, self.skirt, self.resolution);
-                    let sspace = CoordinateSystem::cspace_to_sspace(cspace);
-                    let polar = CoordinateSystem::sspace_to_polar(sspace);
+                    let polar = coordinates::cspace_to_polar(cspace);
                     let (lat, long) = (polar.x.to_degrees(), polar.y.to_degrees());
 
                     for band in 0..bands {
