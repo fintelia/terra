@@ -31,7 +31,6 @@ curl = "0.4.34"
 dirs = "3.0.1"
 flate2 = "1.0.14"
 futures = "0.3.8"
-generic-array = { version = "0.14.4", features = ["serde"] }
 gilrs = "0.8.0"
 image = "0.23.12"
 lazy_static = "1.4.0"
