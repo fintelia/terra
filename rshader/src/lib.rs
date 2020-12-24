@@ -1,5 +1,3 @@
-#![feature(try_blocks)]
-
 use anyhow::anyhow;
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
@@ -175,15 +173,15 @@ impl ShaderSet {
             return false;
         }
 
-        let r: Result<(), anyhow::Error> = try {
-            self.inner = match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
+        let r = || -> Result<(), anyhow::Error> {
+            Ok(self.inner = match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
                 (Some(ref vs), Some(ref fs), None) => {
                     ShaderSetInner::simple(vs.load()?, fs.load()?)
                 }
                 (None, None, Some(ref cs)) => ShaderSetInner::compute_only(cs.load()?),
                 _ => unreachable!(),
-            }?;
-        };
+            }?)
+        }();
         self.last_update = Instant::now();
         r.is_ok()
     }

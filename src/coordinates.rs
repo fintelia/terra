@@ -163,13 +163,13 @@ impl CoordinateSystem {
         self.ecef_to_world(self.warped_to_ecef(warped))
     }
 
+    #[rustfmt::skip]
     pub fn world_to_warped_matrix(&self) -> Matrix4<f64> {
         let c = self.world_to_warped(Vector3::new(0.0, 0.0, 0.0));
         let x = self.world_to_warped(Vector3::new(1.0, 0.0, 0.0)) - c;
         let y = self.world_to_warped(Vector3::new(0.0, 1.0, 0.0)) - c;
         let z = self.world_to_warped(Vector3::new(0.0, 0.0, 1.0)) - c;
 
-        #[rustfmt::skip]
         Matrix4::new(x.x, y.x, z.x, c.x,
                      x.y, y.y, z.y, c.y,
                      x.z, y.z, z.z, c.z,

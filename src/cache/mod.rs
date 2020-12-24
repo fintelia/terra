@@ -1,4 +1,4 @@
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Cursor, Read, Stdout, Write};
 use std::ops::Drop;
 use std::path::PathBuf;
@@ -278,7 +278,7 @@ pub(crate) trait MMappedAsset {
 
         if let (Ok(mut header), Ok(data)) = (
             File::open(&header_filename),
-            File::with_options().read(true).write(true).open(&data_filename),
+            OpenOptions::new().read(true).write(true).open(&data_filename),
         ) {
             let mut contents = Vec::new();
             header.read_to_end(&mut contents)?;
@@ -304,7 +304,7 @@ pub(crate) trait MMappedAsset {
 
             // Open for reading this time
             context.reset(&format!("Loading {}... ", &self.filename()), 100);
-            let data_file = File::with_options().read(true).write(true).open(&data_filename)?;
+            let data_file = OpenOptions::new().read(true).write(true).open(&data_filename)?;
             let mapping = unsafe { MmapMut::map_mut(&data_file)? };
             Ok((header, mapping))
         }
