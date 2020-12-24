@@ -1,4 +1,4 @@
-# Terra [![crates.io](https://img.shields.io/crates/v/terra.svg)](https://crates.io/crates/terra) [![docs.rs](https://docs.rs/terra/badge.svg)](https://docs.rs/terra) [![Github CI](https://img.shields.io/github/workflow/status/fintelia/terra/Rust)]()
+# Terra [![crates.io](https://img.shields.io/crates/v/terra.svg)](https://crates.io/crates/terra) [![docs.rs](https://docs.rs/terra/badge.svg)](https://docs.rs/terra) [![Github CI](https://img.shields.io/github/workflow/status/fintelia/terra/Rust)](https://github.com/fintelia/terra/actions?query=workflow%3ARust)
 
 Terra is work in progress large scale terrain rendering library built on top of
 [wgpu](https://github.com/gfx-rs/wgpu).
