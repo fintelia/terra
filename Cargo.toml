@@ -22,7 +22,7 @@ bincode = "1.3.1"
 bit-vec = "0.6.3"
 bytemuck = "1.4.1"
 byteorder = "1.3.4"
-cgmath = { version = "0.17.0", features = ["mint", "serde"] }
+cgmath = { git = "https://github.com/rustgd/cgmath", rev = "8e0d5ece92ddccd1cbd9670b2bf3007ca9ada986", features = ["mint", "serde"] }
 crossbeam = "0.8.0"
 curl = "0.4.34"
 dirs = "3.0.1"

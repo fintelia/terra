@@ -232,7 +232,7 @@ fn main() {
                 );
                 let up = cgmath::Vector3::new(eye.x as f32, eye.y as f32, eye.z as f32);
 
-                let view = cgmath::Matrix4::look_at(
+                let view = cgmath::Matrix4::look_at_rh(
                     cgmath::Point3::origin(),
                     cgmath::Point3::new(center.x as f32, center.y as f32, center.z as f32),
                     up,
