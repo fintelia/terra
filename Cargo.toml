@@ -26,7 +26,6 @@ cgmath = { version = "0.17.0", features = ["mint", "serde"] }
 crossbeam = "0.8.0"
 curl = "0.4.34"
 dirs = "3.0.1"
-flate2 = "1.0.14"
 futures = "0.3.8"
 gilrs = "0.8.0"
 image = "0.23.12"
@@ -58,7 +57,6 @@ tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "c0418b1b8ae22e86fd0e7a7eb486e04dcb0bd6f5" }
 winit = "0.24.0"
-xdg = "2.2.0"
 zip = "0.5.9"
 
 [dev-dependencies]
