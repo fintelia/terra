@@ -58,7 +58,7 @@ sled = "0.34.6"
 snap = "1.0.3"
 structopt = "0.3.21"
 thiserror = "1.0.22"
-tiff = "0.6.1"
+tiff = "=0.5.0"
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "056612a09465d2161087216fd91e21f212c8fed3" }
