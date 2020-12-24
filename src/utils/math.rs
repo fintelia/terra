@@ -1,5 +1,4 @@
 use cgmath::*;
-use collision::Aabb3;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Serialize, Deserialize)]
@@ -30,10 +29,5 @@ impl BoundingBox {
         let dx = (self.min.x - p.x).max(0.0).max(p.x - self.max.x);
         let dz = (self.min.z - p.z).max(0.0).max(p.z - self.max.z);
         dx * dx + dz * dz
-    }
-
-    #[allow(unused)]
-    pub fn as_aabb3(&self) -> Aabb3<f32> {
-        Aabb3 { min: self.min, max: self.max }
     }
 }

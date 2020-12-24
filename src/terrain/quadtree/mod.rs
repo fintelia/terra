@@ -1,6 +1,5 @@
 use crate::terrain::tile_cache::{Priority, TileCache};
 use cgmath::*;
-use collision::Frustum;
 use std::collections::HashMap;
 use std::convert::TryInto;
 
@@ -101,7 +100,6 @@ impl QuadTree {
         &mut self,
         tile_cache: &TileCache,
         camera: mint::Point3<f64>,
-        cull_frustum: Option<Frustum<f32>>,
     ) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
@@ -139,12 +137,6 @@ impl QuadTree {
                     }
                 }
 
-                // if let Some(frustum) = cull_frustum {
-                //     // TODO: Also try to cull parts of a node, if contains() returns Relation::Cross.
-                //     if frustum.contains(&node.bounds().as_aabb3()) == Relation::Out {
-                //         mask = 0;
-                //     }
-                // }
                 if mask == 15 {
                     self.visible_nodes.push(node);
                 } else if mask > 0 {

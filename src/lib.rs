@@ -381,9 +381,8 @@ impl Terrain {
             }
         }
 
-        let camera_frustum = collision::Frustum::from_matrix4(view_proj.into());
         if do_render {
-            self.quadtree.update_visibility(&self.tile_cache, camera, camera_frustum);
+            self.quadtree.update_visibility(&self.tile_cache, camera);
             self.quadtree.prepare_vertex_buffer(
                 device,
                 &mut encoder,
