@@ -584,12 +584,10 @@ async fn generate_heightmaps<'a>(
     mapfile: &mut MapFile,
     context: &mut AssetLoadContext<'a>,
 ) -> Result<(), Error> {
-    let mut missing = mapfile.get_missing_base(LayerType::Heightmaps)?;
+    let missing = mapfile.get_missing_base(LayerType::Heightmaps)?;
     if missing.is_empty() {
         return Ok(());
     }
-
-    missing.sort_by_key(|n| n.level());
 
     let mut gen = heightmap::HeightmapGen {
         tile_cache: heightmap::HeightmapCache::new(
@@ -601,16 +599,27 @@ async fn generate_heightmaps<'a>(
     };
 
     let context = &mut context.increment_level("Writing heightmaps... ", missing.len());
-    for (i, ns) in missing.chunks(16).enumerate() {
-        let mut tile_receivers = Vec::new();
-        for &n in ns {
-            tile_receivers.push(gen.generate_heightmaps(context, mapfile, n).await?);
-        }
-        let tiles = futures::future::join_all(tile_receivers).await;
 
-        for (j, (n, t)) in ns.iter().zip(tiles.into_iter()).enumerate() {
-            context.set_progress((i * ns.len() + j) as u64);
-            mapfile.write_tile(LayerType::Heightmaps, *n, &t?, true)?;
+    let mut missing_by_level = VecMap::new();
+    for m in missing {
+        missing_by_level.entry(m.level().into()).or_insert(Vec::new()).push(m);
+    }
+
+    let mut tiles_processed = 0;
+    for missing in missing_by_level.values() {
+        for ns in missing.chunks(16) {
+            context.set_progress(tiles_processed);
+
+            let mut tile_receivers = Vec::new();
+            for &n in ns {
+                tile_receivers.push(gen.generate_heightmaps(context, mapfile, n).await?);
+            }
+            let tiles = futures::future::join_all(tile_receivers).await;
+
+            for (n, t) in ns.iter().zip(tiles.into_iter()) {
+                mapfile.write_tile(LayerType::Heightmaps, *n, &t?, true)?;
+                tiles_processed += 1;
+            }
         }
     }
 
