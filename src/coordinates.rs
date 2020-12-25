@@ -1,4 +1,3 @@
-
 //! This module uses a number of different coordinate systems and provides conversions between them.
 //!
 //! *ecef* - Cartesian coordinate system centered at the planet center, and also with units of
@@ -21,7 +20,8 @@ use cgmath::{InnerSpace, Vector3};
 
 const WGS84_INV_FLATTENING: f64 = 298.257223563;
 const WGS84_SEMI_MAJOR_AXIS_METERS: f64 = 6378137.0;
-const WSG84_SEMI_MINOR_AXIS_METERS: f64 = WGS84_SEMI_MAJOR_AXIS_METERS * (1.0 - 1.0 / WGS84_INV_FLATTENING);
+const WSG84_SEMI_MINOR_AXIS_METERS: f64 =
+    WGS84_SEMI_MAJOR_AXIS_METERS * (1.0 - 1.0 / WGS84_INV_FLATTENING);
 
 pub const PLANET_RADIUS: f64 = 6371000.0;
 

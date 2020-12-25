@@ -7,6 +7,7 @@ use crate::terrain::raster::{GlobalRaster, RasterCache};
 use crate::terrain::tile_cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
+use crossbeam::channel::{self, Receiver, Sender};
 use futures::future::{self, BoxFuture, FutureExt};
 use lru_cache::LruCache;
 use rayon::prelude::*;
@@ -14,7 +15,6 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Weak};
-use crossbeam::channel::{self, Sender, Receiver};
 use vec_map::VecMap;
 
 fn compress_heightmap_tile(

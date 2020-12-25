@@ -3,11 +3,11 @@ use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::LayerType;
 use anyhow::Error;
+use futures::{FutureExt, StreamExt};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use futures::{FutureExt, StreamExt};
 
 #[derive(Copy, Clone, Debug)]
 struct TileRequest {
@@ -83,7 +83,7 @@ impl TileStreamer {
         let mut pending = futures::stream::futures_unordered::FuturesUnordered::new();
 
         loop {
-            futures::select!{
+            futures::select! {
                 request = self.requests.recv().fuse() => if let Some(request) = request {
                     match request.layer {
                         LayerType::Heightmaps => {

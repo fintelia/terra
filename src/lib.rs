@@ -399,10 +399,10 @@ impl Terrain {
             mapped_at_creation: true,
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = UniformBlock { 
-            view_proj, 
-            camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 }, 
-            padding: 0.0 
+        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = UniformBlock {
+            view_proj,
+            camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
+            padding: 0.0,
         };
 
         drop(buffer_view);

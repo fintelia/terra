@@ -224,7 +224,8 @@ impl<'a> InscatteringTable<'a> {
             uu * hp
         };
 
-        let u_mu_s = 0.5 * (f64::atan(mu_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
+        let u_mu_s =
+            0.5 * (f64::atan(mu_s.max(-0.45) * f64::tan(1.26 * 0.75)) / 0.75 + (1.0 - 0.26));
 
         (u_r, u_mu, u_mu_s)
     }
@@ -328,7 +329,7 @@ mod tests {
         let mut rng = rand::thread_rng();
         let size = [256, 1024, 1];
         for _ in 0..10000 {
-            let (r, mu) = (rng.gen_range(Rg .. Rt), rng.gen_range(-1.0 .. 1.0));
+            let (r, mu) = (rng.gen_range(Rg..Rt), rng.gen_range(-1.0..1.0));
 
             let (x, y) = TransmittanceTable::reverse_parameters(size.clone(), r, mu);
             let (r2, mu2) = TransmittanceTable::compute_parameters(size.clone(), x, y);
@@ -345,7 +346,7 @@ mod tests {
         let size = [32, 256, 32];
         for _ in 0..1000 {
             let (x, y, z) =
-                (rng.gen_range(0.0 .. 1.0), rng.gen_range(0.0 .. 1.0), rng.gen_range(0.0 .. 1.0));
+                (rng.gen_range(0.0..1.0), rng.gen_range(0.0..1.0), rng.gen_range(0.0..1.0));
 
             let (r, mu, mu_s) = InscatteringTable::compute_parameters(size.clone(), x, y, z);
             let (x2, y2, z2) = InscatteringTable::reverse_parameters(size.clone(), r, mu, mu_s);

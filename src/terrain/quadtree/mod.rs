@@ -96,11 +96,7 @@ impl QuadTree {
         });
     }
 
-    pub fn update_visibility(
-        &mut self,
-        tile_cache: &TileCache,
-        camera: mint::Point3<f64>,
-    ) {
+    pub fn update_visibility(&mut self, tile_cache: &TileCache, camera: mint::Point3<f64>) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         self.visible_nodes.clear();

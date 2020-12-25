@@ -101,7 +101,7 @@ pub fn perlin_noise(grid_resolution: usize, grid_spacing: usize) -> Heightmap<f3
 
     let mut rng = rand::thread_rng();
     let gradients: Vec<(f32, f32)> = (0..(grid_resolution * grid_resolution))
-        .map(|_| rng.gen_range(0.0 .. 2.0 * PI).sin_cos())
+        .map(|_| rng.gen_range(0.0..2.0 * PI).sin_cos())
         .collect();
 
     let mut heights =
