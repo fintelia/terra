@@ -526,11 +526,6 @@ impl MapFileBuilder {
             false
         });
 
-        VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Normals, n, false).unwrap();
-            n.level() < TILE_CELL_625M
-        });
-
         let mut context = AssetLoadContextBuf::new();
         let mut context = context.context("Generating mapfile...", 5);
         generate_heightmaps(&mut mapfile, &mut context).await?;
