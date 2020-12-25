@@ -528,9 +528,9 @@ impl MapFileBuilder {
 
         let mut context = AssetLoadContextBuf::new();
         let mut context = context.context("Generating mapfile...", 5);
-        generate_heightmaps(&mut mapfile, &mut context).await?;
+        // generate_heightmaps(&mut mapfile, &mut context).await?;
         context.set_progress(1);
-        generate_albedo(&mut mapfile, &mut context)?;
+        // generate_albedo(&mut mapfile, &mut context)?;
         context.set_progress(2);
         generate_roughness(&mut mapfile, &mut context)?;
         context.set_progress(3);

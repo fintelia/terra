@@ -87,9 +87,25 @@ impl MapFile {
         })
     }
     pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Vec<u8>, Error> {
-        let filename = Self::tile_name(layer, node);
+        let filename = Self::tile_path(layer, node);
         if !filename.exists() {
-            return Err(anyhow::anyhow!("Tile missing: '{:?}'", filename));
+            match layer {
+                LayerType::Albedo | LayerType::Heightmaps => {
+                    let url = Self::tile_url(layer, node);
+                    let client = hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+                    let resp = client.get(url.parse()?).await?;
+                    if resp.status().is_success() {
+                        let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
+                        // TODO: Fix lifetime issues so we can do this tile write asynchronously.
+                        tokio::task::block_in_place(|| self.write_tile(layer, node, &data, true))?;
+                        return Ok(data);
+                    } else {
+                        panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
+                    }
+                }
+                _ => {}
+            }
+            anyhow::bail!("Tile missing: '{:?}'", filename);
         }
 
         let mut contents = Vec::new();
@@ -104,7 +120,7 @@ impl MapFile {
         data: &[u8],
         base: bool,
     ) -> Result<(), Error> {
-        let filename = Self::tile_name(layer, node);
+        let filename = Self::tile_path(layer, node);
         if let Some(parent) = filename.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -235,7 +251,7 @@ impl MapFile {
         &self.layers
     }
 
-    pub(crate) fn tile_name(layer: LayerType, node: VNode) -> PathBuf {
+    fn tile_name(layer: LayerType, node: VNode) -> String {
         let face = match node.face() {
             0 => "0E",
             1 => "180E",
@@ -247,13 +263,13 @@ impl MapFile {
         };
         let (layer, ext) = match layer {
             LayerType::Displacements => ("displacements", "raw"),
-            LayerType::Albedo => ("albedo", "bmp"),
+            LayerType::Albedo => ("albedo", "png"),
             LayerType::Roughness => ("roughness", "raw"),
             LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
         };
-        TERRA_DIRECTORY.join(&format!(
-            "tiles/{}/{}_{}_{}_{}x{}.{}",
+        format!(
+            "{}/{}_{}_{}_{}x{}.{}",
             layer,
             layer,
             node.level(),
@@ -261,7 +277,15 @@ impl MapFile {
             node.x(),
             node.y(),
             ext
-        ))
+        )
+    }
+
+    fn tile_path(layer: LayerType, node: VNode) -> PathBuf {
+        TERRA_DIRECTORY.join("tiles").join(&Self::tile_name(layer, node))
+    }
+
+    fn tile_url(layer: LayerType, node: VNode) -> String {
+        format!("https://terra.fintelia.io/file/terra-tiles/{}", Self::tile_name(layer, node))
     }
 
     pub(crate) fn reload_tile_state(
@@ -270,7 +294,7 @@ impl MapFile {
         node: VNode,
         base: bool,
     ) -> Result<TileState, Error> {
-        let filename = Self::tile_name(layer, node);
+        let filename = Self::tile_path(layer, node);
         let meta = self.lookup_tile_meta(layer, node);
 
         let exists = filename.exists();

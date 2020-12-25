@@ -292,6 +292,7 @@ impl TileCache {
                         entry.generated |= ty.bit_mask();
                         pending_generate.push(entry.node);
                     }
+                    TileState::MissingBase |
                     TileState::Base => {
                         if self.streamer.num_inflight() < 128 {
                             entry.streaming |= ty.bit_mask();
@@ -310,7 +311,6 @@ impl TileCache {
                         entry.generated |= ty.bit_mask();
                         pending_generate.push(entry.node);
                     }
-                    TileState::MissingBase => unreachable!(),
                 }
             }
 

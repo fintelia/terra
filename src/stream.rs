@@ -25,6 +25,7 @@ pub(crate) struct TileResult {
 pub(crate) struct TileStreamerEndpoint {
     sender: UnboundedSender<TileRequest>,
     receiver: crossbeam::channel::Receiver<TileResult>,
+    join_handle: Option<thread::JoinHandle<Result<(), Error>>>,
     num_inflight: usize,
 }
 impl TileStreamerEndpoint {
@@ -33,9 +34,8 @@ impl TileStreamerEndpoint {
         let (results, receiver) = crossbeam::channel::unbounded();
 
         let rt = Runtime::new()?;
-        thread::spawn(move || {
-            rt.block_on(async {
-                TileStreamer {
+        let join_handle = Some(thread::spawn(move || {
+            rt.block_on(TileStreamer {
                     requests,
                     results,
                     heightmap_tiles: HeightmapCache::new(
@@ -45,15 +45,19 @@ impl TileStreamerEndpoint {
                     mapfile,
                 }
                 .run()
-                .await
-            })
-        });
+            )
+        }));
 
-        Ok(Self { sender, receiver, num_inflight: 0 })
+        Ok(Self { sender, receiver, join_handle, num_inflight: 0 })
     }
 
     pub(crate) fn request_tile(&mut self, node: VNode, layer: LayerType) {
-        self.sender.send(TileRequest { node, layer }).unwrap();
+        if let Err(_) = self.sender.send(TileRequest { node, layer }) {
+            // The worker thread has panicked (we still have the sender open, so that cannot be why 
+            // it exited). Join it to see what the panic message was.
+            self.join_handle.take().unwrap().join().unwrap().expect("TileStreamer panicked");
+            unreachable!("TileStreamer exited without panicking");
+        }
         self.num_inflight += 1;
     }
 
