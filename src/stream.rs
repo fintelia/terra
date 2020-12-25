@@ -7,8 +7,9 @@ use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use futures::{FutureExt, StreamExt};
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 struct TileRequest {
     node: VNode,
     layer: LayerType,
@@ -79,24 +80,37 @@ struct TileStreamer {
 
 impl TileStreamer {
     async fn run(mut self) -> Result<(), Error> {
-        while let Some(request) = self.requests.recv().await {
-            let data = match request.layer {
-                LayerType::Heightmaps => {
-                    let heights: Vec<_> = self
-                        .heightmap_tiles
-                        .get_tile(&*self.mapfile, request.node)
-                        .await
-                        .unwrap()
-                        .iter()
-                        .map(|&i| i as f32)
-                        .collect();
-                    let mut data = vec![0; heights.len() * 4];
-                    data.copy_from_slice(bytemuck::cast_slice(&heights));
-                    data
-                }
-                _ => self.mapfile.read_tile(request.layer, request.node).unwrap(),
-            };
-            self.results.send(TileResult { node: request.node, layer: request.layer, data })?;
+        let mut pending = futures::stream::futures_unordered::FuturesUnordered::new();
+
+        loop {
+            futures::select!{
+                request = self.requests.recv().fuse() => if let Some(request) = request {
+                    match request.layer {
+                        LayerType::Heightmaps => {
+                            let fut = self
+                                .heightmap_tiles
+                                .get_tile(&*self.mapfile, request.node);
+
+                            pending.push(async move {
+                                let heights: Vec<_> = fut
+                                    .await
+                                    .unwrap()
+                                    .iter()
+                                    .map(|&i| i as f32)
+                                    .collect();
+                                let mut data = vec![0; heights.len() * 4];
+                                data.copy_from_slice(bytemuck::cast_slice(&heights));
+                                TileResult { node: request.node, layer: request.layer, data }
+                            });
+                        }
+                        _ => self.results.send(TileResult { node: request.node, layer: request.layer, data: self.mapfile.read_tile(request.layer, request.node).unwrap() })?,
+                    }
+                },
+                tile_result = pending.select_next_some() => {
+                    self.results.send(tile_result)?;
+                },
+                complete => break,
+            }
         }
         Ok(())
     }
