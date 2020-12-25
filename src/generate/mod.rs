@@ -669,7 +669,10 @@ fn generate_albedo(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Res
             }
         }
 
-        mapfile.write_tile(LayerType::Albedo, n, &colormap, true)?;
+        let mut data = Vec::new();
+        let encoder = image::codecs::png::PngEncoder::new(&mut data);
+        encoder.encode(&colormap, layer.texture_resolution as u32, layer.texture_resolution as u32, image::ColorType::Rgba8)?;
+        mapfile.write_tile(LayerType::Albedo, n, &data, true)?;
     }
 
     Ok(())

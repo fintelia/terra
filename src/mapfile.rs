@@ -3,10 +3,10 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, File};
-use std::io::{BufReader, Read, Write};
+use std::fs;
 use std::path::PathBuf;
 use vec_map::VecMap;
+use tokio::io::AsyncReadExt;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TileState {
@@ -86,63 +86,15 @@ impl MapFile {
             None => TileState::GpuOnly,
         })
     }
-    pub(crate) fn read_tile(&self, layer: LayerType, node: VNode) -> Option<Vec<u8>> {
+    pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Vec<u8>, Error> {
         let filename = Self::tile_name(layer, node);
         if !filename.exists() {
-            return None;
-        }
-        match layer {
-            LayerType::Albedo => Some(image::open(filename).ok()?.to_rgba8().into_vec()),
-            LayerType::Normals => {
-                let mut data = Vec::new();
-                // snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
-                //     .read_to_end(&mut data)
-                //     .ok()?;
-				lz4::Decoder::new(BufReader::new(File::open(filename).ok()?)).ok()?
-					.read_to_end(&mut data).ok()?;
-				Some(data)
-			}
-            LayerType::Heightmaps |/*=> {
-                let mut data = Vec::new();
-                snap::read::FrameDecoder::new(BufReader::new(File::open(filename).ok()?))
-                    .read_to_end(&mut data)
-                    .ok()?;
-
-                let mut qdata = vec![0i16; data.len() / 2];
-                bytemuck::cast_slice_mut(&mut qdata).copy_from_slice(&data);
-
-                let mut prev = 0;
-                let mut fdata = vec![0f32; qdata.len()];
-                for (f, q) in fdata.iter_mut().zip(qdata.iter()) {
-                    let x = (*q).wrapping_add(prev);
-                    *f = x as f32;
-                    prev = x;
-                }
-
-                data.clear();
-                data.extend_from_slice(bytemuck::cast_slice(&fdata));
-                Some(data)
-            }*/
-            LayerType::Displacements | LayerType::Roughness => {
-                fs::read(filename).ok()
-            }
-        }
-    }
-
-    pub(crate) async fn read_tile_async_raw(
-        &self,
-        layer: LayerType,
-        node: VNode,
-    ) -> Option<Vec<u8>> {
-        let filename = Self::tile_name(layer, node);
-        if !filename.exists() {
-            return None;
+            return Err(anyhow::anyhow!("Tile missing: '{:?}'", filename));
         }
 
-        use tokio::io::AsyncReadExt;
         let mut contents = Vec::new();
-        tokio::fs::File::open(filename).await.ok()?.read_to_end(&mut contents).await.ok()?;
-        Some(contents)
+        tokio::fs::File::open(filename).await?.read_to_end(&mut contents).await?;
+        Ok(contents)
     }
 
     pub(crate) fn write_tile(
@@ -156,40 +108,7 @@ impl MapFile {
         if let Some(parent) = filename.parent() {
             fs::create_dir_all(parent)?;
         }
-        match layer {
-            LayerType::Albedo => image::save_buffer_with_format(
-                &filename,
-                data,
-                self.layers[layer].texture_resolution as u32,
-                self.layers[layer].texture_resolution as u32,
-                image::ColorType::Rgba8,
-                image::ImageFormat::Bmp,
-            )?,
-			LayerType::Normals => {
-				let mut e = lz4::EncoderBuilder::new().level(9).build(File::create(filename)?)?;
-				e.write_all(&data)?;
-				e.finish().1?;
-                // snap::write::FrameEncoder::new(File::create(filename)?)
-                //     .write_all(bytemuck::cast_slice(&data))?;
-			}
-            LayerType::Heightmaps |/*=> {
-                let data: &[f32] = bytemuck::cast_slice(data);
-                let mut qdata = vec![0i16; data.len()];
-
-                let mut prev = 0;
-                for (q, d) in qdata.iter_mut().zip(data.iter()) {
-                    let x = ((*d as i16) / 4) * 4;
-                    *q = x.wrapping_sub(prev);
-                    prev = x;
-                }
-
-                snap::write::FrameEncoder::new(File::create(filename)?)
-                    .write_all(bytemuck::cast_slice(&qdata))?;
-            }*/
-            LayerType::Displacements | LayerType::Roughness => {
-                fs::write(filename, data)?;
-            }
-        }
+        fs::write(filename, data)?;
 
         self.update_tile_meta(
             layer,

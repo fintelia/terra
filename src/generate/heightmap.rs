@@ -299,7 +299,7 @@ impl HeightmapCache {
         &mut self,
         mapfile: &'a MapFile,
         node: VNode,
-    ) -> BoxFuture<'a, Option<Arc<Vec<i16>>>> {
+    ) -> BoxFuture<'a, Result<Arc<Vec<i16>>, Error>> {
         let mut tiles_pending = Vec::new();
         let mut root = None;
 
@@ -311,7 +311,7 @@ impl HeightmapCache {
             }
 
             tiles_pending.push(async move {
-                (n, mapfile.read_tile_async_raw(LayerType::Heightmaps, n).await)
+                (n, mapfile.read_tile(LayerType::Heightmaps, n).await)
             });
             match n.parent() {
                 Some((p, _)) => n = p,
@@ -341,7 +341,7 @@ impl HeightmapCache {
                 let _ = sender.send((n, Arc::clone(&tile)));
                 root = Some(tile);
             }
-            root
+            Ok(root.unwrap())
         }
         .boxed()
     }

@@ -79,17 +79,17 @@ struct TileStreamer {
 }
 
 impl TileStreamer {
-    async fn run(mut self) -> Result<(), Error> {
-        let mut pending = futures::stream::futures_unordered::FuturesUnordered::new();
+    async fn run(self) -> Result<(), Error> {
+        let TileStreamer { mut requests, results, mapfile, mut heightmap_tiles } = self;
+        let mapfile = &*mapfile;
 
+        let mut pending = futures::stream::futures_unordered::FuturesUnordered::new();
         loop {
             futures::select! {
-                request = self.requests.recv().fuse() => if let Some(request) = request {
+                request = requests.recv().fuse() => if let Some(request) = request {
                     match request.layer {
                         LayerType::Heightmaps => {
-                            let fut = self
-                                .heightmap_tiles
-                                .get_tile(&*self.mapfile, request.node);
+                            let fut = heightmap_tiles.get_tile(mapfile, request.node);
 
                             pending.push(async move {
                                 let heights: Vec<_> = fut
@@ -100,14 +100,28 @@ impl TileStreamer {
                                     .collect();
                                 let mut data = vec![0; heights.len() * 4];
                                 data.copy_from_slice(bytemuck::cast_slice(&heights));
-                                TileResult { node: request.node, layer: request.layer, data }
-                            });
+                                Ok(TileResult { node: request.node, layer: request.layer, data })
+                            }.boxed());
                         }
-                        _ => self.results.send(TileResult { node: request.node, layer: request.layer, data: self.mapfile.read_tile(request.layer, request.node).unwrap() })?,
+                        LayerType::Albedo => pending.push(async move {
+                            let raw_data = mapfile.read_tile(request.layer, request.node).await.unwrap();
+                            let data = tokio::task::spawn_blocking(move || {
+                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data)?.to_rgba8().to_vec())
+                            }).await??;
+                            Ok::<TileResult, Error>(TileResult { node: request.node, layer: request.layer, data })
+                        }.boxed()),
+                        LayerType::Roughness => pending.push(async move {
+                            Ok::<TileResult, Error>(TileResult { 
+                                node: request.node, 
+                                layer: request.layer, 
+                                data: mapfile.read_tile(request.layer, request.node).await?
+                            })
+                        }.boxed()),
+                        LayerType::Normals | LayerType::Displacements => unreachable!(),
                     }
                 },
                 tile_result = pending.select_next_some() => {
-                    self.results.send(tile_result)?;
+                    results.send(tile_result?)?;
                 },
                 complete => break,
             }
