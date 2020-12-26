@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use vec_map::VecMap;
 use tokio::io::AsyncReadExt;
 
+const TERRA_TILES_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TileState {
     Missing,
@@ -285,7 +287,7 @@ impl MapFile {
     }
 
     fn tile_url(layer: LayerType, node: VNode) -> String {
-        format!("https://terra.fintelia.io/file/terra-tiles/{}", Self::tile_name(layer, node))
+        format!("{}{}", TERRA_TILES_URL, Self::tile_name(layer, node))
     }
 
     pub(crate) fn reload_tile_state(
