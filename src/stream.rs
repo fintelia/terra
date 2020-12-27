@@ -4,6 +4,7 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::LayerType;
 use anyhow::Error;
 use futures::{FutureExt, StreamExt};
+use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
@@ -108,18 +109,17 @@ impl TileStreamer {
                             }.boxed());
                         }
                         LayerType::Albedo => pending.push(async move {
-                            let raw_data = mapfile.read_tile(request.layer, request.node).await.unwrap();
+                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             let data = tokio::task::spawn_blocking(move || {
                                 Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data)?.to_rgba8().to_vec())
                             }).await??;
                             Ok::<TileResult, Error>(TileResult { node: request.node, layer: request.layer, data })
                         }.boxed()),
                         LayerType::Roughness => pending.push(async move {
-                            Ok::<TileResult, Error>(TileResult { 
-                                node: request.node, 
-                                layer: request.layer, 
-                                data: mapfile.read_tile(request.layer, request.node).await?
-                            })
+                            let mut data = Vec::new();
+                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
+                            lz4::Decoder::new(Cursor::new(&raw_data))?.read_to_end(&mut data)?;
+                            Ok::<TileResult, Error>(TileResult { node: request.node, layer: request.layer, data })
                         }.boxed()),
                         LayerType::Normals | LayerType::Displacements => unreachable!(),
                     }

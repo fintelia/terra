@@ -16,7 +16,7 @@ use bytemuck::Pod;
 use cgmath::Vector2;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 use std::f64::consts::PI;
 use vec_map::VecMap;
 
@@ -527,17 +527,12 @@ impl MapFileBuilder {
         });
 
         let mut context = AssetLoadContextBuf::new();
-        let mut context = context.context("Generating mapfile...", 5);
+        let mut context = context.context("", 0);
         // generate_heightmaps(&mut mapfile, &mut context).await?;
-        context.set_progress(1);
         // generate_albedo(&mut mapfile, &mut context)?;
-        context.set_progress(2);
-        generate_roughness(&mut mapfile, &mut context)?;
-        context.set_progress(3);
-        generate_noise(&mut mapfile)?;
-        context.set_progress(4);
+        // generate_roughness(&mut mapfile, &mut context)?;
+        generate_noise(&mut mapfile, &mut context)?;
         generate_sky(&mut mapfile, &mut context)?;
-        context.set_progress(5);
 
         Ok(mapfile)
     }
@@ -701,13 +696,16 @@ fn generate_roughness(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> 
             }
         }
 
-        mapfile.write_tile(LayerType::Roughness, n, &data, true)?;
+        let mut e = lz4::EncoderBuilder::new().level(9).build(Vec::new())?;
+        e.write_all(&data)?;
+
+        mapfile.write_tile(LayerType::Roughness, n, &e.finish().0, true)?;
     }
 
     Ok(())
 }
 
-fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
+fn generate_noise(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
     if !mapfile.reload_texture("noise") {
         // wavelength = 1.0 / 256.0;
         let noise_desc = TextureDescriptor {
@@ -721,9 +719,12 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
         let noise_heightmaps: Vec<_> =
             (0..4).map(|i| crate::terrain::heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
 
+        context.reset("Generating noise textures... ", noise_heightmaps.len());
+
         let len = noise_heightmaps[0].heights.len();
         let mut heights = vec![0u8; len * 4];
         for (i, heightmap) in noise_heightmaps.into_iter().enumerate() {
+            context.set_progress(i as u64);
             let mut dist: Vec<(usize, f32)> = heightmap.heights.into_iter().enumerate().collect();
             dist.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             for j in 0..len {
@@ -738,7 +739,7 @@ fn generate_noise(mapfile: &mut MapFile) -> Result<(), Error> {
 
 fn generate_sky(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
     if !mapfile.reload_texture("sky") {
-        let context = &mut context.increment_level("Generating sky texture... ", 1);
+        context.reset("Generating sky texture... ", 1);
         let sky = WebTextureAsset {
             url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
             filename: "eso0932a.tif".to_owned(),

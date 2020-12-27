@@ -92,7 +92,7 @@ impl MapFile {
         let filename = Self::tile_path(layer, node);
         if !filename.exists() {
             match layer {
-                LayerType::Albedo | LayerType::Heightmaps => {
+                LayerType::Albedo | LayerType::Heightmaps | LayerType::Roughness => {
                     let url = Self::tile_url(layer, node);
                     let client = hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
                     let resp = client.get(url.parse()?).await?;
@@ -266,7 +266,7 @@ impl MapFile {
         let (layer, ext) = match layer {
             LayerType::Displacements => ("displacements", "raw"),
             LayerType::Albedo => ("albedo", "png"),
-            LayerType::Roughness => ("roughness", "raw"),
+            LayerType::Roughness => ("roughness", "raw.lz4"),
             LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
         };

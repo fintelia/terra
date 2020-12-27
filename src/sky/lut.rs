@@ -2,7 +2,6 @@ use crate::cache::AssetLoadContext;
 use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
-use itertools::Itertools;
 
 pub(crate) trait LookupTableDefinition: Sync {
     fn name(&self) -> String;
