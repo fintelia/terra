@@ -1,6 +1,6 @@
 use cgmath::EuclideanSpace;
 use gilrs::{Axis, Button, Gilrs};
-use std::f64::consts::PI;
+use std::{f64::consts::PI, path::PathBuf};
 use structopt::StructOpt;
 use winit::{
     event,
@@ -15,6 +15,8 @@ struct Opt {
     heading: f64,
     #[structopt(short, long, default_value = "200000")]
     elevation: f64,
+    #[structopt(long)]
+    generate: Option<PathBuf>,
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -66,16 +68,15 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
-    let mapfile = runtime.block_on(terra::MapFileBuilder::build()).unwrap();
-
     let event_loop = EventLoop::new();
-    let window = winit::window::Window::new(&event_loop).unwrap();
-    for monitor in window.available_monitors() {
-        if monitor.video_modes().any(|mode| mode.size().width == 1920) {
-            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(Some(monitor))));
-            break;
-        }
-    }
+    let monitor = event_loop.available_monitors()
+        .find(|monitor| monitor.video_modes().any(|mode| mode.size().width == 1920));
+    let window = winit::window::WindowBuilder::new()
+        .with_visible(false)
+        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)))
+        .build(&event_loop)
+        .unwrap();
+
     let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN | wgpu::BackendBit::DX12);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = runtime
@@ -116,7 +117,23 @@ fn main() {
     let mut long = plus_center.x().to_radians();
     let mut altitude = opt.elevation;
 
-    let mut terrain = terra::Terrain::new(&device, &mut queue, mapfile).unwrap();
+    let mut terrain = terra::Terrain::new(&device, &mut queue).unwrap();
+
+    if let Some(dataset_directory) = opt.generate {
+        let mut pb = pbr::ProgressBar::new(100);
+        let mut progress_callback = |l: &str, i: usize, total: usize|{
+            pb.message(l);
+            pb.set(i as u64);
+            pb.total = total as u64;
+        };
+
+        runtime.block_on(terrain.generate_heightmaps(
+            dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
+            dataset_directory.join("strm3"), 
+            &mut progress_callback)).unwrap();
+        runtime.block_on(terrain.generate_albedos(dataset_directory.join("bluemarble"), &mut progress_callback)).unwrap();
+        runtime.block_on(terrain.generate_roughness(&mut progress_callback)).unwrap();
+    }
 
     {
         let r = altitude + planet_radius;
@@ -125,11 +142,12 @@ fn main() {
             r * lat.cos() * long.sin(),
             r * lat.sin(),
         );
-        while terrain.loading(&device, &mut queue, eye.into()) {
+        while terrain.poll_loading_status(&device, &mut queue, eye.into()) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
 
+    let mut set_visible = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = if cfg!(feature = "metal-auto-capture") {
             ControlFlow::Exit
@@ -255,6 +273,11 @@ fn main() {
                     view_proj,
                     eye.into(),
                 );
+
+                if !set_visible {
+                    window.set_visible(true);
+                    set_visible = true;
+                }
             }
             _ => (),
         }

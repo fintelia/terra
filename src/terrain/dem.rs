@@ -1,10 +1,9 @@
-use crate::cache::{AssetLoadContext, CompressionType, WebAsset};
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use anyhow::{ensure, Error};
 use lazy_static::lazy_static;
-use std::collections::HashSet;
-use std::io::{Cursor, Read};
+use std::{io::{Cursor, Read}, path::PathBuf};
 use std::str::FromStr;
+use std::{collections::HashSet, path::Path};
 use thiserror::Error;
 use zip::ZipArchive;
 
@@ -23,224 +22,118 @@ lazy_static! {
 }
 
 /// Which data source to use for digital elevation models.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum DemSource {
-    /// Use DEMs from the USGS National Map at approximately 30 meters. Data from this source is
-    /// only available for North America.
-    #[allow(unused)]
-    Usgs30m,
-    /// Use DEMs from the USGS National Map at approximately 10 meters. Data from this source is
-    /// only available for the United States.
-    Usgs10m,
-    /// Use DEMs Shuttle Radar Topography Mission (SRTM) 1 Arc-Second Global data source. Data is
+    /// Use DEMs Shuttle Radar Topography Mission (SRTM) 3 Arc-Second Global data source. Data is
     /// available globally between 60° north and 56° south latitude.
     #[allow(unused)]
-    Srtm90m,
+    Srtm90m(PathBuf),
     /// Use NASADEM
     #[allow(unused)]
-    Nasadem,
+    Nasadem(PathBuf),
 }
 impl DemSource {
+    #[allow(unused)]
     pub(crate) fn url_str(&self) -> &str {
         match *self {
-            DemSource::Usgs30m => {
-                "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/1/GridFloat/USGS_NED_1_"
-            }
-            DemSource::Usgs10m => {
-                "https://prd-tnm.s3.amazonaws.com/index.html?prefix=StagedProducts/Elevation/13/GridFloat/USGS_NED_13_"
-            }
-            DemSource::Srtm90m => {
+            DemSource::Srtm90m(_) => {
                 "https://opentopography.s3.sdsc.edu/raster/SRTM_GL3/SRTM_GL3_srtm/"
             }
-	        DemSource::Nasadem => {
+	        DemSource::Nasadem(_) => {
 		        "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
 	        }
         }
     }
-    pub(crate) fn directory_str(&self) -> &str {
-        match *self {
-            DemSource::Usgs30m => "dems/ned1",
-            DemSource::Usgs10m => "dems/ned13",
-            DemSource::Srtm90m => "dems/srtm3",
-            DemSource::Nasadem => "dems/nasadem",
-        }
-    }
+
     /// Returns the approximate resolution of data from this source in meters.
     #[allow(unused)]
     pub(crate) fn resolution(&self) -> u32 {
         match *self {
-            DemSource::Usgs30m => 30,
-            DemSource::Usgs10m => 10,
-            DemSource::Srtm90m => 90,
-            DemSource::Nasadem => 30,
+            DemSource::Srtm90m(_) => 90,
+            DemSource::Nasadem(_) => 30,
         }
     }
     /// Returns the size of cells from this data source in arcseconds.
     #[allow(unused)]
     pub(crate) fn cell_size(&self) -> f32 {
         match *self {
-            DemSource::Usgs30m => 1.0,
-            DemSource::Usgs10m => 1.0 / 3.0,
-            DemSource::Srtm90m => 3.0,
-            DemSource::Nasadem => 1.0,
+            DemSource::Srtm90m(_) => 3.0,
+            DemSource::Nasadem(_) => 1.0,
         }
     }
 
-    pub(crate) fn tile_exists(&self, latitude: i16, longitude: i16) -> bool {
+    fn tile_name(&self, latitude: i16, longitude: i16) -> String {
         let n_or_s = if latitude >= 0 { 'n' } else { 's' };
         let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
         match *self {
-            DemSource::Srtm90m => {
-                let s =
-                    format!("{}{:02}_{}{:03}.hgt", n_or_s, latitude.abs(), e_or_w, longitude.abs());
-                SRTM3_FILES.contains(&*s)
+            DemSource::Srtm90m(_) => {
+                    format!("{}{:02}_{}{:03}.hgt.sz", n_or_s, latitude.abs(), e_or_w, longitude.abs())
             }
-            DemSource::Nasadem => {
-                let s = format!(
+            DemSource::Nasadem(_) => {
+                 format!(
                     "NASADEM_HGT_{}{:02}{}{:03}.zip",
                     n_or_s,
                     latitude.abs(),
                     e_or_w,
                     longitude.abs()
-                );
-                NASADEM_FILES.contains(&*s)
+                )
             }
-            _ => unimplemented!(),
         }
     }
+
+    pub(crate) fn tile_should_exist(&self, latitude: i16, longitude: i16) -> bool {
+        match *self {
+            DemSource::Srtm90m(_) => {
+                SRTM3_FILES.contains(&*self.tile_name(latitude, longitude))
+            }
+            DemSource::Nasadem(_) => {
+                NASADEM_FILES.contains(&*self.tile_name(latitude, longitude))
+            }
+        }
+    }
+    pub(crate) fn filename(&self, latitude: i16, longitude: i16) -> PathBuf {
+        match self {
+            DemSource::Srtm90m(p) | DemSource::Nasadem(p) => {
+                p.join(self.tile_name(latitude, longitude))
+            }
+        }
+    }
+
 }
 impl RasterSource for DemSource {
     type Type = f32;
     type Container = Vec<f32>;
     fn load(
         &self,
-        context: &mut AssetLoadContext,
         latitude: i16,
         longitude: i16,
-    ) -> Option<Raster<f32>> {
-        DigitalElevationModelParams { latitude, longitude, source: *self }.load(context).ok()
+    ) -> Result<Option<Raster<f32>>, Error> {
+        if !self.tile_should_exist(latitude, longitude) {
+            return Ok(None);
+        }
+
+        match self {
+            DemSource::Srtm90m(_) => {
+                let filename = self.filename(latitude, longitude);
+                println!("{:?}", filename);
+                let data = std::fs::read(filename)?;
+                let mut uncompressed = Vec::new();
+                snap::read::FrameDecoder::new(Cursor::new(data))
+                    .read_to_end(&mut uncompressed)?;
+                parse_srtm3_hgt(latitude, longitude, uncompressed).map(Some)
+            }
+            DemSource::Nasadem(_) => {
+                unimplemented!()
+            }
+        }
     }
     fn bands(&self) -> usize {
         1
     }
 }
 
-pub struct DigitalElevationModelParams {
-    pub latitude: i16,
-    pub longitude: i16,
-    pub source: DemSource,
-}
-impl WebAsset for DigitalElevationModelParams {
-    type Type = Raster<f32>;
-
-    fn compression(&self) -> CompressionType {
-        match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => CompressionType::Lz4,
-            DemSource::Srtm90m => CompressionType::Snappy,
-            DemSource::Nasadem => CompressionType::None,
-        }
-    }
-    fn url(&self) -> String {
-        let (latitude, longitude) = match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => (self.latitude + 1, self.longitude),
-            _ => (self.latitude, self.longitude),
-        };
-
-        let n_or_s = if latitude >= 0 { 'n' } else { 's' };
-        let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
-
-        match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => format!(
-                "{}{}{:02}{}{:03}.zip",
-                self.source.url_str(),
-                n_or_s,
-                latitude.abs(),
-                e_or_w,
-                longitude.abs()
-            ),
-            DemSource::Srtm90m => format!(
-                "{}{}/{}{:02}{}{:03}.hgt",
-                self.source.url_str(),
-                if latitude >= 30 {
-                    "North/North_30_60"
-                } else if latitude >= 0 {
-                    "North/North_0_29"
-                } else {
-                    "South"
-                },
-                n_or_s.to_uppercase().next().unwrap(),
-                latitude.abs(),
-                e_or_w.to_uppercase().next().unwrap(),
-                longitude.abs()
-            ),
-            DemSource::Nasadem => format!(
-                "{}{}{:02}{}{:03}.zip",
-                self.source.url_str(),
-                n_or_s,
-                latitude.abs(),
-                e_or_w,
-                longitude.abs()
-            ),
-        }
-    }
-    fn filename(&self) -> String {
-        let n_or_s = if self.latitude >= 0 { 'n' } else { 's' };
-        let e_or_w = if self.longitude >= 0 { 'e' } else { 'w' };
-        match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => format!(
-                "{}/{}{:02}_{}{:03}.zip.lz4",
-                self.source.directory_str(),
-                n_or_s,
-                self.latitude.abs(),
-                e_or_w,
-                self.longitude.abs()
-            ),
-            DemSource::Srtm90m => format!(
-                "{}/{}{:02}_{}{:03}.hgt.sz",
-                self.source.directory_str(),
-                n_or_s,
-                self.latitude.abs(),
-                e_or_w,
-                self.longitude.abs()
-            ),
-            DemSource::Nasadem => format!(
-                "{}/{}{:02}{}{:03}.zip",
-                self.source.directory_str(),
-                n_or_s,
-                self.latitude.abs(),
-                e_or_w,
-                self.longitude.abs()
-            ),
-        }
-    }
-    fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        match self.source {
-            DemSource::Usgs30m | DemSource::Usgs10m => parse_ned_zip(data),
-            DemSource::Srtm90m => parse_srtm3_hgt(self.latitude, self.longitude, data),
-            DemSource::Nasadem => Ok(Raster {
-                width: 0,
-                height: 0,
-                bands: 1,
-                latitude_llcorner: 0.0,
-                longitude_llcorner: 0.0,
-                cell_size: 0.0,
-                values: Vec::new(),
-            }),
-        }
-    }
-    fn credentials(&self) -> Option<(String, String)> {
-        match self.source {
-            DemSource::Nasadem => {
-                let cred = std::env::var("EARTHDATA_CREDENTIALS").unwrap();
-                let cred: Vec<_> = cred.split(":").collect();
-                Some((cred[0].to_string(), cred[1].to_string()))
-            }
-            _ => None,
-        }
-    }
-}
-
 /// Load a zip file in the format for the USGS's National Elevation Dataset.
+#[allow(unused)]
 fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
     let mut hdr = String::new();
     let mut flt = Vec::new();
@@ -361,48 +254,39 @@ fn parse_srtm3_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
     })
 }
 
-pub struct GlobalDem;
-impl WebAsset for GlobalDem {
-    type Type = GlobalRaster<i16>;
+pub(crate) fn parse_etopo1(
+    filename: impl AsRef<Path>,
+    mut progress_callback: impl FnMut(&str, usize, usize) + Send,
+) -> Result<GlobalRaster<i16>, Error> {
+    let data = std::fs::read(filename)?;
 
-    fn url(&self) -> String {
-        "https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/ice_surface/cell_registered/georeferenced_tiff/ETOPO1_Ice_c_geotiff.zip".to_string()
-    }
-    fn filename(&self) -> String {
-        "dems/ETOPO1_Ice_c_geotiff.zip".to_string()
-    }
-    fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        let mut zip = ZipArchive::new(Cursor::new(data))?;
-        ensure!(zip.len() == 1, "Unexpected zip file contents");
-        let mut file = zip.by_index(0)?;
-        ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
+    let mut zip = ZipArchive::new(Cursor::new(data))?;
+    ensure!(zip.len() == 1, "Unexpected zip file contents");
+    let mut file = zip.by_index(0)?;
+    ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
 
-        context.reset("Decompressing ETOPO1_Ice_c_geotiff.tif...", file.size());
-        let mut contents = vec![0; file.size() as usize];
-        for (i, chunk) in contents.chunks_mut(4096).enumerate() {
-            file.read_exact(chunk)?;
-            context.set_progress(i * 4096);
+    let mut contents = vec![0; file.size() as usize];
+    for (i, chunk) in contents.chunks_mut(4096).enumerate() {
+        progress_callback("Decompressing ETOPO1_Ice_c_geotiff.tif...", i * 4096, file.size() as usize);
+        file.read_exact(chunk)?;
+    }
+
+    let mut tiff_decoder = tiff::decoder::Decoder::new(Cursor::new(contents))?;
+    let (width, height) = tiff_decoder.dimensions()?;
+
+    let mut offset = 0;
+    let mut values: Vec<i16> = vec![0; width as usize * height as usize];
+    let strip_count = tiff_decoder.strip_count()?;
+
+    for i in 0..strip_count {
+        progress_callback("Decoding ETOPO1_Ice_c_geotiff.tif...", i as usize, strip_count as usize);
+        if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
+            values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
+            offset += v.len();
+        } else {
+            unreachable!();
         }
-
-        context.reset("Decoding ETOPO1_Ice_c_geotiff.tif...", 100);
-        let mut tiff_decoder = tiff::decoder::Decoder::new(Cursor::new(contents))?;
-        let (width, height) = tiff_decoder.dimensions()?;
-
-        let mut offset = 0;
-        let mut values: Vec<i16> = vec![0; width as usize * height as usize];
-        let strip_count = tiff_decoder.strip_count()?;
-
-        context.set_progress_and_total(0, strip_count);
-        for i in 0..strip_count {
-            if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
-                context.set_progress(i);
-                values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
-                offset += v.len();
-            } else {
-                unreachable!();
-            }
-        }
-
-        Ok(GlobalRaster { bands: 1, width: width as usize, height: height as usize, values })
     }
+
+    Ok(GlobalRaster { bands: 1, width: width as usize, height: height as usize, values })
 }

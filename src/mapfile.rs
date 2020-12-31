@@ -46,7 +46,7 @@ pub(crate) struct ShaderDescriptor {
     hash: [u8; 32],
 }
 
-pub struct MapFile {
+pub(crate) struct MapFile {
     layers: VecMap<LayerParams>,
     _db: sled::Db,
     tiles: sled::Tree,

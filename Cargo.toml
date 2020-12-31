@@ -29,7 +29,7 @@ dirs = "3.0.1"
 futures = "0.3.8"
 gilrs = "0.8.0"
 hyper = { version = "0.14.1", features = ["full"] }
-hyper-tls = { git = "https://github.com/teozkr/hyper-tls", rev = "11998ee58a786d8d60a6271a465da79fe5881bd9" }
+hyper-tls = "0.5"
 image = "0.23.12"
 itertools = "0.9.0"
 lazy_static = "1.4.0"

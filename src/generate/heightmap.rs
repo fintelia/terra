@@ -1,7 +1,5 @@
-use crate::cache::AssetLoadContext;
 use crate::coordinates;
 use crate::mapfile::MapFile;
-use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
 use crate::terrain::tile_cache::{LayerParams, LayerType};
@@ -355,13 +353,12 @@ pub(crate) struct HeightmapGen {
 impl HeightmapGen {
     pub(crate) async fn generate_heightmaps<'a>(
         &mut self,
-        context: &mut AssetLoadContext<'a>,
-        mapfile: &MapFile,
+        mapfile: Arc<MapFile>,
         node: VNode,
-    ) -> Result<tokio::sync::oneshot::Receiver<Vec<u8>>, Error> {
+    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), Error>>, Error> {
         let mut parent: Option<(u8, Arc<Vec<i16>>)> = None;
         if let Some((p, i)) = node.parent() {
-            parent = Some((i, self.tile_cache.get_tile(mapfile, p).await.unwrap()));
+            parent = Some((i, self.tile_cache.get_tile(&*mapfile, p).await.unwrap()));
         }
 
         let layer = &self.tile_cache.layer;
@@ -402,8 +399,7 @@ impl HeightmapGen {
             }
 
             for (tile, v) in samples {
-                if DemSource::Srtm90m.tile_exists(tile.0, tile.1) {
-                    let tile = self.dems.get(context, tile.0, tile.1).unwrap();
+                if let Some(tile) = self.dems.get( tile.0, tile.1)? {
                     v.into_par_iter()
                         .map(|(i, lat, long)| (i, tile.interpolate(lat, long, 0).unwrap() as i16))
                         .collect::<Vec<_>>()
@@ -427,14 +423,15 @@ impl HeightmapGen {
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         rayon::spawn(move || {
-            tx.send(compress_heightmap_tile(
+            let tile = compress_heightmap_tile(
                 resolution,
                 border_size,
                 2 + crate::generate::TILE_CELL_76M.saturating_sub(node.level()) as i8,
                 &*heightmap,
                 parent.as_ref().map(|&(i, ref a)| (i, &***a)),
-            ))
-            .unwrap();
+            );
+
+           tx.send(mapfile.write_tile(LayerType::Heightmaps, node, &tile, true)).unwrap();
         });
 
         Ok(rx)

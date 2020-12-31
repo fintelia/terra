@@ -19,6 +19,8 @@ mod stream;
 mod terrain;
 mod utils;
 
+use crate::generate::MapFileBuilder;
+use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
@@ -30,8 +32,7 @@ use std::mem;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
 
-pub use crate::mapfile::MapFile;
-pub use generate::MapFileBuilder;
+pub use crate::generate::BLUE_MARBLE_URLS;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -70,12 +71,9 @@ pub struct Terrain {
     tile_cache: TileCache,
 }
 impl Terrain {
-    pub fn new(
-        device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
-        mapfile: MapFile,
-    ) -> Result<Self, Error> {
-        let mapfile = Arc::new(mapfile);
+    /// Create a new Terrain object.
+    pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue) -> Result<Self, Error> {
+        let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let tile_cache = TileCache::new(
             Arc::clone(&mapfile),
             crate::generate::generators(mapfile.layers(), device),
@@ -188,12 +186,30 @@ impl Terrain {
         })
     }
 
-    pub fn loading(
+    fn loading_complete(&self) -> bool {
+        VNode::roots().iter().copied().all(|root| {
+            self.tile_cache.contains(root, LayerType::Heightmaps)
+                && self.tile_cache.contains(root, LayerType::Albedo)
+                && self.tile_cache.contains(root, LayerType::Roughness)
+        })
+    }
+
+    /// Returns whether initial map file streaming has completed for tiles in the vicinity of
+    /// `camera`.
+    ///
+    /// Terra cannot render any terrain until all root tiles have been downloaded and streamed to
+    /// the GPU. This function returns whether tohse tiles have been streamed, and also initiates
+    /// streaming of more detailed tiles for the indicated tile position.
+    pub fn poll_loading_status(
         &mut self,
         device: &wgpu::Device,
         queue: &mut wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
+        if self.loading_complete() {
+            return true;
+        }
+
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
@@ -204,12 +220,14 @@ impl Terrain {
 
         queue.submit(Some(encoder.finish()));
 
-        VNode::roots().iter().copied().any(|root| {
-            !self.tile_cache.contains(root, LayerType::Heightmaps)
-                || !self.tile_cache.contains(root, LayerType::Albedo)
-        })
+        self.loading_complete()
     }
 
+    /// Render the terrain.
+    ///
+    /// This function will block if the root tiles haven't been downloaded/loaded from disk. If
+    /// you want to avoid this, call `poll_loading_status` first to see whether this function will
+    /// block.
     pub fn render(
         &mut self,
         device: &wgpu::Device,
@@ -370,27 +388,19 @@ impl Terrain {
         self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
         self.tile_cache.generate_tiles(&self.mapfile, device, &mut encoder, &self.gpu_state);
 
-        let mut do_render = true;
-        for &root in &VNode::roots() {
-            if !self.tile_cache.contains(root, LayerType::Heightmaps)
-                || !self.tile_cache.contains(root, LayerType::Albedo)
-                || !self.tile_cache.contains(root, LayerType::Roughness)
-            {
-                do_render = false;
-                break;
-            }
+        // Block until root tiles have been downloaded and streamed to the GPU.
+        while !self.poll_loading_status(device, queue, camera) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        if do_render {
-            self.quadtree.update_visibility(&self.tile_cache, camera);
-            self.quadtree.prepare_vertex_buffer(
-                device,
-                &mut encoder,
-                &mut self.node_buffer,
-                &self.tile_cache,
-                camera,
-            );
-        }
+        self.quadtree.update_visibility(&self.tile_cache, camera);
+        self.quadtree.prepare_vertex_buffer(
+            device,
+            &mut encoder,
+            &mut self.node_buffer,
+            &self.tile_cache,
+            camera,
+        );
 
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<UniformBlock>() as u64,
@@ -446,13 +456,11 @@ impl Terrain {
 
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
 
-            if do_render {
-                self.quadtree.render(
-                    &mut rpass,
-                    &self.index_buffer,
-                    &self.bindgroup_pipeline.as_ref().unwrap().0,
-                );
-            }
+            self.quadtree.render(
+                &mut rpass,
+                &self.index_buffer,
+                &self.bindgroup_pipeline.as_ref().unwrap().0,
+            );
         }
 
         {

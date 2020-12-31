@@ -126,7 +126,9 @@ fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, 
 
 pub(crate) enum CompressionType {
     None,
+    #[allow(unused)]
     Snappy,
+    #[allow(unused)]
     Lz4,
 }
 
