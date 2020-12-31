@@ -100,10 +100,12 @@ impl DemSource {
     }
 
 }
+
+#[async_trait::async_trait]
 impl RasterSource for DemSource {
     type Type = f32;
     type Container = Vec<f32>;
-    fn load(
+    async fn load(
         &self,
         latitude: i16,
         longitude: i16,
@@ -116,7 +118,7 @@ impl RasterSource for DemSource {
             DemSource::Srtm90m(_) => {
                 let filename = self.filename(latitude, longitude);
                 println!("{:?}", filename);
-                let data = std::fs::read(filename)?;
+                let data = tokio::fs::read(filename).await?;
                 let mut uncompressed = Vec::new();
                 snap::read::FrameDecoder::new(Cursor::new(data))
                     .read_to_end(&mut uncompressed)?;

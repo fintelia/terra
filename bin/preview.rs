@@ -120,11 +120,19 @@ fn main() {
     let mut terrain = terra::Terrain::new(&device, &mut queue).unwrap();
 
     if let Some(dataset_directory) = opt.generate {
-        let mut pb = pbr::ProgressBar::new(100);
+        let pb = indicatif::ProgressBar::new(100);
+        pb.set_style(indicatif::ProgressStyle::default_bar()
+            .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+            .progress_chars("=> "));
+        let mut last_message = None;
         let mut progress_callback = |l: &str, i: usize, total: usize|{
-            pb.message(l);
-            pb.set(i as u64);
-            pb.total = total as u64;
+            if last_message.is_none() || l != last_message.as_ref().unwrap() {
+                pb.set_message(l);
+                pb.reset_eta();
+                last_message = Some(l.to_string());
+            }
+            pb.set_length(total as u64);
+            pb.set_position(i as u64);
         };
 
         runtime.block_on(terrain.generate_heightmaps(

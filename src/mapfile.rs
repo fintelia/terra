@@ -330,15 +330,18 @@ impl MapFile {
             Ok(())
         })
     }
-    pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<Vec<VNode>, Error> {
+    /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
+    pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<(Vec<VNode>, usize), Error> {
+        let mut total = 0;
         let mut missing = Vec::new();
         self.scan_tile_meta(layer, |node, meta| {
+            total += 1;
             if let TileState::MissingBase = meta.state {
                 missing.push(node);
             }
             Ok(())
         })?;
-        Ok(missing)
+        Ok((missing, total))
     }
 
     //

@@ -2,12 +2,19 @@ use crate::cache::{AssetLoadContext, MMappedAsset};
 use crate::coordinates;
 use anyhow::Error;
 use bit_vec::BitVec;
+use crossbeam::channel::{self, Receiver, Sender};
+use futures::{Future, future::BoxFuture};
 use lru_cache::LruCache;
 use memmap::Mmap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::f64::consts::PI;
 use std::ops::{Deref, Index};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{Arc, Weak},
+};
+use futures::FutureExt;
+use vec_map::VecMap;
 
 pub trait Scalar: Copy + 'static {
     fn from_f64(_: f64) -> Self;
@@ -131,10 +138,11 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
     }
 }
 
-pub(crate) trait RasterSource {
+#[async_trait::async_trait]
+pub(crate) trait RasterSource: Send + Sync {
     type Type: Into<f64> + Copy;
     type Container: Deref<Target = [Self::Type]>;
-    fn load(
+    async fn load(
         &self,
         latitude: i16,
         longitude: i16,
@@ -147,54 +155,103 @@ pub(crate) trait RasterSource {
     }
 }
 
-pub(crate) struct RasterCache<T: Into<f64> + Copy, C: Deref<Target = [T]>> {
-    source: Box<dyn RasterSource<Type = T, Container = C>>,
+pub(crate) struct RasterCache<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static> {
+    source: Arc<dyn RasterSource<Type = T, Container = C>>,
     holes: HashSet<(i16, i16)>,
-    rasters: LruCache<(i16, i16), Raster<T, C>>,
+
+    weak: HashMap<(i16, i16), Weak<Raster<T, C>>>,
+    strong: LruCache<(i16, i16), Arc<Raster<T, C>>>,
+    sender: Sender<((i16, i16), Option<Arc<Raster<T, C>>>)>,
+    receiver: Receiver<((i16, i16), Option<Arc<Raster<T, C>>>)>,
 }
-impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> RasterCache<T, C> {
-    pub fn new(source: Box<dyn RasterSource<Type = T, Container = C>>, size: usize) -> Self {
-        Self { source, holes: HashSet::new(), rasters: LruCache::new(size) }
+impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static> RasterCache<T, C> {
+    pub fn new(source: Arc<dyn RasterSource<Type = T, Container = C>>, capacity: usize) -> Self {
+        let (sender, receiver) = channel::unbounded();
+
+        Self {
+            source,
+            holes: HashSet::new(),
+            weak: HashMap::default(),
+            strong: LruCache::new(capacity),
+            sender,
+            receiver,
+        }
     }
-    pub fn get(
-        &mut self,
-        latitude: i16,
-        longitude: i16,
-    ) -> Result<Option<&mut Raster<T, C>>, Error> {
-        let rs = self.source.raster_size();
-        let key = (latitude - (latitude % rs + rs) % rs, longitude - (longitude % rs + rs) % rs);
-        if self.holes.contains(&key) {
-            return Ok(None);
-        }
-        if self.rasters.contains_key(&key) {
-            return Ok(self.rasters.get_mut(&key));
-        }
-        match self.source.load(key.0, key.1)? {
-            Some(raster) => {
-                self.rasters.insert(key, raster);
-                return Ok(self.rasters.get_mut(&key));
+    fn insert(&mut self, key: (i16, i16), raster: Option<Arc<Raster<T, C>>>) {
+        match raster {
+            Some(a) => {
+                self.weak.insert(key, Arc::downgrade(&a));
+                self.strong.insert(key, a);
             }
             None => {
                 self.holes.insert(key);
-                Ok(None)
             }
         }
     }
+    fn try_get(&mut self, key: (i16, i16)) -> Option<Option<Arc<Raster<T, C>>>> {
+        if self.holes.contains(&key) {
+            return Some(None);
+        }
+
+        let mut found = None;
+        while let Ok(t) = self.receiver.try_recv() {
+            if t.0 == key {
+                found = t.1.clone();
+            }
+            self.insert(t.0, t.1);
+        }
+        if found.is_some() {
+            return Some(found);
+        }
+
+        match self.strong.get_mut(&key) {
+            Some(e) => Some(Some(Arc::clone(e))),
+            None => match self.weak.get(&key).and_then(|w| w.upgrade()) {
+                Some(t) => {
+                    self.strong.insert(key, t.clone());
+                    Some(Some(Arc::clone(&t)))
+                }
+                None => {
+                    self.weak.remove(&key);
+                    None
+                }
+            },
+        }
+    }
+
+    pub fn get(&mut self, latitude: i16, longitude: i16) -> BoxFuture<'static, Result<Option<Arc<Raster<T, C>>>, Error>> {
+        let rs = self.source.raster_size();
+        let key = (latitude - (latitude % rs + rs) % rs, longitude - (longitude % rs + rs) % rs);
+
+        if let Some(raster) = self.try_get(key) {
+            return futures::future::ready(Ok(raster)).boxed();
+        }
+
+        let source = Arc::clone(&self.source);
+        let sender = self.sender.clone();
+        async move {
+            let raster = source.load(latitude, longitude).await?.map(Arc::new);
+            sender.send((key, raster.clone()))?;
+            Ok(raster)
+        }.boxed()
+    }
+
     #[allow(unused)]
-    pub fn interpolate(
+    pub async fn interpolate(
         &mut self,
         latitude: f64,
         longitude: f64,
         band: usize,
     ) -> Result<Option<f64>, Error> {
         Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16)?
+            .get(latitude.floor() as i16, longitude.floor() as i16).await?
             .and_then(|raster| raster.interpolate(latitude, longitude, band)))
     }
+
     #[allow(unused)]
-    pub fn nearest3(&mut self, latitude: f64, longitude: f64) -> Result<Option<[f64; 3]>, Error> {
+    pub async fn nearest3(&mut self, latitude: f64, longitude: f64) -> Result<Option<[f64; 3]>, Error> {
         Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16)?
+            .get(latitude.floor() as i16, longitude.floor() as i16).await?
             .and_then(|raster| raster.nearest3(latitude, longitude)))
     }
 }

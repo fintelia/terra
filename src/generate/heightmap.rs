@@ -1,4 +1,4 @@
-use crate::coordinates;
+use crate::{coordinates, terrain::raster::Raster};
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
@@ -6,10 +6,10 @@ use crate::terrain::tile_cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
 use crossbeam::channel::{self, Receiver, Sender};
-use futures::future::{self, BoxFuture, FutureExt};
+use futures::{Future, TryFutureExt, future::{self, BoxFuture, FutureExt}, stream::FuturesUnordered};
 use lru_cache::LruCache;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Weak};
@@ -229,14 +229,14 @@ fn uncompress_heightmap_tile(
     heights
 }
 
-struct Cache<T: Clone> {
+struct Cache<T> {
     weak: HashMap<VNode, Weak<T>>,
     strong: VecMap<LruCache<VNode, Arc<T>>>,
     sender: Sender<(VNode, Arc<T>)>,
     receiver: Receiver<(VNode, Arc<T>)>,
     capacity: usize,
 }
-impl<T: Clone> Cache<T> {
+impl<T> Cache<T> {
     fn new(capacity: usize) -> Self {
         let (sender, receiver) = channel::unbounded();
         Self { weak: HashMap::default(), strong: VecMap::default(), sender, receiver, capacity }
@@ -308,9 +308,8 @@ impl HeightmapCache {
                 break;
             }
 
-            tiles_pending.push(async move {
-                (n, mapfile.read_tile(LayerType::Heightmaps, n).await)
-            });
+            tiles_pending
+                .push(async move { (n, mapfile.read_tile(LayerType::Heightmaps, n).await) });
             match n.parent() {
                 Some((p, _)) => n = p,
                 None => break,
@@ -348,19 +347,20 @@ impl HeightmapCache {
 pub(crate) struct HeightmapGen {
     pub tile_cache: HeightmapCache,
     pub dems: RasterCache<f32, Vec<f32>>,
-    pub global_dem: GlobalRaster<i16>,
+    pub global_dem: Arc<GlobalRaster<i16>>,
 }
 impl HeightmapGen {
     pub(crate) async fn generate_heightmaps<'a>(
         &mut self,
         mapfile: Arc<MapFile>,
         node: VNode,
-    ) -> Result<tokio::sync::oneshot::Receiver<Result<(), Error>>, Error> {
+    ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
         let mut parent: Option<(u8, Arc<Vec<i16>>)> = None;
         if let Some((p, i)) = node.parent() {
             parent = Some((i, self.tile_cache.get_tile(&*mapfile, p).await.unwrap()));
         }
 
+        // Reproject coordinates
         let layer = &self.tile_cache.layer;
         let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
             .into_par_iter()
@@ -376,65 +376,59 @@ impl HeightmapGen {
             })
             .collect();
 
-        let mut heightmap = vec![
-            0i16;
-            self.tile_cache.layer.texture_resolution as usize
-                * self.tile_cache.layer.texture_resolution as usize
-        ];
-
-        if node.level() <= 3 {
-            let global_dem = &self.global_dem;
-            heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
-                |(h, (lat, long))| {
-                    *h = global_dem.interpolate(lat, long, 0) as i16;
-                },
-            );
-        } else {
-            let mut samples: HashMap<(i16, i16), Vec<(usize, f64, f64)>> = Default::default();
-            for (i, (lat, long)) in coordinates.into_iter().enumerate() {
-                samples
-                    .entry((lat.floor() as i16, long.floor() as i16))
-                    .or_default()
-                    .push((i, lat, long));
-            }
-
-            for (tile, v) in samples {
-                if let Some(tile) = self.dems.get( tile.0, tile.1)? {
-                    v.into_par_iter()
-                        .map(|(i, lat, long)| (i, tile.interpolate(lat, long, 0).unwrap() as i16))
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .for_each(|(i, h)| heightmap[i] = h);
-                } else {
-                    let global_dem = &self.global_dem;
-                    v.into_par_iter()
-                        .map(|(i, lat, long)| (i, global_dem.interpolate(lat, long, 0) as i16))
-                        .collect::<Vec<_>>()
-                        .into_iter()
-                        .for_each(|(i, h)| heightmap[i] = h);
-                }
+        // Asynchronously start loading required tiles
+        let mut rasters = Vec::new();
+        if node.level() > 3 {
+            let tiles: fnv::FnvHashSet<_> = coordinates
+                .par_iter()
+                .map(|(lat, long)| (lat.floor() as i16, long.floor() as i16))
+                .collect();
+            for tile in tiles {
+                let tile = tile.clone();
+                rasters.push(self.dems.get(tile.0, tile.1).map(move |f| -> Result<_, Error> { Ok((tile, f?)) }));
             }
         }
 
-        let (resolution, border_size) = (
-            self.tile_cache.layer.texture_resolution as usize,
-            self.tile_cache.layer.texture_border_size as usize,
-        );
+        let global_dem = self.global_dem.clone();
+        let resolution = self.tile_cache.layer.texture_resolution as usize;
+        let border_size = self.tile_cache.layer.texture_border_size as usize;
+        Ok(async move {
+            let mut heightmap = vec![0i16; resolution as usize * resolution as usize];
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        rayon::spawn(move || {
-            let tile = compress_heightmap_tile(
-                resolution,
-                border_size,
-                2 + crate::generate::TILE_CELL_76M.saturating_sub(node.level()) as i8,
-                &*heightmap,
-                parent.as_ref().map(|&(i, ref a)| (i, &***a)),
-            );
+            if node.level() <= 3 {
+                heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
+                    |(h, (lat, long))| {
+                        *h = global_dem.interpolate(lat, long, 0) as i16;
+                    },
+                );
+            } else {
+                let rasters = futures::future::try_join_all(rasters).await?;
+                let rasters: fnv::FnvHashMap<(i16, i16), Arc<_>> = rasters.into_iter().filter_map(|v| Some((v.0, v.1?))).collect();
 
-           tx.send(mapfile.write_tile(LayerType::Heightmaps, node, &tile, true)).unwrap();
-        });
+                heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
+                    |(h, (lat, long))| {
+                        *h = match rasters.get(&(lat.floor() as i16, long.floor() as i16)) {
+                            Some(r) => r.interpolate(lat, long, 0).unwrap() as i16,
+                            None => global_dem.interpolate(lat, long, 0) as i16,
+                        }
+                    },
+                );
+            }
 
-        Ok(rx)
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            rayon::spawn(move || {
+                let tile = compress_heightmap_tile(
+                    resolution,
+                    border_size,
+                    2 + crate::generate::TILE_CELL_76M.saturating_sub(node.level()) as i8,
+                    &*heightmap,
+                    parent.as_ref().map(|&(i, ref a)| (i, &***a)),
+                );
+
+                tx.send(mapfile.write_tile(LayerType::Heightmaps, node, &tile, true)).unwrap();
+            });
+            rx.map(|r| Ok(r??)).await
+        }.boxed())
     }
 }
 

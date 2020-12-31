@@ -564,7 +564,7 @@ impl Terrain {
         srtm3_directory: PathBuf,
         mut progress_callback: F,
     ) -> Result<(), Error> {
-        let missing = self.mapfile.get_missing_base(LayerType::Heightmaps)?;
+        let (missing, total_tiles) = self.mapfile.get_missing_base(LayerType::Heightmaps)?;
         if missing.is_empty() {
             return Ok(());
         }
@@ -574,8 +574,8 @@ impl Terrain {
                 self.mapfile.layers()[LayerType::Heightmaps].clone(),
                 32,
             ),
-            dems: RasterCache::new(Box::new(DemSource::Srtm90m(srtm3_directory)), 256),
-            global_dem: crate::terrain::dem::parse_etopo1(etopo1_file, &mut progress_callback)?,
+            dems: RasterCache::new(Arc::new(DemSource::Srtm90m(srtm3_directory)), 256),
+            global_dem: Arc::new(crate::terrain::dem::parse_etopo1(etopo1_file, &mut progress_callback)?),
         };
 
         let total_missing = missing.len();
@@ -595,9 +595,9 @@ impl Terrain {
                 } else {
                     match pending.next().await {
                         Some(result) => {
-                            result??;
+                            result?;
                             tiles_processed += 1;
-                            progress_callback("Generating heightmaps...", tiles_processed, total_missing);
+                            progress_callback("Generating heightmaps...", tiles_processed + (total_tiles - total_missing), total_tiles);
                         }
                         None => break,
                     }
@@ -617,7 +617,7 @@ impl Terrain {
         blue_marble_directory: impl AsRef<Path>,
         mut progress_callback: F,
     ) -> Result<(), Error> {
-        let missing = self.mapfile.get_missing_base(LayerType::Albedo)?;
+        let (missing, total_tiles) = self.mapfile.get_missing_base(LayerType::Albedo)?;
         if missing.is_empty() {
             return Ok(());
         }
@@ -665,14 +665,13 @@ impl Terrain {
         };
 
         let mapfile = &self.mapfile;
-        let progress = &Mutex::new((0, progress_callback));
+        let progress = &Mutex::new((total_tiles - missing.len(), progress_callback));
 
-        let total = missing.len();
         missing.into_par_iter().try_for_each(|n| -> Result<(), Error> {
             {
                 let mut progress = progress.lock().unwrap();
                 let v = progress.0;
-                progress.1("Generating albedo... ", v, total);
+                progress.1("Generating albedo... ", v, total_tiles);
                 progress.0 += 1;
             }
 
@@ -719,7 +718,7 @@ impl Terrain {
         &mut self,
         mut progress_callback: F,
     ) -> Result<(), Error> {
-        let missing = self.mapfile.get_missing_base(LayerType::Roughness)?;
+        let (missing, total_tiles) = self.mapfile.get_missing_base(LayerType::Roughness)?;
         if missing.is_empty() {
             return Ok(());
         }
@@ -728,9 +727,9 @@ impl Terrain {
         assert!(layer.texture_border_size >= 2);
         assert_eq!(layer.texture_resolution % 4, 0);
 
-        let total = missing.len();
+        let total_missing = missing.len();
         for (i, n) in missing.into_iter().enumerate() {
-            progress_callback("Generating roughness... ", i, total);
+            progress_callback("Generating roughness... ", i + (total_tiles - total_missing), total_tiles);
 
             let mut data = Vec::with_capacity(
                 layer.texture_resolution as usize * layer.texture_resolution as usize / 2,
