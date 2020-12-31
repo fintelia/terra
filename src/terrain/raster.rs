@@ -1,11 +1,9 @@
-use crate::cache::{AssetLoadContext, MMappedAsset};
 use crate::coordinates;
 use anyhow::Error;
 use bit_vec::BitVec;
 use crossbeam::channel::{self, Receiver, Sender};
-use futures::{Future, future::BoxFuture};
+use futures::future::BoxFuture;
 use lru_cache::LruCache;
-use memmap::Mmap;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 use std::ops::{Deref, Index};
@@ -14,7 +12,6 @@ use std::{
     sync::{Arc, Weak},
 };
 use futures::FutureExt;
-use vec_map::VecMap;
 
 pub trait Scalar: Copy + 'static {
     fn from_f64(_: f64) -> Self;
@@ -58,26 +55,6 @@ pub struct Raster<T: Into<f64> + Copy, C: Deref<Target = [T]> = Vec<T>> {
     pub longitude_llcorner: f64,
 
     pub values: C,
-}
-
-impl Raster<u8, Mmap> {
-    #[allow(unused)]
-    pub(crate) fn from_mmapped_raster<MR: MMappedAsset<Header = MMappedRasterHeader>>(
-        asset: MR,
-        context: &mut AssetLoadContext,
-    ) -> Result<Self, Error> {
-        let (header, mmap) = asset.load(context)?;
-
-        Ok(Self {
-            width: header.width,
-            height: header.height,
-            bands: header.bands,
-            cell_size: header.cell_size,
-            latitude_llcorner: header.latitude_llcorner,
-            longitude_llcorner: header.longitude_llcorner,
-            values: mmap.make_read_only()?,
-        })
-    }
 }
 
 impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
