@@ -10,9 +10,9 @@ use crate::{
 };
 use cgmath::Vector3;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
+use std::{collections::HashMap, num::NonZeroU32};
 use vec_map::VecMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -151,18 +151,26 @@ pub(crate) struct LayerParams {
 }
 
 struct Entry {
+    /// How imporant this entry is for the current frame.
     priority: Priority,
+    /// The node this entry is for.
     node: VNode,
+    /// bitmask of whether the tile for each layer is valid.
     valid: u32,
+    /// bitmask of whether the tile for each layer was generated.
     generated: u32,
+    /// bitmask of whether the tile for each layer is currently being streamed.
     streaming: u32,
+    /// A CPU copy of the heightmap tile, useful for collision detection and such.
+    heightmap: Option<Arc<Vec<i16>>>,
+    /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
+    generators: VecMap<NonZeroU32>,
 }
 
 pub(crate) struct TileCache {
     size: usize,
     slots: Vec<Entry>,
     reverse: HashMap<VNode, usize>,
-    heightmaps: VecMap<Arc<Vec<i16>>>,
 
     /// Nodes that should be added to the cache.
     missing: Vec<(Priority, VNode)>,
@@ -181,7 +189,6 @@ impl TileCache {
             size,
             slots: Vec::new(),
             reverse: HashMap::new(),
-            heightmaps: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
             layers: mapfile.layers().clone(),
@@ -218,6 +225,8 @@ impl TileCache {
                 valid: 0,
                 generated: 0,
                 streaming: 0,
+                heightmap: None,
+                generators: VecMap::new(),
             });
         }
         if !self.missing.is_empty() {
@@ -248,9 +257,15 @@ impl TileCache {
 
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
-                self.slots[index] =
-                    Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 };
-                self.heightmaps.remove(index);
+                self.slots[index] = Entry {
+                    priority: m.0,
+                    node: m.1,
+                    valid: 0,
+                    generated: 0,
+                    streaming: 0,
+                    heightmap: None,
+                    generators: VecMap::new(),
+                };
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -261,11 +276,16 @@ impl TileCache {
     }
 
     pub(crate) fn refresh_tile_generators(&mut self) {
-        for gen in self.generators.iter_mut() {
+        for (i, gen) in self.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
+                assert!(i < 32);
+                let mask = 1u32 << i;
                 for slot in self.slots.iter_mut() {
-                    // TODO: this might clear more than necessary
-                    slot.valid &= !(gen.outputs(slot.node.level()) & slot.generated);
+                    for (layer, generator_mask) in &slot.generators {
+                        if (generator_mask.get() & mask) != 0 {
+                            slot.valid &= !(1 << layer);
+                        }
+                    }
                 }
             }
         }
@@ -334,16 +354,18 @@ impl TileCache {
 
                 let parent_slot = n.parent().and_then(|(p, _)| self.reverse.get(&p).copied());
 
-                for gen in self.generators.iter_mut() {
-                    let outputs = gen.outputs(n.level());
+                for (generator_index, generator) in self.generators.iter_mut().enumerate() {
+                    let outputs = generator.outputs(n.level());
+
+                    let peer_inputs = generator.peer_inputs(n.level());
+                    let parent_inputs = generator.parent_inputs(n.level());
 
                     let generates_layer = outputs & (1 << i) != 0;
-                    let has_peer_inputs = gen.peer_inputs(n.level()) & !self.slots[slot].valid == 0;
-                    let root_input_missing = n.level() == 0 && gen.parent_inputs(0) != 0;
+                    let has_peer_inputs = peer_inputs & !self.slots[slot].valid == 0;
+                    let root_input_missing = n.level() == 0 && generator.parent_inputs(0) != 0;
                     let parent_input_missing = n.level() > 0
                         && (parent_slot.is_none()
-                            || gen.parent_inputs(n.level())
-                                & !self.slots[*parent_slot.as_ref().unwrap()].valid
+                            || parent_inputs & !self.slots[*parent_slot.as_ref().unwrap()].valid
                                 != 0);
 
                     if generates_layer
@@ -351,8 +373,8 @@ impl TileCache {
                         && !root_input_missing
                         && !parent_input_missing
                     {
-                        let output_mask = !self.slots[slot].valid & gen.outputs(n.level());
-                        gen.generate(
+                        let output_mask = !self.slots[slot].valid & generator.outputs(n.level());
+                        generator.generate(
                             device,
                             encoder,
                             gpu_state,
@@ -365,6 +387,30 @@ impl TileCache {
 
                         self.slots[slot].valid |= output_mask;
                         self.slots[slot].generated |= output_mask;
+
+                        let mut input_generators = 1 << generator_index;
+                        for j in (0..32).filter(|j| peer_inputs & (1 << j) != 0) {
+                            input_generators |= self.slots[slot]
+                                .generators
+                                .get(j)
+                                .copied()
+                                .map(NonZeroU32::get)
+                                .unwrap_or(0);
+                        }
+                        for j in (0..32).filter(|j| parent_inputs & (1 << j) != 0) {
+                            input_generators |= self.slots[*parent_slot.as_ref().unwrap()]
+                                .generators
+                                .get(j)
+                                .copied()
+                                .map(NonZeroU32::get)
+                                .unwrap_or(0);
+                        }
+                        for j in (0..32).filter(|j| output_mask & (1 << j) != 0) {
+                            self.slots[slot]
+                                .generators
+                                .insert(j, NonZeroU32::new(input_generators).unwrap());
+                        }
+
                         break;
                     }
                 }
@@ -409,7 +455,7 @@ impl TileCache {
             match upload {
                 TileResult::Heightmaps(node, heights) => {
                     if let Some(slot) = self.reverse.get(node) {
-                        self.heightmaps.insert(*slot, Arc::clone(&heights));
+                        self.slots[*slot].heightmap = Some(Arc::clone(&heights));
                     }
                     let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
                     height_data = vec![0; heights.len() * 4];
@@ -556,7 +602,7 @@ impl TileCache {
 
         self.reverse
             .get(&node)
-            .and_then(|&slot| self.heightmaps.get(slot))
+            .and_then(|&slot| self.slots[slot].heightmap.as_ref())
             .map(|h| h[x.round() as usize + y.round() as usize * resolution].max(0) as f32)
     }
 }
