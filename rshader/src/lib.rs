@@ -365,8 +365,13 @@ fn reflect(
                     let (ref n, ref t, ref mut s) = e.get_mut();
                     *s = *s | stage;
 
-                    if *n != name || *t != ty {
-                        return Err(anyhow!("descriptor mismatch"));
+                    if *n != name {
+                        return Err(anyhow!("descriptor mismatch {} vs {}",
+                            n.as_ref().unwrap_or(&"<unamed>".to_string()), name.unwrap_or("<unamed>".to_string())));
+                    }
+                    if *t != ty {
+                        return Err(anyhow!("descriptor mismatch for {}: {:?} vs {:?}",
+                            n.as_ref().unwrap_or(&"<unamed>".to_string()), t, ty));
                     }
                 }
             }
