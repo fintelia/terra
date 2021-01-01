@@ -240,7 +240,8 @@ fn main() {
                     long -= PI * 2.0;
                 }
 
-                let r = altitude + planet_radius;
+                let surface_height = terrain.get_height(lat, long) as f64;
+                let r = altitude + planet_radius + surface_height + 2.0;
                 let eye = cgmath::Point3::new(
                     r * lat.cos() * long.cos(),
                     r * lat.cos() * long.sin(),

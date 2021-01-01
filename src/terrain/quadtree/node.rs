@@ -130,6 +130,33 @@ impl VNode {
         self.fspace_to_cspace(fx, fy)
     }
 
+    fn cspace_to_fspace(cspace: Vector3<f64>) -> (u8, f64, f64) {
+        let (face, x, y) = match (cspace.x, cspace.y, cspace.z) {
+            (1.0, a, b) => (0, a, -b),
+            (-1.0, a, b) => (1, -a, -b),
+            (a, 1.0, b) => (2, a, b),
+            (a, -1.0, b) => (3, -a, b),
+            (a, b, 1.0) => (4, a, -b),
+            (a, b, -1.0) => (5, -a, -b),
+            _ => panic!("Coordinate is not on unit cube surface"),
+        };
+
+        let x = x * (1.4511 + (1.0 - 1.4511) * x.abs());
+        let y = y * (1.4511 + (1.0 - 1.4511) * y.abs());
+
+        (face, x, y)
+    }
+
+    pub fn from_cspace(cspace: Vector3<f64>, level: u8) -> (Self, f32, f32) {
+        let (face, x, y) = Self::cspace_to_fspace(cspace);
+
+        let x = (x * 0.5 + 0.5) * (1u32 << level) as f64;
+        let y = (y * 0.5 + 0.5) * (1u32 << level) as f64;
+
+        let node = VNode::new(level, face, x.floor() as u32, y.floor() as u32);
+        (node, x.fract() as f32, y.fract() as f32)
+    }
+
     pub fn center_wspace(&self) -> Vector3<f64> {
         self.cell_position_cspace(0, 0, 0, 1).normalize() * crate::coordinates::PLANET_RADIUS
     }

@@ -17,10 +17,26 @@ struct TileRequest {
 }
 
 #[derive(Debug)]
-pub(crate) struct TileResult {
-    pub node: VNode,
-    pub layer: LayerType,
-    pub data: Vec<u8>,
+pub(crate) enum TileResult {
+    Heightmaps(VNode, Arc<Vec<i16>>),
+    Albedo(VNode, Vec<u8>),
+    Roughness(VNode, Vec<u8>),
+}
+impl TileResult {
+    pub fn layer(&self) -> LayerType {
+        match self {
+            TileResult::Heightmaps(..) => LayerType::Heightmaps,
+            TileResult::Albedo(..) => LayerType::Albedo,
+            TileResult::Roughness(..) => LayerType::Roughness,
+        }
+    }
+    pub fn node(&self) -> VNode {
+        match self {
+            TileResult::Heightmaps(node, ..)
+            | TileResult::Albedo(node, ..)
+            | TileResult::Roughness(node, ..) => *node,
+        }
+    }
 }
 
 pub(crate) struct TileStreamerEndpoint {
@@ -36,7 +52,8 @@ impl TileStreamerEndpoint {
 
         let rt = Runtime::new()?;
         let join_handle = Some(thread::spawn(move || {
-            rt.block_on(TileStreamer {
+            rt.block_on(
+                TileStreamer {
                     requests,
                     results,
                     heightmap_tiles: HeightmapCache::new(
@@ -45,7 +62,7 @@ impl TileStreamerEndpoint {
                     ),
                     mapfile,
                 }
-                .run()
+                .run(),
             )
         }));
 
@@ -54,7 +71,7 @@ impl TileStreamerEndpoint {
 
     pub(crate) fn request_tile(&mut self, node: VNode, layer: LayerType) {
         if let Err(_) = self.sender.send(TileRequest { node, layer }) {
-            // The worker thread has panicked (we still have the sender open, so that cannot be why 
+            // The worker thread has panicked (we still have the sender open, so that cannot be why
             // it exited). Join it to see what the panic message was.
             self.join_handle.take().unwrap().join().unwrap().expect("TileStreamer panicked");
             unreachable!("TileStreamer exited without panicking");
@@ -97,15 +114,7 @@ impl TileStreamer {
                             let fut = heightmap_tiles.get_tile(mapfile, request.node);
 
                             pending.push(async move {
-                                let heights: Vec<_> = fut
-                                    .await
-                                    .unwrap()
-                                    .iter()
-                                    .map(|&i| i as f32)
-                                    .collect();
-                                let mut data = vec![0; heights.len() * 4];
-                                data.copy_from_slice(bytemuck::cast_slice(&heights));
-                                Ok(TileResult { node: request.node, layer: request.layer, data })
+                                Ok(TileResult::Heightmaps(request.node, fut.await?))
                             }.boxed());
                         }
                         LayerType::Albedo => pending.push(async move {
@@ -113,13 +122,13 @@ impl TileStreamer {
                             let data = tokio::task::spawn_blocking(move || {
                                 Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data)?.to_rgba8().to_vec())
                             }).await??;
-                            Ok::<TileResult, Error>(TileResult { node: request.node, layer: request.layer, data })
+                            Ok::<TileResult, Error>(TileResult::Albedo(request.node, data))
                         }.boxed()),
                         LayerType::Roughness => pending.push(async move {
                             let mut data = Vec::new();
                             let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             lz4::Decoder::new(Cursor::new(&raw_data))?.read_to_end(&mut data)?;
-                            Ok::<TileResult, Error>(TileResult { node: request.node, layer: request.layer, data })
+                            Ok::<TileResult, Error>(TileResult::Roughness(request.node, data))
                         }.boxed()),
                         LayerType::Normals | LayerType::Displacements => unreachable!(),
                     }

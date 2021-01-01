@@ -486,4 +486,13 @@ impl Terrain {
 
         queue.submit(Some(encoder.finish()));
     }
+
+    pub fn get_height(&self, latitude: f64, longitude: f64) -> f32 {
+        for level in (0..=crate::generate::TILE_CELL_38M).rev() {
+            if let Some(height) = self.tile_cache.get_height(latitude, longitude, level) {
+                return height;
+            }
+        }
+        0.0
+    }
 }

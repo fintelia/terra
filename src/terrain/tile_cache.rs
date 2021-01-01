@@ -1,5 +1,8 @@
-use crate::stream::TileStreamerEndpoint;
 use crate::terrain::quadtree::VNode;
+use crate::{
+    coordinates,
+    stream::{TileResult, TileStreamerEndpoint},
+};
 use crate::{
     generate::GenerateTile,
     gpu_state::GpuState,
@@ -159,6 +162,7 @@ pub(crate) struct TileCache {
     size: usize,
     slots: Vec<Entry>,
     reverse: HashMap<VNode, usize>,
+    heightmaps: VecMap<Arc<Vec<i16>>>,
 
     /// Nodes that should be added to the cache.
     missing: Vec<(Priority, VNode)>,
@@ -177,6 +181,7 @@ impl TileCache {
             size,
             slots: Vec::new(),
             reverse: HashMap::new(),
+            heightmaps: VecMap::new(),
             missing: Vec::new(),
             min_priority: Priority::none(),
             layers: mapfile.layers().clone(),
@@ -245,6 +250,7 @@ impl TileCache {
                 self.reverse.insert(m.1, index);
                 self.slots[index] =
                     Entry { priority: m.0, node: m.1, valid: 0, generated: 0, streaming: 0 };
+                self.heightmaps.remove(index);
                 index += 1;
                 if index == self.slots.len() {
                     break;
@@ -292,8 +298,7 @@ impl TileCache {
                         entry.generated |= ty.bit_mask();
                         pending_generate.push(entry.node);
                     }
-                    TileState::MissingBase |
-                    TileState::Base => {
+                    TileState::MissingBase | TileState::Base => {
                         if self.streamer.num_inflight() < 128 {
                             entry.streaming |= ty.bit_mask();
                             entry.generated &= !ty.bit_mask();
@@ -376,8 +381,8 @@ impl TileCache {
         let mut buffer_size = 0;
         let mut pending_uploads = Vec::new();
         while let Some(tile) = self.streamer.try_complete() {
-            let resolution_blocks = self.resolution_blocks(tile.layer) as usize;
-            let bytes_per_block = self.layers[tile.layer].texture_format.bytes_per_block();
+            let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
+            let bytes_per_block = self.layers[tile.layer()].texture_format.bytes_per_block();
             let row_bytes = resolution_blocks * bytes_per_block;
             let row_pitch = (row_bytes + 255) & !255;
             buffer_size += row_pitch * resolution_blocks;
@@ -394,14 +399,29 @@ impl TileCache {
 
         let mut i = 0;
         for upload in &pending_uploads {
-            let resolution_blocks = self.resolution_blocks(upload.layer) as usize;
-            let bytes_per_block = self.layers[upload.layer].texture_format.bytes_per_block();
+            let resolution_blocks = self.resolution_blocks(upload.layer()) as usize;
+            let bytes_per_block = self.layers[upload.layer()].texture_format.bytes_per_block();
             let row_bytes = resolution_blocks * bytes_per_block;
             let row_pitch = (row_bytes + 255) & !255;
 
+            let data;
+            let mut height_data;
+            match upload {
+                TileResult::Heightmaps(node, heights) => {
+                    if let Some(slot) = self.reverse.get(node) {
+                        self.heightmaps.insert(*slot, Arc::clone(&heights));
+                    }
+                    let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
+                    height_data = vec![0; heights.len() * 4];
+                    height_data.copy_from_slice(bytemuck::cast_slice(&heights));
+                    data = &height_data;
+                }
+                TileResult::Albedo(_, ref d) | TileResult::Roughness(_, ref d) => data = &*d,
+            }
+
             for row in 0..resolution_blocks {
                 buffer_view[i..][..row_bytes]
-                    .copy_from_slice(&upload.data[row * row_bytes..][..row_bytes]);
+                    .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
                 i += row_pitch;
             }
         }
@@ -411,12 +431,12 @@ impl TileCache {
 
         let mut offset = 0;
         for tile in pending_uploads.drain(..) {
-            let resolution = self.resolution(tile.layer) as usize;
-            let resolution_blocks = self.resolution_blocks(tile.layer) as usize;
-            let bytes_per_block = self.layers[tile.layer].texture_format.bytes_per_block();
+            let resolution = self.resolution(tile.layer()) as usize;
+            let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
+            let bytes_per_block = self.layers[tile.layer()].texture_format.bytes_per_block();
             let row_bytes = resolution_blocks * bytes_per_block;
             let row_pitch = (row_bytes + 255) & !255;
-            if let Some(&slot) = self.reverse.get(&tile.node) {
+            if let Some(&slot) = self.reverse.get(&tile.node()) {
                 encoder.copy_buffer_to_texture(
                     wgpu::BufferCopyView {
                         buffer: &buffer,
@@ -427,7 +447,7 @@ impl TileCache {
                         },
                     },
                     wgpu::TextureCopyView {
-                        texture: &textures[tile.layer],
+                        texture: &textures[tile.layer()],
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                     },
@@ -437,8 +457,8 @@ impl TileCache {
                         depth: 1,
                     },
                 );
-                self.slots[slot].valid |= tile.layer.bit_mask();
-                self.slots[slot].streaming &= !tile.layer.bit_mask();
+                self.slots[slot].valid |= tile.layer().bit_mask();
+                self.slots[slot].streaming &= !tile.layer().bit_mask();
             }
             offset += (row_pitch * resolution_blocks) as u64
         }
@@ -520,4 +540,23 @@ impl TileCache {
     // pub fn utilization(&self) -> usize {
     //     self.slots.iter().filter(|s| s.priority >= Priority::cutoff() && s.valid != 0).count()
     // }
+
+    pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {
+        let ecef = coordinates::polar_to_ecef(Vector3::new(latitude, longitude, 0.0));
+        let cspace = ecef / ecef.x.abs().max(ecef.y.abs()).max(ecef.z.abs());
+
+        let (node, x, y) = VNode::from_cspace(cspace, level);
+
+        let border = self.layers[LayerType::Heightmaps].texture_border_size as usize;
+        let resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
+        let x = (x * (resolution - 2 * border - 1) as f32) + border as f32;
+        let y = (y * (resolution - 2 * border - 1) as f32) + border as f32;
+
+        // TODO: bilinear interpolate height.
+
+        self.reverse
+            .get(&node)
+            .and_then(|&slot| self.heightmaps.get(slot))
+            .map(|h| h[x.round() as usize + y.round() as usize * resolution].max(0) as f32)
+    }
 }
