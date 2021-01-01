@@ -140,6 +140,9 @@ impl QuadTree {
                 }
 
                 mask < 15
+            } else if node_visibilities[&node] {
+                self.visible_nodes.push(node);
+                false
             } else {
                 false
             }
