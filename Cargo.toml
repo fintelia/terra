@@ -61,7 +61,7 @@ thiserror = "1.0.22"
 tiff = "=0.5.0"
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "c0418b1b8ae22e86fd0e7a7eb486e04dcb0bd6f5" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "3d605463bb1c7c4d4f468ac166916855c4fda6cc" }
 winit = "0.24.0"
 zip = "0.5.9"
 
