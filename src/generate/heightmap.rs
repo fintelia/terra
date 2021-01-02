@@ -1,4 +1,4 @@
-use crate::{coordinates, terrain::raster::Raster};
+use crate::coordinates;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
@@ -6,10 +6,10 @@ use crate::terrain::tile_cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
 use crossbeam::channel::{self, Receiver, Sender};
-use futures::{Future, TryFutureExt, future::{self, BoxFuture, FutureExt}, stream::FuturesUnordered};
+use futures::{Future, future::{self, BoxFuture, FutureExt}};
 use lru_cache::LruCache;
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Weak};

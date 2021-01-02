@@ -132,12 +132,12 @@ impl VNode {
 
     fn cspace_to_fspace(cspace: Vector3<f64>) -> (u8, f64, f64) {
         let (face, x, y) = match (cspace.x, cspace.y, cspace.z) {
-            (1.0, a, b) => (0, a, -b),
-            (-1.0, a, b) => (1, -a, -b),
-            (a, 1.0, b) => (2, a, b),
-            (a, -1.0, b) => (3, -a, b),
-            (a, b, 1.0) => (4, a, -b),
-            (a, b, -1.0) => (5, -a, -b),
+            (unit, a, b) if unit == 1.0 => (0, a, -b),
+            (unit, a, b) if unit == -1.0 => (1, -a, -b),
+            (a, unit, b) if unit == 1.0 => (2, a, b),
+            (a, unit, b) if unit == -1.0 => (3, -a, b),
+            (a, b, unit) if unit == 1.0 => (4, a, -b),
+            (a, b, unit) if unit == -1.0 => (5, -a, -b),
             _ => panic!("Coordinate is not on unit cube surface"),
         };
 
