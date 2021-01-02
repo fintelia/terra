@@ -385,6 +385,7 @@ impl Terrain {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         self.tile_cache.refresh_tile_generators();
+        self.tile_cache.download_tiles();
         self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
         self.tile_cache.generate_tiles(&self.mapfile, device, &mut encoder, &self.gpu_state);
 

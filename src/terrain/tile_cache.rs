@@ -9,6 +9,10 @@ use crate::{
     mapfile::{MapFile, TileState},
 };
 use cgmath::Vector3;
+use futures::stream::futures_unordered::FuturesUnordered;
+use futures::StreamExt;
+use futures::{future::BoxFuture, select};
+use futures::{future::FutureExt, TryFutureExt};
 use serde::{Deserialize, Serialize};
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
@@ -91,7 +95,7 @@ impl Ord for Priority {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Displacements = 0,
     Albedo = 1,
@@ -150,6 +154,11 @@ pub(crate) struct LayerParams {
     pub tiles_generated_per_frame: usize,
 }
 
+enum CpuHeightmap {
+    I16(Arc<Vec<i16>>),
+    F32(Arc<Vec<f32>>),
+}
+
 struct Entry {
     /// How imporant this entry is for the current frame.
     priority: Priority,
@@ -162,7 +171,7 @@ struct Entry {
     /// bitmask of whether the tile for each layer is currently being streamed.
     streaming: u32,
     /// A CPU copy of the heightmap tile, useful for collision detection and such.
-    heightmap: Option<Arc<Vec<i16>>>,
+    heightmap: Option<CpuHeightmap>,
     /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
     generators: VecMap<NonZeroU32>,
 }
@@ -182,6 +191,10 @@ pub(crate) struct TileCache {
 
     streamer: TileStreamerEndpoint,
     generators: Vec<Box<dyn GenerateTile>>,
+
+    planned_heightmap_downloads: Vec<(VNode, wgpu::Buffer)>,
+    pending_heightmap_downloads:
+        FuturesUnordered<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
 }
 impl TileCache {
     pub fn new(mapfile: Arc<MapFile>, generators: Vec<Box<dyn GenerateTile>>, size: usize) -> Self {
@@ -194,6 +207,8 @@ impl TileCache {
             layers: mapfile.layers().clone(),
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             generators,
+            planned_heightmap_downloads: Vec::new(),
+            pending_heightmap_downloads: FuturesUnordered::new(),
         }
     }
 
@@ -411,6 +426,47 @@ impl TileCache {
                                 .insert(j, NonZeroU32::new(input_generators).unwrap());
                         }
 
+                        if output_mask & LayerType::Heightmaps.bit_mask() != 0
+                            && n.level() <= crate::generate::TILE_CELL_1M
+                        {
+                            let bytes_per_pixel =
+                                self.layers[LayerType::Heightmaps].texture_format.bytes_per_block()
+                                    as u64;
+                            let resolution =
+                                self.layers[LayerType::Heightmaps].texture_resolution as u64;
+                            let row_bytes = resolution * bytes_per_pixel;
+                            let row_pitch = (row_bytes + 255) & !255;
+
+                            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                                size: row_pitch * resolution,
+                                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                                label: None,
+                                mapped_at_creation: false,
+                            });
+                            encoder.copy_texture_to_buffer(
+                                wgpu::TextureCopyView {
+                                    texture: &gpu_state.tile_cache[LayerType::Heightmaps],
+                                    mip_level: 0,
+                                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
+                                },
+                                wgpu::BufferCopyView {
+                                    buffer: &buffer,
+                                    layout: wgpu::TextureDataLayout {
+                                        offset: 0,
+                                        bytes_per_row: row_pitch as u32,
+                                        rows_per_image: 0,
+                                    },
+                                },
+                                wgpu::Extent3d {
+                                    width: resolution as u32,
+                                    height: resolution as u32,
+                                    depth: 1,
+                                },
+                            );
+
+                            self.planned_heightmap_downloads.push((*n, buffer));
+                        }
+
                         break;
                     }
                 }
@@ -455,7 +511,7 @@ impl TileCache {
             match upload {
                 TileResult::Heightmaps(node, heights) => {
                     if let Some(slot) = self.reverse.get(node) {
-                        self.slots[*slot].heightmap = Some(Arc::clone(&heights));
+                        self.slots[*slot].heightmap = Some(CpuHeightmap::I16(Arc::clone(&heights)));
                     }
                     let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
                     height_data = vec![0; heights.len() * 4];
@@ -510,10 +566,75 @@ impl TileCache {
         }
     }
 
+    pub(crate) fn download_tiles(&mut self) {
+        for (n, buffer) in self.planned_heightmap_downloads.drain(..) {
+            self.pending_heightmap_downloads.push(
+                buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read)
+                    .then(move |result| {
+                        futures::future::ready(match result {
+                            Ok(()) => Ok((n, buffer)),
+                            Err(_) => Err(()),
+                        })
+                    })
+                    .boxed(),
+            );
+        }
+
+        loop {
+            futures::select! {
+                h = self.pending_heightmap_downloads.select_next_some() => {
+                    if let Ok((node, buffer)) = h {
+                        if let Some(slot) = self.reverse.get(&node) {
+                            let bytes_per_pixel =
+                            self.layers[LayerType::Heightmaps].texture_format.bytes_per_block()
+                                as usize;
+                            let resolution =
+                                self.layers[LayerType::Heightmaps].texture_resolution as usize;
+                            let row_bytes = resolution * bytes_per_pixel;
+                            let row_pitch = (row_bytes + 255) & !255;
+                            let mut heights = vec![0.0; resolution * resolution];
+
+                            let t = std::time::Instant::now();
+                            {
+                                let mapped_buffer = buffer.slice(..).get_mapped_range();
+                                for (h, b) in heights.chunks_exact_mut(resolution).zip(mapped_buffer.chunks_exact(row_pitch)) {
+                                    bytemuck::cast_slice_mut(h).copy_from_slice(&b[..row_bytes]);
+                                }
+                            }
+                            println!("{:.1}ms {}KB", t.elapsed().as_secs_f32() * 1000.0, heights.len() >> 8);
+
+                            buffer.unmap();
+
+                            self.slots[*slot].heightmap = Some(CpuHeightmap::F32(Arc::new(heights)));
+                        }
+                    }
+                }
+                default => break,
+                complete => break,
+            }
+        }
+    }
+
     pub fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
         self.layers
             .iter()
             .map(|(ty, layer)| {
+                let usage = match layer.texture_format {
+                    TextureFormat::BC4 | TextureFormat::BC5 => {
+                        wgpu::TextureUsage::COPY_SRC
+                            | wgpu::TextureUsage::COPY_DST
+                            | wgpu::TextureUsage::SAMPLED
+                    }
+                    _ => {
+                        wgpu::TextureUsage::COPY_SRC
+                            | wgpu::TextureUsage::COPY_DST
+                            | wgpu::TextureUsage::SAMPLED
+                            | wgpu::TextureUsage::STORAGE
+                    }
+                };
+
                 (
                     ty,
                     device.create_texture(&wgpu::TextureDescriptor {
@@ -526,10 +647,7 @@ impl TileCache {
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
-                        usage: wgpu::TextureUsage::COPY_SRC
-                            | wgpu::TextureUsage::COPY_DST
-                            | wgpu::TextureUsage::SAMPLED
-                            | wgpu::TextureUsage::STORAGE,
+                        usage,
                         label: None,
                     }),
                 )
@@ -597,12 +715,14 @@ impl TileCache {
         let resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
         let x = (x * (resolution - 2 * border - 1) as f32) + border as f32;
         let y = (y * (resolution - 2 * border - 1) as f32) + border as f32;
+        let index = x.round() as usize + y.round() as usize * resolution;
 
         // TODO: bilinear interpolate height.
-
-        self.reverse
-            .get(&node)
-            .and_then(|&slot| self.slots[slot].heightmap.as_ref())
-            .map(|h| h[x.round() as usize + y.round() as usize * resolution].max(0) as f32)
+        self.reverse.get(&node).and_then(|&slot| self.slots[slot].heightmap.as_ref()).map(|h| {
+            match h {
+                CpuHeightmap::I16(h) => h[index].max(0) as f32,
+                CpuHeightmap::F32(h) => h[index].max(0.0),
+            }
+        })
     }
 }
