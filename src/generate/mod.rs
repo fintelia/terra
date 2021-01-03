@@ -30,62 +30,6 @@ pub(crate) use gpu::*;
 pub(crate) const EARTH_RADIUS: f64 = 6371000.0;
 pub(crate) const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
-// Mapping from side length to level number.
-#[allow(unused)]
-mod levels {
-    pub const LEVEL_10000_KM: i32 = 0;
-    pub const LEVEL_5000_KM: i32 = 1;
-    pub const LEVEL_2500_KM: i32 = 2;
-    pub const LEVEL_1250_KM: i32 = 3;
-    pub const LEVEL_625_KM: i32 = 4;
-    pub const LEVEL_300_KM: i32 = 5;
-    pub const LEVEL_150_KM: i32 = 6;
-    pub const LEVEL_75_KM: i32 = 7;
-    pub const LEVEL_40_KM: i32 = 8;
-    pub const LEVEL_20_KM: i32 = 9;
-    pub const LEVEL_10_KM: i32 = 10;
-    pub const LEVEL_5_KM: i32 = 11;
-    pub const LEVEL_2_KM: i32 = 12;
-    pub const LEVEL_1_KM: i32 = 13;
-    pub const LEVEL_600_M: i32 = 14;
-    pub const LEVEL_305_M: i32 = 15;
-    pub const LEVEL_153_M: i32 = 16;
-    pub const LEVEL_76_M: i32 = 17;
-    pub const LEVEL_38_M: i32 = 18;
-    pub const LEVEL_19_M: i32 = 19;
-    pub const LEVEL_10_M: i32 = 20;
-    pub const LEVEL_5_M: i32 = 21;
-    pub const LEVEL_2_M: i32 = 22;
-    pub const LEVEL_1_M: i32 = 23;
-    pub const LEVEL_60_CM: i32 = 24;
-    pub const LEVEL_30_CM: i32 = 25;
-    pub const LEVEL_15_CM: i32 = 26;
-
-    pub const TILE_CELL_20_KM: u8 = 0;
-    pub const TILE_CELL_10_KM: u8 = 1;
-    pub const TILE_CELL_5_KM: u8 = 2;
-    pub const TILE_CELL_2_KM: u8 = 3;
-    pub const TILE_CELL_1_KM: u8 = 4;
-    pub const TILE_CELL_625M: u8 = 5;
-    pub const TILE_CELL_305M: u8 = 6;
-    pub const TILE_CELL_153M: u8 = 7;
-    pub const TILE_CELL_76M: u8 = 8;
-    pub const TILE_CELL_38M: u8 = 9;
-    pub const TILE_CELL_19M: u8 = 10;
-    pub const TILE_CELL_10M: u8 = 11;
-    pub const TILE_CELL_5M: u8 = 12;
-    pub const TILE_CELL_2M: u8 = 13;
-    pub const TILE_CELL_1M: u8 = 14;
-    pub const TILE_CELL_60CM: u8 = 15;
-    pub const TILE_CELL_30CM: u8 = 16;
-    pub const TILE_CELL_15CM: u8 = 17;
-    pub const TILE_CELL_7CM: u8 = 18;
-    pub const TILE_CELL_4CM: u8 = 19;
-    pub const TILE_CELL_2CM: u8 = 20;
-    pub const TILE_CELL_1CM: u8 = 21;
-}
-pub(crate) use levels::*;
-
 pub const BLUE_MARBLE_URLS: [&str; 8] = [
     "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x21600.A1.png",
     "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x21600.A2.png",
@@ -516,11 +460,11 @@ impl MapFileBuilder {
         let mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < TILE_CELL_153M
+            n.level() < VNode::LEVEL_CELL_153M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
-            n.level() < TILE_CELL_625M
+            n.level() < VNode::LEVEL_CELL_625M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Roughness, n, true).unwrap();

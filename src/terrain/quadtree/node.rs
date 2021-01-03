@@ -16,12 +16,39 @@ lazy_static! {
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
 pub(crate) struct VNode(u64);
 
+#[allow(unused)]
+impl VNode {
+    pub const LEVEL_CELL_20KM: u8 = 0;
+    pub const LEVEL_CELL_10KM: u8 = 1;
+    pub const LEVEL_CELL_5KM: u8 = 2;
+    pub const LEVEL_CELL_2KM: u8 = 3;
+    pub const LEVEL_CELL_1KM: u8 = 4;
+    pub const LEVEL_CELL_625M: u8 = 5;
+    pub const LEVEL_CELL_305M: u8 = 6;
+    pub const LEVEL_CELL_153M: u8 = 7;
+    pub const LEVEL_CELL_76M: u8 = 8;
+    pub const LEVEL_CELL_38M: u8 = 9;
+    pub const LEVEL_CELL_19M: u8 = 10;
+    pub const LEVEL_CELL_10M: u8 = 11;
+    pub const LEVEL_CELL_5M: u8 = 12;
+    pub const LEVEL_CELL_2M: u8 = 13;
+    pub const LEVEL_CELL_1M: u8 = 14;
+    pub const LEVEL_CELL_60CM: u8 = 15;
+    pub const LEVEL_CELL_30CM: u8 = 16;
+    pub const LEVEL_CELL_15CM: u8 = 17;
+    pub const LEVEL_CELL_7CM: u8 = 18;
+    pub const LEVEL_CELL_4CM: u8 = 19;
+    pub const LEVEL_CELL_2CM: u8 = 20;
+    pub const LEVEL_CELL_1CM: u8 = 21;
+    pub const LEVEL_CELL_5MM: u8 = 22;
+}
+
 impl VNode {
     fn new(level: u8, face: u8, x: u32, y: u32) -> Self {
         debug_assert!(face < 6);
-        debug_assert!(level < 26);
-        debug_assert!(x <= 0x3ffffff);
-        debug_assert!(y <= 0x3ffffff);
+        debug_assert!(level <= VNode::LEVEL_CELL_5MM);
+        debug_assert!(x <= 0x3ffffff && x < (1 << level));
+        debug_assert!(y <= 0x3ffffff && y < (1 << level));
         Self((level as u64) << 56 | (face as u64) << 53 | (y as u64) << 26 | (x as u64))
     }
     pub fn roots() -> [Self; 6] {

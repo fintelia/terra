@@ -88,7 +88,7 @@ impl QuadTree {
 
             tile_cache.add_missing((priority, node));
 
-            if node.level() >= crate::generate::TILE_CELL_2CM {
+            if node.level() >= VNode::LEVEL_CELL_2CM {
                 return false;
             }
 
@@ -108,7 +108,7 @@ impl QuadTree {
         VNode::breadth_first(|node| {
             let visible = node.level() == 0 || node.priority(camera) >= Priority::cutoff();
             node_visibilities.insert(node, visible);
-            visible && node.level() < crate::generate::TILE_CELL_2CM
+            visible && node.level() < VNode::LEVEL_CELL_2CM
         });
         // let min_missing_level = node_visibilities
         //     .iter()
@@ -125,7 +125,7 @@ impl QuadTree {
 
         // ...Except if all its children are visible instead.
         VNode::breadth_first(|node| {
-            if node.level() < crate::generate::TILE_CELL_2CM && node_visibilities[&node] {
+            if node.level() < VNode::LEVEL_CELL_2CM && node_visibilities[&node] {
                 let mut mask = 0;
                 for (i, c) in node.children().iter().enumerate() {
                     if !node_visibilities[c] {

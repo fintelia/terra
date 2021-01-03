@@ -420,7 +420,7 @@ impl HeightmapGen {
                 let tile = compress_heightmap_tile(
                     resolution,
                     border_size,
-                    2 + crate::generate::TILE_CELL_76M.saturating_sub(node.level()) as i8,
+                    2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
                     &*heightmap,
                     parent.as_ref().map(|&(i, ref a)| (i, &***a)),
                 );
