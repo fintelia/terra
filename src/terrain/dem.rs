@@ -117,7 +117,6 @@ impl RasterSource for DemSource {
         match self {
             DemSource::Srtm90m(_) => {
                 let filename = self.filename(latitude, longitude);
-                println!("{:?}", filename);
                 let data = tokio::fs::read(filename).await?;
                 let mut uncompressed = Vec::new();
                 snap::read::FrameDecoder::new(Cursor::new(data))

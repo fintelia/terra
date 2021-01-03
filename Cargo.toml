@@ -45,7 +45,6 @@ memmap = "0.7.0"
 mint = "0.5.6"
 num = "0.3.1"
 open-location-code = "0.1.0"
-pbr = { git = "https://github.com/fintelia/pb", rev = "7740234295184f84b4fbcd55c8c3fd5528b474ad" }
 petgraph = "0.5.1"
 rand = "0.8.0"
 rand_distr = "0.4.0"

@@ -487,7 +487,7 @@ impl MapFileBuilder {
     /// mode...).
     pub(crate) async fn build(mut self) -> Result<MapFile, Error> {
         let mut context = AssetLoadContextBuf::new();
-        let mut context = context.context("", 0);
+        let mut context = context.context("Building Terrain...", 1);
         // generate_heightmaps(&mut mapfile, &mut context).await?;
         // generate_albedo(&mut mapfile, &mut context)?;
         // generate_roughness(&mut mapfile, &mut context)?;

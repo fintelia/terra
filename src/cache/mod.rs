@@ -1,79 +1,82 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Cursor, Read, Stdout, Write};
-use std::ops::Drop;
-use std::path::PathBuf;
-use std::thread;
-use std::time::{Duration, Instant};
-
 use anyhow::Error;
 use bincode;
 use dirs;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use memmap::MmapMut;
 use num::ToPrimitive;
-use pbr::{MultiBar, Pipe, ProgressBar, Units};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::{fs::{self, File, OpenOptions}, sync::Arc};
+use std::io::{BufWriter, Cursor, Read, Write};
+use std::ops::Drop;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 lazy_static! {
     pub(crate) static ref TERRA_DIRECTORY: PathBuf =
         dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra");
+
+    static ref PROGRESS_BAR_STYLE: ProgressStyle = ProgressStyle::default_bar()
+        .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+        .progress_chars("=> ");
+
+    static ref PROGRESS_BAR_STYLE_BYTES: ProgressStyle = ProgressStyle::default_bar()
+        .template("{msg} {bytes}/{total_bytes} [{wide_bar}] {percent}% {per_sec} {eta}")
+        .progress_chars("=> ");
 }
 
 pub(crate) struct AssetLoadContextBuf {
-    bars: Vec<ProgressBar<Pipe>>,
+    bars: Arc<MultiProgress>,
 }
 impl AssetLoadContextBuf {
     pub fn new() -> Self {
-        let mut mb = MultiBar::<Stdout>::new();
-        let mut bars = Vec::new();
-        for _ in 0..8 {
-            let mut b = mb.create_bar(100);
-            b.is_visible = false;
-            b.format("[=> ]");
-            b.show_time_left = false;
-            b.show_speed = false;
-            b.tick();
-            bars.push(b);
-        }
-
-        thread::spawn(move || {
-            mb.listen();
-        });
-
-        Self { bars }
+        Self { bars: Arc::new(MultiProgress::new()) }
     }
     pub fn context<N: ToPrimitive>(&mut self, message: &str, total: N) -> AssetLoadContext {
-        self.bars[0].message(message);
-        self.bars[0].total = total.to_u64().unwrap();
-        self.bars[0].set(0);
-        self.bars[0].set_units(Units::Default);
-        self.bars[0].is_visible = true;
-        AssetLoadContext { bars: &mut self.bars[..] }
+        let bar = ProgressBar::new(total.to_u64().unwrap());
+        let bar = self.bars.add(bar);
+        bar.set_style(PROGRESS_BAR_STYLE.clone());
+        bar.set_message(message);
+
+        let multibar = Arc::clone(&self.bars);
+        std::thread::spawn(move || multibar.join_and_clear());
+
+        AssetLoadContext { inner: self, bar }
     }
 }
 
 pub(crate) struct AssetLoadContext<'a> {
-    bars: &'a mut [ProgressBar<Pipe>],
+    inner: &'a mut AssetLoadContextBuf,
+    bar: ProgressBar,
 }
 impl<'a> AssetLoadContext<'a> {
     pub fn set_progress<N: ToPrimitive>(&mut self, value: N) {
-        self.bars[0].set(value.to_u64().unwrap());
+        self.bar.set_position(value.to_u64().unwrap());
     }
 
     pub fn set_progress_and_total<N: ToPrimitive, M: ToPrimitive>(&mut self, value: N, total: M) {
-        self.bars[0].total = total.to_u64().unwrap();
-        self.bars[0].set(value.to_u64().unwrap());
+        self.bar.set_position(value.to_u64().unwrap());
+        self.bar.set_length(total.to_u64().unwrap());
     }
 
     pub fn reset<N: ToPrimitive>(&mut self, message: &str, total: N) {
-        self.bytes_display_enabled(false);
-        self.bars[0].total = total.to_u64().unwrap();
-        self.bars[0].message(message);
-        self.bars[0].set(0);
+        let new_bar = ProgressBar::new(total.to_u64().unwrap());
+        let new_bar = self.inner.bars.add(new_bar);
+
+        self.bar.finish_and_clear();
+
+        self.bar = new_bar;
+        self.bar.set_style(PROGRESS_BAR_STYLE.clone());
+        self.bar.set_message(message);
     }
 
     pub fn bytes_display_enabled(&mut self, enabled: bool) {
-        self.bars[0].set_units(if enabled { Units::Bytes } else { Units::Default });
+        if enabled {
+            self.bar.set_style(PROGRESS_BAR_STYLE.clone());
+        } else {
+            self.bar.set_style(PROGRESS_BAR_STYLE_BYTES.clone());
+        }
+        self.bar.tick();
     }
 
     pub fn increment_level<'b, N: ToPrimitive>(
@@ -84,17 +87,17 @@ impl<'a> AssetLoadContext<'a> {
     where
         'a: 'b,
     {
-        self.bars[1].total = total.to_u64().unwrap();
-        self.bars[1].message(message);
-        self.bars[1].set(0);
-        self.bars[1].set_units(Units::Default);
-        self.bars[1].is_visible = true;
-        AssetLoadContext { bars: &mut self.bars[1..] }
+        let bar = ProgressBar::new(total.to_u64().unwrap());
+        let bar = self.inner.bars.add(bar);
+        bar.set_style(PROGRESS_BAR_STYLE.clone());
+        bar.set_message(message);
+
+        AssetLoadContext { inner: self.inner, bar }
     }
 }
 impl<'a> Drop for AssetLoadContext<'a> {
     fn drop(&mut self) {
-        self.bars[0].is_visible = false;
+        self.bar.finish_and_clear();
     }
 }
 
