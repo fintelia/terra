@@ -180,12 +180,12 @@ vec3 debug_overlay(vec3 color) {
 	// 	s += 0.05;
 	// }
 
-	// if(face == 0) color = mix(color, vec3(1,0,0), s);
-	// if(face == 1) color = mix(color, vec3(0,1,0), s);
-	// if(face == 2) color = mix(color, vec3(0,0,1), s);
-	// if(face == 3) color = mix(color, vec3(1,1,0), s);
-	// if(face == 4) color = mix(color, vec3(1,1,1), s);
-	// if(face == 5) color = mix(color, vec3(0,0,0), s);
+	// if(node.face == 0) color = mix(color, vec3(1,0,0), 0.1);
+	// if(node.face == 1) color = mix(color, vec3(0,1,0), 0.1);
+	// if(node.face == 2) color = mix(color, vec3(0,0,1), 0.1);
+	// if(node.face == 3) color = mix(color, vec3(1,1,0), 0.1);
+	// if(node.face == 4) color = mix(color, vec3(1,1,1), 0.1);
+	// if(node.face == 5) color = mix(color, vec3(0,0,0), 0.1);
 
 	// if (node.displacements.origin.x < 0.25 || true) {
 	// 	if(node.level == 10)color = mix(color, vec3(1,0,0), .3);
