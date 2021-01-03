@@ -166,16 +166,24 @@ struct Entry {
     /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
     generators: VecMap<NonZeroU32>,
 }
+impl Entry {
+    fn new(node: VNode, priority: Priority) -> Self {
+        Self {
+            node, 
+            priority,
+            valid: 0,
+            generated: 0,
+            streaming: 0,
+            heightmap: None,
+            generators: VecMap::new(),
+        }
+    }
+}
 
 pub(crate) struct TileCache {
     size: usize,
     slots: Vec<Entry>,
     reverse: HashMap<VNode, usize>,
-
-    /// Nodes that should be added to the cache.
-    missing: Vec<(Priority, VNode)>,
-    /// Smallest priority among all nodes in the cache.
-    min_priority: Priority,
 
     /// Resolution of each tile in this cache.
     layers: VecMap<LayerParams>,
@@ -189,64 +197,70 @@ impl TileCache {
             size,
             slots: Vec::new(),
             reverse: HashMap::new(),
-            missing: Vec::new(),
-            min_priority: Priority::none(),
             layers: mapfile.layers().clone(),
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             generators,
         }
     }
 
-    pub fn update_priorities(&mut self, camera: Vector3<f64>) {
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        mapfile: &MapFile,
+        camera: mint::Point3<f64>,
+    ) {
+        let camera = Vector3::new(camera.x, camera.y, camera.z);
+
+        self.refresh_tile_generators();
+
+        // Update priorities
         for entry in &mut self.slots {
             entry.priority = entry.node.priority(camera);
         }
+        let min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
 
-        self.min_priority = self.slots.iter().map(|s| s.priority).min().unwrap_or(Priority::none());
-    }
+        // Find any tiles that may need to be added.
+        let mut missing = Vec::new();
+        VNode::breadth_first(|node| {
+            let priority = node.priority(camera);
+            if priority < Priority::cutoff() {
+                return false;
+            }
+            if !self.reverse.contains_key(&node)
+                && (priority > min_priority || self.slots.len() < self.size)
+            {
+                missing.push((priority, node));
+            }
 
-    pub fn add_missing(&mut self, element: (Priority, VNode)) {
-        if !self.reverse.contains_key(&element.1)
-            && (element.0 > self.min_priority || self.slots.len() < self.size)
-        {
-            self.missing.push(element);
-        }
-    }
+            node.level() < VNode::LEVEL_CELL_2CM
+        });
 
-    fn process_missing(&mut self) {
-        // Find slots for missing entries.
-        self.missing.sort();
-        while !self.missing.is_empty() && self.slots.len() < self.size {
-            let m = self.missing.pop().unwrap();
+        // Add tiles until all cache entries are full.
+        missing.sort();
+        while !missing.is_empty() && self.slots.len() < self.size {
+            let m = missing.pop().unwrap();
             self.reverse.insert(m.1, self.slots.len());
-            self.slots.push(Entry {
-                priority: m.0,
-                node: m.1,
-                valid: 0,
-                generated: 0,
-                streaming: 0,
-                heightmap: None,
-                generators: VecMap::new(),
-            });
+            self.slots.push(Entry::new(m.1, m.0));
         }
-        if !self.missing.is_empty() {
+
+        // If more tiles meet the threshold, start evicting some existing entries.
+        if !missing.is_empty() {
             let mut possible: Vec<_> = self
                 .slots
                 .iter()
                 .map(|e| e.priority)
-                .chain(self.missing.iter().map(|m| m.0))
+                .chain(missing.iter().map(|m| m.0))
                 .collect();
             possible.sort();
 
             // Anything >= to cutoff should be included.
             let cutoff = possible[possible.len() - self.size];
+            missing.retain(|&(priority, _)| priority < cutoff);
 
             let mut index = 0;
-            'outer: while let Some(m) = self.missing.pop() {
-                if cutoff >= m.0 {
-                    continue;
-                }
-
+            'outer: while let Some(m) = missing.pop() {
                 // Find the next element to evict.
                 while self.slots[index].priority >= cutoff {
                     index += 1;
@@ -257,25 +271,22 @@ impl TileCache {
 
                 self.reverse.remove(&self.slots[index].node);
                 self.reverse.insert(m.1, index);
-                self.slots[index] = Entry {
-                    priority: m.0,
-                    node: m.1,
-                    valid: 0,
-                    generated: 0,
-                    streaming: 0,
-                    heightmap: None,
-                    generators: VecMap::new(),
-                };
+                self.slots[index] = Entry::new(m.1, m.0);
                 index += 1;
                 if index == self.slots.len() {
                     break;
                 }
             }
         }
-        self.missing.clear();
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        self.upload_tiles(device, &mut encoder, &gpu_state.tile_cache);
+        self.generate_tiles(mapfile, device, &mut encoder, &gpu_state);
+        queue.submit(Some(encoder.finish()));
     }
 
-    pub(crate) fn refresh_tile_generators(&mut self) {
+    fn refresh_tile_generators(&mut self) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
                 assert!(i < 32);
@@ -291,15 +302,13 @@ impl TileCache {
         }
     }
 
-    pub(crate) fn generate_tiles(
+    fn generate_tiles(
         &mut self,
         mapfile: &MapFile,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
     ) {
-        self.process_missing();
-
         let mut pending_generate = VecMap::new();
 
         for layer in self.layers.values() {
@@ -418,7 +427,7 @@ impl TileCache {
         }
     }
 
-    pub(crate) fn upload_tiles(
+    fn upload_tiles(
         &mut self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,

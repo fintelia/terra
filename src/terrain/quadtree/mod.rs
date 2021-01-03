@@ -75,27 +75,6 @@ impl QuadTree {
         buffer
     }
 
-    pub fn update_cache(&mut self, tile_cache: &mut TileCache, camera: mint::Point3<f64>) {
-        let camera = Vector3::new(camera.x, camera.y, camera.z);
-
-        tile_cache.update_priorities(camera);
-
-        VNode::breadth_first(|node| {
-            let priority = node.priority(camera);
-            if priority < Priority::cutoff() {
-                return false;
-            }
-
-            tile_cache.add_missing((priority, node));
-
-            if node.level() >= VNode::LEVEL_CELL_2CM {
-                return false;
-            }
-
-            true
-        });
-    }
-
     pub fn update_visibility(&mut self, tile_cache: &TileCache, camera: mint::Point3<f64>) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 

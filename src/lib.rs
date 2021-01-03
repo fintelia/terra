@@ -203,24 +203,15 @@ impl Terrain {
     pub fn poll_loading_status(
         &mut self,
         device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
+        queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
-        if self.loading_complete() {
-            return true;
+        if !self.loading_complete() {
+            self.tile_cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
+            self.loading_complete()
+        } else {
+            true
         }
-
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        self.quadtree.update_cache(&mut self.tile_cache, camera);
-        self.tile_cache.refresh_tile_generators();
-        self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
-        self.tile_cache.generate_tiles(&self.mapfile, device, &mut encoder, &self.gpu_state);
-
-        queue.submit(Some(encoder.finish()));
-
-        self.loading_complete()
     }
 
     /// Render the terrain.
@@ -238,7 +229,6 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
-        self.quadtree.update_cache(&mut self.tile_cache, camera);
         if self.shader.refresh() {
             self.bindgroup_pipeline = None;
         }
@@ -381,17 +371,15 @@ impl Terrain {
             ));
         }
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-        self.tile_cache.refresh_tile_generators();
-        self.tile_cache.upload_tiles(device, &mut encoder, &self.gpu_state.tile_cache);
-        self.tile_cache.generate_tiles(&self.mapfile, device, &mut encoder, &self.gpu_state);
-
-        // Block until root tiles have been downloaded and streamed to the GPU.
+        // Update the tile cache and then block until root tiles have been downloaded and streamed
+        // to the GPU.
+        self.tile_cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         self.quadtree.update_visibility(&self.tile_cache, camera);
         self.quadtree.prepare_vertex_buffer(
