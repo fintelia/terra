@@ -351,6 +351,7 @@ pub(crate) fn generators(
                     in_slot: parent_slot.unwrap() as i32,
                     out_slot: slot as i32,
                     level_resolution: level_resolution as i32,
+                    face: node.face() as u32,
                 }
             },
         ),

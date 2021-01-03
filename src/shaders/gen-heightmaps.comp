@@ -9,6 +9,7 @@ layout(binding = 0) uniform UniformBlock {
 	int in_slot;
 	int out_slot;
 	int level_resolution;
+	uint face;
 } ubo;
 
 layout(r32f, binding = 1) uniform image2DArray heightmaps;
@@ -63,11 +64,26 @@ void main() {
 	// float dxy = dot(ddx * M, ddy) / (ubo.spacing*ubo.spacing);
 	float slope = length(vec2(dx, dy));
 
+
+	// Calculate position
+	ivec3 position;
+	ivec2 position2 = ivec2(gl_GlobalInvocationID.xy)+ubo.position;
+	if (ubo.face == 0) position = ivec3( ubo.level_resolution/2,   position2.x,             -position2.y);
+	if (ubo.face == 1) position = ivec3(-ubo.level_resolution/2,  -position2.x,             -position2.y);
+	if (ubo.face == 2) position = ivec3( position2.x,              ubo.level_resolution/2,   position2.y);
+	if (ubo.face == 3) position = ivec3(-position2.x,             -ubo.level_resolution/2,   position2.y);
+	if (ubo.face == 4) position = ivec3( position2.x,             -position2.y,              ubo.level_resolution/2);
+	if (ubo.face == 5) position = ivec3(-position2.x,             -position2.y,             -ubo.level_resolution/2);
+
+	// If we are on the edge of a tile, then make sure our slope matches what is on the other side
+	// of the seam (by setting both to zero).
+	if (any(greaterThanEqual(abs(position2), ivec2(ubo.level_resolution/2)))) {
+		slope = 0;
+	}
+
 	// Apply noise
-	uvec2 position = (gl_GlobalInvocationID.xy+ubo.position)%ubo.level_resolution;
-	float n = pow(random(uvec2(position)), 2);
+	float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
 	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
-	// height += 100 * sin(length(position.xy)/500);
 
 	// Write output
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));
