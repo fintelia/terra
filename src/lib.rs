@@ -13,6 +13,7 @@ mod coordinates;
 mod generate;
 mod gpu_state;
 mod mapfile;
+mod priority_cache;
 mod sky;
 mod srgb;
 mod stream;

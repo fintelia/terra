@@ -1,4 +1,5 @@
-use crate::terrain::tile_cache::{Priority, TileCache};
+use crate::terrain::tile_cache::TileCache;
+use crate::priority_cache::Priority;
 use cgmath::*;
 use std::collections::HashMap;
 use std::convert::TryInto;
