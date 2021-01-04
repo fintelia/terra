@@ -69,6 +69,7 @@ approx = "0.4.0"
 
 [features]
 trace = ["wgpu/trace"]
+small-trace = ["trace"]
 
 [profile]
 [profile.dev]

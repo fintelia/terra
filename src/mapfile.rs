@@ -156,7 +156,7 @@ impl MapFile {
                 | wgpu::TextureUsage::COPY_DST
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE,
-            label: None,
+            label: Some(name),
         });
 
         let (width, height) = (desc.width as usize, (desc.height * desc.depth) as usize);
@@ -168,7 +168,9 @@ impl MapFile {
         let row_bytes = width * desc.format.bytes_per_block();
         let row_pitch = (row_bytes + 255) & !255;
 
-        let data = if desc.format == TextureFormat::RGBA8 {
+        let data = if cfg!(feature = "small-trace") {
+            vec![0; row_bytes * height]
+        } else if desc.format == TextureFormat::RGBA8 {
             image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba8().into_vec()
         } else {
             fs::read(TERRA_DIRECTORY.join(format!("{}.raw", name)))?

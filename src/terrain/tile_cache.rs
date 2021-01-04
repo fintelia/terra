@@ -418,19 +418,24 @@ impl TileCache {
             let row_bytes = resolution_blocks * bytes_per_block;
             let row_pitch = (row_bytes + 255) & !255;
 
-            let data;
+            let (data, zeroes);
             let mut height_data;
-            match upload {
-                TileResult::Heightmaps(node, heights) => {
-                    if let Some(entry) = self.inner.entry_mut(node) {
-                        entry.heightmap = Some(Arc::clone(&heights));
+            if cfg!(feature = "small-trace") {
+                zeroes = vec![0; row_bytes * resolution_blocks];
+                data = &zeroes;
+            } else {
+                match upload {
+                    TileResult::Heightmaps(node, heights) => {
+                        if let Some(entry) = self.inner.entry_mut(node) {
+                            entry.heightmap = Some(Arc::clone(&heights));
+                        }
+                        let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
+                        height_data = vec![0; heights.len() * 4];
+                        height_data.copy_from_slice(bytemuck::cast_slice(&heights));
+                        data = &height_data;
                     }
-                    let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
-                    height_data = vec![0; heights.len() * 4];
-                    height_data.copy_from_slice(bytemuck::cast_slice(&heights));
-                    data = &height_data;
+                    TileResult::Albedo(_, ref d) | TileResult::Roughness(_, ref d) => data = &*d,
                 }
-                TileResult::Albedo(_, ref d) | TileResult::Roughness(_, ref d) => data = &*d,
             }
 
             for row in 0..resolution_blocks {
