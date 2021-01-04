@@ -67,6 +67,9 @@ zip = "0.5.9"
 [dev-dependencies]
 approx = "0.4.0"
 
+[features]
+trace = ["wgpu/trace"]
+
 [profile]
 [profile.dev]
 opt-level = 1

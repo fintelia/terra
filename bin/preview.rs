@@ -68,6 +68,13 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
+    let trace_path: Option<&std::path::Path> = if cfg!(feature = "trace") {
+        std::fs::create_dir_all("trace").unwrap();
+        Some(std::path::Path::new("trace"))
+    } else {
+        None
+    };
+
     let event_loop = EventLoop::new();
     let monitor = event_loop.available_monitors()
         .find(|monitor| monitor.video_modes().any(|mode| mode.size().width == 1920));
@@ -92,7 +99,7 @@ fn main() {
                 limits: wgpu::Limits::default(),
                 label: None,
             },
-            None,
+            trace_path,
         ))
         .expect("Unable to create compatible wgpu device");
 
