@@ -14,9 +14,9 @@ use crate::{
 use cgmath::Vector3;
 use priority_cache::PriorityCache;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 use std::ops::{Index, IndexMut};
 use std::sync::Arc;
-use std::num::NonZeroU32;
 use vec_map::VecMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -70,6 +70,18 @@ impl TextureFormat {
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
             | TextureFormat::SRGBA => 1,
+        }
+    }
+    pub fn is_compressed(&self) -> bool {
+        match *self {
+            TextureFormat::BC4 | TextureFormat::BC5 => true,
+            TextureFormat::R8
+            | TextureFormat::RG8
+            | TextureFormat::RGBA8
+            | TextureFormat::R32F
+            | TextureFormat::RG32F
+            | TextureFormat::RGBA32F
+            | TextureFormat::SRGBA => false,
         }
     }
 }
@@ -329,11 +341,8 @@ impl TileCache {
                         && !parent_input_missing
                     {
                         let slot = self.inner.index_of(&n).unwrap();
-                        let parent_slot = if let Some(p) = n.parent() {
-                            self.inner.index_of(&p.0)
-                        } else {
-                            None
-                        };
+                        let parent_slot =
+                            if let Some(p) = n.parent() { self.inner.index_of(&p.0) } else { None };
 
                         let output_mask = !entry.valid & generator.outputs(n.level());
                         generator.generate(
@@ -490,7 +499,11 @@ impl TileCache {
                         usage: wgpu::TextureUsage::COPY_SRC
                             | wgpu::TextureUsage::COPY_DST
                             | wgpu::TextureUsage::SAMPLED
-                            | wgpu::TextureUsage::STORAGE,
+                            | if !layer.texture_format.is_compressed() {
+                                wgpu::TextureUsage::STORAGE
+                            } else {
+                                wgpu::TextureUsage::empty()
+                            },
                         label: None,
                     }),
                 )
