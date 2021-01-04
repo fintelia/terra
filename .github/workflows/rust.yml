@@ -21,6 +21,6 @@ jobs:
     - name: Install nightly Rust
       run: rustup toolchain add nightly
     - name: Build
-      run: cargo +nightly build --verbose
+      run: cargo +stable check --verbose
     - name: Run tests
       run: cargo +nightly test --verbose
