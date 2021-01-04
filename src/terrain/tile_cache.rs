@@ -229,7 +229,7 @@ impl TileCache {
             if priority < Priority::cutoff() {
                 return false;
             }
-            if !self.inner.contains(&node) && (priority > min_priority || self.inner.is_full()) {
+            if !self.inner.contains(&node) && (priority > min_priority || !self.inner.is_full()) {
                 missing.push(Entry::new(node, priority));
             }
 
