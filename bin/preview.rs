@@ -63,8 +63,148 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
         .create_view(&Default::default())
 }
 
+fn screenshot() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+
+    let instance = wgpu::Instance::new(wgpu::BackendBit::VULKAN | wgpu::BackendBit::DX12);
+    let adapter = runtime
+        .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+        }))
+        .expect("Unable to create compatible wgpu adapter");
+    let (device, mut queue) = runtime
+        .block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                features: wgpu::Features::TEXTURE_COMPRESSION_BC,
+                limits: wgpu::Limits::default(),
+                label: None,
+            },
+            None,
+        ))
+        .expect("Unable to create compatible wgpu device");
+
+    let frame = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d { width: 1920, height: 1080, depth: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Bgra8UnormSrgb,
+        usage: wgpu::TextureUsage::COPY_SRC | wgpu::TextureUsage::RENDER_ATTACHMENT,
+    });
+
+    let opt = Opt::from_args();
+    let plus_center =
+        open_location_code::decode(&opt.plus).expect("Failed to parse plus code").center;
+
+    let mut depth_buffer = make_depth_buffer(&device, 1920, 1080);
+    let mut proj = compute_projection_matrix(1920.0, 1080.0);
+
+    let planet_radius = 6371000.0;
+    let mut angle = opt.heading.to_radians();
+    let mut lat = plus_center.y().to_radians();
+    let mut long = plus_center.x().to_radians();
+    let mut altitude = opt.elevation;
+    
+    let mut terrain = terra::Terrain::new(&device, &mut queue).unwrap();
+
+    {
+        let r = altitude + planet_radius;
+        let eye = cgmath::Point3::new(
+            r * lat.cos() * long.cos(),
+            r * lat.cos() * long.sin(),
+            r * lat.sin(),
+        );
+        while terrain.poll_loading_status(&device, &mut queue, eye.into()) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    let surface_height = terrain.get_height(lat, long) as f64;
+    let r = altitude + planet_radius + surface_height + 2.0;
+    let eye = cgmath::Point3::new(
+        r * lat.cos() * long.cos(),
+        r * lat.cos() * long.sin(),
+        r * lat.sin(),
+    );
+
+    let dt = (planet_radius / (planet_radius + altitude)).acos() * 0.3;
+    let latc = lat + angle.cos() * dt;
+    let longc = long - angle.sin() * dt;
+
+    let center = cgmath::Point3::new(
+        planet_radius * latc.cos() * longc.cos() - eye.x,
+        planet_radius * latc.cos() * longc.sin() - eye.y,
+        planet_radius * latc.sin() - eye.z,
+    );
+    let up = cgmath::Vector3::new(eye.x as f32, eye.y as f32, eye.z as f32);
+
+    let view = cgmath::Matrix4::look_at_rh(
+        cgmath::Point3::origin(),
+        cgmath::Point3::new(center.x as f32, center.y as f32, center.z as f32),
+        up,
+    );
+
+    let view_proj = proj * view;
+    let view_proj = mint::ColumnMatrix4 {
+        x: view_proj.x.into(),
+        y: view_proj.y.into(),
+        z: view_proj.z.into(),
+        w: view_proj.w.into(),
+    };
+
+    terrain.render(
+        &device,
+        &mut queue,
+        &frame.create_view(&Default::default()),
+        &depth_buffer,
+        (1920, 1080),
+        view_proj,
+        eye.into(),
+    );
+
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 2048 * 1080 * 4,
+        usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(wgpu::TextureCopyView {
+        texture: &frame,
+        mip_level: 0,
+        origin: wgpu::Origin3d::ZERO,
+    }, wgpu::BufferCopyView {buffer: &buffer, layout: wgpu::TextureDataLayout {
+        offset: 0,
+        bytes_per_row: 2048 * 4,
+        rows_per_image: 0,
+    } }, wgpu::Extent3d {width: 1920, height: 1080, depth: 1});
+    queue.submit(Some(encoder.finish()));
+    
+    let fut = buffer.slice(..).map_async(wgpu::MapMode::Read);
+    device.poll(wgpu::Maintain::Wait);
+    runtime.block_on(fut);
+
+    let mut img = Vec::new();
+    for row in buffer.slice(..).get_mapped_range().chunks(2048 * 4) {
+        img.extend_from_slice(&row[..1920*4]);
+    }
+    for pixel in img.chunks_mut(4) {
+        let (r, b) = (pixel[2], pixel[0]);
+        pixel[0] = r;
+        pixel[2] = b;
+        pixel[3] = 255;
+    }
+
+    image::save_buffer("capture.png", &img, 1920, 1080, image::ColorType::Rgba8).unwrap();
+}
+
 fn main() {
     // env_logger::init();
+    screenshot();
+    return;
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 

@@ -21,6 +21,12 @@ jobs:
     - name: Install nightly Rust
       run: rustup toolchain add nightly
     - name: Build
-      run: cargo +stable check --verbose
+      run: cargo +stable run --verbose
+    - name: Upload screenshot
+      uses: actions/upload-artifact@v2
+      with:
+        name: screenshots
+        path: |
+          capture.png
     - name: Run tests
       run: cargo +nightly test --verbose
