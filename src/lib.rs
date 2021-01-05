@@ -442,32 +442,12 @@ impl Terrain {
                 }),
                 label: Some("Terrain"),
             });
-
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-
             self.quadtree.render(
                 &mut rpass,
                 &self.index_buffer,
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
-        }
-
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: [wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: color_buffer,
-                    resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: true },
-                }][..]
-                    .into(),
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: depth_buffer,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: true }),
-                    stencil_ops: None,
-                }),
-                label: Some("Atmosphere"),
-            });
-
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
