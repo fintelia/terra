@@ -74,8 +74,7 @@ impl QuadTree {
 
     pub fn prepare_vertex_buffer(
         &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
+        queue: &wgpu::Queue,
         vertex_buffer: &wgpu::Buffer,
         tile_cache: &TileCache,
         camera: mint::Point3<f64>,
@@ -236,27 +235,8 @@ impl QuadTree {
             }
         }
 
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (self.node_states.len() * mem::size_of::<NodeState>()) as u64,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-            mapped_at_creation: true,
-            label: None,
-        });
-        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        let slice = bytemuck::cast_slice_mut(&mut *buffer_view);
-        slice.copy_from_slice(&self.node_states[..]);
-
         assert_eq!(mem::size_of::<NodeState>(), 256);
-
-        drop(buffer_view);
-        buffer.unmap();
-        encoder.copy_buffer_to_buffer(
-            &buffer,
-            0,
-            vertex_buffer,
-            0,
-            (self.node_states.len() * mem::size_of::<NodeState>()) as u64,
-        );
+        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&self.node_states));
     }
 
     pub(crate) fn render<'b, 'c>(

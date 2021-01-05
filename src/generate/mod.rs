@@ -132,7 +132,7 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
                 size: 1024 * 1024 * 4, // TODO
                 usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: false,
-                label: None,
+                label: Some("buffer.blit.bc5"),
             });
             encoder.copy_texture_to_buffer(
                 wgpu::TextureCopyView {

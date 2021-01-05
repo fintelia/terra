@@ -40,11 +40,7 @@ impl QuadTree {
         }
     }
 
-    pub(crate) fn create_index_buffers(
-        &self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> wgpu::Buffer {
+    pub(crate) fn create_index_buffers(&self, device: &wgpu::Device) -> wgpu::Buffer {
         let mut make_index_buffer = |resolution: u16| -> Vec<u16> {
             let mut data = Vec::new();
 
@@ -65,7 +61,7 @@ impl QuadTree {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (2 * (full.len() + half.len())).try_into().unwrap(),
             usage: wgpu::BufferUsage::INDEX,
-            label: None,
+            label: Some("buffer.terrain.index"),
             mapped_at_creation: true,
         });
         let mut buffer_view = buffer.slice(..).get_mapped_range_mut();

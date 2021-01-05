@@ -120,7 +120,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<U>() as u64,
             usage: wgpu::BufferUsage::COPY_SRC,
-            label: None,
+            label: Some("buffer.temporary.upload"),
             mapped_at_creation: true,
         });
         let mut buffer_view = staging.slice(..).get_mapped_range_mut();

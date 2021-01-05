@@ -91,35 +91,21 @@ impl Terrain {
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: std::mem::size_of::<UniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("terrain.uniforms".into()),
+            label: Some("buffer.terrain.uniforms"),
             mapped_at_creation: false,
         });
         let node_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("terrain.vertex_buffer".into()),
+            label: Some("buffer.terrain.vertex"),
             mapped_at_creation: false,
         });
-        let index_buffer = {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("generate_index_buffers".into()),
-            });
-            let r = quadtree.create_index_buffers(device, &mut encoder);
-            queue.submit(Some(encoder.finish()));
-            r
-        };
+        let index_buffer = quadtree.create_index_buffers(device);
 
-        let (noise, sky, transmittance, inscattering);
-        {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("load_textures".into()),
-            });
-            noise = mapfile.read_texture(device, &mut encoder, "noise")?;
-            sky = mapfile.read_texture(device, &mut encoder, "sky")?;
-            transmittance = mapfile.read_texture(device, &mut encoder, "transmittance")?;
-            inscattering = mapfile.read_texture(device, &mut encoder, "inscattering")?;
-            queue.submit(Some(encoder.finish()));
-        }
+        let noise = mapfile.read_texture(device, queue, "noise")?;
+        let sky = mapfile.read_texture(device, queue, "sky")?;
+        let transmittance = mapfile.read_texture(device, queue, "transmittance")?;
+        let inscattering = mapfile.read_texture(device, queue, "inscattering")?;
 
         let bc4_staging = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
@@ -131,7 +117,7 @@ impl Terrain {
                 | wgpu::TextureUsage::COPY_DST
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::SAMPLED,
-            label: None,
+            label: Some("texture.staging.bc4"),
         });
         let bc5_staging = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
@@ -143,7 +129,7 @@ impl Terrain {
                 | wgpu::TextureUsage::COPY_DST
                 | wgpu::TextureUsage::STORAGE
                 | wgpu::TextureUsage::SAMPLED,
-            label: None,
+            label: Some("texture.staging.bc5"),
         });
 
         let gpu_state = GpuState {
@@ -164,7 +150,7 @@ impl Terrain {
         let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: std::mem::size_of::<SkyUniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("sky.uniforms".into()),
+            label: Some("buffer.sky.uniforms"),
             mapped_at_creation: false,
         });
 
@@ -255,7 +241,7 @@ impl Terrain {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
-                    label: Some("terrain.pipeline.layout"),
+                    label: Some("pipeline.terrain.layout"),
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -263,7 +249,7 @@ impl Terrain {
                     layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("terrain.shader.vertex"),
+                            label: Some("shader.terrain.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -271,7 +257,7 @@ impl Terrain {
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("terrain.shader.fragment"),
+                            label: Some("shader.terrain.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -302,7 +288,7 @@ impl Terrain {
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
-                    label: Some("terrain.pipeline"),
+                    label: Some("pipeline.terrain"),
                 }),
             ));
         }
@@ -324,7 +310,7 @@ impl Terrain {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: [&bind_group_layout][..].into(),
                     push_constant_ranges: &[],
-                    label: Some("sky.pipeline.layout"),
+                    label: Some("pipeline.sky.layout"),
                 });
             self.sky_bindgroup_pipeline = Some((
                 bind_group,
@@ -332,7 +318,7 @@ impl Terrain {
                     layout: Some(&render_pipeline_layout),
                     vertex_stage: wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("sky.shader.vertex"),
+                            label: Some("shader.sky.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -340,7 +326,7 @@ impl Terrain {
                     },
                     fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("sky.shader.vertex"),
+                            label: Some("shader.sky.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -367,7 +353,7 @@ impl Terrain {
                     sample_count: 1,
                     sample_mask: !0,
                     alpha_to_coverage_enabled: false,
-                    label: Some("sky.pipeline"),
+                    label: Some("pipeline.sky"),
                 }),
             ));
         }
@@ -379,48 +365,32 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
         self.quadtree.update_visibility(&self.tile_cache, camera);
-        self.quadtree.prepare_vertex_buffer(
-            device,
-            &mut encoder,
-            &mut self.node_buffer,
-            &self.tile_cache,
-            camera,
-        );
+        self.quadtree.prepare_vertex_buffer(queue, &mut self.node_buffer, &self.tile_cache, camera);
 
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: mem::size_of::<UniformBlock>() as u64,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-            label: Some("terrain_uniforms_upload".into()),
-            mapped_at_creation: true,
-        });
-        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        bytemuck::cast_slice_mut(&mut *buffer_view)[0] = UniformBlock {
-            view_proj,
-            camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
-            padding: 0.0,
-        };
-
-        drop(buffer_view);
-        buffer.unmap();
-        encoder.copy_buffer_to_buffer(
-            &buffer,
-            0,
+        queue.write_buffer(
             &self.uniform_buffer,
             0,
-            mem::size_of::<UniformBlock>() as u64,
-        );
-        encoder.copy_buffer_to_buffer(
-            &buffer,
-            0,
-            &self.sky_uniform_buffer,
-            0,
-            mem::size_of::<SkyUniformBlock>() as u64,
+            bytemuck::bytes_of(&UniformBlock {
+                view_proj,
+                camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
+                padding: 0.0,
+            }),
         );
 
+        queue.write_buffer(
+            &self.sky_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&SkyUniformBlock {
+                view_proj,
+                camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
+                padding: 0.0,
+            }),
+        );
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("encoder.render"),
+        });
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
@@ -439,7 +409,7 @@ impl Terrain {
                     }),
                     stencil_ops: None,
                 }),
-                label: Some("Terrain"),
+                label: Some("renderpass"),
             });
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             self.quadtree.render(

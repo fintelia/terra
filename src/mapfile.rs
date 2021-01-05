@@ -139,7 +139,7 @@ impl MapFile {
     pub(crate) fn read_texture(
         &self,
         device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
+        queue: &wgpu::Queue,
         name: &str,
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
@@ -157,7 +157,7 @@ impl MapFile {
                 | wgpu::TextureUsage::COPY_DST
                 | wgpu::TextureUsage::SAMPLED
                 | wgpu::TextureUsage::STORAGE,
-            label: Some(name),
+            label: Some(&format!("texture.{}", name)),
         });
 
         let (width, height) = (desc.width as usize, (desc.height * desc.depth) as usize);
@@ -167,7 +167,6 @@ impl MapFile {
             (width / desc.format.block_size() as usize, height / desc.format.block_size() as usize);
 
         let row_bytes = width * desc.format.bytes_per_block();
-        let row_pitch = (row_bytes + 255) & !255;
 
         let data = if cfg!(feature = "small-trace") {
             vec![0; row_bytes * height]
@@ -177,34 +176,17 @@ impl MapFile {
             fs::read(TERRA_DIRECTORY.join(format!("{}.raw", name)))?
         };
 
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (row_pitch * height) as u64,
-            usage: wgpu::BufferUsage::MAP_WRITE | wgpu::BufferUsage::COPY_SRC,
-            label: None,
-            mapped_at_creation: true,
-        });
-
-        let mut buffer_view = buffer.slice(..).get_mapped_range_mut();
-        for row in 0..height {
-            buffer_view[row * row_pitch..][..row_bytes]
-                .copy_from_slice(&data[row * row_bytes..][..row_bytes]);
-        }
-
-        drop(buffer_view);
-        buffer.unmap();
-        encoder.copy_buffer_to_texture(
-            wgpu::BufferCopyView {
-                buffer: &buffer,
-                layout: wgpu::TextureDataLayout {
-                    offset: 0,
-                    bytes_per_row: row_pitch as u32,
-                    rows_per_image: height as u32 / desc.depth,
-                },
-            },
+        queue.write_texture(
             wgpu::TextureCopyView {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+            },
+            &data,
+            wgpu::TextureDataLayout {
+                offset: 0,
+                bytes_per_row: row_bytes as u32,
+                rows_per_image: height as u32 / desc.depth,
             },
             wgpu::Extent3d {
                 width: width as u32,
