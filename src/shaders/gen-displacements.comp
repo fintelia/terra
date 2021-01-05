@@ -2,9 +2,61 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
+#ifndef SOFT_DOUBLE
+
+#define xdouble double
+#define CONST_1 1.0
+#define CONST_1_4511 1.4511
+#define CONST_1_8044 1.8044
+#define CONST_INV_0_9022 (1.0/0.9022)
+#define CONST_1_4511_SQUARED (1.4511 * 1.4511)
+#define CONST_PLANET_RADIUS 6371000.0
+
+float _xdouble_to_float(xdouble d) { return float(d); }
+xdouble _float_to_xdouble(float f) { return double(f); }
+xdouble _int_to_xdouble(int i) { return double(i); }
+xdouble _sign(xdouble d) { return sign(d); }
+xdouble _sqrt(xdouble d) { return sqrt(d); }
+xdouble _sum(xdouble a, xdouble b) { return a + b; }
+xdouble _sub(xdouble a, xdouble b) { return a - b; }
+xdouble _mul(xdouble a, xdouble b) { return a * b; }
+xdouble _div(xdouble a, xdouble b) { return a / b; }
+xdouble _abs(xdouble d) { return abs(d); }
+xdouble _neg(xdouble d) { return -d; }
+
+#else
+
+#define xdouble fp64
+#define CONST_1 _fp32_to_fp64(1.0)
+#define CONST_1_4511 _fp32_to_fp64(1.4511)
+#define CONST_1_8044 _fp32_to_fp64(1.8044)
+#define CONST_INV_0_9022 _fp32_to_fp64((1.0/0.9022))
+#define CONST_1_4511_SQUARED _fp32_to_fp64((1.4511 * 1.4511))
+#define CONST_PLANET_RADIUS _fp32_to_fp64(6371000.0)
+
+// double _xdouble_to_double(xdouble d) { return uint64BitsToDouble(d.x | (uint64_t(d.y)) << 32); }
+// xdouble _double_to_xdouble(double d) { uint64_t x = doubleBitsToUint64(d); return uvec2(x & 0xffffffff, x>>32); }
+
+float _xdouble_to_float(xdouble d) { return _fp64_to_fp32(d); }
+xdouble _float_to_xdouble(float f) { return _fp32_to_fp64(f); }
+xdouble _int_to_xdouble(int i) { return _int_to_fp64(i); }
+xdouble _sign(xdouble d) { return _fsign64(d); }
+xdouble _sqrt(xdouble d) { return _fsqrt64(d); }
+xdouble _sum(xdouble a, xdouble b) { return _fadd64(a, b); }
+xdouble _sub(xdouble a, xdouble b) { return _fadd64(a, _fneg64(b)); }
+xdouble _mul(xdouble a, xdouble b) { return _fmul64(a, b); }
+xdouble _div(xdouble a, xdouble b) { return _fdiv64(a, b); } // _double_to_xdouble(_xdouble_to_double(a) / _xdouble_to_double(b)); }
+xdouble _abs(xdouble d) { return _fabs64(d); }
+xdouble _neg(xdouble d) { return _fneg64(d); }
+
+#endif
+
+
 layout(binding = 0) uniform UniformBlock {
-    dvec3 node_center;
-    double padding0;
+    xdouble node_center_x;
+    xdouble node_center_y;
+    xdouble node_center_z;
+    xdouble padding0;
     ivec2 origin;
     ivec2 position;
     int stride;
@@ -17,26 +69,67 @@ layout(binding = 0) uniform UniformBlock {
 layout(r32f, binding = 2) uniform image2DArray heightmaps;
 layout(rgba32f, binding = 3) uniform image2DArray displacements;
 
-const double planetRadius = 6371000.0;
-
 void main() {
-    dvec2 facePosition = 2.0 * dvec2(ivec2(gl_GlobalInvocationID.xy) + ubo.position) / double(ubo.level_resolution);
+    float height = imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x;
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
     // http://jcgt.org/published/0007/02/01/paper.pdf
-    facePosition = sign(facePosition) * (1.4511 - sqrt(1.4511 * 1.4511 - 1.8044 * abs(facePosition))) / 0.9022;
 
-    dvec3 cubePosition = dvec3(0);
-    if(ubo.face == 0) cubePosition = dvec3(1.0, facePosition.x, -facePosition.y);
-    else if(ubo.face == 1) cubePosition = dvec3(-1.0, -facePosition.x, -facePosition.y);
-    else if(ubo.face == 2) cubePosition = dvec3(facePosition.x, 1.0, facePosition.y);
-    else if(ubo.face == 3) cubePosition = dvec3(-facePosition.x, -1.0, facePosition.y);
-    else if(ubo.face == 4) cubePosition = dvec3(facePosition.x, -facePosition.y, 1.0);
-    else if(ubo.face == 5) cubePosition = dvec3(-facePosition.x, -facePosition.y, -1.0);
+    xdouble facePosition_x = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.x) + ubo.position.x)),
+                                  _float_to_xdouble(1.0 / ubo.level_resolution));
+    xdouble facePosition_y = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.y) + ubo.position.y)),
+                                  _float_to_xdouble(1.0 / ubo.level_resolution));
 
-    float height = imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x;
-    dvec3 worldPosition = normalize(cubePosition) * (planetRadius + max(height,0));
-    dvec3 relativePosition = worldPosition - ubo.node_center;
+    xdouble warpedPosition_x = _mul(_mul(_sign(facePosition_x),
+                                        _sub(CONST_1_4511,
+                                              _sqrt(_sub(CONST_1_4511_SQUARED,
+                                                           _mul(CONST_1_8044, _abs(facePosition_x)))))),
+                                        CONST_INV_0_9022);
+
+    xdouble warpedPosition_y = _mul(_mul(_sign(facePosition_y),
+                                        _sub(CONST_1_4511,
+                                              _sqrt(_sub(CONST_1_4511_SQUARED,
+                                                           _mul(CONST_1_8044, _abs(facePosition_y)))))),
+                                        CONST_INV_0_9022);
+
+    xdouble warpedPosition_x2 = _mul(warpedPosition_x, warpedPosition_x);
+    xdouble warpedPosition_y2 = _mul(warpedPosition_y, warpedPosition_y);
+
+    xdouble cubePosition_z = _div(_sum(CONST_PLANET_RADIUS, _float_to_xdouble(max(height,0))),
+                                  _sqrt(_sum(warpedPosition_x2, _sum(warpedPosition_y2, CONST_1))));
+    xdouble cubePosition_x = _mul(warpedPosition_x, cubePosition_z);
+    xdouble cubePosition_y = _mul(warpedPosition_y, cubePosition_z);
+
+    xdouble relativePosition_x, relativePosition_y, relativePosition_z;
+    if(ubo.face == 0) {
+        relativePosition_x = _sub((cubePosition_z), ubo.node_center_x);
+        relativePosition_y = _sub((cubePosition_x), ubo.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_y), ubo.node_center_z);
+    } else if(ubo.face == 1) {
+        relativePosition_x = _sub(_neg(cubePosition_z), ubo.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_x), ubo.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_y), ubo.node_center_z);
+    } else if(ubo.face == 2) {
+        relativePosition_x = _sub((cubePosition_x), ubo.node_center_x);
+        relativePosition_y = _sub((cubePosition_z), ubo.node_center_y);
+        relativePosition_z = _sub((cubePosition_y), ubo.node_center_z);
+    } else if(ubo.face == 3) {
+        relativePosition_x = _sub(_neg(cubePosition_x), ubo.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_z), ubo.node_center_y);
+        relativePosition_z = _sub((cubePosition_y), ubo.node_center_z);
+    } else if(ubo.face == 4) {
+        relativePosition_x = _sub((cubePosition_x), ubo.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_y), ubo.node_center_y);
+        relativePosition_z = _sub((cubePosition_z), ubo.node_center_z);
+    } else if(ubo.face == 5) {
+        relativePosition_x = _sub(_neg(cubePosition_x), ubo.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_y), ubo.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_z), ubo.node_center_z);
+    }
+
+    vec3 relativePosition = vec3(_xdouble_to_float(relativePosition_x),
+                                 _xdouble_to_float(relativePosition_y),
+                                 _xdouble_to_float(relativePosition_z));
 
     ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
     imageStore(displacements, pos, vec4(relativePosition, 0.0));

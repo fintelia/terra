@@ -70,6 +70,7 @@ approx = "0.4.0"
 [features]
 trace = ["wgpu/trace"]
 small-trace = ["trace"]
+soft-float64 = []
 
 [profile]
 [profile.dev]

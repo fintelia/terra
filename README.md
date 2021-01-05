@@ -50,7 +50,7 @@ exit, press Escape.
 
 ### System Requirements
 
-* Windows or Linux operating system (Terra cannot run on MacOS because the Metal API lacks support for double precision floating point)
+* Windows or Linux operating system (Terra may work on MacOS with the 'soft-float64' feature enabled, but this hasn't been tested)
 * A fast internet connection
 
 # Data Sources / Credits

@@ -299,11 +299,16 @@ pub(crate) fn generators(
                 }
             },
         ),
-        ShaderGenBuilder::new(rshader::shader_source!(
-            "../shaders",
-            "version",
-            "gen-displacements.comp"
-        ))
+        ShaderGenBuilder::new(if cfg!(feature = "soft-float64") {
+            rshader::shader_source!(
+                "../shaders",
+                "version",
+                "softdouble.glsl",
+                "gen-displacements.comp"
+            )
+        } else {
+            rshader::shader_source!("../shaders", "version", "gen-displacements.comp")
+        })
         .outputs(LayerType::Displacements.bit_mask())
         .root_outputs(LayerType::Displacements.bit_mask())
         .dimensions((displacements_resolution + 7) / 8)
