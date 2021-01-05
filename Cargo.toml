@@ -77,3 +77,7 @@ opt-level = 1
 
 [profile.release]
 debug = true
+
+[replace]
+"https://github.com/gfx-rs/wgpu#wgpu-core:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "c691570c609b816f9429b0a1163aa0767203b14e" }
+"https://github.com/gfx-rs/wgpu#wgpu-types:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "c691570c609b816f9429b0a1163aa0767203b14e" }

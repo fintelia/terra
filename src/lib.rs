@@ -457,7 +457,7 @@ impl Terrain {
     }
 
     pub fn get_height(&self, latitude: f64, longitude: f64) -> f32 {
-        for level in (0..=VNode::LEVEL_CELL_38M).rev() {
+        for level in (0..=VNode::LEVEL_CELL_1M).rev() {
             if let Some(height) = self.tile_cache.get_height(latitude, longitude, level) {
                 return height;
             }
