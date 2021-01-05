@@ -1,0 +1,42 @@
+#line 2
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+struct Indirect {
+    uint vertex_count;
+    uint instance_count;
+    uint base_vertex;
+    uint base_instance;
+};
+struct Entry {
+    vec3 position;
+    float weight;
+};
+
+layout(set = 0, binding = 0) uniform sampler linear;
+layout(set = 0, binding = 1) uniform texture2DArray displacements;
+
+
+layout(binding = 2) uniform UniformBlock {
+	uint input_slot;
+    uint output_slot;
+} ubo;
+layout(std430, binding = 3) buffer StorageDataBlock {
+    Entry entries[][64*64];
+} grass_storage;
+coherent layout(std430, binding = 4) buffer IndirectBlock {
+    Indirect indirect[];
+} grass_indirect;
+
+void main() {
+    uint entry = atomicAdd(grass_indirect.indirect[ubo.output_slot].vertex_count, 6) / 6;
+    if (gl_GlobalInvocationID.xy == ivec2(0)) {
+       grass_indirect.indirect[ubo.output_slot].instance_count = 1;
+    }
+
+    vec2 texcoord = (vec2(gl_GlobalInvocationID.xy) + 0.5) / 65.0;
+    vec3 position = texture(sampler2DArray(displacements, linear), vec3(texcoord, ubo.input_slot)).xyz;
+
+    grass_storage.entries[ubo.output_slot][entry].position = position;
+    grass_storage.entries[ubo.output_slot][entry].weight = 0;
+}

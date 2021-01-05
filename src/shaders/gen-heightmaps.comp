@@ -83,7 +83,7 @@ void main() {
 
 	// Apply noise
 	float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
-	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
+	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope))*0;
 
 	// Write output
 	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));

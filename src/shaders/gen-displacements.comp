@@ -66,8 +66,8 @@ layout(binding = 0) uniform UniformBlock {
     uint level_resolution;
 } ubo;
 
-layout(r32f, binding = 2) uniform image2DArray heightmaps;
-layout(rgba32f, binding = 3) uniform image2DArray displacements;
+layout(r32f, set = 0, binding = 1) uniform image2DArray heightmaps;
+layout(rgba32f, set = 0, binding = 2) uniform image2DArray displacements;
 
 void main() {
     float height = imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x;
