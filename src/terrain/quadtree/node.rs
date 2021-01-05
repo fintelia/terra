@@ -20,11 +20,11 @@ pub(crate) struct VNode(u64);
 impl VNode {
     // The cell sizes assume each face is covered by a texture with resolution 512x512.
 
-    pub const LEVEL_CELL_20KM: u8 = 0;  //  512 x  512 x 6   =  1.5 MB
-    pub const LEVEL_CELL_10KM: u8 = 1;  // 1024 x 1024 x 6   =    6 MB
-    pub const LEVEL_CELL_5KM: u8 = 2;   // 2048 x 2048 x 6   =   24 MB
-    pub const LEVEL_CELL_2KM: u8 = 3;   // 4096 x 4096 x 6   =   96 MB
-    pub const LEVEL_CELL_1KM: u8 = 4;   // 8192 x 8192 x 6   =  384 MB
+    pub const LEVEL_CELL_20KM: u8 = 0; //  512 x  512 x 6   =  1.5 MB
+    pub const LEVEL_CELL_10KM: u8 = 1; // 1024 x 1024 x 6   =    6 MB
+    pub const LEVEL_CELL_5KM: u8 = 2; // 2048 x 2048 x 6   =   24 MB
+    pub const LEVEL_CELL_2KM: u8 = 3; // 4096 x 4096 x 6   =   96 MB
+    pub const LEVEL_CELL_1KM: u8 = 4; // 8192 x 8192 x 6   =  384 MB
     pub const LEVEL_CELL_625M: u8 = 5;
     pub const LEVEL_CELL_305M: u8 = 6;
     pub const LEVEL_CELL_153M: u8 = 7;
@@ -40,9 +40,9 @@ impl VNode {
     pub const LEVEL_CELL_15CM: u8 = 17;
     pub const LEVEL_CELL_7CM: u8 = 18;
     pub const LEVEL_CELL_4CM: u8 = 19;
-    pub const LEVEL_CELL_2CM: u8 = 20;  // 2^58 cells/face
-    pub const LEVEL_CELL_1CM: u8 = 21;  // 2^60 cells/face
-    pub const LEVEL_CELL_5MM: u8 = 22;  // 2^62 cells/face
+    pub const LEVEL_CELL_2CM: u8 = 20; // 2^58 cells/face
+    pub const LEVEL_CELL_1CM: u8 = 21; // 2^60 cells/face
+    pub const LEVEL_CELL_5MM: u8 = 22; // 2^62 cells/face
 }
 
 impl VNode {

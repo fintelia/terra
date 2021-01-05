@@ -76,7 +76,8 @@ fn main() {
     };
 
     let event_loop = EventLoop::new();
-    let monitor = event_loop.available_monitors()
+    let monitor = event_loop
+        .available_monitors()
         .find(|monitor| monitor.video_modes().any(|mode| mode.size().width == 1920));
     let window = winit::window::WindowBuilder::new()
         .with_visible(false)
@@ -128,11 +129,13 @@ fn main() {
 
     if let Some(dataset_directory) = opt.generate {
         let pb = indicatif::ProgressBar::new(100);
-        pb.set_style(indicatif::ProgressStyle::default_bar()
-            .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
-            .progress_chars("=> "));
+        pb.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+                .progress_chars("=> "),
+        );
         let mut last_message = None;
-        let mut progress_callback = |l: &str, i: usize, total: usize|{
+        let mut progress_callback = |l: &str, i: usize, total: usize| {
             if last_message.is_none() || l != last_message.as_ref().unwrap() {
                 pb.set_message(l);
                 pb.reset_eta();
@@ -142,11 +145,19 @@ fn main() {
             pb.set_position(i as u64);
         };
 
-        runtime.block_on(terrain.generate_heightmaps(
-            dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-            dataset_directory.join("strm3"), 
-            &mut progress_callback)).unwrap();
-        runtime.block_on(terrain.generate_albedos(dataset_directory.join("bluemarble"), &mut progress_callback)).unwrap();
+        runtime
+            .block_on(terrain.generate_heightmaps(
+                dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
+                dataset_directory.join("strm3"),
+                &mut progress_callback,
+            ))
+            .unwrap();
+        runtime
+            .block_on(
+                terrain
+                    .generate_albedos(dataset_directory.join("bluemarble"), &mut progress_callback),
+            )
+            .unwrap();
         runtime.block_on(terrain.generate_roughness(&mut progress_callback)).unwrap();
     }
 

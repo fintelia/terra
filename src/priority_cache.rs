@@ -39,11 +39,7 @@ pub struct PriorityCache<T: PriorityCacheEntry> {
 }
 impl<T: PriorityCacheEntry> PriorityCache<T> {
     pub fn new(size: usize) -> Self {
-        Self {
-            size,
-            slots: Vec::new(),
-            reverse: HashMap::new(),
-        }   
+        Self { size, slots: Vec::new(), reverse: HashMap::new() }
     }
     pub fn insert(&mut self, mut entries: Vec<T>) {
         entries.sort_by_key(T::priority);

@@ -1,4 +1,3 @@
-use crate::{mapfile::{MapFile, TextureDescriptor}, terrain::raster::GlobalRaster};
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::VNode;
@@ -9,16 +8,24 @@ use crate::{
     gpu_state::GpuState,
 };
 use crate::{coordinates, Terrain};
+use crate::{
+    mapfile::{MapFile, TextureDescriptor},
+    terrain::raster::GlobalRaster,
+};
 use anyhow::Error;
 use bytemuck::Pod;
 use cgmath::Vector2;
 use futures::StreamExt;
-use image::{ColorType, ImageDecoder, png::PngDecoder};
+use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::{io::{Read, Write}, path::Path, sync::{Arc, Mutex}};
 use std::{f64::consts::PI, fs::File, path::PathBuf};
+use std::{
+    io::{Read, Write},
+    path::Path,
+    sync::{Arc, Mutex},
+};
 use vec_map::VecMap;
 
 mod gpu;
@@ -504,7 +511,6 @@ impl MapFileBuilder {
 }
 
 impl Terrain {
-
     /// Generate heightmap tiles.
     ///
     /// `etopo1_file` is the location of [ETOPO1_Ice_c_geotiff.zip](https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO1/data/ice_surface/cell_registered/georeferenced_tiff/ETOPO1_Ice_c_geotiff.zip).
@@ -525,7 +531,10 @@ impl Terrain {
                 32,
             ),
             dems: RasterCache::new(Arc::new(DemSource::Srtm90m(srtm3_directory)), 256),
-            global_dem: Arc::new(crate::terrain::dem::parse_etopo1(etopo1_file, &mut progress_callback)?),
+            global_dem: Arc::new(crate::terrain::dem::parse_etopo1(
+                etopo1_file,
+                &mut progress_callback,
+            )?),
         };
 
         let total_missing = missing.len();
@@ -541,13 +550,23 @@ impl Terrain {
 
             loop {
                 if pending.len() < 16 && missing.peek().is_some() {
-                    pending.push(gen.generate_heightmaps(Arc::clone(&self.mapfile), *missing.next().unwrap()).await?);
+                    pending.push(
+                        gen.generate_heightmaps(
+                            Arc::clone(&self.mapfile),
+                            *missing.next().unwrap(),
+                        )
+                        .await?,
+                    );
                 } else {
                     match pending.next().await {
                         Some(result) => {
                             result?;
                             tiles_processed += 1;
-                            progress_callback("Generating heightmaps...", tiles_processed + (total_tiles - total_missing), total_tiles);
+                            progress_callback(
+                                "Generating heightmaps...",
+                                tiles_processed + (total_tiles - total_missing),
+                                total_tiles,
+                            );
                         }
                         None => break,
                     }
@@ -587,11 +606,12 @@ impl Terrain {
         let mut decoders = Vec::new();
         for x in 0..4 {
             for y in 0..2 {
-                let decoder = PngDecoder::new(File::open(blue_marble_directory.as_ref().join(format!(
-                    "world.200406.3x21600x21600.{}{}.png",
-                    "ABCD".chars().nth(x).unwrap(),
-                    "12".chars().nth(y).unwrap()
-                )))?)?;
+                let decoder =
+                    PngDecoder::new(File::open(blue_marble_directory.as_ref().join(format!(
+                        "world.200406.3x21600x21600.{}{}.png",
+                        "ABCD".chars().nth(x).unwrap(),
+                        "12".chars().nth(y).unwrap()
+                    )))?)?;
                 assert_eq!(decoder.dimensions(), (bm_dimensions as u32, bm_dimensions as u32));
                 assert_eq!(decoder.color_type(), ColorType::Rgb8);
                 decoders.push(decoder.into_reader()?);
@@ -607,12 +627,8 @@ impl Terrain {
             decoders.par_iter_mut().zip(chunk).try_for_each(|(d, s)| d.read_exact(s))?;
         }
 
-        let bluemarble = GlobalRaster {
-            width: bm_dimensions * 4,
-            height: bm_dimensions * 2,
-            bands: 3,
-            values,
-        };
+        let bluemarble =
+            GlobalRaster { width: bm_dimensions * 4, height: bm_dimensions * 2, bands: 3, values };
 
         let mapfile = &self.mapfile;
         let progress = &Mutex::new((total_tiles - missing.len(), progress_callback));
@@ -679,7 +695,11 @@ impl Terrain {
 
         let total_missing = missing.len();
         for (i, n) in missing.into_iter().enumerate() {
-            progress_callback("Generating roughness... ", i + (total_tiles - total_missing), total_tiles);
+            progress_callback(
+                "Generating roughness... ",
+                i + (total_tiles - total_missing),
+                total_tiles,
+            );
 
             let mut data = Vec::with_capacity(
                 layer.texture_resolution as usize * layer.texture_resolution as usize / 2,

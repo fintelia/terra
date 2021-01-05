@@ -12,11 +12,11 @@ use crate::{
     terrain::quadtree::VNode,
 };
 use cgmath::Vector3;
-use priority_cache::PriorityCache;
-use futures::stream::futures_unordered::FuturesUnordered;
-use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
+use futures::stream::futures_unordered::FuturesUnordered;
+use futures::StreamExt;
+use priority_cache::PriorityCache;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::ops::{Index, IndexMut};
@@ -253,7 +253,8 @@ impl TileCache {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         self.upload_tiles(device, &mut encoder, &gpu_state.tile_cache);
-        let planned_heightmap_downloads = self.generate_tiles(mapfile, device, &mut encoder, &gpu_state);
+        let planned_heightmap_downloads =
+            self.generate_tiles(mapfile, device, &mut encoder, &gpu_state);
         queue.submit(Some(encoder.finish()));
         self.download_tiles(planned_heightmap_downloads);
     }
@@ -543,7 +544,10 @@ impl TileCache {
         }
     }
 
-    pub(crate) fn download_tiles(&mut self, mut planned_heightmap_downloads: Vec<(VNode, wgpu::Buffer)>) {
+    pub(crate) fn download_tiles(
+        &mut self,
+        mut planned_heightmap_downloads: Vec<(VNode, wgpu::Buffer)>,
+    ) {
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
             self.pending_heightmap_downloads.push(
                 buffer
@@ -665,14 +669,15 @@ impl TileCache {
         let i01 = x.floor() as usize + y.ceil() as usize * resolution;
         let i11 = x.ceil() as usize + y.ceil() as usize * resolution;
 
-        self.inner
-            .entry(&node)
-            .and_then(|entry| Some(entry.heightmap.as_ref()?))
-            .map(|h| {
-                match h {
-                    CpuHeightmap::I16(h) => (h[i00] as f32 * w00 + h[i10] as f32 * w10 + h[i01] as f32 * w01 + h[i11] as f32 * w11).max(0.0),
-                    CpuHeightmap::F32(h) => (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0),
-                }    
-            })
+        self.inner.entry(&node).and_then(|entry| Some(entry.heightmap.as_ref()?)).map(|h| match h {
+            CpuHeightmap::I16(h) => (h[i00] as f32 * w00
+                + h[i10] as f32 * w10
+                + h[i01] as f32 * w01
+                + h[i11] as f32 * w11)
+                .max(0.0),
+            CpuHeightmap::F32(h) => {
+                (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0)
+            }
+        })
     }
 }

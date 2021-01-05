@@ -3,6 +3,7 @@ use anyhow::Error;
 use bit_vec::BitVec;
 use crossbeam::channel::{self, Receiver, Sender};
 use futures::future::BoxFuture;
+use futures::FutureExt;
 use lru_cache::LruCache;
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
@@ -11,7 +12,6 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Weak},
 };
-use futures::FutureExt;
 
 pub trait Scalar: Copy + 'static {
     fn from_f64(_: f64) -> Self;
@@ -132,7 +132,10 @@ pub(crate) trait RasterSource: Send + Sync {
     }
 }
 
-pub(crate) struct RasterCache<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static> {
+pub(crate) struct RasterCache<
+    T: Into<f64> + Copy + 'static,
+    C: Deref<Target = [T]> + Send + Sync + 'static,
+> {
     source: Arc<dyn RasterSource<Type = T, Container = C>>,
     holes: HashSet<(i16, i16)>,
 
@@ -141,7 +144,9 @@ pub(crate) struct RasterCache<T: Into<f64> + Copy + 'static, C: Deref<Target = [
     sender: Sender<((i16, i16), Option<Arc<Raster<T, C>>>)>,
     receiver: Receiver<((i16, i16), Option<Arc<Raster<T, C>>>)>,
 }
-impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static> RasterCache<T, C> {
+impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static>
+    RasterCache<T, C>
+{
     pub fn new(source: Arc<dyn RasterSource<Type = T, Container = C>>, capacity: usize) -> Self {
         let (sender, receiver) = channel::unbounded();
 
@@ -196,7 +201,11 @@ impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'stat
         }
     }
 
-    pub fn get(&mut self, latitude: i16, longitude: i16) -> BoxFuture<'static, Result<Option<Arc<Raster<T, C>>>, Error>> {
+    pub fn get(
+        &mut self,
+        latitude: i16,
+        longitude: i16,
+    ) -> BoxFuture<'static, Result<Option<Arc<Raster<T, C>>>, Error>> {
         let rs = self.source.raster_size();
         let key = (latitude - (latitude % rs + rs) % rs, longitude - (longitude % rs + rs) % rs);
 
@@ -210,7 +219,8 @@ impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'stat
             let raster = source.load(latitude, longitude).await?.map(Arc::new);
             sender.send((key, raster.clone()))?;
             Ok(raster)
-        }.boxed()
+        }
+        .boxed()
     }
 
     #[allow(unused)]
@@ -221,14 +231,20 @@ impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'stat
         band: usize,
     ) -> Result<Option<f64>, Error> {
         Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16).await?
+            .get(latitude.floor() as i16, longitude.floor() as i16)
+            .await?
             .and_then(|raster| raster.interpolate(latitude, longitude, band)))
     }
 
     #[allow(unused)]
-    pub async fn nearest3(&mut self, latitude: f64, longitude: f64) -> Result<Option<[f64; 3]>, Error> {
+    pub async fn nearest3(
+        &mut self,
+        latitude: f64,
+        longitude: f64,
+    ) -> Result<Option<[f64; 3]>, Error> {
         Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16).await?
+            .get(latitude.floor() as i16, longitude.floor() as i16)
+            .await?
             .and_then(|raster| raster.nearest3(latitude, longitude)))
     }
 }

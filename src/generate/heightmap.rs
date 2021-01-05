@@ -6,10 +6,13 @@ use crate::terrain::tile_cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
 use crossbeam::channel::{self, Receiver, Sender};
-use futures::{Future, future::{self, BoxFuture, FutureExt}};
+use futures::{
+    future::{self, BoxFuture, FutureExt},
+    Future,
+};
 use lru_cache::LruCache;
 use rayon::prelude::*;
-use std::collections::{HashMap};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
 use std::sync::{Arc, Weak};
@@ -385,7 +388,11 @@ impl HeightmapGen {
                 .collect();
             for tile in tiles {
                 let tile = tile.clone();
-                rasters.push(self.dems.get(tile.0, tile.1).map(move |f| -> Result<_, Error> { Ok((tile, f?)) }));
+                rasters.push(
+                    self.dems
+                        .get(tile.0, tile.1)
+                        .map(move |f| -> Result<_, Error> { Ok((tile, f?)) }),
+                );
             }
         }
 
@@ -403,7 +410,8 @@ impl HeightmapGen {
                 );
             } else {
                 let rasters = futures::future::try_join_all(rasters).await?;
-                let rasters: fnv::FnvHashMap<(i16, i16), Arc<_>> = rasters.into_iter().filter_map(|v| Some((v.0, v.1?))).collect();
+                let rasters: fnv::FnvHashMap<(i16, i16), Arc<_>> =
+                    rasters.into_iter().filter_map(|v| Some((v.0, v.1?))).collect();
 
                 heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
                     |(h, (lat, long))| {
@@ -428,7 +436,8 @@ impl HeightmapGen {
                 tx.send(mapfile.write_tile(LayerType::Heightmaps, node, &tile, true)).unwrap();
             });
             rx.map(|r| Ok(r??)).await
-        }.boxed())
+        }
+        .boxed())
     }
 }
 

@@ -6,20 +6,21 @@ use memmap::MmapMut;
 use num::ToPrimitive;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::{fs::{self, File, OpenOptions}, sync::Arc};
 use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Drop;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
+use std::{
+    fs::{self, File, OpenOptions},
+    sync::Arc,
+};
 
 lazy_static! {
     pub(crate) static ref TERRA_DIRECTORY: PathBuf =
         dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra");
-
     static ref PROGRESS_BAR_STYLE: ProgressStyle = ProgressStyle::default_bar()
         .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
         .progress_chars("=> ");
-
     static ref PROGRESS_BAR_STYLE_BYTES: ProgressStyle = ProgressStyle::default_bar()
         .template("{msg} {bytes}/{total_bytes} [{wide_bar}] {percent}% {per_sec} {eta}")
         .progress_chars("=> ");

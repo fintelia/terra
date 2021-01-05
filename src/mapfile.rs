@@ -5,8 +5,8 @@ use anyhow::Error;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use vec_map::VecMap;
 use tokio::io::AsyncReadExt;
+use vec_map::VecMap;
 
 const TERRA_TILES_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
 
@@ -94,7 +94,8 @@ impl MapFile {
             match layer {
                 LayerType::Albedo | LayerType::Heightmaps | LayerType::Roughness => {
                     let url = Self::tile_url(layer, node);
-                    let client = hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+                    let client = hyper::Client::builder()
+                        .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
                     let resp = client.get(url.parse()?).await?;
                     if resp.status().is_success() {
                         let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
@@ -272,16 +273,7 @@ impl MapFile {
             LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
         };
-        format!(
-            "{}/{}_{}_{}_{}x{}.{}",
-            layer,
-            layer,
-            node.level(),
-            face,
-            node.x(),
-            node.y(),
-            ext
-        )
+        format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
     }
 
     fn tile_path(layer: LayerType, node: VNode) -> PathBuf {

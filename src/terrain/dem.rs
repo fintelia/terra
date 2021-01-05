@@ -1,9 +1,12 @@
 use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
 use anyhow::{ensure, Error};
 use lazy_static::lazy_static;
-use std::{io::{Cursor, Read}, path::PathBuf};
 use std::str::FromStr;
 use std::{collections::HashSet, path::Path};
+use std::{
+    io::{Cursor, Read},
+    path::PathBuf,
+};
 use thiserror::Error;
 use zip::ZipArchive;
 
@@ -39,9 +42,9 @@ impl DemSource {
             DemSource::Srtm90m(_) => {
                 "https://opentopography.s3.sdsc.edu/raster/SRTM_GL3/SRTM_GL3_srtm/"
             }
-	        DemSource::Nasadem(_) => {
-		        "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
-	        }
+            DemSource::Nasadem(_) => {
+                "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
+            }
         }
     }
 
@@ -67,10 +70,10 @@ impl DemSource {
         let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
         match *self {
             DemSource::Srtm90m(_) => {
-                    format!("{}{:02}_{}{:03}.hgt.sz", n_or_s, latitude.abs(), e_or_w, longitude.abs())
+                format!("{}{:02}_{}{:03}.hgt.sz", n_or_s, latitude.abs(), e_or_w, longitude.abs())
             }
             DemSource::Nasadem(_) => {
-                 format!(
+                format!(
                     "NASADEM_HGT_{}{:02}{}{:03}.zip",
                     n_or_s,
                     latitude.abs(),
@@ -83,12 +86,8 @@ impl DemSource {
 
     pub(crate) fn tile_should_exist(&self, latitude: i16, longitude: i16) -> bool {
         match *self {
-            DemSource::Srtm90m(_) => {
-                SRTM3_FILES.contains(&*self.tile_name(latitude, longitude))
-            }
-            DemSource::Nasadem(_) => {
-                NASADEM_FILES.contains(&*self.tile_name(latitude, longitude))
-            }
+            DemSource::Srtm90m(_) => SRTM3_FILES.contains(&*self.tile_name(latitude, longitude)),
+            DemSource::Nasadem(_) => NASADEM_FILES.contains(&*self.tile_name(latitude, longitude)),
         }
     }
     pub(crate) fn filename(&self, latitude: i16, longitude: i16) -> PathBuf {
@@ -98,18 +97,13 @@ impl DemSource {
             }
         }
     }
-
 }
 
 #[async_trait::async_trait]
 impl RasterSource for DemSource {
     type Type = f32;
     type Container = Vec<f32>;
-    async fn load(
-        &self,
-        latitude: i16,
-        longitude: i16,
-    ) -> Result<Option<Raster<f32>>, Error> {
+    async fn load(&self, latitude: i16, longitude: i16) -> Result<Option<Raster<f32>>, Error> {
         if !self.tile_should_exist(latitude, longitude) {
             return Ok(None);
         }
@@ -119,8 +113,7 @@ impl RasterSource for DemSource {
                 let filename = self.filename(latitude, longitude);
                 let data = tokio::fs::read(filename).await?;
                 let mut uncompressed = Vec::new();
-                snap::read::FrameDecoder::new(Cursor::new(data))
-                    .read_to_end(&mut uncompressed)?;
+                snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed)?;
                 parse_srtm3_hgt(latitude, longitude, uncompressed).map(Some)
             }
             DemSource::Nasadem(_) => {
@@ -268,7 +261,11 @@ pub(crate) fn parse_etopo1(
 
     let mut contents = vec![0; file.size() as usize];
     for (i, chunk) in contents.chunks_mut(4096).enumerate() {
-        progress_callback("Decompressing ETOPO1_Ice_c_geotiff.tif...", i * 4096, file.size() as usize);
+        progress_callback(
+            "Decompressing ETOPO1_Ice_c_geotiff.tif...",
+            i * 4096,
+            file.size() as usize,
+        );
         file.read_exact(chunk)?;
     }
 

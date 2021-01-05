@@ -1,7 +1,7 @@
 use crate::cache::AssetLoadContext;
 use anyhow::Error;
-use serde::{Deserialize, Serialize};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 pub(crate) trait LookupTableDefinition: Sync {
     fn name(&self) -> String;
@@ -16,24 +16,32 @@ pub(crate) trait LookupTableDefinition: Sync {
     fn generate(&self, context: &mut AssetLoadContext) -> Result<LookupTable, Error> {
         let size = self.size();
         let total = size[0] as u64 * size[1] as u64 * size[2] as u64;
-        context.reset(&format!("Generating {}... ", &self.name()), total/1000);
+        context.reset(&format!("Generating {}... ", &self.name()), total / 1000);
 
-        let data = (0..total).into_iter().collect::<Vec<_>>().chunks(1000).enumerate().flat_map(|(i, chunk)| {
-            context.set_progress(i);
-            chunk.into_par_iter().map(|i|{
-                let x = i % size[0] as u64;
-                let y = (i / size[0] as u64) % size[1] as u64;
-                let z = i / (size[0] as u64 * size[1] as u64) % size[2] as u64;
-                let value = self.compute([x as u16, y as u16, z as u16]);
-                for c in &value {
-                    assert!(!c.is_nan())
-                }
-                value
-            }).collect::<Vec<_>>()
-        })
-        .collect();
+        let data = (0..total)
+            .into_iter()
+            .collect::<Vec<_>>()
+            .chunks(1000)
+            .enumerate()
+            .flat_map(|(i, chunk)| {
+                context.set_progress(i);
+                chunk
+                    .into_par_iter()
+                    .map(|i| {
+                        let x = i % size[0] as u64;
+                        let y = (i / size[0] as u64) % size[1] as u64;
+                        let z = i / (size[0] as u64 * size[1] as u64) % size[2] as u64;
+                        let value = self.compute([x as u16, y as u16, z as u16]);
+                        for c in &value {
+                            assert!(!c.is_nan())
+                        }
+                        value
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
 
-        context.set_progress(total/1000);
+        context.set_progress(total / 1000);
         Ok(LookupTable { size, data })
     }
 }
