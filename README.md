@@ -13,8 +13,8 @@ hundreds of kilometers down to centimeters. In Terra, terrain is treated as a
 texture maps storing the surface normal, albedo, etc.
 
 All of this information can take quite a bit of space, so it isn't included in
-this repository. Instead, the necessary files are generated at runtime and
-stored in a subdirectory with the current user's [cache
+this repository. Instead, the necessary files are streamed from the internet at
+runtime and cached locally in a subdirectory with the current user's [cache
 directory](https://docs.rs/dirs/3.0.1/dirs/fn.cache_dir.html) (which for
 instance defaults to `~/.cache/terra` on Linux).
 
@@ -52,6 +52,7 @@ exit, press Escape.
 
 * Windows or Linux operating system (Terra may work on MacOS with the 'soft-float64' feature enabled, but this hasn't been tested)
 * A fast internet connection
+* GPU with 2+ GB of VRAM
 
 # Data Sources / Credits
 
@@ -62,10 +63,6 @@ it into your own project, please be sure to give proper credit to all of the fol
 
 * [ETOPO1 Global Relief Model](https://www.ngdc.noaa.gov/mgg/global)
 * [Shuttle Radar Topography Mission](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-digital-elevation-shuttle-radar-topography-mission-srtm-1-arc)
-
-## Landcover
-
-* [Global Forest Change](https://earthenginepartners.appspot.com/science-2013-global-forest/download_v1.7.html)
 
 ## Orthoimagery
 
