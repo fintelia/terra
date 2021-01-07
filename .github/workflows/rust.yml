@@ -17,7 +17,9 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y libegl-dev libudev-dev
+      run: sudo apt-get update && sudo apt-get install -y libegl-dev libudev-dev libvulkan1 mesa-vulkan-drivers mesa-opencl-icd
+    - name: Check vulkan
+      run: vulkaninfo
     - name: Install nightly Rust
       run: rustup toolchain add nightly
     - name: Build
