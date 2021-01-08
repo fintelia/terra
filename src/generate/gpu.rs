@@ -1,7 +1,7 @@
 use maplit::hashmap;
 
 use crate::GpuState;
-use std::mem;
+use std::{collections::HashMap, mem};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -95,6 +95,8 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     offset: 0,
                     size: None,
                 })],
+                HashMap::new(),
+                "<unnamed-compute-shader>",
             );
             self.bindgroup_pipeline = Some((
                 bind_group,

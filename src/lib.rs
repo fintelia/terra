@@ -28,7 +28,7 @@ use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use gpu_state::GpuState;
 use maplit::hashmap;
-use std::convert::TryInto;
+use std::{collections::HashMap, convert::TryInto};
 use std::mem;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
@@ -236,6 +236,8 @@ impl Terrain {
                         size: Some((mem::size_of::<NodeState>() as u64).try_into().unwrap()),
                     })
                 ],
+                HashMap::new(),
+                "terrain",
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -305,6 +307,8 @@ impl Terrain {
                     offset: 0,
                     size: None,
                 })],
+                HashMap::new(),
+                "sky",
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

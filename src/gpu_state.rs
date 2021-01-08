@@ -20,41 +20,71 @@ impl GpuState {
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
         uniform_buffers: HashMap<&str, (bool, wgpu::BindingResource)>,
+        image_views: HashMap<&str, wgpu::TextureView>,
+        group_name: &str,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
-        let linear = &device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            label: Some("linear".into()),
-            ..Default::default()
-        });
-        let linear_wrap = &device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            label: Some("linear_wrap".into()),
-            ..Default::default()
-        });
-
-        let noise = &self.noise.create_view(&Default::default());
-        let sky = &self.sky.create_view(&Default::default());
-        let transmittance = &self.transmittance.create_view(&Default::default());
-        let inscattering = &self.inscattering.create_view(&Default::default());
-        let bc4_staging = &self.bc4_staging.create_view(&Default::default());
-        let bc5_staging = &self.bc5_staging.create_view(&Default::default());
-        let tile_cache_views: VecMap<_> = self
-            .tile_cache
-            .iter()
-            .map(|(i, tex)| (i, tex.create_view(&Default::default())))
-            .collect();
-
         let mut layout_descriptor_entries = shader.layout_descriptor().entries.to_vec();
+
+        let mut image_views = image_views;
+        let mut samplers = HashMap::new();
+        for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter()) {
+            let name = &**name.as_ref().unwrap();
+            match layout.ty {
+                wgpu::BindingType::StorageTexture { .. } | wgpu::BindingType::Texture { .. } => {
+                    image_views.insert(
+                        name,
+                        match name {
+                            "noise" => &self.noise,
+                            "sky" => &self.sky,
+                            "transmittance" => &self.transmittance,
+                            "inscattering" => &self.inscattering,
+                            "displacements" => &self.tile_cache[LayerType::Displacements],
+                            "albedo" => &self.tile_cache[LayerType::Albedo],
+                            "roughness" => &self.tile_cache[LayerType::Roughness],
+                            "normals" => &self.tile_cache[LayerType::Normals],
+                            "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
+                            "bc4_staging" => &self.bc4_staging,
+                            "bc5_staging" => &self.bc5_staging,
+                            _ => unreachable!("unrecognized image: {}", name),
+                        }
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            label: Some(&format!("view.{}", name)),
+                            ..Default::default()
+                        }),
+                    );
+                }
+                wgpu::BindingType::Sampler { .. } => {
+                    samplers.insert(
+                        name,
+                        match name {
+                            "linear" => device.create_sampler(&wgpu::SamplerDescriptor {
+                                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                mag_filter: wgpu::FilterMode::Linear,
+                                min_filter: wgpu::FilterMode::Linear,
+                                mipmap_filter: wgpu::FilterMode::Nearest,
+                                label: Some("sampler.linear"),
+                                ..Default::default()
+                            }),
+                            "linear_wrap" => device.create_sampler(&wgpu::SamplerDescriptor {
+                                address_mode_u: wgpu::AddressMode::Repeat,
+                                address_mode_v: wgpu::AddressMode::Repeat,
+                                address_mode_w: wgpu::AddressMode::Repeat,
+                                mag_filter: wgpu::FilterMode::Linear,
+                                min_filter: wgpu::FilterMode::Linear,
+                                mipmap_filter: wgpu::FilterMode::Nearest,
+                                label: Some("sampler.linear_wrap"),
+                                ..Default::default()
+                            }),
+                            _ => unreachable!("unrecognized sampler: {}", name),
+                        },
+                    );
+                }
+                _ => {}
+            }
+        }
+
         let mut bindings = Vec::new();
         for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter_mut()) {
             let name = &**name.as_ref().unwrap();
@@ -62,28 +92,11 @@ impl GpuState {
                 binding: layout.binding,
                 resource: match layout.ty {
                     wgpu::BindingType::Sampler { .. } => {
-                        wgpu::BindingResource::Sampler(match name {
-                            "linear" => &linear,
-                            "linear_wrap" => &linear_wrap,
-                            _ => unreachable!("unrecognized sampler: {}", name),
-                        })
+                        wgpu::BindingResource::Sampler(&samplers[name])
                     }
                     wgpu::BindingType::StorageTexture { .. }
                     | wgpu::BindingType::Texture { .. } => {
-                        wgpu::BindingResource::TextureView(match name {
-                            "noise" => noise,
-                            "sky" => sky,
-                            "transmittance" => transmittance,
-                            "inscattering" => inscattering,
-                            "displacements" => &tile_cache_views[LayerType::Displacements],
-                            "albedo" => &tile_cache_views[LayerType::Albedo],
-                            "roughness" => &tile_cache_views[LayerType::Roughness],
-                            "normals" => &tile_cache_views[LayerType::Normals],
-                            "heightmaps" => &tile_cache_views[LayerType::Heightmaps],
-                            "bc4_staging" => &bc4_staging,
-                            "bc5_staging" => &bc5_staging,
-                            _ => unreachable!("unrecognized image: {}", name),
-                        })
+                        wgpu::BindingResource::TextureView(&image_views[name])
                     }
                     wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
@@ -104,12 +117,12 @@ impl GpuState {
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &layout_descriptor_entries,
-            label: None,
+            label: Some(&format!("layout.{}", group_name)),
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &bind_group_layout,
             entries: &*bindings,
-            label: None,
+            label: Some(&format!("bindgroup.{}", group_name)),
         });
 
         (bind_group, bind_group_layout)
