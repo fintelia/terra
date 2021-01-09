@@ -110,7 +110,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: None,
                             source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                            flags: wgpu::ShaderFlags::empty(),
+                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main".into(),
                     },

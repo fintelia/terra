@@ -253,7 +253,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
-                            flags: wgpu::ShaderFlags::empty(),
+                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                     },
@@ -261,7 +261,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
-                            flags: wgpu::ShaderFlags::empty(),
+                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                     }),
@@ -324,7 +324,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
-                            flags: wgpu::ShaderFlags::empty(),
+                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                     },
@@ -332,7 +332,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
-                            flags: wgpu::ShaderFlags::empty(),
+                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                     }),
