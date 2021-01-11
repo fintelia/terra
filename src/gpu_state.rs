@@ -20,7 +20,7 @@ impl GpuState {
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
         uniform_buffers: HashMap<&str, (bool, wgpu::BindingResource)>,
-        image_views: HashMap<&str, wgpu::TextureView>,
+        image_views: HashMap<String, wgpu::TextureView>,
         group_name: &str,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let mut layout_descriptor_entries = shader.layout_descriptor().entries.to_vec();
@@ -31,27 +31,31 @@ impl GpuState {
             let name = &**name.as_ref().unwrap();
             match layout.ty {
                 wgpu::BindingType::StorageTexture { .. } | wgpu::BindingType::Texture { .. } => {
-                    image_views.insert(
-                        name,
-                        match name {
-                            "noise" => &self.noise,
-                            "sky" => &self.sky,
-                            "transmittance" => &self.transmittance,
-                            "inscattering" => &self.inscattering,
-                            "displacements" => &self.tile_cache[LayerType::Displacements],
-                            "albedo" => &self.tile_cache[LayerType::Albedo],
-                            "roughness" => &self.tile_cache[LayerType::Roughness],
-                            "normals" => &self.tile_cache[LayerType::Normals],
-                            "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
-                            "bc4_staging" => &self.bc4_staging,
-                            "bc5_staging" => &self.bc5_staging,
-                            _ => unreachable!("unrecognized image: {}", name),
-                        }
-                        .create_view(&wgpu::TextureViewDescriptor {
-                            label: Some(&format!("view.{}", name)),
-                            ..Default::default()
-                        }),
-                    );
+                    if !image_views.contains_key(name) {
+                        image_views.insert(
+                            name.to_owned(),
+                            match name {
+                                "noise" => &self.noise,
+                                "sky" => &self.sky,
+                                "transmittance" => &self.transmittance,
+                                "inscattering" => &self.inscattering,
+                                "displacements" => &self.tile_cache[LayerType::Displacements],
+                                "albedo" => &self.tile_cache[LayerType::Albedo],
+                                "roughness" => &self.tile_cache[LayerType::Roughness],
+                                "normals" => &self.tile_cache[LayerType::Normals],
+                                "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
+                                "bc4_staging" => &self.bc4_staging,
+                                "bc5_staging" => &self.bc5_staging,
+                                _ => unreachable!("unrecognized image: {}", name),
+                            }
+                            .create_view(
+                                &wgpu::TextureViewDescriptor {
+                                    label: Some(&format!("view.{}", name)),
+                                    ..Default::default()
+                                },
+                            ),
+                        );
+                    }
                 }
                 wgpu::BindingType::Sampler { .. } => {
                     samplers.insert(

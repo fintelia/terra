@@ -37,6 +37,18 @@ unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
 #[derive(Copy, Clone)]
 pub(crate) struct GenNormalsUniforms {
     pub heightmaps_origin: [i32; 2],
+    pub heightmaps_slot: i32,
+    pub normals_slot: i32,
+    pub spacing: f32,
+    pub padding: [f32; 3],
+}
+unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
+unsafe impl bytemuck::Pod for GenNormalsUniforms {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub(crate) struct GenMaterialsUniforms {
+    pub heightmaps_origin: [i32; 2],
     pub parent_origin: [u32; 2],
     pub heightmaps_slot: i32,
     pub normals_slot: i32,
@@ -45,8 +57,8 @@ pub(crate) struct GenNormalsUniforms {
     pub spacing: f32,
     pub padding: i32,
 }
-unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
-unsafe impl bytemuck::Pod for GenNormalsUniforms {}
+unsafe impl bytemuck::Zeroable for GenMaterialsUniforms {}
+unsafe impl bytemuck::Pod for GenMaterialsUniforms {}
 
 pub(crate) struct ComputeShader<U> {
     shader: rshader::ShaderSet,
@@ -54,6 +66,7 @@ pub(crate) struct ComputeShader<U> {
     uniforms: wgpu::Buffer,
     _phantom: std::marker::PhantomData<U>,
 }
+#[allow(unused)]
 impl<U: bytemuck::Pod> ComputeShader<U> {
     pub fn new(device: &wgpu::Device, shader: rshader::ShaderSet) -> Self {
         Self {

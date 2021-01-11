@@ -66,11 +66,11 @@ layout(binding = 0) uniform UniformBlock {
     uint level_resolution;
 } ubo;
 
-layout(r32f, binding = 2) uniform image2DArray heightmaps;
+layout(binding = 2) uniform texture2DArray heightmaps;
 layout(rgba32f, binding = 3) uniform image2DArray displacements;
 
 void main() {
-    float height = imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x;
+    float height = texelFetch(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot), 0).x;
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
     // http://jcgt.org/published/0007/02/01/paper.pdf

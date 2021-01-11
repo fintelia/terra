@@ -12,7 +12,8 @@ layout(binding = 0) uniform UniformBlock {
 	uint face;
 } ubo;
 
-layout(r32f, binding = 1) uniform image2DArray heightmaps;
+layout(binding = 1) uniform texture2D heightmaps_in;
+layout(r32f, binding = 2) uniform image2D heightmaps_out;
 
 shared vec4 h[10][10];
 
@@ -22,12 +23,12 @@ void main() {
 
 	// Load parent heights
 	if (x < 5 && y < 5) {
-		ivec3 origin = ivec3(ubo.origin+gl_WorkGroupID.xy*4, ubo.in_slot);
-		ivec3 gpos = origin + ivec3(gl_LocalInvocationID.xy*2-ivec2(2), 0);
-		h[x*2][y*2] = imageLoad(heightmaps, gpos);
-		h[x*2+1][y*2] = imageLoad(heightmaps, gpos + ivec3(1,0,0));
-		h[x*2][y*2+1] = imageLoad(heightmaps, gpos + ivec3(0,1,0));
-		h[x*2+1][y*2+1] = imageLoad(heightmaps, gpos + ivec3(1,1,0));
+		ivec2 origin = ivec2(ubo.origin+gl_WorkGroupID.xy*4);
+		ivec2 gpos = origin.xy + ivec2(gl_LocalInvocationID.xy*2-ivec2(2));
+		h[x*2][y*2] = texelFetch(heightmaps_in, gpos, 0);
+		h[x*2+1][y*2] = texelFetch(heightmaps_in, gpos + ivec2(1,0), 0);
+		h[x*2][y*2+1] = texelFetch(heightmaps_in, gpos + ivec2(0,1), 0);
+		h[x*2+1][y*2+1] = texelFetch(heightmaps_in, gpos + ivec2(1,1), 0);
 	}
 	barrier();
 
@@ -86,5 +87,5 @@ void main() {
 	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
 
 	// Write output
-	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, ubo.out_slot), vec4(height, 0, 0, 0));
+	imageStore(heightmaps_out, ivec2(gl_GlobalInvocationID.xy), vec4(height, 0, 0, 0));
 }

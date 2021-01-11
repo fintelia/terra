@@ -20,7 +20,7 @@ use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::{f64::consts::PI, fs::File, path::PathBuf};
+use std::{collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32, path::PathBuf};
 use std::{
     io::{Read, Write},
     path::Path,
@@ -72,7 +72,8 @@ pub(crate) trait GenerateTile {
 }
 
 struct ShaderGen<T, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> {
-    shader: ComputeShader<T>,
+    shader: rshader::ShaderSet,
+    pipeline: Option<wgpu::ComputePipeline>,
     dimensions: u32,
     peer_inputs: u32,
     parent_inputs: u32,
@@ -82,6 +83,7 @@ struct ShaderGen<T, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> {
     /// Used instead of peer_inputs for root nodes
     root_peer_inputs: u32,
     blit_from_bc5_staging: Option<LayerType>,
+    name: String,
     f: F,
 }
 impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTile
@@ -109,7 +111,12 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
         }
     }
     fn needs_refresh(&mut self) -> bool {
-        self.shader.refresh()
+        if self.shader.refresh() {
+            self.pipeline = None;
+            true
+        } else {
+            false
+        }
     }
     fn generate(
         &mut self,
@@ -123,13 +130,94 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
         output_mask: u32,
     ) {
         let uniforms = (self.f)(node, slot, parent_slot, output_mask);
-        self.shader.run(device, encoder, state, (self.dimensions, self.dimensions, 1), &uniforms);
+
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            size: mem::size_of::<T>() as u64,
+            usage: wgpu::BufferUsage::UNIFORM,
+            label: Some(&format!("buffer.generate.{}.uniforms", self.name)),
+            mapped_at_creation: true,
+        });
+        let mut buffer_view = uniform_buffer.slice(..).get_mapped_range_mut();
+        buffer_view.copy_from_slice(bytemuck::bytes_of(&uniforms));
+        drop(buffer_view);
+        uniform_buffer.unmap();
+
+        let mut image_views = HashMap::new();
+        if let Some(parent_slot) = parent_slot {
+            for layer in layers.values() {
+                image_views.insert(
+                    format!("{}_in", layer.layer_type.name()),
+                    state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
+                        label: Some(&format!("view.{}[{}]", layer.layer_type.name(), parent_slot)),
+                        base_array_layer: parent_slot as u32,
+                        array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                        ..Default::default()
+                    }),
+                );
+            }
+        }
+
+        for layer in
+            layers.values().filter(|l| l.layer_type.bit_mask() & self.outputs(node.level()) != 0)
+        {
+            image_views.insert(
+                format!("{}_out", layer.layer_type.name()),
+                state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),
+                    base_array_layer: slot as u32,
+                    array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                    ..Default::default()
+                }),
+            );
+        }
+
+        let (bind_group, bind_group_layout) = state.bind_group_for_shader(
+            device,
+            &self.shader,
+            hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
+                buffer: &uniform_buffer,
+                offset: 0,
+                size: None,
+            })],
+            image_views,
+            &format!("generate.{}", self.name),
+        );
+
+        if self.pipeline.is_none() {
+            self.pipeline =
+                Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        bind_group_layouts: [&bind_group_layout][..].into(),
+                        push_constant_ranges: &[],
+                        label: None,
+                    })),
+                    compute_stage: wgpu::ProgrammableStageDescriptor {
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: None,
+                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                            flags: wgpu::ShaderFlags::VALIDATION,
+                        }),
+                        entry_point: "main".into(),
+                    },
+                    label: Some(&format!("pipeline.generate.{}", self.name)),
+                }));
+        }
+
+        {
+            let mut cpass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
+            cpass.set_bind_group(0, &bind_group, &[]);
+            cpass.dispatch(self.dimensions, self.dimensions, 1);
+        }
+
         if let Some(layer) = self.blit_from_bc5_staging {
             let resolution = layers[layer].texture_resolution;
-            assert!(resolution <= 1024);
+            let resolution_blocks = (resolution + 3) / 4;
+            let row_pitch = (resolution_blocks * 16 + 255) & !255;
             assert!(resolution % 4 == 0);
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                size: 1024 * 1024 * 4, // TODO
+                size: row_pitch as u64 * resolution_blocks as u64,
                 usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
                 mapped_at_creation: false,
                 label: Some("buffer.blit.bc5"),
@@ -143,22 +231,18 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
                 wgpu::BufferCopyView {
                     buffer: &buffer,
                     layout: wgpu::TextureDataLayout {
-                        bytes_per_row: 4096,
-                        rows_per_image: resolution as u32 / 4,
+                        bytes_per_row: row_pitch,
+                        rows_per_image: 0,
                         offset: 0,
                     },
                 },
-                wgpu::Extent3d {
-                    width: resolution as u32 / 4,
-                    height: resolution as u32 / 4,
-                    depth: 1,
-                },
+                wgpu::Extent3d { width: resolution_blocks, height: resolution_blocks, depth: 1 },
             );
             encoder.copy_buffer_to_texture(
                 wgpu::BufferCopyView {
                     buffer: &buffer,
                     layout: wgpu::TextureDataLayout {
-                        bytes_per_row: 4096,
+                        bytes_per_row: row_pitch,
                         rows_per_image: resolution,
                         offset: 0,
                     },
@@ -175,6 +259,7 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
 }
 
 struct ShaderGenBuilder {
+    name: String,
     dimensions: u32,
     shader: rshader::ShaderSource,
     peer_inputs: u32,
@@ -185,8 +270,9 @@ struct ShaderGenBuilder {
     blit_from_bc5_staging: Option<LayerType>,
 }
 impl ShaderGenBuilder {
-    fn new(shader: rshader::ShaderSource) -> Self {
+    fn new(name: String, shader: rshader::ShaderSource) -> Self {
         Self {
+            name,
             dimensions: 0,
             outputs: 0,
             shader,
@@ -227,14 +313,12 @@ impl ShaderGenBuilder {
     }
     fn build<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T>(
         self,
-        device: &wgpu::Device,
         f: F,
     ) -> Box<dyn GenerateTile> {
         Box::new(ShaderGen {
-            shader: ComputeShader::new(
-                device,
-                rshader::ShaderSet::compute_only(self.shader).unwrap(),
-            ),
+            name: self.name,
+            shader: rshader::ShaderSet::compute_only(self.shader).unwrap(),
+            pipeline: None,
             outputs: self.outputs,
             peer_inputs: self.peer_inputs,
             parent_inputs: self.parent_inputs,
@@ -251,10 +335,7 @@ impl ShaderGenBuilder {
     }
 }
 
-pub(crate) fn generators(
-    layers: &VecMap<LayerParams>,
-    device: &wgpu::Device,
-) -> Vec<Box<dyn GenerateTile>> {
+pub(crate) fn generators(layers: &VecMap<LayerParams>) -> Vec<Box<dyn GenerateTile>> {
     let heightmaps_resolution = layers[LayerType::Heightmaps].texture_resolution;
     let heightmaps_border = layers[LayerType::Heightmaps].texture_border_size;
     let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
@@ -262,17 +343,14 @@ pub(crate) fn generators(
     let normals_border = layers[LayerType::Normals].texture_border_size;
 
     vec![
-        ShaderGenBuilder::new(rshader::shader_source!(
-            "../shaders",
-            "version",
-            "hash",
-            "gen-heightmaps.comp"
-        ))
+        ShaderGenBuilder::new(
+            "heightmaps".into(),
+            rshader::shader_source!("../shaders", "version", "hash", "gen-heightmaps.comp"),
+        )
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions((heightmaps_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .build(
-            device,
             move |node: VNode,
                   slot: usize,
                   parent_slot: Option<usize>,
@@ -306,23 +384,25 @@ pub(crate) fn generators(
                 }
             },
         ),
-        ShaderGenBuilder::new(if cfg!(feature = "soft-float64") {
-            rshader::shader_source!(
-                "../shaders",
-                "version",
-                "softdouble.glsl",
-                "gen-displacements.comp"
-            )
-        } else {
-            rshader::shader_source!("../shaders", "version", "gen-displacements.comp")
-        })
+        ShaderGenBuilder::new(
+            "displacements".into(),
+            if cfg!(feature = "soft-float64") {
+                rshader::shader_source!(
+                    "../shaders",
+                    "version",
+                    "softdouble.glsl",
+                    "gen-displacements.comp"
+                )
+            } else {
+                rshader::shader_source!("../shaders", "version", "gen-displacements.comp")
+            },
+        )
         .outputs(LayerType::Displacements.bit_mask())
         .root_outputs(LayerType::Displacements.bit_mask())
         .dimensions((displacements_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .root_peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(
-            device,
             move |node: VNode,
                   slot: usize,
                   parent_slot: Option<usize>,
@@ -360,34 +440,53 @@ pub(crate) fn generators(
                 }
             },
         ),
-        ShaderGenBuilder::new(rshader::shader_source!(
-            "../shaders",
-            "version",
-            "hash",
-            "gen-normals.comp"
-        ))
-        .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
+        ShaderGenBuilder::new(
+            "root-normals".into(),
+            rshader::shader_source!("../shaders", "version", "hash", "gen-root-normals.comp"),
+        )
         .root_outputs(LayerType::Normals.bit_mask())
+        .dimensions((normals_resolution + 3) / 4 / 2)
+        .peer_inputs(LayerType::Heightmaps.bit_mask())
+        .blit_from_bc5_staging(LayerType::Normals)
+        .build(move |node: VNode, slot: usize, _, _| -> GenNormalsUniforms {
+            let spacing =
+                node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
+
+            GenNormalsUniforms {
+                heightmaps_origin: [
+                    (heightmaps_border - normals_border) as i32,
+                    (heightmaps_border - normals_border) as i32,
+                ],
+                spacing,
+                heightmaps_slot: slot as i32,
+                normals_slot: slot as i32,
+                padding: [0.0; 3],
+            }
+        }),
+        ShaderGenBuilder::new(
+            "materials".into(),
+            rshader::shader_source!("../shaders", "version", "hash", "gen-materials.comp"),
+        )
+        .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
         .dimensions((normals_resolution + 3) / 4)
         .parent_inputs(LayerType::Albedo.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
         .build(
-            device,
             move |node: VNode,
                   slot: usize,
                   parent_slot: Option<usize>,
                   output_mask: u32|
-                  -> GenNormalsUniforms {
+                  -> GenMaterialsUniforms {
                 let spacing =
                     node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
 
                 let albedo_slot =
                     if output_mask & LayerType::Albedo.bit_mask() != 0 { slot as i32 } else { -1 };
 
-                let parent_index = node.parent().map(|(_, idx)| idx).unwrap_or(0);
+                let parent_index = node.parent().unwrap().1;
 
-                GenNormalsUniforms {
+                GenMaterialsUniforms {
                     heightmaps_origin: [
                         (heightmaps_border - normals_border) as i32,
                         (heightmaps_border - normals_border) as i32,

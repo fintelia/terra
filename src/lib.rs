@@ -28,9 +28,9 @@ use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use gpu_state::GpuState;
 use maplit::hashmap;
-use std::{collections::HashMap, convert::TryInto};
 use std::mem;
 use std::sync::Arc;
+use std::{collections::HashMap, convert::TryInto};
 use terrain::quadtree::QuadTree;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
@@ -77,7 +77,7 @@ impl Terrain {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let tile_cache = TileCache::new(
             Arc::clone(&mapfile),
-            crate::generate::generators(mapfile.layers(), device),
+            crate::generate::generators(mapfile.layers()),
             512,
         );
         let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
