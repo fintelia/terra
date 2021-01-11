@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-
+use spirv_headers::ImageFormat;
 pub enum ShaderSource {
     Inline(String),
     Files(Vec<PathBuf>),
@@ -343,15 +343,35 @@ fn reflect(
                     min_binding_size: None,
                 },
                 DescriptorType::Image(_, spirq::ty::Type::Image(ty)) => {
-                    wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: match ty.arng {
-                            ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
-                            ImageArrangement::Image2DArray => wgpu::TextureViewDimension::D2Array,
-                            ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
-                            _ => unimplemented!(),
+                    let view_dimension = match ty.arng {
+                        ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
+                        ImageArrangement::Image2DArray => wgpu::TextureViewDimension::D2Array,
+                        ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
+                        _ => unimplemented!(),
+                    };
+                    match ty.unit_fmt {
+                        spirq::ty::ImageUnitFormat::Color(c) => {
+                            wgpu::BindingType::StorageTexture {
+                                view_dimension,
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: match c {
+                                    ImageFormat::R32f => wgpu::TextureFormat::R32Float,
+                                    ImageFormat::Rg32f => wgpu::TextureFormat::Rg32Float,
+                                    ImageFormat::Rgba32f => wgpu::TextureFormat::Rgba32Float,
+                                    ImageFormat::R32ui => wgpu::TextureFormat::R32Uint,
+                                    ImageFormat::Rg32ui => wgpu::TextureFormat::Rg32Uint,
+                                    ImageFormat::Rgba32ui => wgpu::TextureFormat::Rgba32Uint,
+                                    ImageFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+                                    _ => unimplemented!("component type {:?}", c),
+                                }
+                            }
+                        }
+                        spirq::ty::ImageUnitFormat::Sampled => wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
-                        sample_type: wgpu::TextureSampleType::Uint,
+                        spirq::ty::ImageUnitFormat::Depth => unimplemented!(),
                     }
                 }
                 v => unimplemented!("{:?}", v),
