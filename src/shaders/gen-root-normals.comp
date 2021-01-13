@@ -11,7 +11,7 @@ layout(binding = 0) uniform UniformBlock {
 } ubo;
 
 layout(binding = 1) uniform texture2DArray heightmaps;
-layout(rgba32ui, binding = 2) uniform uimage2D bc5_staging;
+layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
 
 shared vec2 group_normals[16];
 

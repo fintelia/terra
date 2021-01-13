@@ -353,7 +353,11 @@ fn reflect(
                         spirq::ty::ImageUnitFormat::Color(c) => {
                             wgpu::BindingType::StorageTexture {
                                 view_dimension,
-                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                access: match manifest.get_desc_access(desc.desc_bind).unwrap() {
+                                    spirq::AccessType::ReadOnly => wgpu::StorageTextureAccess::ReadOnly,
+                                    spirq::AccessType::WriteOnly => wgpu::StorageTextureAccess::WriteOnly,
+                                    spirq::AccessType::ReadWrite => wgpu::StorageTextureAccess::ReadWrite,
+                                },
                                 format: match c {
                                     ImageFormat::R32f => wgpu::TextureFormat::R32Float,
                                     ImageFormat::Rg32f => wgpu::TextureFormat::Rg32Float,

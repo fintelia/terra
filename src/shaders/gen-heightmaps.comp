@@ -13,7 +13,7 @@ layout(binding = 0) uniform UniformBlock {
 } ubo;
 
 layout(binding = 1) uniform texture2D heightmaps_in;
-layout(r32f, binding = 2) uniform image2D heightmaps_out;
+layout(r32f, binding = 2) writeonly uniform image2D heightmaps_out;
 
 shared vec4 h[10][10];
 

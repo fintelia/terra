@@ -80,5 +80,5 @@ opt-level = 1
 debug = true
 
 [replace]
-"https://github.com/gfx-rs/wgpu#wgpu-core:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "c691570c609b816f9429b0a1163aa0767203b14e" }
-"https://github.com/gfx-rs/wgpu#wgpu-types:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "c691570c609b816f9429b0a1163aa0767203b14e" }
+"https://github.com/gfx-rs/wgpu#wgpu-core:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "5a29e010e2b8fb29c3edcc3dc9c8435517ac4497" }
+"https://github.com/gfx-rs/wgpu#wgpu-types:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "5a29e010e2b8fb29c3edcc3dc9c8435517ac4497" }

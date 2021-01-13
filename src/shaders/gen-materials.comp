@@ -14,10 +14,10 @@ layout(binding = 0) uniform UniformBlock {
 } ubo;
 
 layout(binding = 1) uniform texture2DArray heightmaps;
-layout(rgba32ui, binding = 2) uniform uimage2D bc5_staging;
+layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
 
 layout(binding = 3) uniform texture2D albedo_in;
-layout(rgba8, binding = 4) uniform image2D albedo_out;
+layout(rgba8, binding = 4) writeonly uniform image2D albedo_out;
 
 layout(set = 0, binding = 5) uniform texture2D noise;
 layout(set = 0, binding = 6) uniform sampler linear_wrap;
