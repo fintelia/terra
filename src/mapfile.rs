@@ -2,8 +2,11 @@ use crate::cache::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
+use atomicwrites::{AtomicFile, OverwriteBehavior};
+use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
 use vec_map::VecMap;
@@ -127,7 +130,9 @@ impl MapFile {
         if let Some(parent) = filename.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(filename, data)?;
+
+        AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+            .write(|f| f.write_all(data))?;
 
         self.update_tile_meta(
             layer,
@@ -207,17 +212,19 @@ impl MapFile {
         self.update_texture(name, desc)?;
         if desc.format == TextureFormat::RGBA8 {
             let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
-            Ok(image::save_buffer_with_format(
-                &filename,
+            let mut encoded = Vec::new();
+            BmpEncoder::new(&mut encoded).encode(
                 data,
                 desc.width,
                 desc.height * desc.depth,
                 image::ColorType::Rgba8,
-                image::ImageFormat::Bmp,
-            )?)
+            )?;
+            Ok(AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(&encoded))?)
         } else {
             let filename = TERRA_DIRECTORY.join(format!("{}.raw", name));
-            Ok(fs::write(&filename, data)?)
+            Ok(AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(data))?)
         }
     }
 
