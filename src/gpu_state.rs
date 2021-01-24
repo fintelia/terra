@@ -1,7 +1,20 @@
 use std::collections::HashMap;
 
-use crate::terrain::tile_cache::LayerType;
+use crate::{mesh_cache::MeshType, terrain::tile_cache::LayerType};
 use vec_map::VecMap;
+
+#[repr(C)]
+pub(crate) struct DrawIndirect {
+    vertex_count: u32,   // The number of vertices to draw.
+    instance_count: u32, // The number of instances to draw.
+    base_vertex: u32,    // The Index of the first vertex to draw.
+    base_instance: u32,  // The instance ID of the first instance to draw.
+}
+
+pub(crate) struct GpuMeshLayer {
+    pub indirect: wgpu::Buffer,
+    pub storage: wgpu::Buffer,
+}
 
 pub(crate) struct GpuState {
     pub noise: wgpu::Texture,
@@ -10,6 +23,7 @@ pub(crate) struct GpuState {
     pub inscattering: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
+    pub mesh_cache: VecMap<GpuMeshLayer>,
 
     pub bc4_staging: wgpu::Texture,
     pub bc5_staging: wgpu::Texture,
@@ -88,6 +102,7 @@ impl GpuState {
                 _ => {}
             }
         }
+        let mesh_cache = &self.mesh_cache;
 
         let mut bindings = Vec::new();
         for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter_mut()) {
@@ -114,7 +129,15 @@ impl GpuState {
                     wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { .. },
                         ..
-                    } => unimplemented!(),
+                    } => wgpu::BindingResource::Buffer {
+                        buffer: match name {
+                            "grass_indirect" => &mesh_cache[MeshType::Grass].indirect,
+                            "grass_storage" => &mesh_cache[MeshType::Grass].storage,
+                            _ => unreachable!("unrecognized storage buffer: {}", name),
+                        },
+                        size: None,
+                        offset: 0,
+                    }
                 },
             });
         }

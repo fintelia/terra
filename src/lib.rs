@@ -13,6 +13,7 @@ mod coordinates;
 mod generate;
 mod gpu_state;
 mod mapfile;
+mod mesh_cache;
 mod priority_cache;
 mod sky;
 mod srgb;
@@ -26,12 +27,15 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
+use generate::ComputeShader;
 use gpu_state::GpuState;
 use maplit::hashmap;
+use mesh_cache::{MeshCache, MeshCacheDesc, MeshType};
 use std::mem;
 use std::sync::Arc;
 use std::{collections::HashMap, convert::TryInto};
 use terrain::quadtree::QuadTree;
+use vec_map::VecMap;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
 
@@ -70,6 +74,7 @@ pub struct Terrain {
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
     tile_cache: TileCache,
+    mesh_caches: VecMap<MeshCache>,
 }
 impl Terrain {
     /// Create a new Terrain object.
@@ -132,6 +137,40 @@ impl Terrain {
             label: Some("texture.staging.bc5"),
         });
 
+        let mut mesh_caches = VecMap::new();
+        mesh_caches.insert(
+            MeshType::Grass as usize,
+            MeshCache::new(
+                device,
+                32,
+                MeshCacheDesc {
+                    ty: MeshType::Grass,
+                    max_bytes_per_entry: 128 * 128 * 32,
+                    dimensions: 128 / 8,
+                    dependency_mask: LayerType::Displacements.bit_mask() | LayerType::Albedo.bit_mask() | LayerType::Normals.bit_mask(),
+                    level: VNode::LEVEL_CELL_2CM,
+                    generate: ComputeShader::new(
+                        device,
+                        rshader::ShaderSet::compute_only(rshader::shader_source!(
+                            "shaders",
+                            "version",
+                            "hash",
+                            "gen-grass.comp"
+                        ))
+                        .unwrap(),
+                    ),
+                    render: rshader::ShaderSet::simple(
+                        rshader::shader_source!("shaders", "version", "grass.vert"),
+                        rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
+                    )
+                    .unwrap(),
+                },
+            ),
+        );
+
+        let gpu_mesh_caches =
+            mesh_caches.iter().map(|(i, c)| (i, c.make_buffers(device))).collect();
+
         let gpu_state = GpuState {
             noise,
             sky,
@@ -140,6 +179,7 @@ impl Terrain {
             bc4_staging,
             bc5_staging,
             tile_cache: tile_cache.make_cache_textures(device),
+            mesh_cache: gpu_mesh_caches,
         };
 
         let sky_shader = rshader::ShaderSet::simple(
@@ -170,6 +210,7 @@ impl Terrain {
             quadtree,
             mapfile,
             tile_cache,
+            mesh_caches,
         })
     }
 
@@ -369,6 +410,10 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
+        for (_, c) in &mut self.mesh_caches {
+            c.update(device, queue, &self.tile_cache, &self.gpu_state, camera);
+        }
+
         self.quadtree.update_visibility(&self.tile_cache, camera);
         self.quadtree.prepare_vertex_buffer(queue, &mut self.node_buffer, &self.tile_cache, camera);
 
@@ -421,6 +466,18 @@ impl Terrain {
                 &self.index_buffer,
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
+
+            for (_, c) in &mut self.mesh_caches {
+                c.render(
+                    device,
+                    &queue,
+                    &mut rpass,
+                    &self.gpu_state,
+                    &self.uniform_buffer,
+                    camera,
+                );
+            }
+
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);

@@ -187,18 +187,18 @@ vec3 debug_overlay(vec3 color) {
 	// if(node.face == 4) color = mix(color, vec3(1,1,1), 0.1);
 	// if(node.face == 5) color = mix(color, vec3(0,0,0), 0.1);
 
-	// if (node.displacements.origin.x < 0.25 || true) {
-	// 	if(node.level == 10)color = mix(color, vec3(1,0,0), .3);
-	// 	if(node.level == 11)color = mix(color, vec3(0,1,0), .3);
-	// 	if(node.level == 12)color = mix(color, vec3(0,0,1), .3);
-	// 	if(node.level == 13)color = mix(color, vec3(0,1,1), .3);
-	// 	if(node.level == 14)color = mix(color, vec3(1,1,0), .3);
-	// 	if(node.level == 15)color = mix(color, vec3(1,0,1), .3);
-	// 	if(node.level == 16)color = mix(color, vec3(1,1,1), .3);
-	// 	//if(node.level > 16 || node.level <= 16) color = vec3(0);
-	// }
-	// if (node.displacements._step == .5/65 )
-	// 	color=vec3(1);
+	// if(node.level == 10)color = mix(color, vec3(1,0,0), .3); // 19m cell
+	// if(node.level == 11)color = mix(color, vec3(0,1,0), .3); // 10m
+	// if(node.level == 12)color = mix(color, vec3(0,0,1), .3); //  5m 
+	// if(node.level == 13)color = mix(color, vec3(0,1,1), .3); //  2m
+	// if(node.level == 14)color = mix(color, vec3(1,1,0), .3); //  1m
+	// if(node.level == 15)color = mix(color, vec3(1,0,1), .3); // 60cm
+	// if(node.level == 16)color = mix(color, vec3(1,1,1), .3); // 30cm
+	// if(node.level == 17)color = mix(color, vec3(1,0,0), .2); // 15cm
+	// if(node.level == 18)color = mix(color, vec3(0,1,0), .2); //  7cm
+	// if(node.level == 19)color = mix(color, vec3(0,0,1), .2); //  4cm / 30cm vertex / 19m tile
+	// if(node.level == 20)color = mix(color, vec3(0,0,0), .2); //  2cm / 30cm vertex / 10m tile
+
 
 	// if (int(level_resolution/2 + i_position.x / 64) % 2 !=
 	// 	int(level_resolution/2 + i_position.y / 64) % 2)
@@ -212,12 +212,11 @@ vec3 debug_overlay(vec3 color) {
 	// if (level_resolution > 512*pow(2,4) || level_resolution == 512*pow(2,4) && morph > 0.99)
 	// 	color = mix(color, vec3(0,0,1), .4);
 	// if (abs(max(max(position.x, position.y), position.z)-1050) <10)
-	// // if (abs(length(position)-1000) < 100)
-	// 	color = mix(color, vec3(0), 0.5);
+	// if (abs(length(position)-1000) < 10)
+	//  	color = mix(color, vec3(0), 0.5);
 
- 	// vec2 grid = vec2(abs(fract(length(position)/100000 + 0.5) - 0.5) / fwidth(length(position)/100000));
-	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.1), smoothstep(1, 0, line) * 0.6);
+	// float line2 = abs(length(position) - 30) / fwidth(length(position)) * 0.5;
+	// color = mix(color, vec3(0.1), smoothstep(1, 0, line2));
 
 	// vec3 p = normalize(position + vec3(ubo.camera));
 	// vec2 coord = vec2((acos(p.z) * 180.0 / 3.141592),

@@ -66,8 +66,8 @@ layout(binding = 0) uniform UniformBlock {
     uint level_resolution;
 } ubo;
 
-layout(binding = 2) uniform texture2DArray heightmaps;
-layout(rgba32f, binding = 3) writeonly uniform image2DArray displacements;
+layout(binding = 1) uniform texture2DArray heightmaps;
+layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
 
 void main() {
     float height = texelFetch(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot), 0).x;

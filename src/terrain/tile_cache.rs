@@ -591,6 +591,12 @@ impl TileCache {
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
         self.inner.entry(&node).map(|entry| (entry.valid & ty.bit_mask()) != 0).unwrap_or(false)
     }
+    pub fn contains_all(&self, node: VNode, layer_mask: u32) -> bool {
+        self.inner
+            .entry(&node)
+            .map(|entry| (entry.valid & layer_mask) == layer_mask)
+            .unwrap_or(false)
+    }
 
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
         self.inner.index_of(&node)
