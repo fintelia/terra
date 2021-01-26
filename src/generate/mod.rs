@@ -335,7 +335,7 @@ impl ShaderGenBuilder {
     }
 }
 
-pub(crate) fn generators(layers: &VecMap<LayerParams>) -> Vec<Box<dyn GenerateTile>> {
+pub(crate) fn generators(layers: &VecMap<LayerParams>, soft_float64: bool) -> Vec<Box<dyn GenerateTile>> {
     let heightmaps_resolution = layers[LayerType::Heightmaps].texture_resolution;
     let heightmaps_border = layers[LayerType::Heightmaps].texture_border_size;
     let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
@@ -386,7 +386,7 @@ pub(crate) fn generators(layers: &VecMap<LayerParams>) -> Vec<Box<dyn GenerateTi
         ),
         ShaderGenBuilder::new(
             "displacements".into(),
-            if cfg!(feature = "soft-float64") {
+            if soft_float64 {
                 rshader::shader_source!(
                     "../shaders",
                     "version",

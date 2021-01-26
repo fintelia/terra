@@ -61,7 +61,7 @@ thiserror = "1.0.22"
 tiff = "=0.5.0"
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "3d605463bb1c7c4d4f468ac166916855c4fda6cc" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu-rs", rev = "b04cc289e84e0a754c9059a23970d8204f367cd8" }
 winit = "0.24.0"
 zip = "0.5.9"
 
@@ -81,5 +81,5 @@ opt-level = 1
 debug = true
 
 [replace]
-"https://github.com/gfx-rs/wgpu#wgpu-core:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "5a29e010e2b8fb29c3edcc3dc9c8435517ac4497" }
-"https://github.com/gfx-rs/wgpu#wgpu-types:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "5a29e010e2b8fb29c3edcc3dc9c8435517ac4497" }
+"https://github.com/gfx-rs/wgpu#wgpu-core:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "a97ec9df91271078646199a88805cf860aa99bd4" }
+"https://github.com/gfx-rs/wgpu#wgpu-types:0.6.0" = { git = "https://github.com/gfx-rs/wgpu", rev = "a97ec9df91271078646199a88805cf860aa99bd4" }

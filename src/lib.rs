@@ -82,7 +82,7 @@ impl Terrain {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let tile_cache = TileCache::new(
             Arc::clone(&mapfile),
-            crate::generate::generators(mapfile.layers()),
+            crate::generate::generators(mapfile.layers(), !device.features().contains(wgpu::Features::SHADER_FLOAT64)),
             512,
         );
         let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
