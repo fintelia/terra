@@ -173,13 +173,23 @@ impl MapFile {
 
         let row_bytes = width * desc.format.bytes_per_block();
 
-        let data = if cfg!(feature = "small-trace") {
-            vec![0; row_bytes * height]
-        } else if desc.format == TextureFormat::RGBA8 {
+        let mut data = if desc.format == TextureFormat::RGBA8 {
             image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba8().into_vec()
         } else {
             fs::read(TERRA_DIRECTORY.join(format!("{}.raw", name)))?
         };
+
+        if cfg!(feature = "small-trace") {
+            let bytes_per_block = desc.format.bytes_per_block();
+            for y in 0..height {
+                for x in 0..width {
+                    if x % 16 == 0 && y % 16 == 0 { continue; }
+                    let src = ((x & !15) + (y & !15) * width) * bytes_per_block;
+                    let dst = (x + y * width) * bytes_per_block;
+                    data.copy_within(src..src+bytes_per_block, dst);
+                }
+            }
+        }
 
         queue.write_texture(
             wgpu::TextureCopyView {

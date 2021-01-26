@@ -468,43 +468,50 @@ impl TileCache {
     }
 
     fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<wgpu::Texture>) {
-        while let Some(tile) = self.streamer.try_complete() {
+        while let Some(mut tile) = self.streamer.try_complete() {
             if let Some(entry) = self.inner.entry_mut(&tile.node()) {
                 entry.valid |= tile.layer().bit_mask();
                 entry.streaming &= !tile.layer().bit_mask();
 
                 let index = self.inner.index_of(&tile.node()).unwrap();
+                let layer = tile.layer();
 
                 let resolution = self.resolution(tile.layer()) as usize;
                 let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
                 let bytes_per_block = self.layers[tile.layer()].texture_format.bytes_per_block();
                 let row_bytes = resolution_blocks * bytes_per_block;
 
-                let (data, zeroes);
+                let data;
                 let mut height_data;
-                if cfg!(feature = "small-trace") {
-                    zeroes = vec![0; row_bytes * resolution_blocks];
-                    data = &zeroes;
-                } else {
-                    match tile {
-                        TileResult::Heightmaps(node, ref heights) => {
-                            if let Some(entry) = self.inner.entry_mut(&node) {
-                                entry.heightmap = Some(CpuHeightmap::I16(Arc::clone(&heights)));
-                            }
-                            let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
-                            height_data = vec![0; heights.len() * 4];
-                            height_data.copy_from_slice(bytemuck::cast_slice(&heights));
-                            data = &height_data;
+                match tile {
+                    TileResult::Heightmaps(node, ref heights) => {
+                        if let Some(entry) = self.inner.entry_mut(&node) {
+                            entry.heightmap = Some(CpuHeightmap::I16(Arc::clone(&heights)));
                         }
-                        TileResult::Albedo(_, ref d) | TileResult::Roughness(_, ref d) => {
-                            data = &*d
+                        let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
+                        height_data = vec![0; heights.len() * 4];
+                        height_data.copy_from_slice(bytemuck::cast_slice(&heights));
+                        data = &mut height_data;
+                    }
+                    TileResult::Albedo(_, ref mut d) | TileResult::Roughness(_, ref mut d) => {
+                        data = &mut *d
+                    }
+                }
+
+                if cfg!(feature = "small-trace") {
+                    for y in 0..resolution_blocks {
+                        for x in 0..resolution_blocks {
+                            if x % 16 == 0 && y % 16 == 0 { continue; }
+                            let src = ((x & !15) + (y & !15) * resolution_blocks) * bytes_per_block;
+                            let dst = (x + y * resolution_blocks) * bytes_per_block;
+                            data.copy_within(src..src+bytes_per_block, dst);
                         }
                     }
                 }
 
                 queue.write_texture(
                     wgpu::TextureCopyView {
-                        texture: &textures[tile.layer()],
+                        texture: &textures[layer],
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
                     },
