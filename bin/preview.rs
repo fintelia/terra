@@ -113,9 +113,8 @@ fn main() {
         .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
-    let mut swap_chain = make_swapchain(&device, &surface, size.width, size.height);
-    let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
-    let mut proj = compute_projection_matrix(size.width as f32, size.height as f32);
+    let mut swap_chain = None;
+    let mut depth_buffer = None;
 
     let mut gilrs = Gilrs::new().unwrap();
     let mut current_gamepad = None;
@@ -225,14 +224,20 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size;
-                    swap_chain = make_swapchain(&device, &surface, size.width, size.height);
-                    depth_buffer = make_depth_buffer(&device, size.width, size.height);
-                    proj = compute_projection_matrix(size.width as f32, size.height as f32);
+                    swap_chain = None;
+                    depth_buffer = None;
                 }
                 _ => {}
             },
             event::Event::MainEventsCleared => {
-                let frame = swap_chain.get_current_frame();
+                if swap_chain.is_none() {
+                    swap_chain = Some(make_swapchain(&device, &surface, size.width, size.height));
+                }
+                if depth_buffer.is_none() {
+                    depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
+                }
+
+                let frame = swap_chain.as_ref().unwrap().get_current_frame();
                 let frame = match frame {
                     Ok(ref f) => &f.output.view,
                     Err(_) => return,
@@ -291,6 +296,7 @@ fn main() {
                     up,
                 );
 
+                let proj = compute_projection_matrix(size.width as f32, size.height as f32);
                 let view_proj = proj * view;
                 let view_proj = mint::ColumnMatrix4 {
                     x: view_proj.x.into(),
@@ -303,7 +309,7 @@ fn main() {
                     &device,
                     &mut queue,
                     &frame,
-                    &depth_buffer,
+                    depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
