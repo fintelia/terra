@@ -1,5 +1,5 @@
 use super::*;
-use crate::terrain::tile_cache::LayerType;
+use crate::cache::LayerType;
 use std::mem;
 
 #[derive(Copy, Clone)]

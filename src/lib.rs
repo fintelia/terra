@@ -9,28 +9,26 @@ extern crate lazy_static;
 extern crate rshader;
 
 mod asset;
+mod cache;
 mod coordinates;
 mod generate;
 mod gpu_state;
 mod mapfile;
-mod mesh_cache;
-mod priority_cache;
 mod sky;
 mod srgb;
 mod stream;
 mod terrain;
 mod utils;
 
+use crate::cache::{LayerType, MeshCache, MeshCacheDesc, MeshType, TileCache};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
-use crate::terrain::tile_cache::{LayerType, TileCache};
 use anyhow::Error;
 use generate::ComputeShader;
 use gpu_state::GpuState;
 use maplit::hashmap;
-use mesh_cache::{MeshCache, MeshCacheDesc, MeshType};
 use std::mem;
 use std::sync::Arc;
 use std::{collections::HashMap, convert::TryInto};
@@ -82,7 +80,10 @@ impl Terrain {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let tile_cache = TileCache::new(
             Arc::clone(&mapfile),
-            crate::generate::generators(mapfile.layers(), !device.features().contains(wgpu::Features::SHADER_FLOAT64)),
+            crate::generate::generators(
+                mapfile.layers(),
+                !device.features().contains(wgpu::Features::SHADER_FLOAT64),
+            ),
             512,
         );
         let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
@@ -147,7 +148,9 @@ impl Terrain {
                     ty: MeshType::Grass,
                     max_bytes_per_entry: 128 * 128 * 32,
                     dimensions: 128 / 8,
-                    dependency_mask: LayerType::Displacements.bit_mask() | LayerType::Albedo.bit_mask() | LayerType::Normals.bit_mask(),
+                    dependency_mask: LayerType::Displacements.bit_mask()
+                        | LayerType::Albedo.bit_mask()
+                        | LayerType::Normals.bit_mask(),
                     level: VNode::LEVEL_CELL_2CM,
                     generate: ComputeShader::new(
                         device,
@@ -468,14 +471,7 @@ impl Terrain {
             );
 
             for (_, c) in &mut self.mesh_caches {
-                c.render(
-                    device,
-                    &queue,
-                    &mut rpass,
-                    &self.gpu_state,
-                    &self.uniform_buffer,
-                    camera,
-                );
+                c.render(device, &queue, &mut rpass, &self.gpu_state, &self.uniform_buffer, camera);
             }
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);

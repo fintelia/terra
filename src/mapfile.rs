@@ -1,6 +1,6 @@
 use crate::asset::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
-use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
+use crate::cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::bmp::BmpEncoder;

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{mesh_cache::MeshType, terrain::tile_cache::LayerType};
+use crate::cache::{LayerType, MeshType};
 use vec_map::VecMap;
 
 #[repr(C)]

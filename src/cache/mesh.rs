@@ -1,8 +1,8 @@
 use crate::{
     generate::ComputeShader,
     gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
-    priority_cache::{Priority, PriorityCache, PriorityCacheEntry},
-    terrain::{quadtree::VNode, tile_cache::TileCache},
+    cache::{Priority, PriorityCache, PriorityCacheEntry, TileCache},
+    terrain::quadtree::VNode,
 };
 use cgmath::Vector3;
 use maplit::hashmap;

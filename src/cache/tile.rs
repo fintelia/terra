@@ -1,4 +1,8 @@
 use crate::{
+    cache::{self, Priority, PriorityCacheEntry},
+    terrain::quadtree::VNode,
+};
+use crate::{
     coordinates,
     stream::{TileResult, TileStreamerEndpoint},
 };
@@ -7,16 +11,12 @@ use crate::{
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use crate::{
-    priority_cache::{self, Priority, PriorityCacheEntry},
-    terrain::quadtree::VNode,
-};
+use cache::PriorityCache;
 use cgmath::Vector3;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
-use priority_cache::PriorityCache;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use std::ops::{Index, IndexMut};
@@ -501,10 +501,12 @@ impl TileCache {
                 if cfg!(feature = "small-trace") {
                     for y in 0..resolution_blocks {
                         for x in 0..resolution_blocks {
-                            if x % 16 == 0 && y % 16 == 0 { continue; }
+                            if x % 16 == 0 && y % 16 == 0 {
+                                continue;
+                            }
                             let src = ((x & !15) + (y & !15) * resolution_blocks) * bytes_per_block;
                             let dst = (x + y * resolution_blocks) * bytes_per_block;
-                            data.copy_within(src..src+bytes_per_block, dst);
+                            data.copy_within(src..src + bytes_per_block, dst);
                         }
                     }
                 }

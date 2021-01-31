@@ -1,17 +1,13 @@
+use crate::asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset};
+use crate::cache::{LayerParams, LayerType, TextureFormat};
+use crate::gpu_state::GpuState;
+use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::VNode;
+use crate::terrain::raster::GlobalRaster;
 use crate::terrain::raster::RasterCache;
-use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
-use crate::{
-    asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
-    gpu_state::GpuState,
-};
 use crate::{coordinates, Terrain};
-use crate::{
-    mapfile::{MapFile, TextureDescriptor},
-    terrain::raster::GlobalRaster,
-};
 use anyhow::Error;
 use bytemuck::Pod;
 use cgmath::Vector2;

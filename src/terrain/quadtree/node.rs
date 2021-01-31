@@ -1,5 +1,5 @@
 use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
-use crate::priority_cache::Priority;
+use crate::cache::Priority;
 use cgmath::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;

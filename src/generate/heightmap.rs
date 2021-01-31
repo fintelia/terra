@@ -2,7 +2,7 @@ use crate::coordinates;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
-use crate::terrain::tile_cache::{LayerParams, LayerType};
+use crate::cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
 use crossbeam::channel::{self, Receiver, Sender};
