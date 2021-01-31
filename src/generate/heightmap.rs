@@ -1,8 +1,8 @@
+use crate::cache::{LayerParams, LayerType};
 use crate::coordinates;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, RasterCache};
-use crate::cache::{LayerParams, LayerType};
 use anyhow::Error;
 use cgmath::Vector2;
 use crossbeam::channel::{self, Receiver, Sender};

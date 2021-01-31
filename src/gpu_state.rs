@@ -137,7 +137,7 @@ impl GpuState {
                         },
                         size: None,
                         offset: 0,
-                    }
+                    },
                 },
             });
         }

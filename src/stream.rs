@@ -1,7 +1,7 @@
+use crate::cache::LayerType;
 use crate::generate::heightmap::HeightmapCache;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
-use crate::cache::LayerType;
 use anyhow::Error;
 use futures::{FutureExt, StreamExt};
 use std::io::{Cursor, Read};

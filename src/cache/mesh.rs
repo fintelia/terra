@@ -1,19 +1,19 @@
 use crate::{
+    cache::{Priority, PriorityCache, PriorityCacheEntry, TileCache},
     generate::ComputeShader,
     gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
-    cache::{Priority, PriorityCache, PriorityCacheEntry, TileCache},
     terrain::quadtree::VNode,
 };
 use cgmath::Vector3;
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
-use wgpu::util::DeviceExt;
 use std::{collections::HashMap, convert::TryInto};
 use std::{
     mem,
     ops::{Index, IndexMut},
 };
 use vec_map::VecMap;
+use wgpu::util::DeviceExt;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub(crate) enum MeshType {
@@ -106,7 +106,9 @@ impl MeshCache {
     pub fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
         let indirect = device.create_buffer(&wgpu::BufferDescriptor {
             size: (mem::size_of::<DrawIndirect>() * self.inner.size()) as u64,
-            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::INDIRECT | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE
+                | wgpu::BufferUsage::INDIRECT
+                | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: true,
             label: Some("grass.indirect"),
         });
@@ -160,7 +162,7 @@ impl MeshCache {
             node.level() < self.desc.level
         });
         self.inner.insert(missing);
-        
+
         if self.desc.generate.refresh() {
             for entry in self.inner.slots_mut() {
                 entry.valid = false;
@@ -240,7 +242,7 @@ impl MeshCache {
                     })
                 ],
                 HashMap::new(),
-                "grass"
+                "grass",
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

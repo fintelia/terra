@@ -1,8 +1,8 @@
 mod mesh;
 mod tile;
 
-pub(crate) use tile::{TextureFormat, LayerType, LayerParams, TileCache};
-pub(crate) use mesh::{MeshType, MeshCache, MeshCacheDesc};
+pub(crate) use mesh::{MeshCache, MeshCacheDesc, MeshType};
+pub(crate) use tile::{LayerParams, LayerType, TextureFormat, TileCache};
 
 use serde::{Deserialize, Serialize};
 use std::cmp::{Eq, Ord, PartialOrd};

@@ -1,6 +1,6 @@
 use crate::asset::TERRA_DIRECTORY;
-use crate::terrain::quadtree::node::VNode;
 use crate::cache::{LayerParams, LayerType, TextureFormat};
+use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::bmp::BmpEncoder;
@@ -183,10 +183,12 @@ impl MapFile {
             let bytes_per_block = desc.format.bytes_per_block();
             for y in 0..height {
                 for x in 0..width {
-                    if x % 16 == 0 && y % 16 == 0 { continue; }
+                    if x % 16 == 0 && y % 16 == 0 {
+                        continue;
+                    }
                     let src = ((x & !15) + (y & !15) * width) * bytes_per_block;
                     let dst = (x + y * width) * bytes_per_block;
-                    data.copy_within(src..src+bytes_per_block, dst);
+                    data.copy_within(src..src + bytes_per_block, dst);
                 }
             }
         }
