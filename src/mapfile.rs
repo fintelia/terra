@@ -1,4 +1,4 @@
-use crate::cache::TERRA_DIRECTORY;
+use crate::asset::TERRA_DIRECTORY;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use anyhow::Error;

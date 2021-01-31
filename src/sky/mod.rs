@@ -1,4 +1,4 @@
-use crate::cache::AssetLoadContext;
+use crate::asset::AssetLoadContext;
 use crate::sky::lut::{LookupTable, LookupTableDefinition};
 use crate::sky::precompute::{InscatteringTable, TransmittanceTable};
 use anyhow::Error;

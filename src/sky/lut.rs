@@ -1,4 +1,4 @@
-use crate::cache::AssetLoadContext;
+use crate::asset::AssetLoadContext;
 use anyhow::Error;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};

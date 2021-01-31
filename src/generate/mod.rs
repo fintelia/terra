@@ -4,7 +4,7 @@ use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::RasterCache;
 use crate::terrain::tile_cache::{LayerParams, LayerType, TextureFormat};
 use crate::{
-    cache::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
+    asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
     gpu_state::GpuState,
 };
 use crate::{coordinates, Terrain};

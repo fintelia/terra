@@ -8,7 +8,7 @@ extern crate test;
 extern crate lazy_static;
 extern crate rshader;
 
-mod cache;
+mod asset;
 mod coordinates;
 mod generate;
 mod gpu_state;
