@@ -293,47 +293,39 @@ impl Terrain {
                 bind_group,
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
-                    vertex_stage: wgpu::ProgrammableStageDescriptor {
+                    vertex: wgpu::VertexState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
                             flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
+                        buffers: &[],
                     },
-                    fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                    fragment: Some(wgpu::FragmentState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
                             flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
+                        targets: &[wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                            color_blend: wgpu::BlendState::REPLACE,
+                            alpha_blend: wgpu::BlendState::REPLACE,
+                            write_mask: wgpu::ColorWrite::ALL,
+                        }],
                     }),
-                    rasterization_state: Some(wgpu::RasterizationStateDescriptor {
-                        front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: wgpu::CullMode::Front,
-                        ..Default::default()
-                    }),
-                    primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: &[wgpu::ColorStateDescriptor {
-                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                        color_blend: wgpu::BlendDescriptor::REPLACE,
-                        alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    }],
-                    depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                    primitive: Default::default(),
+                    depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
                         depth_compare: wgpu::CompareFunction::Greater,
+                        clamp_depth: false,
+                        bias: Default::default(),
                         stencil: Default::default(),
                     }),
-                    vertex_state: wgpu::VertexStateDescriptor {
-                        index_format: None,
-                        vertex_buffers: &[],
-                    },
-                    sample_count: 1,
-                    sample_mask: !0,
-                    alpha_to_coverage_enabled: false,
+                    multisample: Default::default(),
                     label: Some("pipeline.terrain"),
                 }),
             ));
@@ -364,43 +356,39 @@ impl Terrain {
                 bind_group,
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
-                    vertex_stage: wgpu::ProgrammableStageDescriptor {
+                    vertex: wgpu::VertexState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
                             flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
+                        buffers: &[],
                     },
-                    fragment_stage: Some(wgpu::ProgrammableStageDescriptor {
+                    fragment: Some(wgpu::FragmentState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
                             flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
+                        targets: &[wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                            color_blend: wgpu::BlendState::REPLACE,
+                            alpha_blend: wgpu::BlendState::REPLACE,
+                            write_mask: wgpu::ColorWrite::ALL,
+                        }]
                     }),
-                    rasterization_state: Some(wgpu::RasterizationStateDescriptor::default()),
-                    primitive_topology: wgpu::PrimitiveTopology::TriangleList,
-                    color_states: &[wgpu::ColorStateDescriptor {
-                        format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                        color_blend: wgpu::BlendDescriptor::REPLACE,
-                        alpha_blend: wgpu::BlendDescriptor::REPLACE,
-                        write_mask: wgpu::ColorWrite::ALL,
-                    }],
-                    depth_stencil_state: Some(wgpu::DepthStencilStateDescriptor {
+                    primitive: Default::default(),
+                    depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: false,
                         depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_write_enabled: false,
+                        clamp_depth: false,
+                        bias: Default::default(),
                         stencil: Default::default(),
                     }),
-                    vertex_state: wgpu::VertexStateDescriptor {
-                        index_format: None,
-                        vertex_buffers: &[],
-                    },
-                    sample_count: 1,
-                    sample_mask: !0,
-                    alpha_to_coverage_enabled: false,
+                    multisample: Default::default(),
                     label: Some("pipeline.sky"),
                 }),
             ));

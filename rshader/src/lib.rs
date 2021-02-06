@@ -56,7 +56,7 @@ pub(crate) struct ShaderSetInner {
     pub fragment: Option<Vec<u32>>,
     pub compute: Option<Vec<u32>>,
 
-    pub input_attributes: Vec<wgpu::VertexAttributeDescriptor>,
+    pub input_attributes: Vec<wgpu::VertexAttribute>,
     pub layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
     pub desc_names: Vec<Option<String>>,
     pub digest: Vec<u8>,
@@ -195,7 +195,7 @@ impl ShaderSet {
     pub fn desc_names(&self) -> &[Option<String>] {
         &self.inner.desc_names[..]
     }
-    pub fn input_attributes(&self) -> &[wgpu::VertexAttributeDescriptor] {
+    pub fn input_attributes(&self) -> &[wgpu::VertexAttribute] {
         &self.inner.input_attributes[..]
     }
 
@@ -271,7 +271,7 @@ fn create_compute_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
 fn reflect(
     stages: &[&[u32]],
 ) -> Result<
-    (Vec<wgpu::VertexAttributeDescriptor>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
+    (Vec<wgpu::VertexAttribute>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
     anyhow::Error,
 > {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
@@ -320,7 +320,7 @@ fn reflect(
                     _ => return Err(anyhow!("Unsupported attribute type")),
                 };
 
-                attributes.push(wgpu::VertexAttributeDescriptor {
+                attributes.push(wgpu::VertexAttribute {
                     offset: attribute_offset,
                     format,
                     shader_location,

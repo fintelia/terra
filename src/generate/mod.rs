@@ -187,14 +187,12 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, u32) -> T> GenerateTil
                         push_constant_ranges: &[],
                         label: None,
                     })),
-                    compute_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: None,
-                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
-                        }),
-                        entry_point: "main".into(),
-                    },
+                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        label: None,
+                        source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                        flags: wgpu::ShaderFlags::VALIDATION,
+                    }),
+                    entry_point: "main",
                     label: Some(&format!("pipeline.generate.{}", self.name)),
                 }));
         }

@@ -119,14 +119,12 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         push_constant_ranges: &[],
                         label: None,
                     })),
-                    compute_stage: wgpu::ProgrammableStageDescriptor {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: None,
-                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
-                        }),
-                        entry_point: "main".into(),
-                    },
+                    module:&device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        label: None,
+                        source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                        flags: wgpu::ShaderFlags::VALIDATION,
+                    }),
+                    entry_point: "main",
                     label: None,
                 }),
             ));
