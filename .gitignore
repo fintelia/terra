@@ -9,3 +9,5 @@ Cargo.lock
 
 # Ignore Emacs backup files
 *~
+
+.vscode
