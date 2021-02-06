@@ -1,13 +1,78 @@
 mod mesh;
 mod tile;
 
-pub(crate) use mesh::{MeshCache, MeshCacheDesc, MeshType};
-pub(crate) use tile::{LayerParams, LayerType, TextureFormat, TileCache};
+pub(crate) use mesh::{MeshCache, MeshCacheDesc};
+pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use serde::{Deserialize, Serialize};
 use std::cmp::{Eq, Ord, PartialOrd};
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::ops::{Index, IndexMut};
+use vec_map::VecMap;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum LayerType {
+    Displacements = 0,
+    Albedo = 1,
+    Roughness = 2,
+    Normals = 3,
+    Heightmaps = 4,
+}
+impl LayerType {
+    pub fn index(&self) -> usize {
+        *self as usize
+    }
+    pub fn from_index(i: usize) -> Self {
+        match i {
+            0 => LayerType::Displacements,
+            1 => LayerType::Albedo,
+            2 => LayerType::Roughness,
+            3 => LayerType::Normals,
+            4 => LayerType::Heightmaps,
+            _ => unreachable!(),
+        }
+    }
+    pub fn bit_mask(&self) -> u32 {
+        1 << self.index() as u32
+    }
+    pub fn name(&self) -> &'static str {
+        match *self {
+            LayerType::Displacements => "displacements",
+            LayerType::Albedo => "albedo",
+            LayerType::Roughness => "roughness",
+            LayerType::Normals => "normals",
+            LayerType::Heightmaps => "heightmaps",
+        }
+    }
+}
+impl<T> Index<LayerType> for VecMap<T> {
+    type Output = T;
+    fn index(&self, i: LayerType) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+impl<T> IndexMut<LayerType> for VecMap<T> {
+    fn index_mut(&mut self, i: LayerType) -> &mut Self::Output {
+        &mut self[i as usize]
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum MeshType {
+    Grass = 0,
+}
+impl<T> Index<MeshType> for VecMap<T> {
+    type Output = T;
+    fn index(&self, i: MeshType) -> &Self::Output {
+        &self[i as usize]
+    }
+}
+impl<T> IndexMut<MeshType> for VecMap<T> {
+    fn index_mut(&mut self, i: MeshType) -> &mut Self::Output {
+        &mut self[i as usize]
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Priority(f32);

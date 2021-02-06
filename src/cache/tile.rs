@@ -11,7 +11,7 @@ use crate::{
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use cache::PriorityCache;
+use cache::{PriorityCache, LayerType};
 use cgmath::Vector3;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
@@ -19,7 +19,6 @@ use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
-use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 use vec_map::VecMap;
 
@@ -87,53 +86,6 @@ impl TextureFormat {
             | TextureFormat::RGBA32F
             | TextureFormat::SRGBA => false,
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum LayerType {
-    Displacements = 0,
-    Albedo = 1,
-    Roughness = 2,
-    Normals = 3,
-    Heightmaps = 4,
-}
-impl LayerType {
-    pub fn index(&self) -> usize {
-        *self as usize
-    }
-    pub fn from_index(i: usize) -> Self {
-        match i {
-            0 => LayerType::Displacements,
-            1 => LayerType::Albedo,
-            2 => LayerType::Roughness,
-            3 => LayerType::Normals,
-            4 => LayerType::Heightmaps,
-            _ => unreachable!(),
-        }
-    }
-    pub fn bit_mask(&self) -> u32 {
-        1 << self.index() as u32
-    }
-    pub fn name(&self) -> &'static str {
-        match *self {
-            LayerType::Displacements => "displacements",
-            LayerType::Albedo => "albedo",
-            LayerType::Roughness => "roughness",
-            LayerType::Normals => "normals",
-            LayerType::Heightmaps => "heightmaps",
-        }
-    }
-}
-impl<T> Index<LayerType> for VecMap<T> {
-    type Output = T;
-    fn index(&self, i: LayerType) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-impl<T> IndexMut<LayerType> for VecMap<T> {
-    fn index_mut(&mut self, i: LayerType) -> &mut Self::Output {
-        &mut self[i as usize]
     }
 }
 

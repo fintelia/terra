@@ -1,35 +1,14 @@
 use crate::{
-    cache::{Priority, PriorityCache, PriorityCacheEntry, TileCache},
+    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry, TileCache},
     generate::ComputeShader,
     gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::VNode,
 };
 use cgmath::Vector3;
 use maplit::hashmap;
-use serde::{Deserialize, Serialize};
+use std::mem;
 use std::{collections::HashMap, convert::TryInto};
-use std::{
-    mem,
-    ops::{Index, IndexMut},
-};
-use vec_map::VecMap;
 use wgpu::util::DeviceExt;
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) enum MeshType {
-    Grass = 0,
-}
-impl<T> Index<MeshType> for VecMap<T> {
-    type Output = T;
-    fn index(&self, i: MeshType) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-impl<T> IndexMut<MeshType> for VecMap<T> {
-    fn index_mut(&mut self, i: MeshType) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
 
 struct Entry {
     priority: Priority,
