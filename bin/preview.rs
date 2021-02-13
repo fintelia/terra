@@ -206,7 +206,9 @@ fn main() {
                 } => match keycode {
                     event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
                     event::VirtualKeyCode::Space => altitude += 0.1 * altitude,
-                    event::VirtualKeyCode::Semicolon => altitude -= 0.1 * altitude,
+                    event::VirtualKeyCode::Z | event::VirtualKeyCode::Semicolon => {
+                        altitude -= 0.1 * altitude
+                    }
                     event::VirtualKeyCode::Left => {
                         lat += -angle.sin() * -(0.0000001 * altitude).min(0.01);
                         long += angle.cos() * -(0.0000001 * altitude).min(0.01);
