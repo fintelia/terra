@@ -114,13 +114,13 @@ enum CpuHeightmap {
     F32(Arc<Vec<f32>>),
 }
 
-struct Entry {
+pub(super) struct Entry {
     /// How imporant this entry is for the current frame.
     priority: Priority,
     /// The node this entry is for.
     node: VNode,
     /// bitmask of whether the tile for each layer is valid.
-    valid: u32,
+    pub(super) valid: u32,
     /// bitmask of whether the tile for each layer was generated.
     generated: u32,
     /// bitmask of whether the tile for each layer is currently being streamed.
@@ -128,7 +128,7 @@ struct Entry {
     /// A CPU copy of the heightmap tile, useful for collision detection and such.
     heightmap: Option<CpuHeightmap>,
     /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
-    generators: VecMap<NonZeroU32>,
+    pub(super) generators: VecMap<NonZeroU32>,
 }
 impl Entry {
     fn new(node: VNode, priority: Priority) -> Self {
@@ -154,14 +154,11 @@ impl PriorityCacheEntry for Entry {
 }
 
 pub(crate) struct TileCache {
-    inner: PriorityCache<Entry>,
-
-    /// Resolution of each tile in this cache.
-    layers: VecMap<LayerParams>,
+    pub(super) inner: PriorityCache<Entry>,
+    pub(super) layers: VecMap<LayerParams>,
+    pub(super) generators: Vec<Box<dyn GenerateTile>>,
 
     streamer: TileStreamerEndpoint,
-    generators: Vec<Box<dyn GenerateTile>>,
-
     pending_heightmap_downloads:
         FuturesUnordered<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
 }
@@ -185,8 +182,6 @@ impl TileCache {
         camera: mint::Point3<f64>,
     ) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
-
-        self.refresh_tile_generators();
 
         // Update priorities
         for entry in self.inner.slots_mut() {
@@ -213,22 +208,6 @@ impl TileCache {
         self.upload_tiles(queue, &gpu_state.tile_cache);
         self.generate_tiles(mapfile, device, &queue, &gpu_state);
         self.download_tiles();
-    }
-
-    fn refresh_tile_generators(&mut self) {
-        for (i, gen) in self.generators.iter_mut().enumerate() {
-            if gen.needs_refresh() {
-                assert!(i < 32);
-                let mask = 1u32 << i;
-                for slot in self.inner.slots_mut() {
-                    for (layer, generator_mask) in &slot.generators {
-                        if (generator_mask.get() & mask) != 0 {
-                            slot.valid &= !(1 << layer);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     fn generate_tiles(
@@ -518,7 +497,7 @@ impl TileCache {
         }
     }
 
-    pub fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+    pub(super) fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
         self.layers
             .iter()
             .map(|(ty, layer)| {
@@ -563,18 +542,14 @@ impl TileCache {
         self.inner.index_of(&node)
     }
 
-    pub fn resolution(&self, ty: LayerType) -> u32 {
+    fn resolution(&self, ty: LayerType) -> u32 {
         self.layers[ty].texture_resolution
     }
-    pub fn resolution_blocks(&self, ty: LayerType) -> u32 {
+    fn resolution_blocks(&self, ty: LayerType) -> u32 {
         let resolution = self.layers[ty].texture_resolution;
         let block_size = self.layers[ty].texture_format.block_size();
         assert_eq!(resolution % block_size, 0);
         resolution / block_size
-    }
-
-    pub fn border(&self, ty: LayerType) -> u32 {
-        self.layers[ty].texture_border_size
     }
 
     pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {

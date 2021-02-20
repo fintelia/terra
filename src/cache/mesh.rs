@@ -10,10 +10,10 @@ use std::mem;
 use std::{collections::HashMap, convert::TryInto};
 use wgpu::util::DeviceExt;
 
-struct Entry {
+pub(super) struct Entry {
     priority: Priority,
     node: VNode,
-    valid: bool,
+    pub(super) valid: bool,
 }
 impl Entry {
     fn new(node: VNode, priority: Priority) -> Self {
@@ -62,24 +62,25 @@ pub(crate) struct MeshCacheDesc {
     pub dependency_mask: u32,
     pub level: u8,
     pub ty: MeshType,
+    pub size: usize,
 }
 
 pub(crate) struct MeshCache {
-    inner: PriorityCache<Entry>,
-    desc: MeshCacheDesc,
+    pub(super) inner: PriorityCache<Entry>,
+    pub(super) desc: MeshCacheDesc,
 
     uniforms: wgpu::Buffer,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
 impl MeshCache {
-    pub fn new(device: &wgpu::Device, size: usize, desc: MeshCacheDesc) -> Self {
+    pub fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (mem::size_of::<MeshNodeState>() * size) as u64,
+            size: (mem::size_of::<MeshNodeState>() * desc.size) as u64,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
             label: Some("grass.uniforms"),
         });
-        Self { inner: PriorityCache::new(size), desc, uniforms, bindgroup_pipeline: None }
+        Self { inner: PriorityCache::new(desc.size), desc, uniforms, bindgroup_pipeline: None }
     }
 
     pub fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
@@ -141,12 +142,6 @@ impl MeshCache {
             node.level() < self.desc.level
         });
         self.inner.insert(missing);
-
-        if self.desc.generate.refresh() {
-            for entry in self.inner.slots_mut() {
-                entry.valid = false;
-            }
-        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("grass.command_encoder"),

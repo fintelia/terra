@@ -20,12 +20,13 @@ mod stream;
 mod terrain;
 mod utils;
 
-use crate::cache::{LayerType, MeshCache, MeshCacheDesc, MeshType, TileCache};
+use crate::cache::{LayerType,  MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use anyhow::Error;
+use cache::UnifiedPriorityCache;
 use generate::ComputeShader;
 use gpu_state::GpuState;
 use maplit::hashmap;
@@ -33,7 +34,6 @@ use std::mem;
 use std::sync::Arc;
 use std::{collections::HashMap, convert::TryInto};
 use terrain::quadtree::QuadTree;
-use vec_map::VecMap;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
 
@@ -71,22 +71,49 @@ pub struct Terrain {
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
-    tile_cache: TileCache,
-    mesh_caches: VecMap<MeshCache>,
+
+    cache: UnifiedPriorityCache,
 }
 impl Terrain {
     /// Create a new Terrain object.
     pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue) -> Result<Self, Error> {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
-        let tile_cache = TileCache::new(
+        let cache = UnifiedPriorityCache::new(
+            device,
             Arc::clone(&mapfile),
+            512,
             crate::generate::generators(
                 mapfile.layers(),
                 !device.features().contains(wgpu::Features::SHADER_FLOAT64),
             ),
-            512,
+            vec![MeshCacheDesc {
+                size: 32,
+                ty: MeshType::Grass,
+                max_bytes_per_entry: 128 * 128 * 32,
+                dimensions: 128 / 8,
+                dependency_mask: LayerType::Displacements.bit_mask()
+                    | LayerType::Albedo.bit_mask()
+                    | LayerType::Normals.bit_mask(),
+                level: VNode::LEVEL_CELL_2CM,
+                generate: ComputeShader::new(
+                    device,
+                    rshader::ShaderSet::compute_only(rshader::shader_source!(
+                        "shaders",
+                        "version",
+                        "hash",
+                        "gen-grass.comp"
+                    ))
+                    .unwrap(),
+                ),
+                render: rshader::ShaderSet::simple(
+                    rshader::shader_source!("shaders", "version", "grass.vert"),
+                    rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
+                )
+                .unwrap(),
+            }]
+
         );
-        let quadtree = QuadTree::new(tile_cache.resolution(LayerType::Displacements) - 1);
+        let quadtree = QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "version", "a.vert"),
@@ -138,42 +165,6 @@ impl Terrain {
             label: Some("texture.staging.bc5"),
         });
 
-        let mut mesh_caches = VecMap::new();
-        mesh_caches.insert(
-            MeshType::Grass as usize,
-            MeshCache::new(
-                device,
-                32,
-                MeshCacheDesc {
-                    ty: MeshType::Grass,
-                    max_bytes_per_entry: 128 * 128 * 32,
-                    dimensions: 128 / 8,
-                    dependency_mask: LayerType::Displacements.bit_mask()
-                        | LayerType::Albedo.bit_mask()
-                        | LayerType::Normals.bit_mask(),
-                    level: VNode::LEVEL_CELL_2CM,
-                    generate: ComputeShader::new(
-                        device,
-                        rshader::ShaderSet::compute_only(rshader::shader_source!(
-                            "shaders",
-                            "version",
-                            "hash",
-                            "gen-grass.comp"
-                        ))
-                        .unwrap(),
-                    ),
-                    render: rshader::ShaderSet::simple(
-                        rshader::shader_source!("shaders", "version", "grass.vert"),
-                        rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
-                    )
-                    .unwrap(),
-                },
-            ),
-        );
-
-        let gpu_mesh_caches =
-            mesh_caches.iter().map(|(i, c)| (i, c.make_buffers(device))).collect();
-
         let gpu_state = GpuState {
             noise,
             sky,
@@ -181,8 +172,8 @@ impl Terrain {
             inscattering,
             bc4_staging,
             bc5_staging,
-            tile_cache: tile_cache.make_cache_textures(device),
-            mesh_cache: gpu_mesh_caches,
+            tile_cache: cache.make_gpu_tile_cache(device),
+            mesh_cache: cache.make_gpu_mesh_cache(device),
         };
 
         let sky_shader = rshader::ShaderSet::simple(
@@ -212,16 +203,15 @@ impl Terrain {
             gpu_state,
             quadtree,
             mapfile,
-            tile_cache,
-            mesh_caches,
+            cache,
         })
     }
 
     fn loading_complete(&self) -> bool {
         VNode::roots().iter().copied().all(|root| {
-            self.tile_cache.contains(root, LayerType::Heightmaps)
-                && self.tile_cache.contains(root, LayerType::Albedo)
-                && self.tile_cache.contains(root, LayerType::Roughness)
+            self.cache.tiles.contains(root, LayerType::Heightmaps)
+                && self.cache.tiles.contains(root, LayerType::Albedo)
+                && self.cache.tiles.contains(root, LayerType::Roughness)
         })
     }
 
@@ -238,7 +228,7 @@ impl Terrain {
         camera: mint::Point3<f64>,
     ) -> bool {
         if !self.loading_complete() {
-            self.tile_cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
+            self.cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
             self.loading_complete()
         } else {
             true
@@ -396,17 +386,13 @@ impl Terrain {
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
-        self.tile_cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
+        self.cache.update(device, queue, &self.gpu_state, &self.mapfile, camera);
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        for (_, c) in &mut self.mesh_caches {
-            c.update(device, queue, &self.tile_cache, &self.gpu_state, camera);
-        }
-
-        self.quadtree.update_visibility(&self.tile_cache, camera);
-        self.quadtree.prepare_vertex_buffer(queue, &mut self.node_buffer, &self.tile_cache, camera);
+        self.quadtree.update_visibility(&self.cache.tiles, camera);
+        self.quadtree.prepare_vertex_buffer(queue, &mut self.node_buffer, &self.cache, camera);
 
         queue.write_buffer(
             &self.uniform_buffer,
@@ -458,7 +444,7 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            for (_, c) in &mut self.mesh_caches {
+            for (_, c) in &mut self.cache.meshes {
                 c.render(device, &queue, &mut rpass, &self.gpu_state, &self.uniform_buffer, camera);
             }
 
@@ -472,7 +458,7 @@ impl Terrain {
 
     pub fn get_height(&self, latitude: f64, longitude: f64) -> f32 {
         for level in (0..=VNode::LEVEL_CELL_1M).rev() {
-            if let Some(height) = self.tile_cache.get_height(latitude, longitude, level) {
+            if let Some(height) = self.cache.tiles.get_height(latitude, longitude, level) {
                 return height;
             }
         }

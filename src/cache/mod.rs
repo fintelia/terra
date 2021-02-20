@@ -5,11 +5,16 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use serde::{Deserialize, Serialize};
-use std::cmp::{Eq, Ord, PartialOrd};
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
+use std::{
+    cmp::{Eq, Ord, PartialOrd},
+    sync::Arc,
+};
 use vec_map::VecMap;
+
+use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -71,6 +76,21 @@ impl<T> Index<MeshType> for VecMap<T> {
 impl<T> IndexMut<MeshType> for VecMap<T> {
     fn index_mut(&mut self, i: MeshType) -> &mut Self::Output {
         &mut self[i as usize]
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+struct LayerMask(u32);
+impl From<LayerType> for LayerMask {
+    fn from(t: LayerType) -> Self {
+        assert!((t as usize) < 8);
+        Self(1 << (t as usize))
+    }
+}
+impl From<MeshType> for LayerMask {
+    fn from(t: MeshType) -> Self {
+        assert!((t as usize) < 8);
+        Self(1 << (t as usize + 8))
     }
 }
 
@@ -183,5 +203,75 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
 
     pub fn index_of(&self, key: &T::Key) -> Option<usize> {
         self.reverse.get(key).copied()
+    }
+}
+
+pub(crate) struct UnifiedPriorityCache {
+    pub tiles: TileCache,
+    pub meshes: VecMap<MeshCache>,
+}
+
+impl UnifiedPriorityCache {
+    pub fn new(
+        device: &wgpu::Device,
+        mapfile: Arc<MapFile>,
+        size: usize,
+        generators: Vec<Box<dyn GenerateTile>>,
+        mesh_layers: Vec<MeshCacheDesc>,
+    ) -> Self {
+        Self {
+            tiles: TileCache::new(mapfile, generators, size),
+            meshes: mesh_layers
+                .into_iter()
+                .map(|desc| (desc.ty as usize, MeshCache::new(device, desc)))
+                .collect(),
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        mapfile: &MapFile,
+        camera: mint::Point3<f64>,
+    ) {
+        for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
+            if gen.needs_refresh() {
+                assert!(i < 32);
+                let mask = 1u32 << i;
+                for slot in self.tiles.inner.slots_mut() {
+                    for (layer, generator_mask) in &slot.generators {
+                        if (generator_mask.get() & mask) != 0 {
+                            slot.valid &= !(1 << layer);
+                        }
+                    }
+                }
+            }
+        }
+
+        for mesh_cache in self.meshes.values_mut() {
+            if mesh_cache.desc.generate.refresh() {
+                for entry in mesh_cache.inner.slots_mut() {
+                    entry.valid = false;
+                }
+            }
+        }
+
+        self.tiles.update(device, queue, gpu_state, mapfile, camera);
+        for m in self.meshes.values_mut() {
+            m.update(device, queue, &self.tiles, gpu_state, camera);
+        }
+    }
+
+    pub fn make_gpu_tile_cache(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+        self.tiles.make_cache_textures(device)
+    }
+    pub fn make_gpu_mesh_cache(&self, device: &wgpu::Device) -> VecMap<GpuMeshLayer> {
+        self.meshes.iter().map(|(i, c)| (i, c.make_buffers(device))).collect()
+    }
+
+    pub fn tile_desc(&self, ty: LayerType) -> &LayerParams {
+        &self.tiles.layers[ty]
     }
 }
