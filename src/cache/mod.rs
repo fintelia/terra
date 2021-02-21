@@ -5,7 +5,7 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU32};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
 use std::{
@@ -14,7 +14,7 @@ use std::{
 };
 use vec_map::VecMap;
 
-use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile};
+use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile, terrain::quadtree::VNode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -38,8 +38,8 @@ impl LayerType {
             _ => unreachable!(),
         }
     }
-    pub fn bit_mask(&self) -> u32 {
-        1 << self.index() as u32
+    pub fn bit_mask(&self) -> LayerMask {
+        (*self).into()
     }
     pub fn name(&self) -> &'static str {
         match *self {
@@ -49,6 +49,9 @@ impl LayerType {
             LayerType::Normals => "normals",
             LayerType::Heightmaps => "heightmaps",
         }
+    }
+    fn iter() -> impl Iterator<Item=Self> {
+        (0..=4).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {
@@ -67,6 +70,23 @@ impl<T> IndexMut<LayerType> for VecMap<T> {
 pub(crate) enum MeshType {
     Grass = 0,
 }
+impl MeshType {
+    pub fn name(&self) -> &'static str {
+        match *self {
+            MeshType::Grass => "grass",
+        }
+    }
+
+    fn from_index(i: usize) -> Self {
+        match i {
+            0 => MeshType::Grass,
+            _ => unreachable!(),
+        }
+    }
+    fn iter() -> impl Iterator<Item=Self> {
+        (0..=0).map(Self::from_index)
+    }
+}
 impl<T> Index<MeshType> for VecMap<T> {
     type Output = T;
     fn index(&self, i: MeshType) -> &Self::Output {
@@ -80,17 +100,104 @@ impl<T> IndexMut<MeshType> for VecMap<T> {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-struct LayerMask(u32);
+pub(crate) struct LayerMask(NonZeroU32);
+impl LayerMask {
+    const VALID: u32 = 0x80000000;
+
+    pub fn empty() -> Self {
+        Self(NonZeroU32::new(Self::VALID).unwrap())
+    }
+    pub fn intersects(&self, other: Self) -> bool {
+        self.0.get() & other.0.get() != Self::VALID
+    }
+    pub fn contains_layer(&self, t: LayerType) -> bool {
+        assert!((t as usize) < 8);
+        self.0.get() & (1 << (t as usize)) != 0
+    }
+}
 impl From<LayerType> for LayerMask {
     fn from(t: LayerType) -> Self {
         assert!((t as usize) < 8);
-        Self(1 << (t as usize))
+        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize))).unwrap())
     }
 }
 impl From<MeshType> for LayerMask {
     fn from(t: MeshType) -> Self {
         assert!((t as usize) < 8);
-        Self(1 << (t as usize + 8))
+        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 8))).unwrap())
+    }
+}
+impl std::ops::BitOr for LayerMask {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl std::ops::BitOrAssign for LayerMask {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+impl std::ops::BitAnd for LayerMask {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self {
+        Self(NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap())
+    }
+}
+impl std::ops::BitAndAssign for LayerMask {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 = NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap();
+    }
+}
+impl std::ops::Not for LayerMask {
+    type Output = Self;
+    fn not(self) -> Self {
+        Self(NonZeroU32::new(Self::VALID | !self.0.get()).unwrap())
+    }
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub(crate) struct GeneratorMask(NonZeroU32);
+impl GeneratorMask {
+    const VALID: u32 = 0x80000000;
+
+    pub fn empty() -> Self {
+        Self(NonZeroU32::new(Self::VALID).unwrap())
+    }
+    pub fn from_index(i: usize) -> Self {
+        assert!(i < 31);
+        Self(NonZeroU32::new(Self::VALID | 1 << i).unwrap())
+    }
+    pub fn intersects(&self, other: Self) -> bool {
+        self.0.get() & other.0.get() != Self::VALID
+    }
+}
+impl std::ops::BitOr for GeneratorMask {
+    type Output = Self;
+    fn bitor(self, rhs: Self) -> Self {
+        Self(self.0 | rhs.0)
+    }
+}
+impl std::ops::BitOrAssign for GeneratorMask {
+    fn bitor_assign(&mut self, rhs: Self) {
+        self.0 |= rhs.0;
+    }
+}
+impl std::ops::BitAnd for GeneratorMask {
+    type Output = Self;
+    fn bitand(self, rhs: Self) -> Self {
+        Self(NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap())
+    }
+}
+impl std::ops::BitAndAssign for GeneratorMask {
+    fn bitand_assign(&mut self, rhs: Self) {
+        self.0 = NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap();
+    }
+}
+impl std::ops::Not for GeneratorMask {
+    type Output = Self;
+    fn not(self) -> Self {
+        Self(NonZeroU32::new(Self::VALID | !self.0.get()).unwrap())
     }
 }
 
@@ -239,11 +346,18 @@ impl UnifiedPriorityCache {
         for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
                 assert!(i < 32);
-                let mask = 1u32 << i;
+                let mask = GeneratorMask::from_index(i);
                 for slot in self.tiles.inner.slots_mut() {
                     for (layer, generator_mask) in &slot.generators {
-                        if (generator_mask.get() & mask) != 0 {
-                            slot.valid &= !(1 << layer);
+                        if generator_mask.intersects(mask) {
+                            slot.valid &= !LayerType::from_index(layer).bit_mask();
+                        }
+                    }
+                }
+                for m in self.meshes.values_mut() {
+                    for slot in m.inner.slots_mut() {
+                        if slot.generators.intersects(mask) {
+                            slot.valid = false;
                         }
                     }
                 }
@@ -258,10 +372,26 @@ impl UnifiedPriorityCache {
             }
         }
 
-        self.tiles.update(device, queue, gpu_state, mapfile, camera);
+        self.tiles.update(camera);
+        self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
+        TileCache::generate_tiles(self, mapfile, device, &queue, &gpu_state);
+        self.tiles.download_tiles();
+
         for m in self.meshes.values_mut() {
-            m.update(device, queue, &self.tiles, gpu_state, camera);
+            m.update(camera);
         }
+        MeshCache::generate_all(self, device, queue,  gpu_state);
+    }
+
+    fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
+        let mut generators = GeneratorMask::empty();
+
+        if let Some(entry) = self.tiles.inner.entry(&node) {
+            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
+                generators |= entry.generators.get(layer.index()).copied().unwrap_or_else(GeneratorMask::empty);
+            }
+        }
+        generators
     }
 
     pub fn make_gpu_tile_cache(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {

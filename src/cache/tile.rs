@@ -11,16 +11,17 @@ use crate::{
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use cache::{PriorityCache, LayerType};
+use cache::{LayerType, PriorityCache};
 use cgmath::Vector3;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::num::NonZeroU32;
 use std::sync::Arc;
 use vec_map::VecMap;
+
+use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
@@ -120,24 +121,24 @@ pub(super) struct Entry {
     /// The node this entry is for.
     node: VNode,
     /// bitmask of whether the tile for each layer is valid.
-    pub(super) valid: u32,
+    pub(super) valid: LayerMask,
     /// bitmask of whether the tile for each layer was generated.
-    generated: u32,
+    generated: LayerMask,
     /// bitmask of whether the tile for each layer is currently being streamed.
-    streaming: u32,
+    streaming: LayerMask,
     /// A CPU copy of the heightmap tile, useful for collision detection and such.
     heightmap: Option<CpuHeightmap>,
     /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
-    pub(super) generators: VecMap<NonZeroU32>,
+    pub(super) generators: VecMap<GeneratorMask>,
 }
 impl Entry {
     fn new(node: VNode, priority: Priority) -> Self {
         Self {
             node,
             priority,
-            valid: 0,
-            generated: 0,
-            streaming: 0,
+            valid: LayerMask::empty(),
+            generated: LayerMask::empty(),
+            streaming: LayerMask::empty(),
             heightmap: None,
             generators: VecMap::new(),
         }
@@ -173,14 +174,7 @@ impl TileCache {
         }
     }
 
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        gpu_state: &GpuState,
-        mapfile: &MapFile,
-        camera: mint::Point3<f64>,
-    ) {
+    pub(super) fn update(&mut self, camera: mint::Point3<f64>) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         // Update priorities
@@ -204,14 +198,10 @@ impl TileCache {
             node.level() < VNode::LEVEL_CELL_2CM
         });
         self.inner.insert(missing);
-
-        self.upload_tiles(queue, &gpu_state.tile_cache);
-        self.generate_tiles(mapfile, device, &queue, &gpu_state);
-        self.download_tiles();
     }
 
-    fn generate_tiles(
-        &mut self,
+    pub(super) fn generate_tiles(
+        cache: &mut UnifiedPriorityCache,
         mapfile: &MapFile,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -220,14 +210,14 @@ impl TileCache {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = VecMap::new();
 
-        for layer in self.layers.values() {
+        for layer in cache.tiles.layers.values() {
             let ty = layer.layer_type;
 
             // Figure out which entries need to be uploaded
             let pending_generate = pending_generate.entry(ty.index()).or_insert(Vec::new());
 
-            for ref mut entry in self.inner.slots_mut() {
-                if (entry.valid | entry.streaming) & ty.bit_mask() != 0 {
+            for ref mut entry in cache.tiles.inner.slots_mut() {
+                if (entry.valid | entry.streaming).intersects(ty.bit_mask()) {
                     continue;
                 }
 
@@ -237,17 +227,17 @@ impl TileCache {
                         pending_generate.push(entry.node);
                     }
                     TileState::MissingBase | TileState::Base => {
-                        if self.streamer.num_inflight() < 128 {
+                        if cache.tiles.streamer.num_inflight() < 128 {
                             entry.streaming |= ty.bit_mask();
                             entry.generated &= !ty.bit_mask();
-                            self.streamer.request_tile(entry.node, ty);
+                            cache.tiles.streamer.request_tile(entry.node, ty);
                         }
                     }
                     TileState::Generated => {
-                        if self.streamer.num_inflight() < 128 {
+                        if cache.tiles.streamer.num_inflight() < 128 {
                             entry.streaming |= ty.bit_mask();
                             entry.generated |= ty.bit_mask();
-                            self.streamer.request_tile(entry.node, ty);
+                            cache.tiles.streamer.request_tile(entry.node, ty);
                         }
                     }
                     TileState::Missing => {
@@ -268,80 +258,80 @@ impl TileCache {
         });
 
         for (i, nodes) in &mut pending_generate {
+            let layer = LayerType::from_index(i);
             for n in nodes {
-                let entry = self.inner.entry(&n).unwrap();
+                let entry = cache.tiles.inner.entry(&n).unwrap();
                 let parent_entry =
-                    if let Some(p) = n.parent() { self.inner.entry(&p.0) } else { None };
+                    if let Some(p) = n.parent() { cache.tiles.inner.entry(&p.0) } else { None };
 
-                if entry.valid & (1 << i) != 0 {
+                if entry.valid.contains_layer(layer) {
                     continue;
                 }
 
-                for (generator_index, generator) in self.generators.iter_mut().enumerate() {
+                for (generator_index, generator) in cache.tiles.generators.iter_mut().enumerate() {
                     let outputs = generator.outputs(n.level());
 
                     let peer_inputs = generator.peer_inputs(n.level());
                     let parent_inputs = generator.parent_inputs(n.level());
 
-                    let generates_layer = outputs & (1 << i) != 0;
-                    let has_peer_inputs = peer_inputs & !entry.valid == 0;
-                    let root_input_missing = n.level() == 0 && generator.parent_inputs(0) != 0;
+                    let generates_layer = outputs.contains_layer(layer);
+                    let has_peer_inputs = peer_inputs & !entry.valid == LayerMask::empty();
+                    let root_input_missing =
+                        n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
                     let parent_input_missing = n.level() > 0
                         && (parent_entry.is_none()
-                            || parent_inputs & !parent_entry.as_ref().unwrap().valid != 0);
+                            || parent_inputs & !parent_entry.as_ref().unwrap().valid
+                                != LayerMask::empty());
 
                     if generates_layer
                         && has_peer_inputs
                         && !root_input_missing
                         && !parent_input_missing
                     {
-                        let slot = self.inner.index_of(&n).unwrap();
-                        let parent_slot =
-                            if let Some(p) = n.parent() { self.inner.index_of(&p.0) } else { None };
+                        let slot = cache.tiles.inner.index_of(&n).unwrap();
+                        let parent_slot = if let Some(p) = n.parent() {
+                            cache.tiles.inner.index_of(&p.0)
+                        } else {
+                            None
+                        };
 
                         let output_mask = !entry.valid & generator.outputs(n.level());
                         generator.generate(
                             device,
                             &mut encoder,
                             gpu_state,
-                            &self.layers,
+                            &cache.tiles.layers,
                             *n,
                             slot,
                             parent_slot,
                             output_mask,
                         );
 
-                        let mut input_generators = 1 << generator_index;
-                        for j in (0..32).filter(|j| peer_inputs & (1 << j) != 0) {
+                        let mut input_generators = GeneratorMask::from_index(generator_index);
+                        input_generators |= cache.generator_dependencies(*n, peer_inputs);
+                        if parent_entry.is_some() {
                             input_generators |=
-                                entry.generators.get(j).copied().map(NonZeroU32::get).unwrap_or(0);
-                        }
-                        for j in (0..32).filter(|j| parent_inputs & (1 << j) != 0) {
-                            input_generators |= parent_entry
-                                .as_ref()
-                                .unwrap()
-                                .generators
-                                .get(j)
-                                .copied()
-                                .map(NonZeroU32::get)
-                                .unwrap_or(0);
+                                cache.generator_dependencies(n.parent().unwrap().0, parent_inputs);
                         }
 
-                        let entry = self.inner.entry_mut(&n).unwrap();
+                        let entry = cache.tiles.inner.entry_mut(&n).unwrap();
                         entry.valid |= output_mask;
                         entry.generated |= output_mask;
-                        for j in (0..32).filter(|j| output_mask & (1 << j) != 0) {
-                            entry.generators.insert(j, NonZeroU32::new(input_generators).unwrap());
+                        for layer in
+                            LayerType::iter().filter(|&layer| output_mask.contains_layer(layer))
+                        {
+                            entry.generators.insert(layer.index(), input_generators);
                         }
 
-                        if output_mask & LayerType::Heightmaps.bit_mask() != 0
+                        if output_mask.contains_layer(LayerType::Heightmaps)
                             && n.level() <= VNode::LEVEL_CELL_1M
                         {
-                            let bytes_per_pixel =
-                                self.layers[LayerType::Heightmaps].texture_format.bytes_per_block()
-                                    as u64;
+                            let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
+                                .texture_format
+                                .bytes_per_block()
+                                as u64;
                             let resolution =
-                                self.layers[LayerType::Heightmaps].texture_resolution as u64;
+                                cache.tiles.layers[LayerType::Heightmaps].texture_resolution as u64;
                             let row_bytes = resolution * bytes_per_pixel;
                             let row_pitch = (row_bytes + 255) & !255;
 
@@ -383,7 +373,7 @@ impl TileCache {
         queue.submit(Some(encoder.finish()));
 
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
-            self.pending_heightmap_downloads.push(
+            cache.tiles.pending_heightmap_downloads.push(
                 buffer
                     .slice(..)
                     .map_async(wgpu::MapMode::Read)
@@ -398,7 +388,7 @@ impl TileCache {
         }
     }
 
-    fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<wgpu::Texture>) {
+    pub(super) fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<wgpu::Texture>) {
         while let Some(mut tile) = self.streamer.try_complete() {
             if let Some(entry) = self.inner.entry_mut(&tile.node()) {
                 entry.valid |= tile.layer().bit_mask();
@@ -464,7 +454,7 @@ impl TileCache {
         }
     }
 
-    pub(crate) fn download_tiles(&mut self) {
+    pub(super) fn download_tiles(&mut self) {
         loop {
             futures::select! {
                 h = self.pending_heightmap_downloads.select_next_some() => {
@@ -529,9 +519,9 @@ impl TileCache {
     }
 
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
-        self.inner.entry(&node).map(|entry| (entry.valid & ty.bit_mask()) != 0).unwrap_or(false)
+        self.inner.entry(&node).map(|entry| entry.valid.contains_layer(ty)).unwrap_or(false)
     }
-    pub fn contains_all(&self, node: VNode, layer_mask: u32) -> bool {
+    pub fn contains_all(&self, node: VNode, layer_mask: LayerMask) -> bool {
         self.inner
             .entry(&node)
             .map(|entry| (entry.valid & layer_mask) == layer_mask)

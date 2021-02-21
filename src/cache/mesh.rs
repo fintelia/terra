@@ -1,5 +1,5 @@
 use crate::{
-    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry, TileCache},
+    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
     generate::ComputeShader,
     gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::VNode,
@@ -10,14 +10,17 @@ use std::mem;
 use std::{collections::HashMap, convert::TryInto};
 use wgpu::util::DeviceExt;
 
+use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
+
 pub(super) struct Entry {
     priority: Priority,
     node: VNode,
     pub(super) valid: bool,
+    pub(super) generators: GeneratorMask,
 }
 impl Entry {
     fn new(node: VNode, priority: Priority) -> Self {
-        Self { node, priority, valid: false }
+        Self { node, priority, valid: false, generators: GeneratorMask::empty() }
     }
 }
 impl PriorityCacheEntry for Entry {
@@ -59,7 +62,7 @@ pub(crate) struct MeshCacheDesc {
     pub generate: ComputeShader<MeshGenerateUniforms>,
     pub render: rshader::ShaderSet,
     pub dimensions: u32,
-    pub dependency_mask: u32,
+    pub dependency_mask: LayerMask,
     pub level: u8,
     pub ty: MeshType,
     pub size: usize,
@@ -73,7 +76,7 @@ pub(crate) struct MeshCache {
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
 impl MeshCache {
-    pub fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
+    pub(super) fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             size: (mem::size_of::<MeshNodeState>() * desc.size) as u64,
             usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
@@ -83,7 +86,7 @@ impl MeshCache {
         Self { inner: PriorityCache::new(desc.size), desc, uniforms, bindgroup_pipeline: None }
     }
 
-    pub fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
+    pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
         let indirect = device.create_buffer(&wgpu::BufferDescriptor {
             size: (mem::size_of::<DrawIndirect>() * self.inner.size()) as u64,
             usage: wgpu::BufferUsage::STORAGE
@@ -108,14 +111,7 @@ impl MeshCache {
         }
     }
 
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        tile_cache: &TileCache,
-        gpu_state: &GpuState,
-        camera: mint::Point3<f64>,
-    ) {
+    pub(super) fn update(&mut self, camera: mint::Point3<f64>) {
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         // Update priorities
@@ -142,49 +138,70 @@ impl MeshCache {
             node.level() < self.desc.level
         });
         self.inner.insert(missing);
+    }
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("grass.command_encoder"),
-        });
+    pub(super) fn generate_all(
+        cache: &mut UnifiedPriorityCache,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+    ) {
+        let mut generated = Vec::new();
+        let mut command_buffers = Vec::new();
+        for mesh_type in MeshType::iter() {
+            let m = &mut cache.meshes[mesh_type];
 
-        let mut zero_buffer = None;
-        for (index, entry) in self.inner.slots_mut().into_iter().enumerate() {
-            if entry.valid || entry.priority < Priority::cutoff() {
-                continue;
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some(&format!("{}.command_encoder", mesh_type.name())),
+            });
+
+            let mut zero_buffer = None;
+            for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
+                if entry.valid || entry.priority < Priority::cutoff() {
+                    continue;
+                }
+                if !cache.tiles.contains_all(entry.node, m.desc.dependency_mask) {
+                    continue;
+                }
+
+                if zero_buffer.is_none() {
+                    zero_buffer =
+                        Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            usage: wgpu::BufferUsage::COPY_SRC,
+                            label: Some(&format!("{}.clear_indirect.tmp", mesh_type.name())),
+                            contents: &vec![0; mem::size_of::<DrawIndirect>()],
+                        }));
+                }
+
+                encoder.copy_buffer_to_buffer(
+                    zero_buffer.as_ref().unwrap(),
+                    0,
+                    &gpu_state.mesh_cache[m.desc.ty].indirect,
+                    (mem::size_of::<DrawIndirect>() * index) as u64,
+                    mem::size_of::<DrawIndirect>() as u64,
+                );
+
+                m.desc.generate.run(
+                    device,
+                    &mut encoder,
+                    gpu_state,
+                    (m.desc.dimensions, m.desc.dimensions, 1),
+                    &MeshGenerateUniforms {
+                        input_slot: cache.tiles.get_slot(entry.node).unwrap() as u32,
+                        output_slot: index as u32,
+                    },
+                );
+                entry.valid = true;
+                generated.push((mesh_type, entry.node));
             }
-            if !tile_cache.contains_all(entry.node, self.desc.dependency_mask) {
-                continue;
-            }
-
-            if zero_buffer.is_none() {
-                zero_buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    usage: wgpu::BufferUsage::COPY_SRC,
-                    label: Some("grass.clear_indirect.tmp"),
-                    contents: &vec![0; mem::size_of::<DrawIndirect>()],
-                }));
-            }
-
-            encoder.copy_buffer_to_buffer(
-                zero_buffer.as_ref().unwrap(),
-                0,
-                &gpu_state.mesh_cache[self.desc.ty].indirect,
-                (mem::size_of::<DrawIndirect>() * index) as u64,
-                mem::size_of::<DrawIndirect>() as u64,
-            );
-
-            self.desc.generate.run(
-                device,
-                &mut encoder,
-                gpu_state,
-                (self.desc.dimensions, self.desc.dimensions, 1),
-                &MeshGenerateUniforms {
-                    input_slot: tile_cache.get_slot(entry.node).unwrap() as u32,
-                    output_slot: index as u32,
-                },
-            );
-            entry.valid = true;
+            command_buffers.push(encoder.finish());
         }
-        queue.submit(Some(encoder.finish()));
+        for (mesh_type, node) in generated {
+            cache.meshes[mesh_type].inner.entry_mut(&node).unwrap().generators =
+                cache.generator_dependencies(node, cache.meshes[mesh_type].desc.dependency_mask);
+        }
+
+        queue.submit(command_buffers);
     }
 
     pub fn render<'a>(
