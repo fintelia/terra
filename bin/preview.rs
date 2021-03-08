@@ -247,14 +247,17 @@ fn main() {
                 }
                 #[cfg(feature = "smaa")]
                 if smaa_target.is_none() {
-                    smaa_target = Some(smaa::SmaaTarget::new(
-                        &device,
-                        &queue,
-                        size.width,
-                        size.height,
-                        wgpu::TextureFormat::Bgra8UnormSrgb,
-                        wgpu::TextureFormat::Bgra8UnormSrgb,
-                    ).unwrap());
+                    smaa_target = Some(
+                        smaa::SmaaTarget::new(
+                            &device,
+                            &queue,
+                            size.width,
+                            size.height,
+                            wgpu::TextureFormat::Bgra8UnormSrgb,
+                            wgpu::TextureFormat::Bgra8UnormSrgb,
+                        )
+                        .unwrap(),
+                    );
                 }
 
                 let frame = swap_chain.as_ref().unwrap().get_current_frame();
@@ -326,7 +329,8 @@ fn main() {
                 };
 
                 #[cfg(feature = "smaa")]
-                let color_buffer = &smaa_target.as_ref().unwrap().color_target().create_view(&Default::default());               
+                let color_buffer =
+                    &smaa_target.as_ref().unwrap().color_target().create_view(&Default::default());
                 #[cfg(not(feature = "smaa"))]
                 let color_buffer = frame;
 

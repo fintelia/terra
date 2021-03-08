@@ -20,13 +20,13 @@ mod stream;
 mod terrain;
 mod utils;
 
-use crate::cache::{LayerType,  MeshCacheDesc, MeshType};
+use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use anyhow::Error;
-use cache::UnifiedPriorityCache;
+use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriorityCache};
 use generate::ComputeShader;
 use gpu_state::GpuState;
 use maplit::hashmap;
@@ -95,25 +95,35 @@ impl Terrain {
                     | LayerType::Albedo.bit_mask()
                     | LayerType::Normals.bit_mask(),
                 level: VNode::LEVEL_CELL_2CM,
-                generate: ComputeShader::new(
-                    device,
-                    rshader::ShaderSet::compute_only(rshader::shader_source!(
-                        "shaders",
-                        "version",
-                        "hash",
-                        "gen-grass.comp"
-                    ))
-                    .unwrap(),
-                ),
+                generate: ComputeShader::new(rshader::shader_source!(
+                    "shaders",
+                    "version",
+                    "hash",
+                    "gen-grass.comp"
+                )),
                 render: rshader::ShaderSet::simple(
                     rshader::shader_source!("shaders", "version", "grass.vert"),
                     rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
                 )
                 .unwrap(),
-            }]
-
+            }],
+            vec![SingularLayerDesc {
+                generate: ComputeShader::new(rshader::shader_source!(
+                    "shaders",
+                    "version",
+                    "hash",
+                    "gen-grass-canopy.comp"
+                )),
+                cache_size: 32,
+                dependency_mask: LayerType::Normals.bit_mask(),
+                level: VNode::LEVEL_CELL_1M,
+                ty: SingularLayerType::GrassCanopy,
+                texture_resolution: 516,
+                texture_format: TextureFormat::RGBA8,
+            }],
         );
-        let quadtree = QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
+        let quadtree =
+            QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "version", "a.vert"),
@@ -174,6 +184,7 @@ impl Terrain {
             bc5_staging,
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_cache: cache.make_gpu_mesh_cache(device),
+            texture_cache: cache.make_gpu_texture_cache(device),
         };
 
         let sky_shader = rshader::ShaderSet::simple(
@@ -367,7 +378,7 @@ impl Terrain {
                             color_blend: wgpu::BlendState::REPLACE,
                             alpha_blend: wgpu::BlendState::REPLACE,
                             write_mask: wgpu::ColorWrite::ALL,
-                        }]
+                        }],
                     }),
                     primitive: Default::default(),
                     depth_stencil: Some(wgpu::DepthStencilState {
@@ -444,9 +455,14 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            for (_, c) in &mut self.cache.meshes {
-                c.render(device, &queue, &mut rpass, &self.gpu_state, &self.uniform_buffer, camera);
-            }
+            self.cache.render_meshes(
+                device,
+                &queue,
+                &mut rpass,
+                &self.gpu_state,
+                &self.uniform_buffer,
+                camera,
+            );
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);

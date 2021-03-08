@@ -49,11 +49,11 @@ void main() {
 	vec3 bitangent = normalize(cross(up, tangents[node.face]));
 	vec3 tangent = normalize(cross(up, bitangent));
 
-	float morph = 1 - smoothstep(0.9, .91, length(position) / node.min_distance);
+	float morph = 1 - smoothstep(0.5, .99, length(position) / node.min_distance);
 
     vec3 offset;
     float width = 0.01;
-    float height = 0.10;
+    float height = 0.05;
 
     if (gl_VertexIndex % 6 == 0) offset = bitangent * width;
     if (gl_VertexIndex % 6 == 1) offset = -bitangent * width;

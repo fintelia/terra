@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::cache::{LayerType, MeshType};
+use crate::cache::{LayerType, MeshType, SingularLayerType};
 use vec_map::VecMap;
 
 #[repr(C)]
@@ -24,6 +24,7 @@ pub(crate) struct GpuState {
 
     pub tile_cache: VecMap<wgpu::Texture>,
     pub mesh_cache: VecMap<GpuMeshLayer>,
+    pub texture_cache: VecMap<wgpu::Texture>,
 
     pub bc4_staging: wgpu::Texture,
     pub bc5_staging: wgpu::Texture,
@@ -58,6 +59,7 @@ impl GpuState {
                                 "roughness" => &self.tile_cache[LayerType::Roughness],
                                 "normals" => &self.tile_cache[LayerType::Normals],
                                 "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
+                                "grass_canopy" => &self.texture_cache[SingularLayerType::GrassCanopy],
                                 "bc4_staging" => &self.bc4_staging,
                                 "bc5_staging" => &self.bc5_staging,
                                 _ => unreachable!("unrecognized image: {}", name),

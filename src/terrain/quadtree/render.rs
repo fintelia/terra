@@ -1,5 +1,5 @@
 use super::*;
-use crate::cache::{LayerType, UnifiedPriorityCache};
+use crate::cache::{CacheLookup, LayerType, SingularLayerType, UnifiedPriorityCache};
 use std::mem;
 
 #[derive(Copy, Clone)]
@@ -9,6 +9,7 @@ pub(crate) struct NodeState {
     albedo_desc: [[f32; 4]; 2],
     roughness_desc: [[f32; 4]; 2],
     normals_desc: [[f32; 4]; 2],
+    grass_canopy_desc: [f32; 4],
     resolution: u32,
     face: u32,
     level: u32,
@@ -16,7 +17,7 @@ pub(crate) struct NodeState {
     relative_position: [f32; 3],
     min_distance: f32,
     parent_relative_position: [f32; 3],
-    _padding1: [u32; 5 * 4 + 1],
+    _padding1: [u32; 17],
     // side_length: f32,
     // padding0: f32,
     // padding1: u32,
@@ -72,6 +73,20 @@ impl QuadTree {
         }
     }
 
+    fn lookup_to_desc(
+        lookup: CacheLookup,
+        texture_origin: Vector2<f32>,
+        base_origin: Vector2<f32>,
+        texture_ratio: f32,
+        texture_step: f32,
+    ) -> [f32; 4] {
+        let scale = (0.5f32).powi(lookup.levels as i32);
+        let offset = Vector2::new(lookup.offset.x as f32, lookup.offset.y as f32);
+        let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
+
+        [offset.x, offset.y, lookup.slot as f32, scale * texture_step]
+    }
+
     pub fn prepare_vertex_buffer(
         &mut self,
         queue: &wgpu::Queue,
@@ -83,8 +98,10 @@ impl QuadTree {
             cache.tile_desc(LayerType::Albedo).texture_resolution,
             cache.tile_desc(LayerType::Normals).texture_resolution
         );
-        assert_eq!(cache.tile_desc(LayerType::Albedo).texture_border_size,
-            cache.tile_desc(LayerType::Normals).texture_border_size);
+        assert_eq!(
+            cache.tile_desc(LayerType::Albedo).texture_border_size,
+            cache.tile_desc(LayerType::Normals).texture_border_size
+        );
 
         let resolution = cache.tile_desc(LayerType::Displacements).texture_resolution - 1;
         let texture_resolution = cache.tile_desc(LayerType::Normals).texture_resolution;
@@ -136,14 +153,22 @@ impl QuadTree {
                 texture_step,
             )
             .0;
+            let grass_canopy_desc = cache.lookup_texture(SingularLayerType::GrassCanopy, node).map(|lookup| Self::lookup_to_desc(
+                lookup,
+                Vector2::new(texture_origin, texture_origin),
+                Vector2::new(0.0, 0.0),
+                texture_ratio,
+                texture_step,
+            )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
             self.node_states.push(NodeState {
                 _padding0: 0,
-                _padding1: [0; 21],
+                _padding1: [0; 17],
                 min_distance: node.min_distance() as f32,
                 displacements_desc,
                 albedo_desc,
                 roughness_desc,
                 normals_desc,
+                grass_canopy_desc,
                 resolution,
                 face: node.face() as u32,
                 level: node.level() as u32,
@@ -205,15 +230,23 @@ impl QuadTree {
                         texture_step,
                     )
                     .0;
+                    let grass_canopy_desc = cache.lookup_texture(SingularLayerType::GrassCanopy, node).map(|lookup| Self::lookup_to_desc(
+                        lookup,
+                        Vector2::new(texture_origin, texture_origin),
+                        base_origin,
+                        texture_ratio,
+                        texture_step,
+                    )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
                     self.node_states.push(NodeState {
                         _padding0: 0,
-                        _padding1: [0; 21],
+                        _padding1: [0; 17],
                         // side_length: node.side_length() * 0.5,
                         min_distance: node.min_distance() as f32,
                         displacements_desc,
                         albedo_desc,
                         roughness_desc,
                         normals_desc,
+                        grass_canopy_desc,
                         resolution: resolution / 2,
                         face: node.face() as u32,
                         level: node.level() as u32,

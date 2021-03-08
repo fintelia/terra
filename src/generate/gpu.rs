@@ -63,21 +63,16 @@ unsafe impl bytemuck::Pod for GenMaterialsUniforms {}
 pub(crate) struct ComputeShader<U> {
     shader: rshader::ShaderSet,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,
-    uniforms: wgpu::Buffer,
+    uniforms: Option<wgpu::Buffer>,
     _phantom: std::marker::PhantomData<U>,
 }
 #[allow(unused)]
 impl<U: bytemuck::Pod> ComputeShader<U> {
-    pub fn new(device: &wgpu::Device, shader: rshader::ShaderSet) -> Self {
+    pub fn new(shader: rshader::ShaderSource) -> Self {
         Self {
-            shader,
+            shader: rshader::ShaderSet::compute_only(shader).unwrap(),
             bindgroup_pipeline: None,
-            uniforms: device.create_buffer(&wgpu::BufferDescriptor {
-                size: mem::size_of::<U>() as u64,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-                mapped_at_creation: false,
-                label: None,
-            }),
+            uniforms: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -99,12 +94,20 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         dimensions: (u32, u32, u32),
         uniforms: &U,
     ) {
+        if self.uniforms.is_none() {
+            self.uniforms = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                size: mem::size_of::<U>() as u64,
+                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+                mapped_at_creation: false,
+                label: None,
+            }));
+        }
         if self.bindgroup_pipeline.is_none() {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
                 hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
-                    buffer: &self.uniforms,
+                    buffer: self.uniforms.as_ref().unwrap(),
                     offset: 0,
                     size: None,
                 })],
@@ -141,7 +144,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         drop(buffer_view);
         staging.unmap();
 
-        encoder.copy_buffer_to_buffer(&staging, 0, &self.uniforms, 0, mem::size_of::<U>() as u64);
+        encoder.copy_buffer_to_buffer(&staging, 0, self.uniforms.as_ref().unwrap(), 0, mem::size_of::<U>() as u64);
 
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);

@@ -17,6 +17,8 @@ layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	LayerDesc albedo;
 	LayerDesc roughness;
 	LayerDesc normals;
+	vec3 grass_canopy_origin;
+	float grass_canopy_step;
 	uint resolution;
 	uint face;
 	uint level;
