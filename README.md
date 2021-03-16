@@ -32,6 +32,12 @@ its processing using wgpu's compute shader support.
 
 # Getting Started
 
+Install dependencies:
+
+```bash
+$ sudo apt-get install libegl-dev libudev-dev
+```
+
 Running should be as simple as:
 
 ```bash
