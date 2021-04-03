@@ -254,7 +254,7 @@ impl Terrain {
     pub fn render(
         &mut self,
         device: &wgpu::Device,
-        queue: &mut wgpu::Queue,
+        queue: &wgpu::Queue,
         color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
         _frame_size: (u32, u32),

@@ -117,7 +117,14 @@ fn main() {
     let mut depth_buffer = None;
 
     #[cfg(feature = "smaa")]
-    let mut smaa_target = None;
+    let mut smaa_target = smaa::SmaaTarget::new(
+        &device,
+        &queue,
+        size.width,
+        size.height,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        smaa::SmaaMode::Smaa1X,
+    );
 
     let mut gilrs = Gilrs::new().unwrap();
     let mut current_gamepad = None;
@@ -231,10 +238,9 @@ fn main() {
                     size = new_size;
                     swap_chain = None;
                     depth_buffer = None;
+
                     #[cfg(feature = "smaa")]
-                    {
-                        smaa_target = None;
-                    }
+                    smaa_target.resize(&device, new_size.width, new_size.height);
                 }
                 _ => {}
             },
@@ -245,26 +251,15 @@ fn main() {
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
                 }
-                #[cfg(feature = "smaa")]
-                if smaa_target.is_none() {
-                    smaa_target = Some(
-                        smaa::SmaaTarget::new(
-                            &device,
-                            &queue,
-                            size.width,
-                            size.height,
-                            wgpu::TextureFormat::Bgra8UnormSrgb,
-                            wgpu::TextureFormat::Bgra8UnormSrgb,
-                        )
-                        .unwrap(),
-                    );
-                }
 
                 let frame = swap_chain.as_ref().unwrap().get_current_frame();
                 let frame = match frame {
                     Ok(ref f) => &f.output.view,
                     Err(_) => return,
                 };
+
+                #[cfg(feature = "smaa")]
+                let frame = smaa_target.start_frame(&device, &queue, frame);
 
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
@@ -328,24 +323,15 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                #[cfg(feature = "smaa")]
-                let color_buffer =
-                    &smaa_target.as_ref().unwrap().color_target().create_view(&Default::default());
-                #[cfg(not(feature = "smaa"))]
-                let color_buffer = frame;
-
                 terrain.render(
                     &device,
-                    &mut queue,
-                    color_buffer,
+                    &queue,
+                    &*frame,
                     depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
                 );
-
-                #[cfg(feature = "smaa")]
-                smaa_target.as_mut().unwrap().resolve(&device, &queue, &frame);
 
                 if !set_visible {
                     window.set_visible(true);
