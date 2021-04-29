@@ -317,7 +317,10 @@ impl Terrain {
                             write_mask: wgpu::ColorWrite::ALL,
                         }],
                     }),
-                    primitive: Default::default(),
+                    primitive: wgpu::PrimitiveState {
+                        cull_mode: wgpu::CullMode::Front,
+                        ..Default::default()
+                    },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
