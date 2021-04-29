@@ -296,8 +296,8 @@ void main() {
 	vec2 p = rsi(x0, r, atmosphereRadius);
 	if (p.x < p.y && p.y >= 0) {
 		x0 += r * max(p.x, 0.0);
-		out_color.rgb *= precomputed_transmittance2(x1, x0);
-		out_color.rgb += atmosphere(x0, x1,	sunDirection);
+	//	out_color.rgb *= precomputed_transmittance2(x1, x0);
+	//	out_color.rgb += atmosphere(x0, x1,	sunDirection);
 	}
 
 	float ev100 = 15.0;

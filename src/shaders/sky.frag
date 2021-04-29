@@ -24,6 +24,7 @@ vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
 vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
 
 void main() {
+	discard;
 	vec4 r0 = view_proj_inv * vec4(position.xy, 1, 1);
 	vec4 r1 = view_proj_inv * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
