@@ -32,12 +32,12 @@ layout(set = 0, binding = 1, std140) uniform NodeBlock {
 } node;
 
 layout(set = 0, binding = 2) uniform sampler linear;
-layout(set = 0, binding = 3) uniform texture2DArray heights;
+//layout(set = 0, binding = 3) uniform texture2DArray heights;
 layout(set = 0, binding = 4) uniform texture2DArray normals;
 layout(set = 0, binding = 5) uniform texture2DArray albedo;
 layout(set = 0, binding = 6) uniform texture2DArray roughness;
-layout(set = 0, binding = 7) uniform texture2D transmittance;
-layout(set = 0, binding = 8) uniform texture3D inscattering;
+layout(rgba32f, set = 0, binding = 7) readonly uniform image2D transmittance;
+//layout(set = 0, binding = 8) uniform texture3D inscattering;
 layout(set = 0, binding = 10) uniform texture2DArray grass_canopy;
 
 layout(location = 0) in vec3 position;
@@ -254,29 +254,30 @@ void main() {
 
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
-	if (normals_parent_texcoord.z >= 0) {
-		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear),
-										 normals_parent_texcoord).xy);
+	if (node.normals.parent_origin.z >= 0) {
+		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear), normals_parent_texcoord).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
 	vec3 albedo_value = texture(sampler2DArray(albedo, linear), albedo_texcoord).rgb;
-	if (albedo_parent_texcoord.z >= 0) {
+	if (node.albedo.parent_origin.z >= 0) {
 		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), albedo_parent_texcoord).rgb;
 		albedo_value = mix(parent_albedo, albedo_value, morph);
 	}
 
 	float roughness_value = texture(sampler2DArray(roughness, linear), roughness_texcoord).r;
-	if (roughness_parent_texcoord.z >= 0) {
+	if (node.roughness.parent_origin.z >= 0) {
 		float parent_roughness = texture(sampler2DArray(roughness, linear), roughness_parent_texcoord).r;
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 
-	if (node.grass_canopy_origin.z >= 0 && length(position) < 512*2) {
+	if (node.grass_canopy_origin.z >= 0) {
 		vec4 canopy = texture(sampler2DArray(grass_canopy, linear), node.grass_canopy_origin + vec3(texcoord * node.grass_canopy_step, 0));
 		canopy.a *= smoothstep(512*2, 512*1, length(position));
-		albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.05, canopy.a);
+		if (length(position) < 512*2) {
+			albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.05, canopy.a);
+		}
 	}
 
 	vec3 sunDirection = normalize(vec3(0.4, .7, 0.2));

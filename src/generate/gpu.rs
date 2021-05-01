@@ -64,15 +64,17 @@ pub(crate) struct ComputeShader<U> {
     shader: rshader::ShaderSet,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,
     uniforms: Option<wgpu::Buffer>,
+    name: String,
     _phantom: std::marker::PhantomData<U>,
 }
 #[allow(unused)]
 impl<U: bytemuck::Pod> ComputeShader<U> {
-    pub fn new(shader: rshader::ShaderSource) -> Self {
+    pub fn new(shader: rshader::ShaderSource, name: String) -> Self {
         Self {
             shader: rshader::ShaderSet::compute_only(shader).unwrap(),
             bindgroup_pipeline: None,
             uniforms: None,
+            name,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -99,20 +101,20 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                 size: mem::size_of::<U>() as u64,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
                 mapped_at_creation: false,
-                label: None,
+                label: Some(&format!("buffer.{}.uniforms", self.name)),
             }));
         }
         if self.bindgroup_pipeline.is_none() {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
+                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: self.uniforms.as_ref().unwrap(),
                     offset: 0,
                     size: None,
-                })],
+                }))],
                 HashMap::new(),
-                "<unnamed-compute-shader>",
+                &format!("bindgroup.{}", self.name),
             );
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -120,15 +122,15 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                         bind_group_layouts: [&bind_group_layout][..].into(),
                         push_constant_ranges: &[],
-                        label: None,
+                        label: Some(&format!("pipeline.{}.layout", self.name)),
                     })),
                     module:&device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                        label: None,
+                        label: Some(&format!("shader.{}", self.name)),
                         source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                        flags: wgpu::ShaderFlags::VALIDATION,
+                        flags: wgpu::ShaderFlags::empty(),
                     }),
                     entry_point: "main",
-                    label: None,
+                    label: Some(&format!("pipeline.{}", self.name)),
                 }),
             ));
         }
@@ -136,7 +138,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<U>() as u64,
             usage: wgpu::BufferUsage::COPY_SRC,
-            label: Some("buffer.temporary.upload"),
+            label: Some(&format!("buffer.temporary.{}.upload", self.name)),
             mapped_at_creation: true,
         });
         let mut buffer_view = staging.slice(..).get_mapped_range_mut();

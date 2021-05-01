@@ -61,11 +61,12 @@ thiserror = "1.0.22"
 tiff = "=0.5.0"
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = "0.7.0"
+wgpu = "0.8.0"
 winit = "0.24.0"
 zip = "0.5.9"
 
-smaa = { version = "0.2.2", optional = true }
+smaa = { version = "0.3.0", optional = true }
+env_logger = "0.8.3"
 
 [dev-dependencies]
 approx = "0.4.0"

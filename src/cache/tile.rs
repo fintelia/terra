@@ -18,7 +18,7 @@ use futures::future::FutureExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
@@ -342,23 +342,23 @@ impl TileCache {
                                 mapped_at_creation: false,
                             });
                             encoder.copy_texture_to_buffer(
-                                wgpu::TextureCopyView {
+                                wgpu::ImageCopyTexture {
                                     texture: &gpu_state.tile_cache[LayerType::Heightmaps],
                                     mip_level: 0,
                                     origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                                 },
-                                wgpu::BufferCopyView {
+                                wgpu::ImageCopyBuffer {
                                     buffer: &buffer,
-                                    layout: wgpu::TextureDataLayout {
+                                    layout: wgpu::ImageDataLayout {
                                         offset: 0,
-                                        bytes_per_row: row_pitch as u32,
-                                        rows_per_image: 0,
+                                        bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
+                                        rows_per_image: None,
                                     },
                                 },
                                 wgpu::Extent3d {
                                     width: resolution as u32,
                                     height: resolution as u32,
-                                    depth: 1,
+                                    depth_or_array_layers: 1,
                                 },
                             );
 
@@ -433,21 +433,21 @@ impl TileCache {
                 }
 
                 queue.write_texture(
-                    wgpu::TextureCopyView {
+                    wgpu::ImageCopyTexture {
                         texture: &textures[layer],
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
                     },
                     &*data,
-                    wgpu::TextureDataLayout {
+                    wgpu::ImageDataLayout {
                         offset: 0,
-                        bytes_per_row: row_bytes as u32,
-                        rows_per_image: 0,
+                        bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
+                        rows_per_image: None,
                     },
                     wgpu::Extent3d {
                         width: resolution as u32,
                         height: resolution as u32,
-                        depth: 1,
+                        depth_or_array_layers: 1,
                     },
                 );
             }
@@ -497,7 +497,7 @@ impl TileCache {
                         size: wgpu::Extent3d {
                             width: layer.texture_resolution,
                             height: layer.texture_resolution,
-                            depth: self.inner.size() as u32,
+                            depth_or_array_layers: self.inner.size() as u32,
                         },
                         format: layer.texture_format.to_wgpu(),
                         mip_level_count: 1,

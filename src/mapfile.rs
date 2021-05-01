@@ -5,7 +5,7 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::{fs, num::NonZeroU32};
 use std::io::Write;
 use std::path::PathBuf;
 use tokio::io::AsyncReadExt;
@@ -149,7 +149,7 @@ impl MapFile {
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: desc.width, height: desc.height, depth: desc.depth },
+            size: wgpu::Extent3d { width: desc.width, height: desc.height, depth_or_array_layers: desc.depth },
             format: desc.format.to_wgpu(),
             mip_level_count: 1,
             sample_count: 1,
@@ -194,21 +194,21 @@ impl MapFile {
         }
 
         queue.write_texture(
-            wgpu::TextureCopyView {
+            wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
             },
             &data,
-            wgpu::TextureDataLayout {
+            wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: row_bytes as u32,
-                rows_per_image: height as u32 / desc.depth,
+                bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
+                rows_per_image: Some(NonZeroU32::new(height as u32 / desc.depth).unwrap()),
             },
             wgpu::Extent3d {
                 width: width as u32,
                 height: height as u32 / desc.depth,
-                depth: desc.depth,
+                depth_or_array_layers: desc.depth,
             },
         );
 

@@ -69,6 +69,7 @@ pub(crate) trait GenerateTile {
 
 struct ShaderGen<T, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> {
     shader: rshader::ShaderSet,
+    shader_validation: bool,
     pipeline: Option<wgpu::ComputePipeline>,
     dimensions: u32,
     peer_inputs: LayerMask,
@@ -170,11 +171,11 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
         let (bind_group, bind_group_layout) = state.bind_group_for_shader(
             device,
             &self.shader,
-            hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
+            hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                 buffer: &uniform_buffer,
                 offset: 0,
                 size: None,
-            })],
+            }))],
             image_views,
             &format!("generate.{}", self.name),
         );
@@ -188,9 +189,13 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
                         label: None,
                     })),
                     module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                        label: None,
+                        label: Some(&format!("shader.generate.{}", self.name)),
                         source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                        flags: wgpu::ShaderFlags::VALIDATION,
+                        flags: if self.shader_validation {
+                            wgpu::ShaderFlags::VALIDATION
+                        } else {
+                            wgpu::ShaderFlags::empty()
+                        }
                     }),
                     entry_point: "main",
                     label: Some(&format!("pipeline.generate.{}", self.name)),
@@ -217,36 +222,36 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
                 label: Some("buffer.blit.bc5"),
             });
             encoder.copy_texture_to_buffer(
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     texture: &state.bc5_staging,
                     mip_level: 0,
                     origin: wgpu::Origin3d::default(),
                 },
-                wgpu::BufferCopyView {
+                wgpu::ImageCopyBuffer {
                     buffer: &buffer,
-                    layout: wgpu::TextureDataLayout {
-                        bytes_per_row: row_pitch,
-                        rows_per_image: 0,
+                    layout: wgpu::ImageDataLayout {
+                        bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
+                        rows_per_image: None,
                         offset: 0,
                     },
                 },
-                wgpu::Extent3d { width: resolution_blocks, height: resolution_blocks, depth: 1 },
+                wgpu::Extent3d { width: resolution_blocks, height: resolution_blocks, depth_or_array_layers: 1 },
             );
             encoder.copy_buffer_to_texture(
-                wgpu::BufferCopyView {
+                wgpu::ImageCopyBuffer {
                     buffer: &buffer,
-                    layout: wgpu::TextureDataLayout {
-                        bytes_per_row: row_pitch,
-                        rows_per_image: resolution,
+                    layout: wgpu::ImageDataLayout {
+                        bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
+                        rows_per_image: Some(NonZeroU32::new(resolution).unwrap()),
                         offset: 0,
                     },
                 },
-                wgpu::TextureCopyView {
+                wgpu::ImageCopyTexture {
                     texture: &state.tile_cache[LayerType::Normals],
                     mip_level: 0,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                 },
-                wgpu::Extent3d { width: resolution, height: resolution, depth: 1 },
+                wgpu::Extent3d { width: resolution, height: resolution, depth_or_array_layers: 1 },
             );
         }
     }
@@ -262,6 +267,7 @@ struct ShaderGenBuilder {
     root_outputs: Option<LayerMask>,
     root_peer_inputs: Option<LayerMask>,
     blit_from_bc5_staging: Option<LayerType>,
+    shader_validation: bool,
 }
 impl ShaderGenBuilder {
     fn new(name: String, shader: rshader::ShaderSource) -> Self {
@@ -275,6 +281,7 @@ impl ShaderGenBuilder {
             root_outputs: None,
             root_peer_inputs: None,
             blit_from_bc5_staging: None,
+            shader_validation: true,
         }
     }
     fn dimensions(mut self, dimensions: u32) -> Self {
@@ -305,12 +312,17 @@ impl ShaderGenBuilder {
         self.blit_from_bc5_staging = Some(layer);
         self
     }
+    fn no_validate(mut self) -> Self {
+        self.shader_validation = false;
+        self
+    }
     fn build<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T>(
         self,
         f: F,
     ) -> Box<dyn GenerateTile> {
         Box::new(ShaderGen {
             name: self.name,
+            shader_validation: self.shader_validation,
             shader: rshader::ShaderSet::compute_only(self.shader).unwrap(),
             pipeline: None,
             outputs: self.outputs,
@@ -347,6 +359,7 @@ pub(crate) fn generators(
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions((heightmaps_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
+        .no_validate() // validation doesn't support barrier() yet.
         .build(
             move |node: VNode,
                   slot: usize,
@@ -399,6 +412,7 @@ pub(crate) fn generators(
         .dimensions((displacements_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .root_peer_inputs(LayerType::Heightmaps.bit_mask())
+        .no_validate() // shaderFloat64 causes validation errors
         .build(
             move |node: VNode,
                   slot: usize,
@@ -442,9 +456,10 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "version", "hash", "gen-root-normals.comp"),
         )
         .root_outputs(LayerType::Normals.bit_mask())
-        .dimensions((normals_resolution + 3) / 4 / 2)
+        .dimensions((normals_resolution + 3) / 4)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
+        .no_validate() // validation doesn't support barrier() yet.
         .build(move |node: VNode, slot: usize, _, _| -> GenNormalsUniforms {
             let spacing =
                 node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
@@ -469,6 +484,7 @@ pub(crate) fn generators(
         .parent_inputs(LayerType::Albedo.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
+        .no_validate() // validation doesn't support barrier() yet.
         .build(
             move |node: VNode,
                   slot: usize,

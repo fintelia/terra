@@ -52,7 +52,7 @@ fn make_swapchain(
 fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width, height, depth: 1 },
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -64,7 +64,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
 }
 
 fn main() {
-    // env_logger::init();
+    env_logger::init();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 

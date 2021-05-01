@@ -2,16 +2,18 @@
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
+	mat4 view_proj_inverse;
 	vec3 camera;
 	float padding;
 } ubo;
 layout(set = 0, binding = 1) uniform sampler linear;
 layout(set = 0, binding = 2) uniform texture2D sky;
-layout(set = 0, binding = 3) uniform texture2D transmittance;
-layout(set = 0, binding = 4) uniform texture3D inscattering;
+layout(rgba32f, set = 0, binding = 3) readonly uniform image2D transmittance;
+//layout(set = 0, binding = 3) uniform texture2D transmittance;
+//layout(set = 0, binding = 4) uniform texture3D inscattering;
 
 layout(location = 0) in vec4 position;
-layout(location = 1) flat in mat4 view_proj_inv;
+//layout(location = 1) in mat4 view_proj_inv;
 
 layout(location = 0) out vec4 OutColor;
 
@@ -24,8 +26,8 @@ vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
 vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
 
 void main() {
-	vec4 r0 = view_proj_inv * vec4(position.xy, 1, 1);
-	vec4 r1 = view_proj_inv * vec4(position.xy, 1e-9, 1);
+	vec4 r0 = ubo.view_proj_inverse * vec4(position.xy, 1, 1);
+	vec4 r1 = ubo.view_proj_inverse * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
 
 	float lat = acos(r.z)/3.141592 * 0.5 + 0.5;

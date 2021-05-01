@@ -131,7 +131,7 @@ impl GpuState {
                     wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { .. },
                         ..
-                    } => wgpu::BindingResource::Buffer {
+                    } => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: match name {
                             "grass_indirect" => &mesh_cache[MeshType::Grass].indirect,
                             "grass_storage" => &mesh_cache[MeshType::Grass].storage,
@@ -139,7 +139,7 @@ impl GpuState {
                         },
                         size: None,
                         offset: 0,
-                    },
+                    }),
                 },
             });
         }

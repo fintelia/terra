@@ -139,7 +139,7 @@ impl SingularLayerCache {
             size: wgpu::Extent3d {
                 width: self.desc.texture_resolution,
                 height: self.desc.texture_resolution,
-                depth: self.desc.cache_size as u32,
+                depth_or_array_layers: self.desc.cache_size as u32,
             },
             format: self.desc.texture_format.to_wgpu(),
             mip_level_count: 1,

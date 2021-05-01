@@ -93,30 +93,30 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
     return iSun * (rayleigh_phase(mu) * kRlh * totalRlh + mie_phase(mu) * kMie * totalMie);
 }
 
-void reverse_parameters(float r, float mu, float mu_s,
-						out float u_r, out float u_mu, out float u_mu_s) {
-	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
-	float rho = sqrt(max(r * r - planetRadius * planetRadius, 0));
-	float delta = r * r * mu * mu - rho * rho;
-
-	u_r = rho / H;
-
-	ivec3 size = textureSize(inscattering, 0);
-
-	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
-	float mu_horizon = -sqrt(1.0 - (planetRadius / r) * (planetRadius / r));
-	if (mu > mu_horizon) {
-		u_mu = (1.0 - hp) + hp * pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
-	} else {
-		u_mu = hp * pow((mu_horizon - mu) / (1.0 + mu_horizon), 0.2);
-	}
-
-	u_mu_s = clamp(0.5*(atan(max(mu_s, -0.45)*tan(1.26 * 0.75))
-						/ 0.75 + (1.0 - 0.26)), 0, 1);
-}
-
+// void reverse_parameters(float r, float mu, float mu_s,
+// 						out float u_r, out float u_mu, out float u_mu_s) {
+// 	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
+// 	float rho = sqrt(max(r * r - planetRadius * planetRadius, 0));
+// 	float delta = r * r * mu * mu - rho * rho;
+// 
+// 	u_r = rho / H;
+// 
+// 	ivec3 size = textureSize(inscattering, 0);
+// 
+// 	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
+// 	float mu_horizon = -sqrt(1.0 - (planetRadius / r) * (planetRadius / r));
+// 	if (mu > mu_horizon) {
+// 		u_mu = (1.0 - hp) + hp * pow((mu - mu_horizon) / (1.0 - mu_horizon), 0.2);
+// 	} else {
+// 		u_mu = hp * pow((mu_horizon - mu) / (1.0 + mu_horizon), 0.2);
+// 	}
+// 
+// 	u_mu_s = clamp(0.5*(atan(max(mu_s, -0.45)*tan(1.26 * 0.75))
+// 						/ 0.75 + (1.0 - 0.26)), 0, 1);
+// }
+// 
 vec3 precomputed_transmittance(float r, float mu) {
-	vec2 size = textureSize(transmittance, 0);
+	vec2 size = imageSize(transmittance);
 
 	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
 	float rho = sqrt(r * r - planetRadius * planetRadius);
@@ -134,7 +134,7 @@ vec3 precomputed_transmittance(float r, float mu) {
 		u_mu = uu * hp;
 	}
 
-	return texture(sampler2D(transmittance, linear), (vec2(u_r, u_mu) * (size-1) + 0.5) / size).rgb;
+	return imageLoad(transmittance, ivec2(round(u_r), round(u_mu))).rgb;
 }
 
 vec3 precomputed_transmittance2(vec3 x, vec3 y) {
@@ -143,7 +143,7 @@ vec3 precomputed_transmittance2(vec3 x, vec3 y) {
 	float mu1 = dot(normalize(x), normalize(x - y));
 	float mu2 = dot(normalize(y), normalize(x - y));
 
-	vec2 size = textureSize(transmittance, 0);
+	vec2 size = imageSize(transmittance);
 	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
 
 	float mu1_horizon = -sqrt(1.0 - (planetRadius / r1) * (planetRadius / r1));
@@ -164,128 +164,131 @@ vec3 precomputed_transmittance2(vec3 x, vec3 y) {
 		u_mu2 = hp * pow(max(mu2_horizon - mu2, 0) / (1.0 + mu2_horizon), 0.2);
 	}
 
-	vec3 t1 = texture(sampler2D(transmittance, linear), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
-	vec3 t2 = texture(sampler2D(transmittance, linear), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
+	vec3 t1 = imageLoad(transmittance, ivec2(round(u_r1), round(u_mu1))).rgb;
+	vec3 t2 = imageLoad(transmittance, ivec2(round(u_r2), round(u_mu2))).rgb;
+
+	// vec3 t1 = texture(sampler2D(transmittance, linear), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
+	// vec3 t2 = texture(sampler2D(transmittance, linear), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
 
 	return t2 / t1;
 }
 
-vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized) {
-	// if (dot(x, sun_normalized) < 0)
-	// 	return vec3(0);
-
-	vec3 v_normalized = normalize(x0 - x);
-	vec3 x_normalized = normalize(x);
-
-	float r = clamp(length(x), planetRadius, atmosphereRadius);
-	float mu = dot(v_normalized, x_normalized);
-	float mu_s = dot(sun_normalized, x_normalized);
-	float v = dot(v_normalized, sun_normalized);
-
-	float u_r, u_mu, u_mu_s;
-	reverse_parameters(r, mu, mu_s, u_r, u_mu, u_mu_s);
-
-	// if (mu_s < -0.45)
-	// 	return vec3(0);
-
-	if(u_mu <= 0.5)
-		u_mu = clamp(u_mu, 0.0, 0.5 - 0.5 / textureSize(inscattering,0).y);
-	else
-		u_mu = clamp(u_mu, 0.5 + 0.5 / textureSize(inscattering,0).y, 1.0);
-
-	//	return vec3(fract((u_mu - 0.5)*128));
-
-	vec4 t = texture(sampler3D(inscattering, linear), vec3(u_r, u_mu, u_mu_s));
-	vec3 rayleigh = t.rgb * rayleigh_phase(v);
-	vec3 mie = t.rgb * t.a / t.r * mie_phase(v) / rayleigh_Bs;
-	return rayleigh + mie;
-}
-
-vec3 precomputed_atmosphere2(vec3 x, vec3 x0, vec3 sun_normalized, out float u_mu,
-							 bool force_miss_ground, bool force_hit_ground) {
-	vec3 v_normalized = normalize(x0 - x);
-	vec3 x_normalized = normalize(x);
-
-	float r = max(length(x), planetRadius);
-	if(r > atmosphereRadius) {
-		vec2 p = rsi(x, v_normalized, atmosphereRadius);
-		if (p.x > p.y || p.y < 0.0) {
-			return vec3(0);
-		}
-		x = x + v_normalized * max(p.x, 0.0);
-		x_normalized = normalize(x);
-		r = length(x);
-	}
-	float mu = dot(v_normalized, x_normalized);
-	float mu_s = dot(sun_normalized, x_normalized);
-	float v = dot(v_normalized, sun_normalized);
-
-	float u_r, u_mu_s;
-	reverse_parameters(r, mu, mu_s, u_r, u_mu, u_mu_s);
-
-	if(force_hit_ground) {
-		u_mu = min(u_mu, 0.5 - 0.5 / textureSize(inscattering,0).y);
-	} else if(force_miss_ground) {
-		u_mu = max(u_mu, 0.5 + 0.5 / textureSize(inscattering,0).y);
-	}
-
-	if(force_miss_ground && u_mu <= 0.5) {
-		u_mu = 1.0;
-	} else if(force_hit_ground && u_mu >= 0.5) {
-		u_mu = 0.0;
-	}
-
-	vec4 t = texture(sampler3D(inscattering, linear), vec3(u_r, u_mu, u_mu_s));
-	vec3 rayleigh = t.rgb*rayleigh_phase(v);
-	vec3 mie = t.rgb * t.a / max(t.r,1e-9) * mie_phase(v);
-
-	return rayleigh + mie;
-}
-
-vec3 precomputed_aerial_perspective(vec3 color, vec3 x1, vec3 x0, vec3 sun_normalized) {
-	// vec4 hwp = worldToWarped * vec4(position, 1);
-	// vec4 hwc = worldToWarped * vec4(cameraPosition, 1);
-	// vec3 wp = hwp.xyz / hwp.w;
-	// vec3 wc = hwc.xyz / hwc.w;
-
-	vec3 r = normalize(x1 - x0);
-	vec2 p = rsi(x0, r, atmosphereRadius);
-	if (p.x > p.y || p.y <= 0.0)
-		return color;
-
-	vec3 wp = x1;
-	vec3 wc = x0 + r * max(p.x, 0.0);
-	vec3 ws = sun_normalized;
-
-	if (dot(sun_normalized, x1) < 0) {
-		float d = length(cross(wp, sun_normalized));
-
-		vec3 u = cross(wp, sun_normalized);
-		vec3 c = normalize(cross(sun_normalized, u));
-
-		wp -= r * min((planetRadius - d), distance(x0, x1));
-
-		// return vec3(c.xyz/10);
-		// vec3 c = cross(x1, sun_normalized);
-		// vec3 r = normalize(cross(sun_normalized, c)) * planetRadius;
-		// return color;
-	}
-
-	vec3 t = precomputed_transmittance2(wc, wp);
-
-	float u_mu;
-	vec3 i0 = precomputed_atmosphere2(wc, wp, ws, u_mu, false, false);
-	vec3 i1 = precomputed_atmosphere2(wp, wp + (wp - wc), ws, u_mu, u_mu > 0.5, u_mu < 0.5);
-	vec3 inscattering = i0 - t * i1;
-
-	//	if(u_mu < 0.5) return vec3(0);
-	//	return 100 * (i1 - t * i0);
-	// if(inscattering.x <= 0 || inscattering.y <= 0 || inscattering.z <= 0)
-	// 	return vec3(1,0,0);
-
-	// if(distance(wc, wp) > 100000) return vec3(1,0,0);
-	// if(t.x > .991) return vec3(0);
-	//	if(u_mu > 0.5) return vec3(0);
-
-	return  max(inscattering, vec3(0)) + color;
-}
+// vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized) {
+// 	// if (dot(x, sun_normalized) < 0)
+// 	// 	return vec3(0);
+// 
+// 	vec3 v_normalized = normalize(x0 - x);
+// 	vec3 x_normalized = normalize(x);
+// 
+// 	float r = clamp(length(x), planetRadius, atmosphereRadius);
+// 	float mu = dot(v_normalized, x_normalized);
+// 	float mu_s = dot(sun_normalized, x_normalized);
+// 	float v = dot(v_normalized, sun_normalized);
+// 
+// 	float u_r, u_mu, u_mu_s;
+// 	reverse_parameters(r, mu, mu_s, u_r, u_mu, u_mu_s);
+// 
+// 	// if (mu_s < -0.45)
+// 	// 	return vec3(0);
+// 
+// 	if(u_mu <= 0.5)
+// 		u_mu = clamp(u_mu, 0.0, 0.5 - 0.5 / textureSize(inscattering,0).y);
+// 	else
+// 		u_mu = clamp(u_mu, 0.5 + 0.5 / textureSize(inscattering,0).y, 1.0);
+// 
+// 	//	return vec3(fract((u_mu - 0.5)*128));
+// 
+// 	vec4 t = texture(sampler3D(inscattering, linear), vec3(u_r, u_mu, u_mu_s));
+// 	vec3 rayleigh = t.rgb * rayleigh_phase(v);
+// 	vec3 mie = t.rgb * t.a / t.r * mie_phase(v) / rayleigh_Bs;
+// 	return rayleigh + mie;
+// }
+// 
+// vec3 precomputed_atmosphere2(vec3 x, vec3 x0, vec3 sun_normalized, out float u_mu,
+// 							 bool force_miss_ground, bool force_hit_ground) {
+// 	vec3 v_normalized = normalize(x0 - x);
+// 	vec3 x_normalized = normalize(x);
+// 
+// 	float r = max(length(x), planetRadius);
+// 	if(r > atmosphereRadius) {
+// 		vec2 p = rsi(x, v_normalized, atmosphereRadius);
+// 		if (p.x > p.y || p.y < 0.0) {
+// 			return vec3(0);
+// 		}
+// 		x = x + v_normalized * max(p.x, 0.0);
+// 		x_normalized = normalize(x);
+// 		r = length(x);
+// 	}
+// 	float mu = dot(v_normalized, x_normalized);
+// 	float mu_s = dot(sun_normalized, x_normalized);
+// 	float v = dot(v_normalized, sun_normalized);
+// 
+// 	float u_r, u_mu_s;
+// 	reverse_parameters(r, mu, mu_s, u_r, u_mu, u_mu_s);
+// 
+// 	if(force_hit_ground) {
+// 		u_mu = min(u_mu, 0.5 - 0.5 / textureSize(inscattering,0).y);
+// 	} else if(force_miss_ground) {
+// 		u_mu = max(u_mu, 0.5 + 0.5 / textureSize(inscattering,0).y);
+// 	}
+// 
+// 	if(force_miss_ground && u_mu <= 0.5) {
+// 		u_mu = 1.0;
+// 	} else if(force_hit_ground && u_mu >= 0.5) {
+// 		u_mu = 0.0;
+// 	}
+// 
+// 	vec4 t = texture(sampler3D(inscattering, linear), vec3(u_r, u_mu, u_mu_s));
+// 	vec3 rayleigh = t.rgb*rayleigh_phase(v);
+// 	vec3 mie = t.rgb * t.a / max(t.r,1e-9) * mie_phase(v);
+// 
+// 	return rayleigh + mie;
+// }
+// 
+// vec3 precomputed_aerial_perspective(vec3 color, vec3 x1, vec3 x0, vec3 sun_normalized) {
+// 	// vec4 hwp = worldToWarped * vec4(position, 1);
+// 	// vec4 hwc = worldToWarped * vec4(cameraPosition, 1);
+// 	// vec3 wp = hwp.xyz / hwp.w;
+// 	// vec3 wc = hwc.xyz / hwc.w;
+// 
+// 	vec3 r = normalize(x1 - x0);
+// 	vec2 p = rsi(x0, r, atmosphereRadius);
+// 	if (p.x > p.y || p.y <= 0.0)
+// 		return color;
+// 
+// 	vec3 wp = x1;
+// 	vec3 wc = x0 + r * max(p.x, 0.0);
+// 	vec3 ws = sun_normalized;
+// 
+// 	if (dot(sun_normalized, x1) < 0) {
+// 		float d = length(cross(wp, sun_normalized));
+// 
+// 		vec3 u = cross(wp, sun_normalized);
+// 		vec3 c = normalize(cross(sun_normalized, u));
+// 
+// 		wp -= r * min((planetRadius - d), distance(x0, x1));
+// 
+// 		// return vec3(c.xyz/10);
+// 		// vec3 c = cross(x1, sun_normalized);
+// 		// vec3 r = normalize(cross(sun_normalized, c)) * planetRadius;
+// 		// return color;
+// 	}
+// 
+// 	vec3 t = precomputed_transmittance2(wc, wp);
+// 
+// 	float u_mu;
+// 	vec3 i0 = precomputed_atmosphere2(wc, wp, ws, u_mu, false, false);
+// 	vec3 i1 = precomputed_atmosphere2(wp, wp + (wp - wc), ws, u_mu, u_mu > 0.5, u_mu < 0.5);
+// 	vec3 inscattering = i0 - t * i1;
+// 
+// 	//	if(u_mu < 0.5) return vec3(0);
+// 	//	return 100 * (i1 - t * i0);
+// 	// if(inscattering.x <= 0 || inscattering.y <= 0 || inscattering.z <= 0)
+// 	// 	return vec3(1,0,0);
+// 
+// 	// if(distance(wc, wp) > 100000) return vec3(1,0,0);
+// 	// if(t.x > .991) return vec3(0);
+// 	//	if(u_mu > 0.5) return vec3(0);
+// 
+// 	return  max(inscattering, vec3(0)) + color;
+// }

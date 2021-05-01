@@ -25,7 +25,7 @@ coherent layout(std430, binding = 2) buffer IndirectBlock {
 } grass_indirect;
 
 layout(set = 0, binding = 3) uniform sampler linear;
-layout(set = 0, binding = 4) uniform texture2DArray displacements;
+layout(rgba32f, set = 0, binding = 4) readonly uniform image2DArray displacements;
 layout(set = 0, binding = 5) uniform texture2DArray normals;
 layout(set = 0, binding = 6) uniform texture2DArray albedo;
 
@@ -33,6 +33,14 @@ vec3 extract_normal(vec2 n) {
 	n = n * 2.0 - vec2(1.0);
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
+}
+
+#define BILINEAR(r, img, v) { \
+    vec4 i00 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)); \
+    vec4 i10 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,0,0)); \
+    vec4 i01 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(0,1,0)); \
+    vec4 i11 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,1,0)); \
+    r = mix(mix(i00, i10, fract(v.x)), mix(i01, i11, fract(v.x)), fract(v.y)); \
 }
 
 void main() {
@@ -56,8 +64,9 @@ void main() {
 
     uint entry = atomicAdd(grass_indirect.indirect[ubo.output_slot].vertex_count, 6) / 6;
 
-    vec3 position = texture(sampler2DArray(displacements, linear), vec3(texcoord, ubo.input_slot)).xyz;
+    vec4 position;
+    BILINEAR(position, displacements, vec3(texcoord, ubo.input_slot))
 
-    grass_storage.entries[ubo.output_slot][entry].position_u = vec4(position, material_texcoord.x);
+    grass_storage.entries[ubo.output_slot][entry].position_u = vec4(position.xyz, material_texcoord.x);
     grass_storage.entries[ubo.output_slot][entry].albedo_v = vec4(albedo_value + (r3 - 0.5) * .05, material_texcoord.y);
 }

@@ -27,6 +27,7 @@ use crate::terrain::quadtree::node::VNode;
 use crate::terrain::quadtree::render::NodeState;
 use anyhow::Error;
 use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriorityCache};
+use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::GpuState;
 use maplit::hashmap;
@@ -51,6 +52,7 @@ unsafe impl bytemuck::Zeroable for UniformBlock {}
 #[derive(Copy, Clone)]
 struct SkyUniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
+    view_proj_inverse: mint::ColumnMatrix4<f32>,
     camera: mint::Point3<f32>,
     padding: f32,
 }
@@ -95,12 +97,10 @@ impl Terrain {
                     | LayerType::Albedo.bit_mask()
                     | LayerType::Normals.bit_mask(),
                 level: VNode::LEVEL_CELL_2CM,
-                generate: ComputeShader::new(rshader::shader_source!(
-                    "shaders",
-                    "version",
-                    "hash",
-                    "gen-grass.comp"
-                )),
+                generate: ComputeShader::new(
+                    rshader::shader_source!("shaders", "version", "hash", "gen-grass.comp"),
+                    "gen-grass".to_string(),
+                ),
                 render: rshader::ShaderSet::simple(
                     rshader::shader_source!("shaders", "version", "grass.vert"),
                     rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
@@ -108,12 +108,10 @@ impl Terrain {
                 .unwrap(),
             }],
             vec![SingularLayerDesc {
-                generate: ComputeShader::new(rshader::shader_source!(
-                    "shaders",
-                    "version",
-                    "hash",
-                    "gen-grass-canopy.comp"
-                )),
+                generate: ComputeShader::new(
+                    rshader::shader_source!("shaders", "version", "hash", "gen-grass-canopy.comp"),
+                    "grass-canopy".to_string(),
+                ),
                 cache_size: 32,
                 dependency_mask: LayerType::Normals.bit_mask(),
                 level: VNode::LEVEL_CELL_1M,
@@ -151,7 +149,7 @@ impl Terrain {
         let inscattering = mapfile.read_texture(device, queue, "inscattering")?;
 
         let bc4_staging = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
+            size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
             format: wgpu::TextureFormat::Rg32Uint,
             mip_level_count: 1,
             sample_count: 1,
@@ -163,7 +161,7 @@ impl Terrain {
             label: Some("texture.staging.bc4"),
         });
         let bc5_staging = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 256, height: 256, depth: 1 },
+            size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
             format: wgpu::TextureFormat::Rgba32Uint,
             mip_level_count: 1,
             sample_count: 1,
@@ -270,16 +268,16 @@ impl Terrain {
                 device,
                 &self.shader,
                 hashmap![
-                    "ubo" => (false, wgpu::BindingResource::Buffer {
+                    "ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &self.uniform_buffer,
                         offset: 0,
                         size: None,
-                    }),
-                    "node" => (true, wgpu::BindingResource::Buffer {
+                    })),
+                    "node" => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &self.node_buffer,
                         offset: 0,
                         size: Some((mem::size_of::<NodeState>() as u64).try_into().unwrap()),
-                    })
+                    }))
                 ],
                 HashMap::new(),
                 "terrain",
@@ -298,7 +296,7 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                         buffers: &[],
@@ -307,25 +305,26 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.terrain.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
+                            flags: wgpu::ShaderFlags::empty(),
                         }),
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                            color_blend: wgpu::BlendState::REPLACE,
-                            alpha_blend: wgpu::BlendState::REPLACE,
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent::REPLACE,
+                                alpha: wgpu::BlendComponent::REPLACE,
+                            }),
                             write_mask: wgpu::ColorWrite::ALL,
                         }],
                     }),
                     primitive: wgpu::PrimitiveState {
-                        cull_mode: wgpu::CullMode::Front,
+                        cull_mode: Some(wgpu::Face::Front),
                         ..Default::default()
                     },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
                         depth_compare: wgpu::CompareFunction::Greater,
-                        clamp_depth: false,
                         bias: Default::default(),
                         stencil: Default::default(),
                     }),
@@ -342,11 +341,11 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.sky_shader,
-                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer {
+                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: &self.sky_uniform_buffer,
                     offset: 0,
                     size: None,
-                })],
+                }))],
                 HashMap::new(),
                 "sky",
             );
@@ -378,8 +377,10 @@ impl Terrain {
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                            color_blend: wgpu::BlendState::REPLACE,
-                            alpha_blend: wgpu::BlendState::REPLACE,
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent::REPLACE,
+                                alpha: wgpu::BlendComponent::REPLACE,
+                            }),
                             write_mask: wgpu::ColorWrite::ALL,
                         }],
                     }),
@@ -388,7 +389,6 @@ impl Terrain {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_compare: wgpu::CompareFunction::GreaterEqual,
                         depth_write_enabled: false,
-                        clamp_depth: false,
                         bias: Default::default(),
                         stencil: Default::default(),
                     }),
@@ -423,6 +423,7 @@ impl Terrain {
             0,
             bytemuck::bytes_of(&SkyUniformBlock {
                 view_proj,
+                view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
                 camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
                 padding: 0.0,
             }),
@@ -433,16 +434,16 @@ impl Terrain {
         });
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: color_buffer,
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
                         store: true,
                     },
                 }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: depth_buffer,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_buffer,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(0.0),
                         store: true,

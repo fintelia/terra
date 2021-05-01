@@ -221,16 +221,16 @@ impl MeshCache {
                 device,
                 &self.desc.render,
                 hashmap![
-                    "ubo" => (false, wgpu::BindingResource::Buffer {
+                    "ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: uniform_buffer,
                         offset: 0,
                         size: None,
-                    }),
-                    "node" => (true, wgpu::BindingResource::Buffer {
+                    })),
+                    "node" => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &self.uniforms,
                         offset: 0,
                         size: Some((mem::size_of::<MeshNodeState>() as u64).try_into().unwrap()),
-                    })
+                    }))
                 ],
                 HashMap::new(),
                 "grass",
@@ -263,8 +263,11 @@ impl MeshCache {
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                            color_blend: wgpu::BlendState::REPLACE,
-                            alpha_blend: wgpu::BlendState::REPLACE,
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent::REPLACE,
+                                alpha: wgpu::BlendComponent::REPLACE,
+    
+                            }),
                             write_mask: wgpu::ColorWrite::ALL,
                         }],
                     }),
@@ -273,7 +276,6 @@ impl MeshCache {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
                         depth_compare: wgpu::CompareFunction::Greater,
-                        clamp_depth: false,
                         bias: Default::default(),
                         stencil: Default::default(),
                     }),

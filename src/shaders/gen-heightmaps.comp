@@ -12,7 +12,7 @@ layout(binding = 0) uniform UniformBlock {
 	uint face;
 } ubo;
 
-layout(binding = 1) uniform texture2D heightmaps_in;
+layout(r32f, binding = 1) readonly uniform image2D heightmaps_in;
 layout(r32f, binding = 2) writeonly uniform image2D heightmaps_out;
 
 shared vec4 h[10][10];
@@ -25,10 +25,10 @@ void main() {
 	if (x < 5 && y < 5) {
 		ivec2 origin = ivec2(ubo.origin+gl_WorkGroupID.xy*4);
 		ivec2 gpos = origin.xy + ivec2(gl_LocalInvocationID.xy*2-ivec2(2));
-		h[x*2][y*2] = texelFetch(heightmaps_in, gpos, 0);
-		h[x*2+1][y*2] = texelFetch(heightmaps_in, gpos + ivec2(1,0), 0);
-		h[x*2][y*2+1] = texelFetch(heightmaps_in, gpos + ivec2(0,1), 0);
-		h[x*2+1][y*2+1] = texelFetch(heightmaps_in, gpos + ivec2(1,1), 0);
+		h[x*2][y*2] = imageLoad(heightmaps_in, gpos);
+		h[x*2+1][y*2] = imageLoad(heightmaps_in, gpos + ivec2(1,0));
+		h[x*2][y*2+1] = imageLoad(heightmaps_in, gpos + ivec2(0,1));
+		h[x*2+1][y*2+1] = imageLoad(heightmaps_in, gpos + ivec2(1,1));
 	}
 	barrier();
 
