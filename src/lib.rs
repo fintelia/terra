@@ -98,18 +98,28 @@ impl Terrain {
                     | LayerType::Normals.bit_mask(),
                 level: VNode::LEVEL_CELL_2CM,
                 generate: ComputeShader::new(
-                    rshader::shader_source!("shaders", "version", "hash", "gen-grass.comp"),
+                    rshader::shader_source!(
+                        "shaders",
+                        "version.glsl",
+                        "hash.glsl",
+                        "gen-grass.comp"
+                    ),
                     "gen-grass".to_string(),
                 ),
                 render: rshader::ShaderSet::simple(
-                    rshader::shader_source!("shaders", "version", "grass.vert"),
-                    rshader::shader_source!("shaders", "version", "pbr", "grass.frag"),
+                    rshader::shader_source!("shaders", "version.glsl", "grass.vert"),
+                    rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "grass.frag"),
                 )
                 .unwrap(),
             }],
             vec![SingularLayerDesc {
                 generate: ComputeShader::new(
-                    rshader::shader_source!("shaders", "version", "hash", "gen-grass-canopy.comp"),
+                    rshader::shader_source!(
+                        "shaders",
+                        "version.glsl",
+                        "hash.glsl",
+                        "gen-grass-canopy.comp"
+                    ),
                     "grass-canopy".to_string(),
                 ),
                 cache_size: 32,
@@ -124,8 +134,8 @@ impl Terrain {
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
         let shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "version", "a.vert"),
-            rshader::shader_source!("shaders", "version", "pbr", "a.frag", "atmosphere"),
+            rshader::shader_source!("shaders", "version.glsl", "terrain.vert"),
+            rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "terrain.frag", "atmosphere.glsl"),
         )
         .unwrap();
 
@@ -186,8 +196,8 @@ impl Terrain {
         };
 
         let sky_shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "version", "sky.vert"),
-            rshader::shader_source!("shaders", "version", "pbr", "sky.frag", "atmosphere"),
+            rshader::shader_source!("shaders", "version.glsl", "sky.vert"),
+            rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "sky.frag", "atmosphere.glsl"),
         )
         .unwrap();
         let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {

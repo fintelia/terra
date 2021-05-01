@@ -354,7 +354,7 @@ pub(crate) fn generators(
     vec![
         ShaderGenBuilder::new(
             "heightmaps".into(),
-            rshader::shader_source!("../shaders", "version", "hash", "gen-heightmaps.comp"),
+            rshader::shader_source!("../shaders", "version.glsl", "hash.glsl", "gen-heightmaps.comp"),
         )
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions((heightmaps_resolution + 7) / 8)
@@ -399,12 +399,12 @@ pub(crate) fn generators(
             if soft_float64 {
                 rshader::shader_source!(
                     "../shaders",
-                    "version",
+                    "version.glsl",
                     "softdouble.glsl",
                     "gen-displacements.comp"
                 )
             } else {
-                rshader::shader_source!("../shaders", "version", "gen-displacements.comp")
+                rshader::shader_source!("../shaders", "version.glsl", "gen-displacements.comp")
             },
         )
         .outputs(LayerType::Displacements.bit_mask())
@@ -453,7 +453,7 @@ pub(crate) fn generators(
         ),
         ShaderGenBuilder::new(
             "root-normals".into(),
-            rshader::shader_source!("../shaders", "version", "hash", "gen-root-normals.comp"),
+            rshader::shader_source!("../shaders", "version.glsl", "hash.glsl", "gen-root-normals.comp"),
         )
         .root_outputs(LayerType::Normals.bit_mask())
         .dimensions((normals_resolution + 3) / 4)
@@ -477,7 +477,7 @@ pub(crate) fn generators(
         }),
         ShaderGenBuilder::new(
             "materials".into(),
-            rshader::shader_source!("../shaders", "version", "hash", "gen-materials.comp"),
+            rshader::shader_source!("../shaders", "version.glsl", "hash.glsl", "gen-materials.comp"),
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
         .dimensions((normals_resolution + 3) / 4)
