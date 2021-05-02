@@ -4,9 +4,11 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
+	mat4 view_proj_inverse;
 	vec3 camera;
-	float padding;
-} ubo;
+	vec3 sun_direction;
+	vec2 padding;
+} globals;
 
 layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	vec3 relative_position;
@@ -48,7 +50,7 @@ void main() {
 						roughness_value,
 						position,
 						normalize(vec3(1)), // normal
-						ubo.camera,
+						globals.camera,
 						normalize(vec3(0.4, .7, 0.2)),
 						vec3(100000.0)) * .8;
 

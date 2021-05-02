@@ -484,11 +484,10 @@ impl UnifiedPriorityCache {
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        uniform_buffer: &wgpu::Buffer,
         camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(device, queue, rpass, gpu_state, uniform_buffer, camera);
+            c.render(device, queue, rpass, gpu_state, camera);
         }
     }
 

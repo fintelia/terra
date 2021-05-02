@@ -108,7 +108,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: self.uniforms.as_ref().unwrap(),
                     offset: 0,
                     size: None,

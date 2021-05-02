@@ -2,9 +2,11 @@
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
+	mat4 view_proj_inverse;
 	vec3 camera;
-	float padding;
-} ubo;
+	vec3 sun_direction;
+	vec2 padding;
+} globals;
 
 layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	vec3 relative_position;
@@ -45,7 +47,7 @@ void main() {
     Entry entry = grass_storage.entries[node.slot][gl_VertexIndex / 6];
     position = entry.position_u.xyz - node.relative_position;
 
-    vec3 up = normalize(position + ubo.camera);
+    vec3 up = normalize(position + globals.camera);
 	vec3 bitangent = normalize(cross(up, tangents[node.face]));
 	vec3 tangent = normalize(cross(up, bitangent));
 
@@ -67,5 +69,5 @@ void main() {
     color = entry.albedo_v.rgb;
     texcoord = vec2(entry.position_u.w, entry.albedo_v.w);
 
-    gl_Position = ubo.view_proj * vec4(position, 1.0);
+    gl_Position = globals.view_proj * vec4(position, 1.0);
 }

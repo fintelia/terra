@@ -40,35 +40,23 @@ pub use crate::generate::BLUE_MARBLE_URLS;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-struct UniformBlock {
-    view_proj: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f32>,
-    padding: f32,
-}
-unsafe impl bytemuck::Pod for UniformBlock {}
-unsafe impl bytemuck::Zeroable for UniformBlock {}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct SkyUniformBlock {
+struct GlobalUniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
     view_proj_inverse: mint::ColumnMatrix4<f32>,
     camera: mint::Point3<f32>,
-    padding: f32,
+    sun_direction: mint::Vector3<f32>,
+    padding: [f32; 2],
 }
-unsafe impl bytemuck::Pod for SkyUniformBlock {}
-unsafe impl bytemuck::Zeroable for SkyUniformBlock {}
+unsafe impl bytemuck::Pod for GlobalUniformBlock {}
+unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 
 pub struct Terrain {
     shader: rshader::ShaderSet,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-    uniform_buffer: wgpu::Buffer,
-    node_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
 
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-    sky_uniform_buffer: wgpu::Buffer,
 
     gpu_state: GpuState,
     quadtree: QuadTree,
@@ -139,16 +127,16 @@ impl Terrain {
         )
         .unwrap();
 
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: std::mem::size_of::<UniformBlock>() as u64,
+        let globals = device.create_buffer(&wgpu::BufferDescriptor {
+            size: std::mem::size_of::<GlobalUniformBlock>() as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("buffer.terrain.uniforms"),
+            label: Some("buffer.globals"),
             mapped_at_creation: false,
         });
         let node_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
             usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("buffer.terrain.vertex"),
+            label: Some("buffer.nodes"),
             mapped_at_creation: false,
         });
         let index_buffer = quadtree.create_index_buffers(device);
@@ -193,6 +181,8 @@ impl Terrain {
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_cache: cache.make_gpu_mesh_cache(device),
             texture_cache: cache.make_gpu_texture_cache(device),
+            globals,
+            node_buffer,
         };
 
         let sky_shader = rshader::ShaderSet::simple(
@@ -200,23 +190,14 @@ impl Terrain {
             rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "sky.frag", "atmosphere.glsl"),
         )
         .unwrap();
-        let sky_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: std::mem::size_of::<SkyUniformBlock>() as u64,
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("buffer.sky.uniforms"),
-            mapped_at_creation: false,
-        });
 
         Ok(Self {
             bindgroup_pipeline: None,
             shader,
 
-            uniform_buffer,
-            node_buffer,
             index_buffer,
 
             sky_shader,
-            sky_uniform_buffer,
             sky_bindgroup_pipeline: None,
 
             gpu_state,
@@ -269,6 +250,7 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
+
         if self.shader.refresh() {
             self.bindgroup_pipeline = None;
         }
@@ -278,13 +260,8 @@ impl Terrain {
                 device,
                 &self.shader,
                 hashmap![
-                    "ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.uniform_buffer,
-                        offset: 0,
-                        size: None,
-                    })),
-                    "node" => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.node_buffer,
+                    "node".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.gpu_state.node_buffer,
                         offset: 0,
                         size: Some((mem::size_of::<NodeState>() as u64).try_into().unwrap()),
                     }))
@@ -351,11 +328,7 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.sky_shader,
-                hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &self.sky_uniform_buffer,
-                    offset: 0,
-                    size: None,
-                }))],
+                HashMap::new(),
                 HashMap::new(),
                 "sky",
             );
@@ -416,26 +389,17 @@ impl Terrain {
         }
 
         self.quadtree.update_visibility(&self.cache.tiles, camera);
-        self.quadtree.prepare_vertex_buffer(queue, &mut self.node_buffer, &self.cache, camera);
+        self.quadtree.prepare_vertex_buffer(queue, &mut self.gpu_state.node_buffer, &self.cache, camera);
 
         queue.write_buffer(
-            &self.uniform_buffer,
+            &self.gpu_state.globals,
             0,
-            bytemuck::bytes_of(&UniformBlock {
-                view_proj,
-                camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
-                padding: 0.0,
-            }),
-        );
-
-        queue.write_buffer(
-            &self.sky_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&SkyUniformBlock {
+            bytemuck::bytes_of(&GlobalUniformBlock {
                 view_proj,
                 view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
                 camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
-                padding: 0.0,
+                sun_direction: mint::Vector3 { x: 0.4, y: 0.7, z: 0.2 },
+                padding: [0.0; 2],
             }),
         );
 
@@ -474,7 +438,6 @@ impl Terrain {
                 &queue,
                 &mut rpass,
                 &self.gpu_state,
-                &self.uniform_buffer,
                 camera,
             );
 

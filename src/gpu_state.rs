@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{borrow::Cow, collections::HashMap};
 
 use crate::cache::{LayerType, MeshType, SingularLayerType};
 use vec_map::VecMap;
@@ -28,18 +28,22 @@ pub(crate) struct GpuState {
 
     pub bc4_staging: wgpu::Texture,
     pub bc5_staging: wgpu::Texture,
+
+    pub globals: wgpu::Buffer,
+    pub node_buffer: wgpu::Buffer,
 }
 impl GpuState {
     pub(crate) fn bind_group_for_shader(
         &self,
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
-        uniform_buffers: HashMap<&str, (bool, wgpu::BindingResource)>,
-        image_views: HashMap<String, wgpu::TextureView>,
+        buffers: HashMap<Cow<str>, (bool, wgpu::BindingResource)>,
+        image_views: HashMap<Cow<str>, wgpu::TextureView>,
         group_name: &str,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let mut layout_descriptor_entries = shader.layout_descriptor().entries.to_vec();
 
+        let mut buffers = buffers;
         let mut image_views = image_views;
         let mut samplers = HashMap::new();
         for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter()) {
@@ -48,7 +52,7 @@ impl GpuState {
                 wgpu::BindingType::StorageTexture { .. } | wgpu::BindingType::Texture { .. } => {
                     if !image_views.contains_key(name) {
                         image_views.insert(
-                            name.to_owned(),
+                            name.into(),
                             match name {
                                 "noise" => &self.noise,
                                 "sky" => &self.sky,
@@ -59,7 +63,9 @@ impl GpuState {
                                 "roughness" => &self.tile_cache[LayerType::Roughness],
                                 "normals" => &self.tile_cache[LayerType::Normals],
                                 "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
-                                "grass_canopy" => &self.texture_cache[SingularLayerType::GrassCanopy],
+                                "grass_canopy" => {
+                                    &self.texture_cache[SingularLayerType::GrassCanopy]
+                                }
                                 "bc4_staging" => &self.bc4_staging,
                                 "bc5_staging" => &self.bc5_staging,
                                 _ => unreachable!("unrecognized image: {}", name),
@@ -71,6 +77,23 @@ impl GpuState {
                                 },
                             ),
                         );
+                    }
+                }
+                wgpu::BindingType::Buffer { .. } => {
+                    if !buffers.contains_key(name) {
+                        let buffer = match name {
+                            "grass_indirect" => &self.mesh_cache[MeshType::Grass].indirect,
+                            "grass_storage" => &self.mesh_cache[MeshType::Grass].storage,
+                            "nodes" => &self.node_buffer,
+                            "globals" => &self.globals,
+                            _ => unreachable!("unrecognized storage buffer: {}", name),
+                        };
+                        let resource = wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer,
+                            size: None,
+                            offset: 0,
+                        });
+                        buffers.insert(name.into(), (false, resource));
                     }
                 }
                 wgpu::BindingType::Sampler { .. } => {
@@ -101,10 +124,8 @@ impl GpuState {
                         },
                     );
                 }
-                _ => {}
             }
         }
-        let mesh_cache = &self.mesh_cache;
 
         let mut bindings = Vec::new();
         for (name, layout) in shader.desc_names().iter().zip(layout_descriptor_entries.iter_mut()) {
@@ -119,27 +140,11 @@ impl GpuState {
                     | wgpu::BindingType::Texture { .. } => {
                         wgpu::BindingResource::TextureView(&image_views[name])
                     }
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        ref mut has_dynamic_offset,
-                        ..
-                    } => {
-                        let (d, ref buf) = uniform_buffers[name];
+                    wgpu::BindingType::Buffer { ref mut has_dynamic_offset, .. } => {
+                        let (d, ref buf) = buffers[name];
                         *has_dynamic_offset = d;
                         buf.clone()
                     }
-                    wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { .. },
-                        ..
-                    } => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: match name {
-                            "grass_indirect" => &mesh_cache[MeshType::Grass].indirect,
-                            "grass_storage" => &mesh_cache[MeshType::Grass].storage,
-                            _ => unreachable!("unrecognized storage buffer: {}", name),
-                        },
-                        size: None,
-                        offset: 0,
-                    }),
                 },
             });
         }

@@ -16,7 +16,7 @@ use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::{collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32, path::PathBuf};
+use std::{borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32, path::PathBuf};
 use std::{
     io::{Read, Write},
     path::Path,
@@ -139,11 +139,11 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
         drop(buffer_view);
         uniform_buffer.unmap();
 
-        let mut image_views = HashMap::new();
+        let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
         if let Some(parent_slot) = parent_slot {
             for layer in layers.values() {
                 image_views.insert(
-                    format!("{}_in", layer.layer_type.name()),
+                    format!("{}_in", layer.layer_type.name()).into(),
                     state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
                         label: Some(&format!("view.{}[{}]", layer.layer_type.name(), parent_slot)),
                         base_array_layer: parent_slot as u32,
@@ -158,7 +158,7 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
             layers.values().filter(|l| self.outputs(node.level()).contains_layer(l.layer_type))
         {
             image_views.insert(
-                format!("{}_out", layer.layer_type.name()),
+                format!("{}_out", layer.layer_type.name()).into(),
                 state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
                     label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),
                     base_array_layer: slot as u32,
@@ -171,7 +171,7 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
         let (bind_group, bind_group_layout) = state.bind_group_for_shader(
             device,
             &self.shader,
-            hashmap!["ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+            hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                 buffer: &uniform_buffer,
                 offset: 0,
                 size: None,

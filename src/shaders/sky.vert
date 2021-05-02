@@ -1,11 +1,3 @@
-
-layout(set = 0, binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	mat4 view_proj_inverse;
-	vec3 camera;
-	float padding;
-} ubo;
-
 layout(location = 0) out vec4 position;
 
 void main() {

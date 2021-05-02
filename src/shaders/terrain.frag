@@ -4,9 +4,11 @@ layout(early_fragment_tests) in;
 
 layout(set = 0, binding = 0) uniform UniformBlock {
     mat4 view_proj;
+	mat4 view_proj_inverse;
 	vec3 camera;
-	float padding;
-} ubo;
+	vec3 sun_direction;
+	vec2 padding;
+} globals;
 
 struct LayerDesc {
 	vec3 origin;
@@ -84,7 +86,7 @@ vec3 debug_overlay(vec3 color) {
 	// float ml = mipmap_level(tc * ts);
 
 	// vec3 pc = normalize((position+vec3(0,6371000.0,0)) / (position.y+6371000.0));
-	// vec3 cc = normalize((ubo.camera.xyz+vec3(0,6371000.0,0)) / (ubo.camera.y+6371000.0));
+	// vec3 cc = normalize((globals.camera.xyz+vec3(0,6371000.0,0)) / (globals.camera.y+6371000.0));
 	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
 	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
 
@@ -134,7 +136,7 @@ vec3 debug_overlay(vec3 color) {
 	// 		color = mix(color, vec3(0,0,0), 0.3);
 	// }
 
-	// if(abs(length(position.xz-ubo.camera.xz) - 32*1024) < 100)
+	// if(abs(length(position.xz-globals.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
@@ -221,7 +223,7 @@ vec3 debug_overlay(vec3 color) {
 	// float line2 = abs(length(position) - 30) / fwidth(length(position)) * 0.5;
 	// color = mix(color, vec3(0.1), smoothstep(1, 0, line2));
 
-	// vec3 p = normalize(position + vec3(ubo.camera));
+	// vec3 p = normalize(position + vec3(globals.camera));
 	// vec2 coord = vec2((acos(p.z) * 180.0 / 3.141592),
 	// 				  (atan(p.x, p.y)*180.0/3.141592));
 	// vec2 grid = .5*fract(coord) / fwidth(fract(coord));
@@ -287,11 +289,11 @@ void main() {
 						roughness_value,
 						position,
 						bent_normal,
-						ubo.camera,
+						globals.camera,
 						sunDirection,
 						vec3(100000.0));
 
-	vec3 x0 = ubo.camera;
+	vec3 x0 = globals.camera;
 	vec3 x1 = x0 + position;
 	vec3 r = normalize(position);
 	vec2 p = rsi(x0, r, atmosphereRadius);

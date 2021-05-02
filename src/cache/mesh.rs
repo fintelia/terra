@@ -210,7 +210,6 @@ impl MeshCache {
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        uniform_buffer: &wgpu::Buffer,
         camera: mint::Point3<f64>,
     ) {
         if self.desc.render.refresh() {
@@ -221,12 +220,7 @@ impl MeshCache {
                 device,
                 &self.desc.render,
                 hashmap![
-                    "ubo" => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: uniform_buffer,
-                        offset: 0,
-                        size: None,
-                    })),
-                    "node" => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    "node".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &self.uniforms,
                         offset: 0,
                         size: Some((mem::size_of::<MeshNodeState>() as u64).try_into().unwrap()),
