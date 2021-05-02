@@ -12,6 +12,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use spirv_headers::ImageFormat;
+
+mod wgsl;
+
 pub enum ShaderSource {
     Inline(String),
     Files(Vec<PathBuf>),
