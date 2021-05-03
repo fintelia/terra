@@ -28,6 +28,7 @@ pub enum TextureFormat {
     R8,
     RG8,
     RGBA8,
+    RGBA16F,
     R32F,
     RG32F,
     RGBA32F,
@@ -43,6 +44,7 @@ impl TextureFormat {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
             TextureFormat::RGBA8 => 4,
+            TextureFormat::RGBA16F => 8,
             TextureFormat::R32F => 4,
             TextureFormat::RG32F => 8,
             TextureFormat::RGBA32F => 16,
@@ -56,6 +58,7 @@ impl TextureFormat {
             TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
             TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
             TextureFormat::R32F => wgpu::TextureFormat::R32Float,
             TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
             TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
@@ -70,6 +73,7 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::RGBA16F
             | TextureFormat::R32F
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
@@ -82,6 +86,7 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::RGBA16F
             | TextureFormat::R32F
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F

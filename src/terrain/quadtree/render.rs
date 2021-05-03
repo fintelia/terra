@@ -13,7 +13,7 @@ pub(crate) struct NodeState {
     resolution: u32,
     face: u32,
     level: u32,
-    _padding0: u32,
+    node_index: u32,
     relative_position: [f32; 3],
     min_distance: f32,
     parent_relative_position: [f32; 3],
@@ -24,6 +24,8 @@ pub(crate) struct NodeState {
 }
 unsafe impl bytemuck::Pod for NodeState {}
 unsafe impl bytemuck::Zeroable for NodeState {}
+
+const MAX_RENDERED_NODES: usize = 1024;
 
 impl QuadTree {
     pub fn find_descs(
@@ -160,8 +162,8 @@ impl QuadTree {
                 texture_ratio,
                 texture_step,
             )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
+            let node_index = self.node_states.len() as u32;
             self.node_states.push(NodeState {
-                _padding0: 0,
                 _padding1: [0; 17],
                 min_distance: node.min_distance() as f32,
                 displacements_desc,
@@ -172,6 +174,7 @@ impl QuadTree {
                 resolution,
                 face: node.face() as u32,
                 level: node.level() as u32,
+                node_index,
                 relative_position: (cgmath::Point3::from(camera)
                     - displacements_node.center_wspace())
                 .cast::<f32>()
@@ -237,8 +240,8 @@ impl QuadTree {
                         texture_ratio,
                         texture_step,
                     )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
+                    let node_index = self.node_states.len() as u32;
                     self.node_states.push(NodeState {
-                        _padding0: 0,
                         _padding1: [0; 17],
                         // side_length: node.side_length() * 0.5,
                         min_distance: node.min_distance() as f32,
@@ -250,6 +253,7 @@ impl QuadTree {
                         resolution: resolution / 2,
                         face: node.face() as u32,
                         level: node.level() as u32,
+                        node_index,
                         relative_position: (cgmath::Point3::from(camera)
                             - displacements_node.center_wspace())
                         .cast::<f32>()
@@ -270,6 +274,7 @@ impl QuadTree {
         }
 
         assert_eq!(mem::size_of::<NodeState>(), 256);
+        assert!(self.node_states.len() < MAX_RENDERED_NODES);
         queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&self.node_states));
     }
 

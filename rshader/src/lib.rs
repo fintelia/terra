@@ -3,6 +3,7 @@ use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use spirq::ty::{DescriptorType, ImageArrangement, ScalarType, Type, VectorType};
 use spirq::{ExecutionModel, SpirvBinary};
+use spirv_headers::ImageFormat;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::fs::File;
@@ -11,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use spirv_headers::ImageFormat;
 pub enum ShaderSource {
     Inline(String),
     Files(Vec<PathBuf>),
@@ -173,15 +173,17 @@ impl ShaderSet {
             return false;
         }
 
-        let r = || -> Result<(), anyhow::Error> {
-            Ok(self.inner = match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
-                (Some(ref vs), Some(ref fs), None) => {
-                    ShaderSetInner::simple(vs.load()?, fs.load()?)
-                }
-                (None, None, Some(ref cs)) => ShaderSetInner::compute_only(cs.load()?),
-                _ => unreachable!(),
-            }?)
-        }();
+        let r =
+            || -> Result<(), anyhow::Error> {
+                Ok(self.inner =
+                    match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
+                        (Some(ref vs), Some(ref fs), None) => {
+                            ShaderSetInner::simple(vs.load()?, fs.load()?)
+                        }
+                        (None, None, Some(ref cs)) => ShaderSetInner::compute_only(cs.load()?),
+                        _ => unreachable!(),
+                    }?)
+            }();
         self.last_update = Instant::now();
         r.is_ok()
     }
@@ -332,7 +334,22 @@ fn reflect(
         for desc in manifest.descs() {
             let (set, binding) = desc.desc_bind.into_inner();
             assert_eq!(set, 0);
-            let name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
+            let mut name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
+
+            // If this is an unnamed interface block, but it contains only a single named item, 
+            // use the item's name instead.
+            if name.is_none() {
+                match desc.desc_ty {
+                    DescriptorType::UniformBuffer(_, Type::Struct(s)) |
+                    DescriptorType::StorageBuffer(_, Type::Struct(s)) => {
+                        if s.nmember() == 1 {
+                            name = s.get_member(0).unwrap().name.clone();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
             let ty = match desc.desc_ty {
                 DescriptorType::Sampler(_) => {
                     wgpu::BindingType::Sampler { filtering: true, comparison: false }
@@ -350,26 +367,29 @@ fn reflect(
                         _ => unimplemented!(),
                     };
                     match ty.unit_fmt {
-                        spirq::ty::ImageUnitFormat::Color(c) => {
-                            wgpu::BindingType::StorageTexture {
-                                view_dimension,
-                                access: match manifest.get_desc_access(desc.desc_bind).unwrap() {
-                                    spirq::AccessType::ReadOnly => wgpu::StorageTextureAccess::ReadOnly,
-                                    spirq::AccessType::WriteOnly => wgpu::StorageTextureAccess::WriteOnly,
-                                    spirq::AccessType::ReadWrite => wgpu::StorageTextureAccess::ReadWrite,
-                                },
-                                format: match c {
-                                    ImageFormat::R32f => wgpu::TextureFormat::R32Float,
-                                    ImageFormat::Rg32f => wgpu::TextureFormat::Rg32Float,
-                                    ImageFormat::Rgba32f => wgpu::TextureFormat::Rgba32Float,
-                                    ImageFormat::R32ui => wgpu::TextureFormat::R32Uint,
-                                    ImageFormat::Rg32ui => wgpu::TextureFormat::Rg32Uint,
-                                    ImageFormat::Rgba32ui => wgpu::TextureFormat::Rgba32Uint,
-                                    ImageFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
-                                    _ => unimplemented!("component type {:?}", c),
+                        spirq::ty::ImageUnitFormat::Color(c) => wgpu::BindingType::StorageTexture {
+                            view_dimension,
+                            access: match manifest.get_desc_access(desc.desc_bind).unwrap() {
+                                spirq::AccessType::ReadOnly => wgpu::StorageTextureAccess::ReadOnly,
+                                spirq::AccessType::WriteOnly => {
+                                    wgpu::StorageTextureAccess::WriteOnly
                                 }
-                            }
-                        }
+                                spirq::AccessType::ReadWrite => {
+                                    wgpu::StorageTextureAccess::ReadWrite
+                                }
+                            },
+                            format: match c {
+                                ImageFormat::Rgba16f => wgpu::TextureFormat::Rgba16Float,
+                                ImageFormat::R32f => wgpu::TextureFormat::R32Float,
+                                ImageFormat::Rg32f => wgpu::TextureFormat::Rg32Float,
+                                ImageFormat::Rgba32f => wgpu::TextureFormat::Rgba32Float,
+                                ImageFormat::R32ui => wgpu::TextureFormat::R32Uint,
+                                ImageFormat::Rg32ui => wgpu::TextureFormat::Rg32Uint,
+                                ImageFormat::Rgba32ui => wgpu::TextureFormat::Rgba32Uint,
+                                ImageFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
+                                _ => unimplemented!("component type {:?}", c),
+                            },
+                        },
                         spirq::ty::ImageUnitFormat::Sampled => wgpu::BindingType::Texture {
                             multisampled: false,
                             view_dimension,
@@ -379,7 +399,10 @@ fn reflect(
                     }
                 }
                 DescriptorType::StorageBuffer(..) => wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false, },
+                    ty: wgpu::BufferBindingType::Storage {
+                        read_only: manifest.get_desc_access(desc.desc_bind).unwrap()
+                            == spirq::AccessType::ReadOnly,
+                    },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -395,12 +418,19 @@ fn reflect(
                     *s = *s | stage;
 
                     if *n != name {
-                        return Err(anyhow!("descriptor mismatch {} vs {}",
-                            n.as_ref().unwrap_or(&"<unamed>".to_string()), name.unwrap_or("<unamed>".to_string())));
+                        return Err(anyhow!(
+                            "descriptor mismatch {} vs {}",
+                            n.as_ref().unwrap_or(&"<unamed>".to_string()),
+                            name.unwrap_or("<unamed>".to_string())
+                        ));
                     }
                     if *t != ty {
-                        return Err(anyhow!("descriptor mismatch for {}: {:?} vs {:?}",
-                            n.as_ref().unwrap_or(&"<unamed>".to_string()), t, ty));
+                        return Err(anyhow!(
+                            "descriptor mismatch for {}: {:?} vs {:?}",
+                            n.as_ref().unwrap_or(&"<unamed>".to_string()),
+                            t,
+                            ty
+                        ));
                     }
                 }
             }

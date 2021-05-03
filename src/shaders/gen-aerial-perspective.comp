@@ -1,0 +1,72 @@
+#line 2
+
+layout(local_size_x = 9, local_size_y = 9) in;
+
+layout(set = 0, binding = 0) uniform UniformBlock {
+    mat4 view_proj;
+	mat4 view_proj_inverse;
+	vec3 camera;
+	vec3 sun_direction;
+	vec2 padding;
+} globals;
+
+struct LayerDesc {
+	vec3 origin;
+	float _step;
+	vec3 parent_origin;
+	float parent_step;
+};
+struct NodeStruct {
+	LayerDesc displacements;
+	LayerDesc albedo;
+	LayerDesc roughness;
+	LayerDesc normals;
+	vec3 grass_canopy_origin;
+	float grass_canopy_step;
+	uint resolution;
+	uint face;
+	uint level;
+	uint node_index;
+	vec3 relative_position;
+	float min_distance;
+	vec3 parent_relative_position;
+	float padding1[17];
+};
+layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
+    NodeStruct nodes[];
+};
+
+layout(set = 0, binding = 2) uniform sampler nearest;
+layout(set = 0, binding = 3) uniform texture2DArray displacements;
+layout(rgba32f, set = 0, binding = 4) readonly uniform image2D transmittance;
+layout(rgba16f, set = 0, binding = 5) writeonly uniform image2DArray aerial_perspective;
+
+const float planetRadius = 6371000.0;
+const float atmosphereRadius = 6371000.0 + 100000.0;
+
+vec2 rsi(vec3 r0, vec3 rd, float sr);
+vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
+vec3 precomputed_transmittance2(vec3 x, vec3 y);
+
+void main() {
+	ivec2 iPosition = ivec2(gl_GlobalInvocationID.xy * 8);//(nodes[gl_GlobalInvocationID.z].resolution / 8));
+	vec3 texcoord = nodes[gl_GlobalInvocationID.z].displacements.origin 
+        + vec3(vec2(iPosition) * nodes[gl_GlobalInvocationID.z].displacements._step, 0);
+	vec3 position = texture(sampler2DArray(displacements, nearest), texcoord).rgb 
+        - nodes[gl_GlobalInvocationID.z].relative_position;
+
+    vec3 x0 = globals.camera;
+	vec3 x1 = x0 + position;
+	vec3 r = normalize(position);
+	vec2 p = rsi(x0, r, atmosphereRadius);
+
+    vec4 output_value = vec4(0, 0, 0, 1);
+	if (p.x < p.y && p.y >= 0) {
+	    x0 += r * max(p.x, 0.0);
+	    output_value.a = precomputed_transmittance2(x1, x0).b;
+	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction);
+	}
+    output_value *= vec4(1.0 / 16.0);
+
+    imageStore(aerial_perspective, ivec3(gl_GlobalInvocationID.xyz), output_value);
+}

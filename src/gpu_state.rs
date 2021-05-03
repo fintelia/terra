@@ -21,6 +21,7 @@ pub(crate) struct GpuState {
     pub sky: wgpu::Texture,
     pub transmittance: wgpu::Texture,
     pub inscattering: wgpu::Texture,
+    pub aerial_perspective: wgpu::Texture,
 
     pub tile_cache: VecMap<wgpu::Texture>,
     pub mesh_cache: VecMap<GpuMeshLayer>,
@@ -58,6 +59,7 @@ impl GpuState {
                                 "sky" => &self.sky,
                                 "transmittance" => &self.transmittance,
                                 "inscattering" => &self.inscattering,
+                                "aerial_perspective" => &self.aerial_perspective,
                                 "displacements" => &self.tile_cache[LayerType::Displacements],
                                 "albedo" => &self.tile_cache[LayerType::Albedo],
                                 "roughness" => &self.tile_cache[LayerType::Roughness],
@@ -100,6 +102,16 @@ impl GpuState {
                     samplers.insert(
                         name,
                         match name {
+                            "nearest" => device.create_sampler(&wgpu::SamplerDescriptor {
+                                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                mag_filter: wgpu::FilterMode::Nearest,
+                                min_filter: wgpu::FilterMode::Nearest,
+                                mipmap_filter: wgpu::FilterMode::Nearest,
+                                label: Some("sampler.nearest"),
+                                ..Default::default()
+                            }),
                             "linear" => device.create_sampler(&wgpu::SamplerDescriptor {
                                 address_mode_u: wgpu::AddressMode::ClampToEdge,
                                 address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -136,8 +148,16 @@ impl GpuState {
                     wgpu::BindingType::Sampler { .. } => {
                         wgpu::BindingResource::Sampler(&samplers[name])
                     }
-                    wgpu::BindingType::StorageTexture { .. }
-                    | wgpu::BindingType::Texture { .. } => {
+                    wgpu::BindingType::StorageTexture { .. } => {
+                        wgpu::BindingResource::TextureView(&image_views[name])
+                    }
+                    wgpu::BindingType::Texture { ref mut sample_type, .. } => {
+                        match name {
+                            "transmittance" | "inscattering" | "heightmaps" | "displacements" => {
+                                *sample_type = wgpu::TextureSampleType::Float { filterable: false }
+                            }
+                            _ => {}
+                        }
                         wgpu::BindingResource::TextureView(&image_views[name])
                     }
                     wgpu::BindingType::Buffer { ref mut has_dynamic_offset, .. } => {

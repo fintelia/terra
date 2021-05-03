@@ -26,7 +26,7 @@ layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	uint resolution;
 	uint face;
 	uint level;
-	uint padding0;
+	uint node_index;
 	vec3 relative_position;
 	float min_distance;
 	vec3 parent_relative_position;
@@ -41,6 +41,7 @@ layout(set = 0, binding = 6) uniform texture2DArray roughness;
 layout(rgba32f, set = 0, binding = 7) readonly uniform image2D transmittance;
 //layout(set = 0, binding = 8) uniform texture3D inscattering;
 layout(set = 0, binding = 10) uniform texture2DArray grass_canopy;
+layout(set = 0, binding = 11) uniform texture2DArray aerial_perspective;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -293,15 +294,10 @@ void main() {
 						sunDirection,
 						vec3(100000.0));
 
-	vec3 x0 = globals.camera;
-	vec3 x1 = x0 + position;
-	vec3 r = normalize(position);
-	vec2 p = rsi(x0, r, atmosphereRadius);
-	if (p.x < p.y && p.y >= 0) {
-		x0 += r * max(p.x, 0.0);
-		out_color.rgb *= precomputed_transmittance2(x1, x0);
-		out_color.rgb += atmosphere(x0, x1,	sunDirection);
-	}
+	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), 
+					  vec3((texcoord / 64.0 * 8 + 0.5) / 9, node.node_index));
+	out_color.rgb *= ap.a * 16.0;
+	out_color.rgb += ap.rgb * 16.0;
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);

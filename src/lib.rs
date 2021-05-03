@@ -57,6 +57,7 @@ pub struct Terrain {
 
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
+    aerial_perspective: ComputeShader<u32>,
 
     gpu_state: GpuState,
     quadtree: QuadTree,
@@ -123,7 +124,13 @@ impl Terrain {
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "version.glsl", "terrain.vert"),
-            rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "terrain.frag", "atmosphere.glsl"),
+            rshader::shader_source!(
+                "shaders",
+                "version.glsl",
+                "pbr.glsl",
+                "terrain.frag",
+                "atmosphere.glsl"
+            ),
         )
         .unwrap();
 
@@ -135,7 +142,9 @@ impl Terrain {
         });
         let node_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             size: (std::mem::size_of::<NodeState>() * 1024) as u64,
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+            usage: wgpu::BufferUsage::COPY_DST
+                | wgpu::BufferUsage::UNIFORM
+                | wgpu::BufferUsage::STORAGE,
             label: Some("buffer.nodes"),
             mapped_at_creation: false,
         });
@@ -171,11 +180,25 @@ impl Terrain {
             label: Some("texture.staging.bc5"),
         });
 
+        let aerial_perspective = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d { width: 9, height: 9, depth_or_array_layers: 1024 },
+            format: wgpu::TextureFormat::Rgba16Float,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            usage: wgpu::TextureUsage::COPY_SRC
+                | wgpu::TextureUsage::COPY_DST
+                | wgpu::TextureUsage::STORAGE
+                | wgpu::TextureUsage::SAMPLED,
+            label: Some("texture.aerial_perspective"),
+        });
+
         let gpu_state = GpuState {
             noise,
             sky,
             transmittance,
             inscattering,
+            aerial_perspective,
             bc4_staging,
             bc5_staging,
             tile_cache: cache.make_gpu_tile_cache(device),
@@ -187,9 +210,25 @@ impl Terrain {
 
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "version.glsl", "sky.vert"),
-            rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "sky.frag", "atmosphere.glsl"),
+            rshader::shader_source!(
+                "shaders",
+                "version.glsl",
+                "pbr.glsl",
+                "sky.frag",
+                "atmosphere.glsl"
+            ),
         )
         .unwrap();
+
+        let aerial_perspective = ComputeShader::new(
+            rshader::shader_source!(
+                "shaders",
+                "version.glsl",
+                "gen-aerial-perspective.comp",
+                "atmosphere.glsl"
+            ),
+            "gen-aerial-perspective".to_string(),
+        );
 
         Ok(Self {
             bindgroup_pipeline: None,
@@ -199,6 +238,7 @@ impl Terrain {
 
             sky_shader,
             sky_bindgroup_pipeline: None,
+            aerial_perspective,
 
             gpu_state,
             quadtree,
@@ -250,7 +290,6 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
-
         if self.shader.refresh() {
             self.bindgroup_pipeline = None;
         }
@@ -389,7 +428,12 @@ impl Terrain {
         }
 
         self.quadtree.update_visibility(&self.cache.tiles, camera);
-        self.quadtree.prepare_vertex_buffer(queue, &mut self.gpu_state.node_buffer, &self.cache, camera);
+        self.quadtree.prepare_vertex_buffer(
+            queue,
+            &mut self.gpu_state.node_buffer,
+            &self.cache,
+            camera,
+        );
 
         queue.write_buffer(
             &self.gpu_state.globals,
@@ -407,6 +451,15 @@ impl Terrain {
             label: Some("encoder.render"),
         });
         {
+            self.aerial_perspective.refresh();
+            self.aerial_perspective.run(
+                device,
+                &mut encoder,
+                &self.gpu_state,
+                (1, 1, self.quadtree.node_buffer_length() as u32),
+                &0,
+            );
+
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     view: color_buffer,
@@ -433,13 +486,7 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            self.cache.render_meshes(
-                device,
-                &queue,
-                &mut rpass,
-                &self.gpu_state,
-                camera,
-            );
+            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);

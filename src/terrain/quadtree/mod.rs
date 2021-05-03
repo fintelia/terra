@@ -124,6 +124,10 @@ impl QuadTree {
         });
     }
 
+    pub fn node_buffer_length(&self) -> usize {
+        self.node_states.len()
+    }
+
     // pub fn get_height(
     //     &self,
     //     mapfile: &MapFile,
