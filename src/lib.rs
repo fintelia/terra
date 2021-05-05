@@ -89,15 +89,15 @@ impl Terrain {
                 generate: ComputeShader::new(
                     rshader::shader_source!(
                         "shaders",
-                        "version.glsl",
+                        "declarations.glsl",
                         "hash.glsl",
                         "gen-grass.comp"
                     ),
                     "gen-grass".to_string(),
                 ),
                 render: rshader::ShaderSet::simple(
-                    rshader::shader_source!("shaders", "version.glsl", "grass.vert"),
-                    rshader::shader_source!("shaders", "version.glsl", "pbr.glsl", "grass.frag"),
+                    rshader::shader_source!("shaders", "declarations.glsl", "grass.vert"),
+                    rshader::shader_source!("shaders", "declarations.glsl", "pbr.glsl", "grass.frag"),
                 )
                 .unwrap(),
             }],
@@ -105,7 +105,7 @@ impl Terrain {
                 generate: ComputeShader::new(
                     rshader::shader_source!(
                         "shaders",
-                        "version.glsl",
+                        "declarations.glsl",
                         "hash.glsl",
                         "gen-grass-canopy.comp"
                     ),
@@ -123,10 +123,10 @@ impl Terrain {
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
         let shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "version.glsl", "terrain.vert"),
+            rshader::shader_source!("shaders", "declarations.glsl", "terrain.vert"),
             rshader::shader_source!(
                 "shaders",
-                "version.glsl",
+                "declarations.glsl",
                 "pbr.glsl",
                 "terrain.frag"
             ),
@@ -208,10 +208,10 @@ impl Terrain {
         };
 
         let sky_shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "version.glsl", "sky.vert"),
+            rshader::shader_source!("shaders", "declarations.glsl", "sky.vert"),
             rshader::shader_source!(
                 "shaders",
-                "version.glsl",
+                "declarations.glsl",
                 "pbr.glsl",
                 "sky.frag",
                 "atmosphere.glsl"
@@ -222,7 +222,7 @@ impl Terrain {
         let aerial_perspective = ComputeShader::new(
             rshader::shader_source!(
                 "shaders",
-                "version.glsl",
+                "declarations.glsl",
                 "gen-aerial-perspective.comp",
                 "atmosphere.glsl"
             ),
