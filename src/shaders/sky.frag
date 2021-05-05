@@ -1,21 +1,14 @@
 #line 2
 
 layout(set = 0, binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	mat4 view_proj_inverse;
-	vec3 camera;
-	vec3 sun_direction;
-	vec2 padding;
-} globals;
-
+	Globals globals;
+};
 layout(set = 0, binding = 1) uniform sampler linear;
-layout(set = 0, binding = 2) uniform texture2D sky;
-layout(rgba32f, set = 0, binding = 3) readonly uniform image2D transmittance;
-//layout(set = 0, binding = 3) uniform texture2D transmittance;
-//layout(set = 0, binding = 4) uniform texture3D inscattering;
+layout(set = 0, binding = 2) uniform sampler nearest;
+layout(set = 0, binding = 3) uniform texture2D sky;
+layout(set = 0, binding = 4) uniform texture2D transmittance;
 
 layout(location = 0) in vec4 position;
-//layout(location = 1) in mat4 view_proj_inv;
 
 layout(location = 0) out vec4 OutColor;
 

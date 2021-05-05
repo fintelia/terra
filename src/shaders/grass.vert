@@ -1,12 +1,8 @@
 #line 2
 
-layout(set = 0, binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	mat4 view_proj_inverse;
-	vec3 camera;
-	vec3 sun_direction;
-	vec2 padding;
-} globals;
+layout(set = 0, binding = 0, std140) uniform UniformBlock {
+    Globals globals;
+};
 
 layout(set = 0, binding = 1, std140) uniform NodeBlock {
 	vec3 relative_position;

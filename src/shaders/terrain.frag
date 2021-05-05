@@ -2,46 +2,20 @@
 
 layout(early_fragment_tests) in;
 
-layout(set = 0, binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	mat4 view_proj_inverse;
-	vec3 camera;
-	vec3 sun_direction;
-	vec2 padding;
-} globals;
-
-struct LayerDesc {
-	vec3 origin;
-	float _step;
-	vec3 parent_origin;
-	float parent_step;
+layout(set = 0, binding = 0, std140) uniform UniformBlock {
+    Globals globals;
 };
 layout(set = 0, binding = 1, std140) uniform NodeBlock {
-	LayerDesc displacements;
-	LayerDesc albedo;
-	LayerDesc roughness;
-	LayerDesc normals;
-	vec3 grass_canopy_origin;
-	float grass_canopy_step;
-	uint resolution;
-	uint face;
-	uint level;
-	uint node_index;
-	vec3 relative_position;
-	float min_distance;
-	vec3 parent_relative_position;
-	float padding1;
-} node;
-
+	NodeState node;
+};
 layout(set = 0, binding = 2) uniform sampler linear;
-//layout(set = 0, binding = 3) uniform texture2DArray heights;
+//layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 4) uniform texture2DArray normals;
 layout(set = 0, binding = 5) uniform texture2DArray albedo;
 layout(set = 0, binding = 6) uniform texture2DArray roughness;
-layout(rgba32f, set = 0, binding = 7) readonly uniform image2D transmittance;
-//layout(set = 0, binding = 8) uniform texture3D inscattering;
-layout(set = 0, binding = 10) uniform texture2DArray grass_canopy;
-layout(set = 0, binding = 11) uniform texture2DArray aerial_perspective;
+layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
+layout(set = 0, binding = 8) uniform texture2DArray aerial_perspective;
+//layout(set = 0, binding = 9) uniform texture2DArray displacements;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -51,24 +25,7 @@ layout(location = 4) in vec3 tangent;
 layout(location = 5) in vec3 bitangent;
 layout(location = 6) in vec2 i_position;
 
-//layout(location = 11) in vec2 i_position;
-// layout(location = 9) in float resolution;
-// layout(location = 10) in float min_distance;
-// layout(location = 11) in float elevation;
-//layout(location = 12) in float face;
-//layout(location = 13) in float level_resolution;
-
 layout(location = 0) out vec4 out_color;
-
-const float planetRadius = 6371000.0;
-const float atmosphereRadius = 6371000.0 + 100000.0;
-
-vec2 rsi(vec3 r0, vec3 rd, float sr);
-vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
-
-vec3 precomputed_aerial_perspective(vec3 color, vec3 x1, vec3 x0, vec3 sun_normalized);
-vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
-vec3 precomputed_transmittance2(vec3 x, vec3 y);
 
 float mipmap_level(in vec2 texture_coordinate)
 {
@@ -283,15 +240,13 @@ void main() {
 		}
 	}
 
-	vec3 sunDirection = normalize(vec3(0.4, .7, 0.2));
-
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_value,
 						roughness_value,
 						position,
 						bent_normal,
 						globals.camera,
-						sunDirection,
+						globals.sun_direction,
 						vec3(100000.0));
 
 	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), 

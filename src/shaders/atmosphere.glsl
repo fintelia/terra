@@ -116,7 +116,7 @@ vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun) {
 // }
 // 
 vec3 precomputed_transmittance(float r, float mu) {
-	vec2 size = imageSize(transmittance);
+	vec2 size = textureSize(transmittance, 0);
 
 	float H = sqrt(atmosphereRadius * atmosphereRadius - planetRadius * planetRadius);
 	float rho = sqrt(r * r - planetRadius * planetRadius);
@@ -134,7 +134,7 @@ vec3 precomputed_transmittance(float r, float mu) {
 		u_mu = uu * hp;
 	}
 
-	return imageLoad(transmittance, ivec2(round(u_r), round(u_mu))).rgb;
+	return texture(sampler2D(transmittance, nearest), (vec2(u_r, u_mu) * (size-1) + 0.5) / size).rgb;
 }
 
 vec3 precomputed_transmittance2(vec3 x, vec3 y) {
@@ -143,7 +143,7 @@ vec3 precomputed_transmittance2(vec3 x, vec3 y) {
 	float mu1 = dot(normalize(x), normalize(x - y));
 	float mu2 = dot(normalize(y), normalize(x - y));
 
-	vec2 size = imageSize(transmittance);
+	vec2 size = textureSize(transmittance, 0);
 	float hp = (size.y*0.5 - 1.0) / (size.y-1.0);
 
 	float mu1_horizon = -sqrt(1.0 - (planetRadius / r1) * (planetRadius / r1));
@@ -164,11 +164,8 @@ vec3 precomputed_transmittance2(vec3 x, vec3 y) {
 		u_mu2 = hp * pow(max(mu2_horizon - mu2, 0) / (1.0 + mu2_horizon), 0.2);
 	}
 
-	vec3 t1 = imageLoad(transmittance, ivec2(round(u_r1), round(u_mu1))).rgb;
-	vec3 t2 = imageLoad(transmittance, ivec2(round(u_r2), round(u_mu2))).rgb;
-
-	// vec3 t1 = texture(sampler2D(transmittance, linear), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
-	// vec3 t2 = texture(sampler2D(transmittance, linear), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
+	vec3 t1 = texture(sampler2D(transmittance, nearest), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
+	vec3 t2 = texture(sampler2D(transmittance, nearest), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
 
 	return t2 / t1;
 }

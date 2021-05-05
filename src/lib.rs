@@ -128,8 +128,7 @@ impl Terrain {
                 "shaders",
                 "version.glsl",
                 "pbr.glsl",
-                "terrain.frag",
-                "atmosphere.glsl"
+                "terrain.frag"
             ),
         )
         .unwrap();

@@ -2,43 +2,15 @@
 
 layout(local_size_x = 9, local_size_y = 9) in;
 
-layout(set = 0, binding = 0) uniform UniformBlock {
-    mat4 view_proj;
-	mat4 view_proj_inverse;
-	vec3 camera;
-	vec3 sun_direction;
-	vec2 padding;
-} globals;
-
-struct LayerDesc {
-	vec3 origin;
-	float _step;
-	vec3 parent_origin;
-	float parent_step;
-};
-struct NodeStruct {
-	LayerDesc displacements;
-	LayerDesc albedo;
-	LayerDesc roughness;
-	LayerDesc normals;
-	vec3 grass_canopy_origin;
-	float grass_canopy_step;
-	uint resolution;
-	uint face;
-	uint level;
-	uint node_index;
-	vec3 relative_position;
-	float min_distance;
-	vec3 parent_relative_position;
-	float padding1[17];
+layout(set = 0, binding = 0, std140) uniform UniformBlock {
+	Globals globals;
 };
 layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
-    NodeStruct nodes[];
+    NodeState nodes[];
 };
-
 layout(set = 0, binding = 2) uniform sampler nearest;
 layout(set = 0, binding = 3) uniform texture2DArray displacements;
-layout(rgba32f, set = 0, binding = 4) readonly uniform image2D transmittance;
+layout(set = 0, binding = 4) uniform texture2D transmittance;
 layout(rgba16f, set = 0, binding = 5) writeonly uniform image2DArray aerial_perspective;
 
 const float planetRadius = 6371000.0;
