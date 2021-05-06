@@ -356,7 +356,9 @@ impl TileCache {
                                     buffer: &buffer,
                                     layout: wgpu::ImageDataLayout {
                                         offset: 0,
-                                        bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
+                                        bytes_per_row: Some(
+                                            NonZeroU32::new(row_pitch as u32).unwrap(),
+                                        ),
                                         rows_per_image: None,
                                     },
                                 },

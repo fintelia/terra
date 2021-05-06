@@ -5,9 +5,9 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
-use std::{fs, num::NonZeroU32};
 use std::io::Write;
 use std::path::PathBuf;
+use std::{fs, num::NonZeroU32};
 use tokio::io::AsyncReadExt;
 use vec_map::VecMap;
 
@@ -149,7 +149,11 @@ impl MapFile {
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: desc.width, height: desc.height, depth_or_array_layers: desc.depth },
+            size: wgpu::Extent3d {
+                width: desc.width,
+                height: desc.height,
+                depth_or_array_layers: desc.depth,
+            },
             format: desc.format.to_wgpu(),
             mip_level_count: 1,
             sample_count: 1,

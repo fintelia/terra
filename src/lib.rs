@@ -97,7 +97,12 @@ impl Terrain {
                 ),
                 render: rshader::ShaderSet::simple(
                     rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
-                    rshader::shader_source!("shaders", "grass.frag", "declarations.glsl", "pbr.glsl"),
+                    rshader::shader_source!(
+                        "shaders",
+                        "grass.frag",
+                        "declarations.glsl",
+                        "pbr.glsl"
+                    ),
                 )
                 .unwrap(),
             }],
@@ -124,12 +129,7 @@ impl Terrain {
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
-            rshader::shader_source!(
-                "shaders",
-                "terrain.frag",
-                "declarations.glsl",
-                "pbr.glsl"
-            ),
+            rshader::shader_source!("shaders", "terrain.frag", "declarations.glsl", "pbr.glsl"),
         )
         .unwrap();
 

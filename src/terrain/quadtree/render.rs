@@ -155,13 +155,18 @@ impl QuadTree {
                 texture_step,
             )
             .0;
-            let grass_canopy_desc = cache.lookup_texture(SingularLayerType::GrassCanopy, node).map(|lookup| Self::lookup_to_desc(
-                lookup,
-                Vector2::new(texture_origin, texture_origin),
-                Vector2::new(0.0, 0.0),
-                texture_ratio,
-                texture_step,
-            )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
+            let grass_canopy_desc = cache
+                .lookup_texture(SingularLayerType::GrassCanopy, node)
+                .map(|lookup| {
+                    Self::lookup_to_desc(
+                        lookup,
+                        Vector2::new(texture_origin, texture_origin),
+                        Vector2::new(0.0, 0.0),
+                        texture_ratio,
+                        texture_step,
+                    )
+                })
+                .unwrap_or([0.0, 0.0, -1.0, 0.0]);
             let node_index = self.node_states.len() as u32;
             self.node_states.push(NodeState {
                 _padding1: [0; 17],
@@ -233,13 +238,18 @@ impl QuadTree {
                         texture_step,
                     )
                     .0;
-                    let grass_canopy_desc = cache.lookup_texture(SingularLayerType::GrassCanopy, node).map(|lookup| Self::lookup_to_desc(
-                        lookup,
-                        Vector2::new(texture_origin, texture_origin),
-                        base_origin,
-                        texture_ratio,
-                        texture_step,
-                    )).unwrap_or([0.0, 0.0, -1.0, 0.0]);
+                    let grass_canopy_desc = cache
+                        .lookup_texture(SingularLayerType::GrassCanopy, node)
+                        .map(|lookup| {
+                            Self::lookup_to_desc(
+                                lookup,
+                                Vector2::new(texture_origin, texture_origin),
+                                base_origin,
+                                texture_ratio,
+                                texture_step,
+                            )
+                        })
+                        .unwrap_or([0.0, 0.0, -1.0, 0.0]);
                     let node_index = self.node_states.len() as u32;
                     self.node_states.push(NodeState {
                         _padding1: [0; 17],

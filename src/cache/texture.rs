@@ -1,8 +1,7 @@
 use crate::{
     cache::{
         GeneratorMask, LayerMask, Priority, PriorityCache, PriorityCacheEntry, SingularLayerType,
-        UnifiedPriorityCache,
-        TextureFormat,
+        TextureFormat, UnifiedPriorityCache,
     },
     generate::ComputeShader,
     gpu_state::GpuState,

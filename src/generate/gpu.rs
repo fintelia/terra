@@ -124,7 +124,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         push_constant_ranges: &[],
                         label: Some(&format!("pipeline.{}.layout", self.name)),
                     })),
-                    module:&device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.{}", self.name)),
                         source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
                         flags: wgpu::ShaderFlags::empty(),
@@ -146,7 +146,13 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         drop(buffer_view);
         staging.unmap();
 
-        encoder.copy_buffer_to_buffer(&staging, 0, self.uniforms.as_ref().unwrap(), 0, mem::size_of::<U>() as u64);
+        encoder.copy_buffer_to_buffer(
+            &staging,
+            0,
+            self.uniforms.as_ref().unwrap(),
+            0,
+            mem::size_of::<U>() as u64,
+        );
 
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);

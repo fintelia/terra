@@ -1,4 +1,3 @@
-use crate::{asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset}, cache::LayerMask};
 use crate::cache::{LayerParams, LayerType, TextureFormat};
 use crate::gpu_state::GpuState;
 use crate::mapfile::{MapFile, TextureDescriptor};
@@ -7,6 +6,10 @@ use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::GlobalRaster;
 use crate::terrain::raster::RasterCache;
+use crate::{
+    asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
+    cache::LayerMask,
+};
 use crate::{coordinates, Terrain};
 use anyhow::Error;
 use bytemuck::Pod;
@@ -16,7 +19,10 @@ use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
-use std::{borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32, path::PathBuf};
+use std::{
+    borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32,
+    path::PathBuf,
+};
 use std::{
     io::{Read, Write},
     path::Path,
@@ -195,7 +201,7 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
                             wgpu::ShaderFlags::VALIDATION
                         } else {
                             wgpu::ShaderFlags::empty()
-                        }
+                        },
                     }),
                     entry_point: "main",
                     label: Some(&format!("pipeline.generate.{}", self.name)),
@@ -235,7 +241,11 @@ impl<T: Pod, F: 'static + Fn(VNode, usize, Option<usize>, LayerMask) -> T> Gener
                         offset: 0,
                     },
                 },
-                wgpu::Extent3d { width: resolution_blocks, height: resolution_blocks, depth_or_array_layers: 1 },
+                wgpu::Extent3d {
+                    width: resolution_blocks,
+                    height: resolution_blocks,
+                    depth_or_array_layers: 1,
+                },
             );
             encoder.copy_buffer_to_texture(
                 wgpu::ImageCopyBuffer {
@@ -329,11 +339,13 @@ impl ShaderGenBuilder {
             peer_inputs: self.peer_inputs,
             parent_inputs: self.parent_inputs,
             dimensions: self.dimensions,
-            root_outputs: self.root_outputs.unwrap_or(if self.parent_inputs == LayerMask::empty() {
-                self.outputs
-            } else {
-                LayerMask::empty()
-            }),
+            root_outputs: self.root_outputs.unwrap_or(
+                if self.parent_inputs == LayerMask::empty() {
+                    self.outputs
+                } else {
+                    LayerMask::empty()
+                },
+            ),
             root_peer_inputs: self.root_peer_inputs.unwrap_or(self.peer_inputs),
             blit_from_bc5_staging: self.blit_from_bc5_staging,
             f,
