@@ -1,4 +1,5 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
 
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;

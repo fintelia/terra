@@ -1,4 +1,6 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
+#include "pbr.glsl"
 
 layout(early_fragment_tests) in;
 

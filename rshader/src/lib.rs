@@ -1,49 +1,71 @@
 use anyhow::anyhow;
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use sha2::{Digest, Sha256};
 use spirq::ty::{DescriptorType, ImageArrangement, ScalarType, Type, VectorType};
 use spirq::{ExecutionModel, SpirvBinary};
 use spirv_headers::ImageFormat;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
-use std::fs::File;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 pub enum ShaderSource {
-    Inline(String),
-    Files(Vec<PathBuf>),
+    Inline {
+        name: &'static str,
+        contents: String,
+        headers: HashMap<&'static str, String>,
+        defines: Vec<(&'static str, &'static str)>,
+    },
+    Files {
+        name: &'static str,
+        path: PathBuf,
+        header_paths: HashMap<&'static str, PathBuf>,
+        defines: Vec<(&'static str, &'static str)>,
+    },
 }
 impl ShaderSource {
-    pub fn new(directory: PathBuf, mut filenames: Vec<PathBuf>) -> Self {
+    pub fn new(
+        directory: PathBuf,
+        name: &'static str,
+        mut header_paths: HashMap<&'static str, PathBuf>,
+        defines: Vec<(&'static str, &'static str)>,
+    ) -> Self {
         DIRECTORY_WATCHER.lock().unwrap().watch(&directory);
-
-        for filename in &mut filenames {
-            *filename = std::fs::canonicalize(directory.join(&filename)).unwrap();
+        let path = std::fs::canonicalize(directory.join(&PathBuf::from(name))).unwrap();
+        for header in header_paths.values_mut() {
+            *header = std::fs::canonicalize(directory.join(&header)).unwrap();
         }
-        ShaderSource::Files(filenames)
+        ShaderSource::Files { name, path, header_paths, defines }
     }
-    pub(crate) fn load(&self) -> Result<String, anyhow::Error> {
+    pub(crate) fn load(
+        &self,
+    ) -> Result<
+        (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
+        anyhow::Error,
+    > {
         match self {
-            ShaderSource::Inline(s) => Ok(s.clone()),
-            ShaderSource::Files(fs) => {
-                let mut contents = String::new();
-                for filename in fs {
-                    File::open(filename)?.read_to_string(&mut contents)?;
+            ShaderSource::Inline { name, contents, headers, defines } => {
+                Ok((&name, contents.clone(), headers.clone(), defines))
+            }
+            ShaderSource::Files { name, path, header_paths, defines } => {
+                let file = std::fs::read_to_string(path)?;
+                let mut headers = HashMap::new();
+                for (&name, path) in header_paths.iter() {
+                    headers.insert(name, std::fs::read_to_string(path)?);
                 }
-                Ok(contents)
+                Ok((&name, file, headers, defines))
             }
         }
     }
     pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
         match self {
-            ShaderSource::Inline(_) => false,
-            ShaderSource::Files(v) => {
+            ShaderSource::Inline { .. } => false,
+            ShaderSource::Files { path, header_paths, .. } => {
                 let mut directory_watcher = DIRECTORY_WATCHER.lock().unwrap();
                 directory_watcher.detect_changes();
-                v.iter()
+                header_paths
+                    .values()
+                    .chain(std::iter::once(path))
                     .filter_map(|f| directory_watcher.last_modifications.get(f))
                     .any(|&t| t > last_update)
             }
@@ -59,13 +81,15 @@ pub(crate) struct ShaderSetInner {
     pub input_attributes: Vec<wgpu::VertexAttribute>,
     pub layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
     pub desc_names: Vec<Option<String>>,
-    pub digest: Vec<u8>,
 }
 impl ShaderSetInner {
-    pub fn simple(vsrc: String, fsrc: String) -> Result<Self, anyhow::Error> {
-        let vertex = create_vertex_shader(&vsrc)?;
-        let fragment = create_fragment_shader(&fsrc)?;
-        let digest = Sha256::digest(format!("v={}\0f={}", vsrc, fsrc).as_bytes()).to_vec();
+    pub fn simple(
+        vsrc: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
+        fsrc: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
+    ) -> Result<Self, anyhow::Error> {
+        let vertex = create_shader(vsrc.0, &vsrc.1, vsrc.2, vsrc.3, shaderc::ShaderKind::Vertex)?;
+        let fragment =
+            create_shader(fsrc.0, &fsrc.1, fsrc.2, vsrc.3, shaderc::ShaderKind::Fragment)?;
         let (input_attributes, desc_names, layout_descriptor) =
             crate::reflect(&[&vertex[..], &fragment[..]])?;
 
@@ -76,13 +100,13 @@ impl ShaderSetInner {
             desc_names,
             layout_descriptor,
             input_attributes,
-            digest,
         })
     }
 
-    pub fn compute_only(src: String) -> Result<Self, anyhow::Error> {
-        let compute = create_compute_shader(&src)?;
-        let digest = Sha256::digest(format!("c={}", src).as_bytes()).to_vec();
+    pub fn compute_only(
+        src: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
+    ) -> Result<Self, anyhow::Error> {
+        let compute = create_shader(src.0, &src.1, src.2, src.3, shaderc::ShaderKind::Compute)?;
         let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&compute[..]])?;
         assert!(input_attributes.is_empty());
 
@@ -93,7 +117,6 @@ impl ShaderSetInner {
             desc_names,
             layout_descriptor,
             input_attributes,
-            digest,
         })
     }
 }
@@ -210,9 +233,6 @@ impl ShaderSet {
     pub fn compute(&self) -> &[u32] {
         self.inner.compute.as_ref().unwrap()
     }
-    pub fn digest(&self) -> &[u8] {
-        &self.inner.digest
-    }
 }
 
 lazy_static::lazy_static! {
@@ -222,50 +242,62 @@ lazy_static::lazy_static! {
 #[macro_export]
 #[cfg(not(feature = "dynamic_shaders"))]
 macro_rules! shader_source {
-    ($directory:expr, $( $filename:expr ),+ ) => {
-        $crate::ShaderSource::Inline({
-            let mut tmp = String::new();
-            $( tmp.push_str(
-                include_str!(concat!($directory, "/", $filename)));
-            )*
-                tmp
-        })
+    ($directory:literal, $filename:literal $(, $header:literal )* $(; $define:literal = $value:literal )? ) => {
+        {
+            let contents = include_str!(concat!($directory, "/", $filename)).to_string();
+            let mut headers = std::collections::HashMap::new();
+            $( headers.insert($header, include_str!(concat!($directory, "/", $header)).to_string()); )*
+            let mut defines = Vec::new();
+            $( defines.push(($define, $value)); )*
+    
+            $crate::ShaderSource::Inline {
+                name: $filename,
+                contents,
+                headers,
+                defines,
+            }
+        }
     };
 }
 
 #[macro_export]
 #[cfg(feature = "dynamic_shaders")]
 macro_rules! shader_source {
-    ($directory:expr, $( $filename:expr ),+ ) => {
+    ($directory:literal, $filename:literal $(, $header:literal )* $(; $define:literal = $value:literal )? ) => {
 		{
 			let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 				.join(file!()).parent().unwrap().join($directory);
-			let mut files = Vec::new();
-			$( files.push(std::path::PathBuf::from($filename)); )*
+			let mut headers = std::collections::HashMap::new();
+			$( headers.insert($header, std::path::PathBuf::from($header)); )*
+            let mut defines = Vec::new();
+            $( defines.push(($define, $value)); )*
 
-			$crate::ShaderSource::new(directory, files)
+            $crate::ShaderSource::new(directory, $filename, headers, defines)
 		}
     };
 }
 
-fn create_vertex_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
+fn create_shader(
+    input_file_name: &str,
+    source_text: &str,
+    headers: HashMap<&'static str, String>,
+    defines: &[(&'static str, &'static str)],
+    stage: shaderc::ShaderKind,
+) -> Result<Vec<u32>, anyhow::Error> {
     let mut glsl_compiler = shaderc::Compiler::new().unwrap();
+    let mut options = shaderc::CompileOptions::new().unwrap();
+    options.set_include_callback(|f, _, _, _| match headers.get(f) {
+        Some(s) => {
+            Ok(shaderc::ResolvedInclude { resolved_name: f.to_string(), content: s.clone() })
+        }
+        None => Err("not found".to_string()),
+    });
+    for (m, value) in defines {
+        options.add_macro_definition(m, Some(value));
+    }
+
     Ok(glsl_compiler
-        .compile_into_spirv(source, shaderc::ShaderKind::Vertex, "[VERTEX]", "main", None)?
-        .as_binary()
-        .to_vec())
-}
-fn create_fragment_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
-    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    Ok(glsl_compiler
-        .compile_into_spirv(source, shaderc::ShaderKind::Fragment, "[FRAGMENT]", "main", None)?
-        .as_binary()
-        .to_vec())
-}
-fn create_compute_shader(source: &str) -> Result<Vec<u32>, anyhow::Error> {
-    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    Ok(glsl_compiler
-        .compile_into_spirv(source, shaderc::ShaderKind::Compute, "[COMPUTE]", "main", None)?
+        .compile_into_spirv(source_text, stage, input_file_name, "main", Some(&options))?
         .as_binary()
         .to_vec())
 }
@@ -336,12 +368,12 @@ fn reflect(
             assert_eq!(set, 0);
             let mut name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
 
-            // If this is an unnamed interface block, but it contains only a single named item, 
+            // If this is an unnamed interface block, but it contains only a single named item,
             // use the item's name instead.
             if name.is_none() {
                 match desc.desc_ty {
-                    DescriptorType::UniformBuffer(_, Type::Struct(s)) |
-                    DescriptorType::StorageBuffer(_, Type::Struct(s)) => {
+                    DescriptorType::UniformBuffer(_, Type::Struct(s))
+                    | DescriptorType::StorageBuffer(_, Type::Struct(s)) => {
                         if s.nmember() == 1 {
                             name = s.get_member(0).unwrap().name.clone();
                         }

@@ -1,4 +1,6 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
+#include "hash.glsl"
 
 layout(local_size_x = 4, local_size_y = 4) in;
 

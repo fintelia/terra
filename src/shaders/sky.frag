@@ -1,4 +1,6 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
+#include "pbr.glsl"
 
 layout(set = 0, binding = 0) uniform UniformBlock {
 	Globals globals;
@@ -46,3 +48,5 @@ void main() {
 	// if (dot(x0 + r * max(p.x, 0.0), vec3(0.4, 0.7, 0.2)) < 0)
 	// 	OutColor.rgb = vec3(1,0,0);
 }
+
+#include "atmosphere.glsl"

@@ -1,3 +1,6 @@
+#version 450 core
+#include "declarations.glsl"
+
 layout(location = 0) out vec4 position;
 
 void main() {

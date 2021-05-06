@@ -1,8 +1,9 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-#ifndef SOFT_DOUBLE
+#if SOFT_DOUBLE == 0
 
 #define xdouble double
 #define CONST_1 1.0
@@ -24,7 +25,9 @@ xdouble _div(xdouble a, xdouble b) { return a / b; }
 xdouble _abs(xdouble d) { return abs(d); }
 xdouble _neg(xdouble d) { return -d; }
 
-#else
+#elif SOFT_DOUBLE == 1
+
+#include "softdouble.glsl"
 
 #define xdouble fp64
 #define CONST_1 _fp32_to_fp64(1.0)
@@ -49,6 +52,8 @@ xdouble _div(xdouble a, xdouble b) { return _fdiv64(a, b); } // _double_to_xdoub
 xdouble _abs(xdouble d) { return _fabs64(d); }
 xdouble _neg(xdouble d) { return _fneg64(d); }
 
+#else
+#error "SOFT_DOUBLE not defined"
 #endif
 
 

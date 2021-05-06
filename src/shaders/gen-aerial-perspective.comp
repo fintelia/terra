@@ -1,4 +1,5 @@
-#line 2
+#version 450 core
+#include "declarations.glsl"
 
 layout(local_size_x = 9, local_size_y = 9) in;
 
@@ -42,3 +43,5 @@ void main() {
 
     imageStore(aerial_perspective, ivec3(gl_GlobalInvocationID.xyz), output_value);
 }
+
+#include "atmosphere.glsl"

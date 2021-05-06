@@ -354,7 +354,7 @@ pub(crate) fn generators(
     vec![
         ShaderGenBuilder::new(
             "heightmaps".into(),
-            rshader::shader_source!("../shaders", "declarations.glsl", "hash.glsl", "gen-heightmaps.comp"),
+            rshader::shader_source!("../shaders", "gen-heightmaps.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions((heightmaps_resolution + 7) / 8)
@@ -401,10 +401,11 @@ pub(crate) fn generators(
                     "../shaders",
                     "declarations.glsl",
                     "softdouble.glsl",
-                    "gen-displacements.comp"
+                    "gen-displacements.comp";
+                    "SOFT_DOUBLE" = "1"
                 )
             } else {
-                rshader::shader_source!("../shaders", "declarations.glsl", "gen-displacements.comp")
+                rshader::shader_source!("../shaders", "gen-displacements.comp", "declarations.glsl"; "SOFT_DOUBLE" = "0")
             },
         )
         .outputs(LayerType::Displacements.bit_mask())
@@ -453,7 +454,7 @@ pub(crate) fn generators(
         ),
         ShaderGenBuilder::new(
             "root-normals".into(),
-            rshader::shader_source!("../shaders", "declarations.glsl", "hash.glsl", "gen-root-normals.comp"),
+            rshader::shader_source!("../shaders", "gen-root-normals.comp", "declarations.glsl", "hash.glsl"),
         )
         .root_outputs(LayerType::Normals.bit_mask())
         .dimensions((normals_resolution + 3) / 4)
@@ -477,7 +478,7 @@ pub(crate) fn generators(
         }),
         ShaderGenBuilder::new(
             "materials".into(),
-            rshader::shader_source!("../shaders", "declarations.glsl", "hash.glsl", "gen-materials.comp"),
+            rshader::shader_source!("../shaders", "gen-materials.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
         .dimensions((normals_resolution + 3) / 4)
