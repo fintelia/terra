@@ -43,9 +43,8 @@ pub use crate::generate::BLUE_MARBLE_URLS;
 struct GlobalUniformBlock {
     view_proj: mint::ColumnMatrix4<f32>,
     view_proj_inverse: mint::ColumnMatrix4<f32>,
-    camera: mint::Point3<f32>,
-    sun_direction: mint::Vector3<f32>,
-    padding: [f32; 2],
+    camera: [f32; 4],
+    sun_direction: [f32; 4],
 }
 unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
@@ -442,9 +441,8 @@ impl Terrain {
             bytemuck::bytes_of(&GlobalUniformBlock {
                 view_proj,
                 view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
-                camera: mint::Point3 { x: camera.x as f32, y: camera.y as f32, z: camera.z as f32 },
-                sun_direction: mint::Vector3 { x: 0.4, y: 0.7, z: 0.2 },
-                padding: [0.0; 2],
+                camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0 ],
+                sun_direction: [0.4, 0.7, 0.2, 0.0],
             }),
         );
 

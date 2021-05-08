@@ -5,7 +5,6 @@ struct Globals {
 	mat4 view_proj_inverse;
 	vec3 camera;
 	vec3 sun_direction;
-	vec2 padding;
 };
 
 struct LayerDesc {
@@ -28,5 +27,6 @@ struct NodeState {
 	vec3 relative_position;
 	float min_distance;
 	vec3 parent_relative_position;
-	float padding1[17];
+	float padding1;
+	vec4 padding2[4];
 };
