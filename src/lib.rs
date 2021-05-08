@@ -29,7 +29,7 @@ use anyhow::Error;
 use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriorityCache};
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
-use gpu_state::GpuState;
+use gpu_state::{GlobalUniformBlock, GpuState};
 use maplit::hashmap;
 use std::mem;
 use std::sync::Arc;
@@ -37,17 +37,6 @@ use std::{collections::HashMap, convert::TryInto};
 use terrain::quadtree::QuadTree;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct GlobalUniformBlock {
-    view_proj: mint::ColumnMatrix4<f32>,
-    view_proj_inverse: mint::ColumnMatrix4<f32>,
-    camera: [f32; 4],
-    sun_direction: [f32; 4],
-}
-unsafe impl bytemuck::Pod for GlobalUniformBlock {}
-unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 
 pub struct Terrain {
     shader: rshader::ShaderSet,
@@ -123,89 +112,17 @@ impl Terrain {
                 texture_format: TextureFormat::RGBA8,
             }],
         );
+        let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
         let quadtree =
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
+
+            let index_buffer = quadtree.create_index_buffers(device);
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
             rshader::shader_source!("shaders", "terrain.frag", "declarations.glsl", "pbr.glsl"),
         )
         .unwrap();
-
-        let globals = device.create_buffer(&wgpu::BufferDescriptor {
-            size: std::mem::size_of::<GlobalUniformBlock>() as u64,
-            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
-            label: Some("buffer.globals"),
-            mapped_at_creation: false,
-        });
-        let node_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (std::mem::size_of::<NodeState>() * 1024) as u64,
-            usage: wgpu::BufferUsage::COPY_DST
-                | wgpu::BufferUsage::UNIFORM
-                | wgpu::BufferUsage::STORAGE,
-            label: Some("buffer.nodes"),
-            mapped_at_creation: false,
-        });
-        let index_buffer = quadtree.create_index_buffers(device);
-
-        let noise = mapfile.read_texture(device, queue, "noise")?;
-        let sky = mapfile.read_texture(device, queue, "sky")?;
-        let transmittance = mapfile.read_texture(device, queue, "transmittance")?;
-        let inscattering = mapfile.read_texture(device, queue, "inscattering")?;
-
-        let bc4_staging = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-            format: wgpu::TextureFormat::Rg32Uint,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::STORAGE
-                | wgpu::TextureUsage::SAMPLED,
-            label: Some("texture.staging.bc4"),
-        });
-        let bc5_staging = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-            format: wgpu::TextureFormat::Rgba32Uint,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::STORAGE
-                | wgpu::TextureUsage::SAMPLED,
-            label: Some("texture.staging.bc5"),
-        });
-
-        let aerial_perspective = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d { width: 9, height: 9, depth_or_array_layers: 1024 },
-            format: wgpu::TextureFormat::Rgba16Float,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::STORAGE
-                | wgpu::TextureUsage::SAMPLED,
-            label: Some("texture.aerial_perspective"),
-        });
-
-        let gpu_state = GpuState {
-            noise,
-            sky,
-            transmittance,
-            inscattering,
-            aerial_perspective,
-            bc4_staging,
-            bc5_staging,
-            tile_cache: cache.make_gpu_tile_cache(device),
-            mesh_cache: cache.make_gpu_mesh_cache(device),
-            texture_cache: cache.make_gpu_texture_cache(device),
-            globals,
-            node_buffer,
-        };
-
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "sky.vert", "declarations.glsl"),
             rshader::shader_source!(
@@ -217,7 +134,6 @@ impl Terrain {
             ),
         )
         .unwrap();
-
         let aerial_perspective = ComputeShader::new(
             rshader::shader_source!(
                 "shaders",
