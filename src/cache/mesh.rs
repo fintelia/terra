@@ -2,9 +2,8 @@ use crate::{
     cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
     generate::ComputeShader,
     gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
-    terrain::quadtree::VNode,
+    terrain::quadtree::{QuadTree, VNode},
 };
-use cgmath::Vector3;
 use maplit::hashmap;
 use std::mem;
 use std::{collections::HashMap, convert::TryInto};
@@ -111,12 +110,10 @@ impl MeshCache {
         }
     }
 
-    pub(super) fn update(&mut self, camera: mint::Point3<f64>) {
-        let camera = Vector3::new(camera.x, camera.y, camera.z);
-
+    pub(super) fn update(&mut self, quadtree: &QuadTree) {
         // Update priorities
         for entry in self.inner.slots_mut() {
-            entry.priority = entry.node.priority(camera);
+            entry.priority = quadtree.node_priority(entry.node);
         }
         let min_priority =
             self.inner.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none());
@@ -124,7 +121,7 @@ impl MeshCache {
         // Find any tiles that may need to be added.
         let mut missing = Vec::new();
         VNode::breadth_first(|node| {
-            let priority = node.priority(camera);
+            let priority = quadtree.node_priority(node);
             if priority < Priority::cutoff() {
                 return false;
             }

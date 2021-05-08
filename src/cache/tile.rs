@@ -1,7 +1,4 @@
-use crate::{
-    cache::{self, Priority, PriorityCacheEntry},
-    terrain::quadtree::VNode,
-};
+use crate::{cache::{self, Priority, PriorityCacheEntry}, terrain::quadtree::{QuadTree, VNode}};
 use crate::{
     coordinates,
     stream::{TileResult, TileStreamerEndpoint},
@@ -179,12 +176,10 @@ impl TileCache {
         }
     }
 
-    pub(super) fn update(&mut self, camera: mint::Point3<f64>) {
-        let camera = Vector3::new(camera.x, camera.y, camera.z);
-
+    pub(super) fn update(&mut self, quadtree: &QuadTree) {
         // Update priorities
         for entry in self.inner.slots_mut() {
-            entry.priority = entry.node.priority(camera);
+            entry.priority = quadtree.node_priority(entry.node);
         }
         let min_priority =
             self.inner.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none());
@@ -192,7 +187,7 @@ impl TileCache {
         // Find any tiles that may need to be added.
         let mut missing = Vec::new();
         VNode::breadth_first(|node| {
-            let priority = node.priority(camera);
+            let priority = quadtree.node_priority(node);
             if priority < Priority::cutoff() {
                 return false;
             }

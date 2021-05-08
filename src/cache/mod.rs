@@ -7,12 +7,7 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use texture::{SingularLayerCache, SingularLayerDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
-use crate::{
-    generate::GenerateTile,
-    gpu_state::{GpuMeshLayer, GpuState},
-    mapfile::MapFile,
-    terrain::quadtree::VNode,
-};
+use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile, terrain::quadtree::{QuadTree, VNode}};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -391,7 +386,7 @@ impl UnifiedPriorityCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
         mapfile: &MapFile,
-        camera: mint::Point3<f64>,
+        quadtree: &QuadTree,
     ) {
         for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
@@ -438,17 +433,17 @@ impl UnifiedPriorityCache {
         }
 
         for m in self.textures.values_mut() {
-            m.update(camera);
+            m.update(quadtree);
         }
         SingularLayerCache::generate_all(self, device, queue, gpu_state);
 
-        self.tiles.update(camera);
+        self.tiles.update(quadtree);
         self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
         TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
         self.tiles.download_tiles();
 
         for m in self.meshes.values_mut() {
-            m.update(camera);
+            m.update(quadtree);
         }
         MeshCache::generate_all(self, device, queue, gpu_state);
     }

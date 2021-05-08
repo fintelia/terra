@@ -255,7 +255,7 @@ impl VNode {
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
-    pub fn priority(&self, camera: Vector3<f64>) -> Priority {
+    pub(super) fn priority(&self, camera: Vector3<f64>) -> Priority {
         let min_distance = self.min_distance();
         let distance2 = self.distance2(camera);
 

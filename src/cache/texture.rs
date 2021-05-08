@@ -1,13 +1,7 @@
-use crate::{
-    cache::{
+use crate::{cache::{
         GeneratorMask, LayerMask, Priority, PriorityCache, PriorityCacheEntry, SingularLayerType,
         TextureFormat, UnifiedPriorityCache,
-    },
-    generate::ComputeShader,
-    gpu_state::GpuState,
-    terrain::quadtree::VNode,
-};
-use cgmath::Vector3;
+    }, generate::ComputeShader, gpu_state::GpuState, terrain::quadtree::{QuadTree, VNode}};
 
 pub(super) struct Entry {
     priority: Priority,
@@ -58,12 +52,10 @@ impl SingularLayerCache {
         Self { inner: PriorityCache::new(desc.cache_size), desc }
     }
 
-    pub fn update(&mut self, camera: mint::Point3<f64>) {
-        let camera = Vector3::new(camera.x, camera.y, camera.z);
-
+    pub fn update(&mut self, quadtree: &QuadTree) {
         // Update priorities
         for entry in self.inner.slots_mut() {
-            entry.priority = entry.node.priority(camera);
+            entry.priority = quadtree.node_priority(entry.node);
         }
         let min_priority =
             self.inner.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none());
@@ -71,7 +63,7 @@ impl SingularLayerCache {
         // Find any tiles that may need to be added.
         let mut missing = Vec::new();
         VNode::breadth_first(|node| {
-            let priority = node.priority(camera);
+            let priority = quadtree.node_priority(node);
             if priority < Priority::cutoff() {
                 return false;
             }

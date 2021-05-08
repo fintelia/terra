@@ -1,6 +1,6 @@
-use crate::cache::{Priority, TileCache};
+use crate::cache::Priority;
 use cgmath::*;
-use std::collections::HashMap;
+use fnv::FnvHashMap;
 use std::convert::TryInto;
 
 pub(crate) mod node;
@@ -20,6 +20,9 @@ pub(crate) struct QuadTree {
     heights_resolution: u32,
 
     node_states: Vec<NodeState>,
+
+    node_priorities: FnvHashMap<VNode, Priority>,
+    last_camera_position: Option<mint::Point3<f64>>,
 }
 
 impl std::fmt::Debug for QuadTree {
@@ -36,6 +39,8 @@ impl QuadTree {
             partially_visible_nodes: Vec::new(),
             node_states: Vec::new(),
             heights_resolution,
+            node_priorities: FnvHashMap::default(),
+            last_camera_position: None,
         }
     }
 
@@ -71,17 +76,25 @@ impl QuadTree {
         buffer
     }
 
-    pub fn update_visibility(&mut self, tile_cache: &TileCache, camera: mint::Point3<f64>) {
+    pub fn update_visibility(&mut self, camera: mint::Point3<f64>) {
+        if self.last_camera_position == Some(camera) {
+            return;
+        }
+        self.last_camera_position = Some(camera);
+
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
+        self.node_priorities.clear();
 
-        let mut node_visibilities: HashMap<VNode, bool> = HashMap::new();
+        let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
 
         // Any node with all needed layers in cache is visible...
         VNode::breadth_first(|node| {
-            let visible = node.level() == 0 || node.priority(camera) >= Priority::cutoff();
+            let priority = node.priority(camera);
+            self.node_priorities.insert(node, priority);
+            let visible = node.level() == 0 || priority >= Priority::cutoff();
             node_visibilities.insert(node, visible);
             visible && node.level() < VNode::LEVEL_CELL_2CM
         });
@@ -126,6 +139,10 @@ impl QuadTree {
 
     pub fn node_buffer_length(&self) -> usize {
         self.node_states.len()
+    }
+
+    pub fn node_priority(&self, node: VNode) -> Priority {
+        self.node_priorities.get(&node).cloned().unwrap_or(Priority::none())
     }
 
     // pub fn get_height(
