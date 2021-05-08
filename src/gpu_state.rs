@@ -145,7 +145,10 @@ impl GpuState {
             bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler { .. } => {
+                    wgpu::BindingType::Sampler { ref mut filtering, .. } => {
+                        if name == "nearest" {
+                            *filtering = false;
+                        }
                         wgpu::BindingResource::Sampler(&samplers[name])
                     }
                     wgpu::BindingType::StorageTexture { .. } => {
