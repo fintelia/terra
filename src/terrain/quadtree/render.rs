@@ -298,21 +298,16 @@ impl QuadTree {
         let visible_nodes = self.visible_nodes.len() as u32;
         let total_nodes = self.node_states.len() as u32;
 
+        let num_indices_full = resolution * resolution * 6;
+        let num_indices_partial = (resolution / 2) * (resolution / 2) * 6;
+
         rpass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-        for i in 0..visible_nodes {
-            rpass.set_bind_group(0, &bind_group, &[mem::size_of::<NodeState>() as u32 * i]);
-            rpass.draw_indexed(0..(resolution * resolution * 6), 0, 0..1);
-        }
-
-        for i in visible_nodes..total_nodes {
-            rpass.set_bind_group(0, &bind_group, &[mem::size_of::<NodeState>() as u32 * i]);
-            rpass.draw_indexed(
-                (resolution * resolution * 6)
-                    ..((resolution * resolution * 6) + ((resolution / 2) * (resolution / 2) * 6)),
-                0,
-                0..1,
-            );
-        }
+        rpass.set_bind_group(0, bind_group, &[]);
+        rpass.draw_indexed(0..num_indices_full, 0, 0..visible_nodes);
+        rpass.draw_indexed(
+            num_indices_full..(num_indices_full + num_indices_partial),
+            0,
+            visible_nodes..total_nodes,
+        );
     }
 }

@@ -4,8 +4,8 @@
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std140) uniform NodeBlock {
-	NodeState node;
+layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
+	NodeState nodes[];
 };
 layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 9) uniform texture2DArray displacements;
@@ -17,6 +17,7 @@ layout(location = 3) out vec3 out_normal;
 layout(location = 4) out vec3 out_tangent;
 layout(location = 5) out vec3 out_bitangent;
 layout(location = 6) out vec2 out_i_position;
+layout(location = 7) flat out uint out_instance;
 
 const vec3 tangents[6] = vec3[6](
 	vec3(0,1,0),
@@ -28,6 +29,8 @@ const vec3 tangents[6] = vec3[6](
 );
 
 void main() {
+	NodeState node = nodes[gl_InstanceIndex];
+
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (node.resolution+1),
 							(gl_VertexIndex) / (node.resolution+1));
 
@@ -60,6 +63,7 @@ void main() {
 	out_tangent = tangent;
 	out_bitangent = bitangent;
 	out_i_position = vec2(iPosition);
+	out_instance = gl_InstanceIndex;
 
 	gl_Position = globals.view_proj * vec4(position, 1.0);
 }

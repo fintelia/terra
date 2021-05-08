@@ -24,16 +24,13 @@ use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
-use crate::terrain::quadtree::render::NodeState;
 use anyhow::Error;
 use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriorityCache};
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
-use maplit::hashmap;
-use std::mem;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::{collections::HashMap, convert::TryInto};
 use terrain::quadtree::QuadTree;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
@@ -116,7 +113,7 @@ impl Terrain {
         let quadtree =
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
-            let index_buffer = quadtree.create_index_buffers(device);
+        let index_buffer = quadtree.create_index_buffers(device);
 
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
@@ -213,13 +210,7 @@ impl Terrain {
             let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
                 device,
                 &self.shader,
-                hashmap![
-                    "node".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.gpu_state.node_buffer,
-                        offset: 0,
-                        size: Some((mem::size_of::<NodeState>() as u64).try_into().unwrap()),
-                    }))
-                ],
+                HashMap::new(),
                 HashMap::new(),
                 "terrain",
             );
@@ -357,7 +348,7 @@ impl Terrain {
             bytemuck::bytes_of(&GlobalUniformBlock {
                 view_proj,
                 view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
-                camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0 ],
+                camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0],
                 sun_direction: [0.4, 0.7, 0.2, 0.0],
             }),
         );

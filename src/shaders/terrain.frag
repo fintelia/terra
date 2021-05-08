@@ -7,8 +7,8 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std140) uniform NodeBlock {
-	NodeState node;
+layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
+	NodeState nodes[];
 };
 layout(set = 0, binding = 2) uniform sampler linear;
 //layout(set = 0, binding = 3) uniform sampler nearest;
@@ -26,6 +26,7 @@ layout(location = 3) in vec3 normal;
 layout(location = 4) in vec3 tangent;
 layout(location = 5) in vec3 bitangent;
 layout(location = 6) in vec2 i_position;
+layout(location = 7) flat in uint instance;
 
 layout(location = 0) out vec4 out_color;
 
@@ -207,6 +208,8 @@ vec3 extract_normal(vec2 n) {
 }
 
 void main() {
+	NodeState node = nodes[instance];
+
 	vec3 albedo_texcoord = node.albedo.origin + vec3(texcoord * node.albedo._step, 0);
 	vec3 albedo_parent_texcoord = node.albedo.parent_origin + vec3(texcoord * node.albedo.parent_step, 0);
 	vec3 roughness_texcoord = node.roughness.origin + vec3(texcoord * node.roughness._step, 0);
