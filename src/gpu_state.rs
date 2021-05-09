@@ -65,7 +65,7 @@ impl GpuState {
             transmittance: mapfile.read_texture(device, queue, "transmittance")?,
             inscattering: mapfile.read_texture(device, queue, "inscattering")?,
             aerial_perspective: device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 9, height: 9, depth_or_array_layers: 1024 },
+                size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
                 format: wgpu::TextureFormat::Rgba16Float,
                 mip_level_count: 1,
                 sample_count: 1,

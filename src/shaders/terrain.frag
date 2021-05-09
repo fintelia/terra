@@ -18,6 +18,7 @@ layout(set = 0, binding = 6) uniform texture2DArray roughness;
 layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 8) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 9) uniform texture2DArray displacements;
+layout(set = 0, binding = 10) uniform sampler nearest;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -254,8 +255,8 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0));
 
-	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), 
-					  vec3((texcoord / 64.0 * 8 + 0.5) / 9, node.node_index));
+	vec4 ap = texture(sampler2DArray(aerial_perspective, linear),
+					  vec3((texcoord / 64.0 * 16 + 0.5) / 17, node.node_index));
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
 
