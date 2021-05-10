@@ -38,11 +38,12 @@ vec3 extract_normal(vec2 n) {
 }
 
 #define BILINEAR(r, img, v) { \
+    vec2 f = fract(v.xy * imageSize(img).xy); \
     vec4 i00 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)); \
     vec4 i10 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,0,0)); \
     vec4 i01 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(0,1,0)); \
     vec4 i11 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,1,0)); \
-    r = mix(mix(i00, i10, fract(v.x)), mix(i01, i11, fract(v.x)), fract(v.y)); \
+    r = mix(mix(i00, i10, f.x), mix(i01, i11, f.y), f.y); \
 }
 
 void main() {
