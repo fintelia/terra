@@ -1,7 +1,7 @@
 use crate::{
     cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
     generate::ComputeShader,
-    gpu_state::{DrawIndirect, GpuMeshLayer, GpuState},
+    gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::{QuadTree, VNode},
 };
 use maplit::hashmap;
@@ -58,6 +58,7 @@ unsafe impl bytemuck::Pod for MeshNodeState {}
 
 pub(crate) struct MeshCacheDesc {
     pub max_bytes_per_entry: u64,
+    pub index_buffer: wgpu::Buffer,
     pub generate: ComputeShader<MeshGenerateUniforms>,
     pub render: rshader::ShaderSet,
     pub dimensions: u32,
@@ -87,7 +88,7 @@ impl MeshCache {
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
         let indirect = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (mem::size_of::<DrawIndirect>() * self.inner.size()) as u64,
+            size: (mem::size_of::<DrawIndexedIndirect>() * self.inner.size()) as u64,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::INDIRECT
                 | wgpu::BufferUsage::COPY_DST,
@@ -166,7 +167,7 @@ impl MeshCache {
                         Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             usage: wgpu::BufferUsage::COPY_SRC,
                             label: Some(&format!("{}.clear_indirect.tmp", mesh_type.name())),
-                            contents: &vec![0; mem::size_of::<DrawIndirect>()],
+                            contents: &vec![0; mem::size_of::<DrawIndexedIndirect>()],
                         }));
                 }
 
@@ -174,8 +175,8 @@ impl MeshCache {
                     zero_buffer.as_ref().unwrap(),
                     0,
                     &gpu_state.mesh_cache[m.desc.ty].indirect,
-                    (mem::size_of::<DrawIndirect>() * index) as u64,
-                    mem::size_of::<DrawIndirect>() as u64,
+                    (mem::size_of::<DrawIndexedIndirect>() * index) as u64,
+                    mem::size_of::<DrawIndexedIndirect>() as u64,
                 );
 
                 m.desc.generate.run(
@@ -306,6 +307,7 @@ impl MeshCache {
         if !nodes.is_empty() {
             queue.write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&nodes));
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
+            rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
             for (i, node_state) in nodes.into_iter().enumerate() {
                 rpass.set_bind_group(
                     0,
@@ -314,7 +316,7 @@ impl MeshCache {
                 );
                 rpass.draw_indirect(
                     &gpu_state.mesh_cache[self.desc.ty].indirect,
-                    node_state.slot as u64 * mem::size_of::<DrawIndirect>() as u64,
+                    node_state.slot as u64 * mem::size_of::<DrawIndexedIndirect>() as u64,
                 );
             }
         }

@@ -8,10 +8,11 @@ use crate::{
 use vec_map::VecMap;
 
 #[repr(C)]
-pub(crate) struct DrawIndirect {
+pub(crate) struct DrawIndexedIndirect {
     vertex_count: u32,   // The number of vertices to draw.
     instance_count: u32, // The number of instances to draw.
-    base_vertex: u32,    // The Index of the first vertex to draw.
+    base_index: u32,     // The base index within the index buffer.
+    vertex_offset: i32,  // The value added to the vertex index before indexing into the vertex buffer.
     base_instance: u32,  // The instance ID of the first instance to draw.
 }
 

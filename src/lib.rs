@@ -32,6 +32,7 @@ use gpu_state::{GlobalUniformBlock, GpuState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
+use wgpu::util::DeviceExt;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
 
@@ -71,6 +72,15 @@ impl Terrain {
                     | LayerType::Albedo.bit_mask()
                     | LayerType::Normals.bit_mask(),
                 level: VNode::LEVEL_CELL_2CM,
+                index_buffer: {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("buffer.index.grass"),
+                        contents: bytemuck::cast_slice(
+                            &*(0..128 * 128).flat_map(|_| 0..6).collect::<Vec<u16>>(),
+                        ),
+                        usage: wgpu::BufferUsage::INDEX,
+                    })
+                },
                 generate: ComputeShader::new(
                     rshader::shader_source!(
                         "shaders",

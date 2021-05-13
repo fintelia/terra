@@ -160,6 +160,12 @@ impl From<MeshType> for LayerMask {
         Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 8))).unwrap())
     }
 }
+impl From<SingularLayerType> for LayerMask {
+    fn from(t: SingularLayerType) -> Self {
+        assert!((t as usize) < 8);
+        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 16))).unwrap())
+    }
+}
 impl std::ops::BitOr for LayerMask {
     type Output = Self;
     fn bitor(self, rhs: Self) -> Self {
