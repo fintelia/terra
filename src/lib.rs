@@ -53,7 +53,7 @@ pub struct Terrain {
 }
 impl Terrain {
     /// Create a new Terrain object.
-    pub fn new(device: &wgpu::Device, queue: &mut wgpu::Queue) -> Result<Self, Error> {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let cache = UnifiedPriorityCache::new(
             device,

@@ -105,7 +105,7 @@ fn main() {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
 
-    let (device, mut queue) = runtime
+    let (device, queue) = runtime
         .block_on(adapter.request_device(
             &wgpu::DeviceDescriptor { features, limits: wgpu::Limits::default(), label: None },
             trace_path,
@@ -142,7 +142,7 @@ fn main() {
     let mut long = plus_center.x().to_radians();
     let mut altitude = opt.elevation;
 
-    let mut terrain = terra::Terrain::new(&device, &mut queue).unwrap();
+    let mut terrain = terra::Terrain::new(&device, &queue).unwrap();
 
     if let Some(dataset_directory) = opt.generate {
         let pb = indicatif::ProgressBar::new(100);
@@ -185,7 +185,7 @@ fn main() {
             r * lat.cos() * long.sin(),
             r * lat.sin(),
         );
-        while terrain.poll_loading_status(&device, &mut queue, eye.into()) {
+        while terrain.poll_loading_status(&device, &queue, eye.into()) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
