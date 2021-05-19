@@ -421,3 +421,14 @@ impl Terrain {
         0.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn check_send() {
+        struct Helper<T>(T);
+        trait AssertImpl { fn assert() {} }
+        impl<T: Send> AssertImpl for Helper<T> {}
+        Helper::<super::Terrain>::assert();
+    }
+}
