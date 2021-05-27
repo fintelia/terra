@@ -1,4 +1,7 @@
-use crate::{cache::{self, Priority, PriorityCacheEntry}, terrain::quadtree::{QuadTree, VNode}};
+use crate::{
+    cache::{self, Priority, PriorityCacheEntry},
+    terrain::quadtree::{QuadTree, VNode},
+};
 use crate::{
     coordinates,
     stream::{TileResult, TileStreamerEndpoint},
@@ -15,6 +18,7 @@ use futures::future::FutureExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU64;
 use std::{num::NonZeroU32, sync::Arc};
 use vec_map::VecMap;
 
@@ -204,7 +208,7 @@ impl TileCache {
         cache: &mut UnifiedPriorityCache,
         mapfile: &MapFile,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
     ) {
         let mut planned_heightmap_downloads = Vec::new();
@@ -253,10 +257,6 @@ impl TileCache {
             }
         }
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("encoder.tiles.generate"),
-        });
-
         for (i, nodes) in &mut pending_generate {
             let layer = LayerType::from_index(i);
             for n in nodes {
@@ -298,7 +298,7 @@ impl TileCache {
                         let output_mask = !entry.valid & generator.outputs(n.level());
                         generator.generate(
                             device,
-                            &mut encoder,
+                            encoder,
                             gpu_state,
                             &cache.tiles.layers,
                             *n,
@@ -372,25 +372,33 @@ impl TileCache {
                 }
             }
         }
-        queue.submit(Some(encoder.finish()));
 
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
             cache.tiles.pending_heightmap_downloads.push(
-                buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read)
-                    .then(move |result| {
-                        futures::future::ready(match result {
-                            Ok(()) => Ok((n, buffer)),
-                            Err(_) => Err(()),
+                async move {
+                    buffer
+                        .slice(..)
+                        .map_async(wgpu::MapMode::Read)
+                        .then(move |result| {
+                            futures::future::ready(match result {
+                                Ok(()) => Ok((n, buffer)),
+                                Err(_) => Err(()),
+                            })
                         })
-                    })
-                    .boxed(),
+                        .await
+                }
+                .boxed(),
             );
         }
     }
 
-    pub(super) fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<wgpu::Texture>) {
+    pub(super) fn upload_tiles(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
+        textures: &VecMap<wgpu::Texture>,
+    ) {
         while let Some(mut tile) = self.streamer.try_complete() {
             if let Some(entry) = self.inner.entry_mut(&tile.node()) {
                 entry.valid |= tile.layer().bit_mask();
@@ -403,6 +411,8 @@ impl TileCache {
                 let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
                 let bytes_per_block = self.layers[tile.layer()].texture_format.bytes_per_block();
                 let row_bytes = resolution_blocks * bytes_per_block;
+                let row_pitch = ((row_bytes - 1) | 255) + 1;
+
 
                 let data;
                 let mut height_data;
@@ -434,17 +444,35 @@ impl TileCache {
                     }
                 }
 
-                queue.write_texture(
+                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: (resolution_blocks * row_pitch) as u64,
+                    usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
+                    mapped_at_creation: true,
+                });
+                let mut mapped = staging_belt.write_buffer(
+                    encoder,
+                    &buffer,
+                    0,
+                    NonZeroU64::new((resolution_blocks * row_pitch) as u64).unwrap(),
+                    device,
+                );
+                for row in 0..resolution_blocks {
+                    mapped[row * row_pitch ..][..row_bytes].copy_from_slice(&data[row * row_bytes..][..row_bytes])
+                }
+                encoder.copy_buffer_to_texture(
+                    wgpu::ImageCopyBuffer {
+                        buffer: &buffer,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
+                            rows_per_image: None,
+                        }
+                    },
                     wgpu::ImageCopyTexture {
                         texture: &textures[layer],
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
-                    },
-                    &*data,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
-                        rows_per_image: None,
                     },
                     wgpu::Extent3d {
                         width: resolution as u32,

@@ -56,15 +56,16 @@ pub(crate) struct GpuState {
 impl GpuState {
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
         mapfile: &MapFile,
         cache: &UnifiedPriorityCache,
     ) -> Result<Self, anyhow::Error> {
         Ok(GpuState {
-            noise: mapfile.read_texture(device, queue, "noise")?,
-            sky: mapfile.read_texture(device, queue, "sky")?,
-            transmittance: mapfile.read_texture(device, queue, "transmittance")?,
-            inscattering: mapfile.read_texture(device, queue, "inscattering")?,
+            noise: mapfile.read_texture(device, encoder, staging_belt, "noise")?,
+            sky: mapfile.read_texture(device, encoder, staging_belt, "sky")?,
+            transmittance: mapfile.read_texture(device, encoder, staging_belt, "transmittance")?,
+            inscattering: mapfile.read_texture(device, encoder, staging_belt, "inscattering")?,
             aerial_perspective: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
                 format: wgpu::TextureFormat::Rgba16Float,

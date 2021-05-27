@@ -5,8 +5,8 @@ use crate::{
     terrain::quadtree::{QuadTree, VNode},
 };
 use maplit::hashmap;
-use std::mem;
 use std::{collections::HashMap, convert::TryInto};
+use std::{mem, num::NonZeroU64};
 use wgpu::util::DeviceExt;
 
 use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
@@ -72,6 +72,7 @@ pub(crate) struct MeshCache {
     pub(super) inner: PriorityCache<Entry>,
     pub(super) desc: MeshCacheDesc,
 
+    nodes: Vec<MeshNodeState>,
     uniforms: wgpu::Buffer,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
@@ -83,7 +84,7 @@ impl MeshCache {
             mapped_at_creation: false,
             label: Some("grass.uniforms"),
         });
-        Self { inner: PriorityCache::new(desc.size), desc, uniforms, bindgroup_pipeline: None }
+        Self { inner: PriorityCache::new(desc.size), desc, nodes: Vec::new(), uniforms, bindgroup_pipeline: None }
     }
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
@@ -141,17 +142,12 @@ impl MeshCache {
     pub(super) fn generate_all(
         cache: &mut UnifiedPriorityCache,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
     ) {
         let mut generated = Vec::new();
-        let mut command_buffers = Vec::new();
         for mesh_type in MeshType::iter() {
             let m = &mut cache.meshes[mesh_type];
-
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some(&format!("{}.command_encoder", mesh_type.name())),
-            });
 
             let mut zero_buffer = None;
             for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
@@ -181,7 +177,7 @@ impl MeshCache {
 
                 m.desc.generate.run(
                     device,
-                    &mut encoder,
+                    encoder,
                     gpu_state,
                     (m.desc.dimensions, m.desc.dimensions, 1),
                     &MeshGenerateUniforms {
@@ -192,23 +188,67 @@ impl MeshCache {
                 entry.valid = true;
                 generated.push((mesh_type, entry.node));
             }
-            command_buffers.push(encoder.finish());
         }
         for (mesh_type, node) in generated {
             cache.meshes[mesh_type].inner.entry_mut(&node).unwrap().generators =
                 cache.generator_dependencies(node, cache.meshes[mesh_type].desc.dependency_mask);
         }
+    }
 
-        queue.submit(command_buffers);
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
+        camera: mint::Point3<f64>,
+    ) {
+        // Compute attributes for each node.
+        self.nodes = self
+            .inner
+            .slots()
+            .into_iter()
+            .enumerate()
+            .filter(|e| e.1.valid && e.1.priority > Priority::cutoff())
+            // .filter_map(|(i, e)| tile_cache.get_slot(e.node).map(|s| (i, s, e)))
+            // .map(|(i, j, &Entry { node, .. })| MeshNodeState {
+            .map(|(i, &Entry { node, .. })| MeshNodeState {
+                relative_position: (cgmath::Point3::from(camera) - node.center_wspace())
+                    .cast::<f32>()
+                    .unwrap()
+                    .into(),
+                parent_relative_position: (cgmath::Point3::from(camera)
+                    - node.parent().map(|x| x.0).unwrap_or(node).center_wspace())
+                .cast::<f32>()
+                .unwrap()
+                .into(),
+                min_distance: node.min_distance() as f32,
+                slot: i as u32,
+                face: node.face() as u32,
+                //tile_slot: j as u32,
+                _padding1: 0.0,
+                _padding2: [0; 54],
+            })
+            .collect();
+
+        if !self.nodes.is_empty() {
+            staging_belt
+                .write_buffer(
+                    encoder,
+                    &self.uniforms,
+                    0,
+                    NonZeroU64::new((self.nodes.len() * mem::size_of::<MeshNodeState>()) as u64)
+                        .unwrap(),
+                    device,
+                )
+                .copy_from_slice(bytemuck::cast_slice(&self.nodes));
+            }
     }
 
     pub fn render<'a>(
         &'a mut self,
         device: &wgpu::Device,
-        queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        camera: mint::Point3<f64>,
     ) {
         if self.desc.render.refresh() {
             self.bindgroup_pipeline = None;
@@ -276,39 +316,10 @@ impl MeshCache {
             ));
         }
 
-        // Compute attributes for each node.
-        let nodes: Vec<_> = self
-            .inner
-            .slots()
-            .into_iter()
-            .enumerate()
-            .filter(|e| e.1.valid && e.1.priority > Priority::cutoff())
-            // .filter_map(|(i, e)| tile_cache.get_slot(e.node).map(|s| (i, s, e)))
-            // .map(|(i, j, &Entry { node, .. })| MeshNodeState {
-            .map(|(i, &Entry { node, .. })| MeshNodeState {
-                relative_position: (cgmath::Point3::from(camera) - node.center_wspace())
-                    .cast::<f32>()
-                    .unwrap()
-                    .into(),
-                parent_relative_position: (cgmath::Point3::from(camera)
-                    - node.parent().map(|x| x.0).unwrap_or(node).center_wspace())
-                .cast::<f32>()
-                .unwrap()
-                .into(),
-                min_distance: node.min_distance() as f32,
-                slot: i as u32,
-                face: node.face() as u32,
-                //tile_slot: j as u32,
-                _padding1: 0.0,
-                _padding2: [0; 54],
-            })
-            .collect();
-
-        if !nodes.is_empty() {
-            queue.write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&nodes));
+        if !self.nodes.is_empty() {
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            for (i, node_state) in nodes.into_iter().enumerate() {
+            for (i, node_state) in self.nodes.iter().enumerate() {
                 rpass.set_bind_group(
                     0,
                     &self.bindgroup_pipeline.as_ref().unwrap().0,

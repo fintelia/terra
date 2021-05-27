@@ -142,7 +142,9 @@ fn main() {
     let mut long = plus_center.x().to_radians();
     let mut altitude = opt.elevation;
 
-    let mut terrain = terra::Terrain::new(&device, &queue).unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    let mut terrain = terra::Terrain::new(&device, &mut encoder).unwrap();
+    queue.submit(Some(encoder.finish()));
 
     if let Some(dataset_directory) = opt.generate {
         let pb = indicatif::ProgressBar::new(100);
@@ -185,7 +187,16 @@ fn main() {
             r * lat.cos() * long.sin(),
             r * lat.sin(),
         );
-        while terrain.poll_loading_status(&device, &queue, eye.into()) {
+        loop {
+            let mut encoder = device.create_command_encoder(&Default::default());
+            let done = !terrain.poll_loading_status(&device, &mut encoder, eye.into());
+            queue.submit(Some(encoder.finish()));
+
+            if done {
+                break;
+            }
+
+            device.poll(wgpu::Maintain::Wait);
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
@@ -323,15 +334,17 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
+                let mut encoder = device.create_command_encoder(&Default::default());
                 terrain.render(
                     &device,
-                    &queue,
+                    &mut encoder,
                     &*frame,
                     depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
                 );
+                queue.submit(Some(encoder.finish()));
 
                 if !set_visible {
                     window.set_visible(true);

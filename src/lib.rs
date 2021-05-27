@@ -30,6 +30,7 @@ use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
 use wgpu::util::DeviceExt;
@@ -49,11 +50,14 @@ pub struct Terrain {
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
 
+    staging_belt: wgpu::util::StagingBelt,
+
     cache: UnifiedPriorityCache,
 }
 impl Terrain {
     /// Create a new Terrain object.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
+        let mut staging_belt = wgpu::util::StagingBelt::new(256 * 1024);
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
         let cache = UnifiedPriorityCache::new(
             device,
@@ -61,7 +65,7 @@ impl Terrain {
             512,
             crate::generate::generators(
                 mapfile.layers(),
-                !device.features().contains(wgpu::Features::SHADER_FLOAT64),
+                !device.features().contains(wgpu::Features::SHADER_FLOAT64) || cfg!(feature = "soft-float64"),
             ),
             vec![MeshCacheDesc {
                 size: 32,
@@ -119,7 +123,8 @@ impl Terrain {
                 texture_format: TextureFormat::RGBA8,
             }],
         );
-        let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
+        let mut encoder = device.create_command_encoder(&Default::default());
+        let gpu_state = GpuState::new(device, &mut encoder, &mut staging_belt, &mapfile, &cache)?;
         let quadtree =
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
@@ -151,6 +156,9 @@ impl Terrain {
             "gen-aerial-perspective".to_string(),
         );
 
+        staging_belt.finish();
+        queue.submit(Some(encoder.finish()));
+
         Ok(Self {
             bindgroup_pipeline: None,
             shader,
@@ -164,6 +172,9 @@ impl Terrain {
             gpu_state,
             quadtree,
             mapfile,
+
+            staging_belt,
+
             cache,
         })
     }
@@ -180,17 +191,17 @@ impl Terrain {
     /// `camera`.
     ///
     /// Terra cannot render any terrain until all root tiles have been downloaded and streamed to
-    /// the GPU. This function returns whether tohse tiles have been streamed, and also initiates
+    /// the GPU. This function returns whether those tiles have been streamed, and also initiates
     /// streaming of more detailed tiles for the indicated tile position.
     pub fn poll_loading_status(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         camera: mint::Point3<f64>,
     ) -> bool {
         self.quadtree.update_visibility(camera);
         if !self.loading_complete() {
-            self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
+            self.cache.update(device, encoder, &mut self.staging_belt, &self.gpu_state, &self.mapfile, &self.quadtree);
             self.loading_complete()
         } else {
             true
@@ -205,13 +216,17 @@ impl Terrain {
     pub fn render(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
         _frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
+        let fut = self.staging_belt.recall();
+        device.poll(wgpu::Maintain::Wait);
+        futures::executor::block_on(fut);
+
         if self.shader.refresh() {
             self.bindgroup_pipeline = None;
         }
@@ -266,7 +281,7 @@ impl Terrain {
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
-                        depth_compare: wgpu::CompareFunction::Greater,
+                        depth_compare: wgpu::CompareFunction::Less,
                         bias: Default::default(),
                         stencil: Default::default(),
                     }),
@@ -340,37 +355,46 @@ impl Terrain {
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
-        self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
-        while !self.poll_loading_status(device, queue, camera) {
+        self.cache.update(device, encoder, &mut self.staging_belt, &self.gpu_state, &self.mapfile, &self.quadtree);
+        while !self.poll_loading_status(device, encoder, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        self.quadtree.prepare_vertex_buffer(
-            queue,
-            &mut self.gpu_state.node_buffer,
-            &self.cache,
-            camera,
-        );
+        {
+            let vertex_buffer = self.quadtree.prepare_vertex_buffer(&self.cache, camera);
+            self.staging_belt
+                .write_buffer(
+                    encoder,
+                    &mut self.gpu_state.node_buffer,
+                    0,
+                    NonZeroU64::new(vertex_buffer.len() as u64).unwrap(),
+                    device,
+                )
+                .copy_from_slice(vertex_buffer);
 
-        queue.write_buffer(
-            &self.gpu_state.globals,
-            0,
-            bytemuck::bytes_of(&GlobalUniformBlock {
-                view_proj,
-                view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
-                camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0],
-                sun_direction: [0.4, 0.7, 0.2, 0.0],
-            }),
-        );
+            self.staging_belt
+                .write_buffer(
+                    encoder,
+                    &self.gpu_state.globals,
+                    0,
+                    NonZeroU64::new(std::mem::size_of::<GlobalUniformBlock>() as u64).unwrap(),
+                    device,
+                )
+                .copy_from_slice(&bytemuck::bytes_of(&GlobalUniformBlock {
+                    view_proj,
+                    view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
+                    camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0],
+                    sun_direction: [0.4, 0.7, 0.2, 0.0],
+                }));
+            
+            self.cache.prepare_meshes(device, encoder, &mut self.staging_belt, camera);
+        }
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("encoder.render"),
-        });
         {
             self.aerial_perspective.refresh();
             self.aerial_perspective.run(
                 device,
-                &mut encoder,
+                encoder,
                 &self.gpu_state,
                 (1, 1, self.quadtree.node_buffer_length() as u32),
                 &0,
@@ -381,14 +405,14 @@ impl Terrain {
                     view: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
+                        load: wgpu::LoadOp::Load,//wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
                         store: true,
                     },
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth_buffer,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
+                        load: wgpu::LoadOp::Load,//wgpu::LoadOp::Clear(0.0),
                         store: true,
                     }),
                     stencil_ops: None,
@@ -402,14 +426,14 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);
+            self.cache.render_meshes(device, &mut rpass, &self.gpu_state);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
         }
 
-        queue.submit(Some(encoder.finish()));
+        self.staging_belt.finish();
     }
 
     pub fn get_height(&self, latitude: f64, longitude: f64) -> f32 {
@@ -427,7 +451,9 @@ mod tests {
     #[test]
     fn check_send() {
         struct Helper<T>(T);
-        trait AssertImpl { fn assert() {} }
+        trait AssertImpl {
+            fn assert() {}
+        }
         impl<T: Send> AssertImpl for Helper<T> {}
         Helper::<super::Terrain>::assert();
     }

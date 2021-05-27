@@ -1,4 +1,5 @@
 #extension GL_EXT_samplerless_texture_functions: require
+#extension GL_ARB_compute_shader: require
 
 struct Globals {
     mat4 view_proj;

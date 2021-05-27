@@ -91,11 +91,9 @@ impl QuadTree {
 
     pub fn prepare_vertex_buffer(
         &mut self,
-        queue: &wgpu::Queue,
-        vertex_buffer: &wgpu::Buffer,
         cache: &UnifiedPriorityCache,
         camera: mint::Point3<f64>,
-    ) {
+    ) -> &[u8] {
         assert_eq!(
             cache.tile_desc(LayerType::Albedo).texture_resolution,
             cache.tile_desc(LayerType::Normals).texture_resolution
@@ -285,7 +283,7 @@ impl QuadTree {
 
         assert_eq!(mem::size_of::<NodeState>(), 256);
         assert!(self.node_states.len() < MAX_RENDERED_NODES);
-        queue.write_buffer(vertex_buffer, 0, bytemuck::cast_slice(&self.node_states));
+        bytemuck::cast_slice(&self.node_states)
     }
 
     pub(crate) fn render<'b, 'c>(

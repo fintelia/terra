@@ -6,6 +6,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::{fs, num::NonZeroU32};
 use tokio::io::AsyncReadExt;
@@ -144,7 +145,8 @@ impl MapFile {
     pub(crate) fn read_texture(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
         name: &str,
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
@@ -197,17 +199,36 @@ impl MapFile {
             }
         }
 
-        queue.write_texture(
+        let row_pitch = ((row_bytes -1) | 255) + 1;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (height * row_pitch) as u64,
+            usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: true,
+        });
+        let mut mapped = staging_belt.write_buffer(
+            encoder,
+            &buffer,
+            0,
+            NonZeroU64::new((height * row_pitch) as u64).unwrap(),
+            device,
+        );
+        for row in 0..height {
+            mapped[row * row_pitch ..][..row_bytes].copy_from_slice(&data[row * row_bytes..][..row_bytes])
+        }
+        encoder.copy_buffer_to_texture(
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
+                    rows_per_image: Some(NonZeroU32::new(height as u32 / desc.depth)).unwrap(),
+                }
+            },
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
-            },
-            &data,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
-                rows_per_image: Some(NonZeroU32::new(height as u32 / desc.depth).unwrap()),
             },
             wgpu::Extent3d {
                 width: width as u32,

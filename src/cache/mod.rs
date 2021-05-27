@@ -389,7 +389,8 @@ impl UnifiedPriorityCache {
     pub fn update(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
         gpu_state: &GpuState,
         mapfile: &MapFile,
         quadtree: &QuadTree,
@@ -441,17 +442,17 @@ impl UnifiedPriorityCache {
         for m in self.textures.values_mut() {
             m.update(quadtree);
         }
-        SingularLayerCache::generate_all(self, device, queue, gpu_state);
+        SingularLayerCache::generate_all(self, device, encoder, gpu_state);
 
         self.tiles.update(quadtree);
-        self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
-        TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
         self.tiles.download_tiles();
+        self.tiles.upload_tiles(device, encoder, staging_belt, &gpu_state.tile_cache);
+        TileCache::generate_tiles(self, mapfile, device, encoder, gpu_state);
 
         for m in self.meshes.values_mut() {
             m.update(quadtree);
         }
-        MeshCache::generate_all(self, device, queue, gpu_state);
+        MeshCache::generate_all(self, device, encoder, gpu_state);
     }
 
     fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
@@ -479,16 +480,26 @@ impl UnifiedPriorityCache {
         self.textures.iter().map(|(i, c)| (i, c.make_cache_texture(device))).collect()
     }
 
-    pub fn render_meshes<'a>(
-        &'a mut self,
+    pub fn prepare_meshes<'a>(
+        &mut self,
         device: &wgpu::Device,
-        queue: &'a wgpu::Queue,
-        rpass: &mut wgpu::RenderPass<'a>,
-        gpu_state: &'a GpuState,
+        encoder: &mut wgpu::CommandEncoder,
+        staging_belt: &mut wgpu::util::StagingBelt,
         camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(device, queue, rpass, gpu_state, camera);
+            c.prepare(device, encoder, staging_belt, camera);
+        }
+    }
+
+    pub fn render_meshes<'a>(
+        &'a mut self,
+        device: &wgpu::Device,
+        rpass: &mut wgpu::RenderPass<'a>,
+        gpu_state: &'a GpuState,
+    ) {
+        for (_, c) in &mut self.meshes {
+            c.render(device, rpass, gpu_state);
         }
     }
 

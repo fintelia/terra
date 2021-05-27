@@ -82,17 +82,12 @@ impl SingularLayerCache {
     pub(super) fn generate_all(
         cache: &mut UnifiedPriorityCache,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
     ) {
         let mut generated = Vec::new();
-        let mut command_buffers = Vec::new();
         for layer_type in SingularLayerType::iter() {
             let m = &mut cache.textures[layer_type];
-
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some(&format!("{}.command_encoder", layer_type.name())),
-            });
 
             for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
                 if entry.valid || entry.priority < Priority::cutoff() {
@@ -104,7 +99,7 @@ impl SingularLayerCache {
 
                 m.desc.generate.run(
                     device,
-                    &mut encoder,
+                    encoder,
                     gpu_state,
                     ((m.desc.texture_resolution + 7) / 8, (m.desc.texture_resolution + 7) / 8, 1),
                     &SingularLayerGenerateUniforms {
@@ -115,14 +110,11 @@ impl SingularLayerCache {
                 entry.valid = true;
                 generated.push((layer_type, entry.node));
             }
-            command_buffers.push(encoder.finish());
         }
         for (layer_type, node) in generated {
             cache.textures[layer_type].inner.entry_mut(&node).unwrap().generators =
                 cache.generator_dependencies(node, cache.textures[layer_type].desc.dependency_mask);
         }
-
-        queue.submit(command_buffers);
     }
 
     pub(super) fn make_cache_texture(&self, device: &wgpu::Device) -> wgpu::Texture {

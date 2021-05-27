@@ -411,9 +411,9 @@ pub(crate) fn generators(
             if soft_float64 {
                 rshader::shader_source!(
                     "../shaders",
+                    "gen-displacements.comp",
                     "declarations.glsl",
-                    "softdouble.glsl",
-                    "gen-displacements.comp";
+                    "softdouble.glsl";
                     "SOFT_DOUBLE" = "1"
                 )
             } else {
