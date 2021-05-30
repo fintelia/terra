@@ -14,11 +14,14 @@ use crate::{coordinates, Terrain};
 use anyhow::Error;
 use bytemuck::Pod;
 use cgmath::Vector2;
+use futures::future::BoxFuture;
 use futures::StreamExt;
 use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
+use std::collections::HashSet;
+use std::fs;
 use std::{
     borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32,
     path::PathBuf,
@@ -642,62 +645,120 @@ impl Terrain {
     pub async fn generate_heightmaps<'a, F: FnMut(&str, usize, usize) + Send>(
         &mut self,
         etopo1_file: impl AsRef<Path>,
-        srtm3_directory: PathBuf,
+        nasadem_directory: PathBuf,
+        nasadem_reprojected_directory: PathBuf,
         mut progress_callback: F,
     ) -> Result<(), Error> {
-        let (missing, total_tiles) = self.mapfile.get_missing_base(LayerType::Heightmaps)?;
-        if missing.is_empty() {
+        let (missing_tiles, _total_tiles) =
+            self.mapfile.get_missing_base(LayerType::Heightmaps)?;
+        if missing_tiles.is_empty() {
             return Ok(());
         }
 
-        let mut gen = heightmap::HeightmapGen {
-            tile_cache: heightmap::HeightmapCache::new(
-                self.mapfile.layers()[LayerType::Heightmaps].clone(),
-                32,
-            ),
-            dems: RasterCache::new(Arc::new(DemSource::Srtm90m(srtm3_directory)), 256),
-            global_dem: Arc::new(crate::terrain::dem::parse_etopo1(
-                etopo1_file,
-                &mut progress_callback,
-            )?),
+        let base_level = VNode::LEVEL_CELL_38M;
+        let sector_size = 8;
+
+        let layer = &self.mapfile.layers()[LayerType::Heightmaps];
+        let resolution = layer.texture_resolution as usize;
+        let border_size = layer.texture_border_size as usize;
+
+        assert_eq!((resolution - 1) % sector_size, 0);
+
+        fs::create_dir_all(&nasadem_reprojected_directory)?;
+        let (missing_sectors, total_sectors) = {
+            let mut existing_sectors = HashSet::new();
+
+            for entry in fs::read_dir(&nasadem_reprojected_directory)? {
+                if let Ok(s) = entry?.file_name().into_string() {
+                    existing_sectors.insert(s);
+                }
+            }
+
+            let mut missing_sectors = Vec::new();
+            let mut total_sectors = 0;
+            for root_node in VNode::roots() {
+                for x in 0..(resolution / sector_size) {
+                    for y in 0..(resolution / sector_size) {
+                        total_sectors += 1;
+                        if !existing_sectors.contains(&format!(
+                            "nasadem_S{}-{}x{}.raw",
+                            root_node.face(),
+                            x,
+                            y
+                        )) {
+                            missing_sectors.push((root_node, x, y));
+                        }
+                    }
+                }
+            }
+            (missing_sectors, total_sectors)
         };
 
-        let total_missing = missing.len();
-        let mut missing_by_level = VecMap::new();
-        for m in missing {
-            missing_by_level.entry(m.level().into()).or_insert(Vec::new()).push(m);
-        }
+        if !missing_sectors.is_empty() {
+            let mut gen = heightmap::HeightmapGen {
+                resolution: (sector_size << base_level) + 1,
+                root_resolution: ((resolution - 1) << base_level) + 1,
+                root_border_size: border_size << base_level,
+                dems: RasterCache::new(Arc::new(DemSource::Nasadem(nasadem_directory)), 64),
+                global_dem: Arc::new(crate::terrain::dem::parse_etopo1(
+                    etopo1_file,
+                    &mut progress_callback,
+                )?),
+            };
 
-        let mut tiles_processed = 0;
-        for missing in missing_by_level.values() {
-            let mut missing = missing.into_iter().peekable();
+            const MAX_CONCURRENT: usize = 32;
+            const MAX_RASTERS: usize = 256;
+
+            let mut sectors_processed = total_sectors - missing_sectors.len();
+            let mut missing = missing_sectors.into_iter().peekable();
             let mut pending = futures::stream::FuturesUnordered::new();
 
+            let mut loaded_rasters = 0;
+            let mut unstarted: Option<(usize, BoxFuture<_>)> = None;
+
             loop {
-                if pending.len() < 16 && missing.peek().is_some() {
-                    pending.push(
-                        gen.generate_heightmaps(
-                            Arc::clone(&self.mapfile),
-                            *missing.next().unwrap(),
-                        )
-                        .await?,
-                    );
+                progress_callback(
+                    "Generating heightmaps...",
+                    sectors_processed,
+                    total_sectors,
+                );
+                if unstarted.is_some()
+                    && (loaded_rasters + unstarted.as_ref().unwrap().0 <= MAX_RASTERS
+                        || loaded_rasters == 0)
+                {
+                    let (num_rasters, future) = unstarted.take().unwrap();
+                    loaded_rasters += num_rasters;
+                    pending.push(future);
+                } else if unstarted.is_none() && pending.len() < MAX_CONCURRENT && missing.peek().is_some() {
+                    let (root_node, x, y) = missing.next().unwrap();
+                    unstarted = Some(gen.generate_sector(
+                        root_node,
+                        x,
+                        y,
+                        nasadem_reprojected_directory.join(&format!(
+                            "nasadem_S{}-{}x{}.raw",
+                            root_node.face(),
+                            x,
+                            y
+                        )),
+                    ));
                 } else {
                     match pending.next().await {
                         Some(result) => {
-                            result?;
-                            tiles_processed += 1;
-                            progress_callback(
-                                "Generating heightmaps...",
-                                tiles_processed + (total_tiles - total_missing),
-                                total_tiles,
-                            );
+                            loaded_rasters -= result?;
+                            sectors_processed += 1;
                         }
                         None => break,
                     }
                 }
             }
         }
+
+        // let total_missing = missing.len();
+        // let mut missing_by_level = VecMap::new();
+        // for m in missing {
+        //     missing_by_level.entry(m.level().into()).or_insert(Vec::new()).push(m);
+        // }
 
         Ok(())
     }

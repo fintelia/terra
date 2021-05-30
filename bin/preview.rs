@@ -165,7 +165,8 @@ fn main() {
         runtime
             .block_on(terrain.generate_heightmaps(
                 dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-                dataset_directory.join("strm3"),
+                dataset_directory.join("nasadem"),
+                dataset_directory.join("nasadem_reprojected"),
                 &mut progress_callback,
             ))
             .unwrap();

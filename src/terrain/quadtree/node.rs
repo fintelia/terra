@@ -121,8 +121,8 @@ impl VNode {
         &self,
         x: i32,
         y: i32,
-        skirt: u16,
-        resolution: u16,
+        skirt: u32,
+        resolution: u32,
     ) -> Vector3<f64> {
         let fx = (x - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;
         let fy = (y - skirt as i32) as f64 / (resolution - 1 - 2 * skirt) as f64;

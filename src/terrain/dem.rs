@@ -117,7 +117,10 @@ impl RasterSource for DemSource {
                 parse_srtm3_hgt(latitude, longitude, uncompressed).map(Some)
             }
             DemSource::Nasadem(_) => {
-                unimplemented!()
+                let filename = self.filename(latitude, longitude);
+                let data = tokio::fs::read(filename).await?;
+
+                tokio::task::spawn_blocking(move || parse_nasadem(latitude, longitude, data).map(Some)).await?
             }
         }
     }
@@ -248,6 +251,50 @@ fn parse_srtm3_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
     })
 }
 
+/// Load a ZIP file containing a HGT file in the format for the NASA's nasadem 30m dataset.
+fn parse_nasadem(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster<f32>, Error> {
+    let resolution = 3601;
+    let cell_size = 1.0 / 3600.0;
+
+    let mut zip = ZipArchive::new(Cursor::new(data))?;
+    ensure!(zip.len() == 3, "Unexpected zip file contents");
+
+    let filename = zip.file_names().find(|name| name.ends_with(".hgt")).map(str::to_owned);
+    ensure!(filename.is_some(), "Zip doesn't contain .hgt");
+    let mut file = zip.by_name(&filename.unwrap())?;
+
+    let mut hgt = Vec::with_capacity(resolution * resolution * 2);
+    file.read_to_end(&mut hgt)?;
+    assert_eq!(hgt.len(), resolution * resolution * 2);
+    if hgt.len() != resolution * resolution * 2 {
+        Err(DemParseError)?;
+    }
+
+    let hgt = bytemuck::cast_slice(&hgt[..]);
+    let mut elevations: Vec<f32> = Vec::with_capacity(resolution * resolution);
+
+    for y in 0..resolution {
+        for x in 0..resolution {
+            let h = i16::from_be(hgt[x + y * resolution]);
+            if h == -32768 {
+                elevations.push(0.0);
+            } else {
+                elevations.push(h as f32);
+            }
+        }
+    }
+
+    Ok(Raster {
+        width: resolution,
+        height: resolution,
+        bands: 1,
+        latitude_llcorner: latitude as f64,
+        longitude_llcorner: longitude as f64,
+        cell_size,
+        values: elevations,
+    })
+}
+
 pub(crate) fn parse_etopo1(
     filename: impl AsRef<Path>,
     mut progress_callback: impl FnMut(&str, usize, usize) + Send,
@@ -260,14 +307,19 @@ pub(crate) fn parse_etopo1(
     ensure!(file.name() == "ETOPO1_Ice_c_geotiff.tif", "Unexpected zip file contents");
 
     let mut contents = vec![0; file.size() as usize];
-    for (i, chunk) in contents.chunks_mut(4096).enumerate() {
+    for (i, chunk) in contents.chunks_mut(1024 * 1024).enumerate() {
         progress_callback(
             "Decompressing ETOPO1_Ice_c_geotiff.tif...",
-            i * 4096,
-            file.size() as usize,
+            (i * 1024 * 1024) >> 10,
+            file.size() as usize >> 10,
         );
         file.read_exact(chunk)?;
     }
+    progress_callback(
+        "Decompressing ETOPO1_Ice_c_geotiff.tif...",
+        file.size() as usize >> 10,
+        file.size() as usize >> 10,
+    );
 
     let mut tiff_decoder = tiff::decoder::Decoder::new(Cursor::new(contents))?;
     let (width, height) = tiff_decoder.dimensions()?;
@@ -277,7 +329,13 @@ pub(crate) fn parse_etopo1(
     let strip_count = tiff_decoder.strip_count()?;
 
     for i in 0..strip_count {
-        progress_callback("Decoding ETOPO1_Ice_c_geotiff.tif...", i as usize, strip_count as usize);
+        if i % 8 == 0 {
+            progress_callback(
+                "Decoding ETOPO1_Ice_c_geotiff.tif...",
+                i as usize,
+                strip_count as usize,
+            );
+        }
         if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
             values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
             offset += v.len();
@@ -285,6 +343,11 @@ pub(crate) fn parse_etopo1(
             unreachable!();
         }
     }
+    progress_callback(
+        "Decoding ETOPO1_Ice_c_geotiff.tif...",
+        strip_count as usize,
+        strip_count as usize,
+    );
 
     Ok(GlobalRaster { bands: 1, width: width as usize, height: height as usize, values })
 }
