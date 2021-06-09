@@ -1,4 +1,5 @@
 use crate::cache::{LayerParams, LayerType, TextureFormat};
+use crate::generate::heightmap::{uncompress_heightmap_tile, HeightmapCache};
 use crate::gpu_state::GpuState;
 use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
@@ -6,15 +7,18 @@ use crate::terrain::dem::DemSource;
 use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::GlobalRaster;
 use crate::terrain::raster::RasterCache;
+use crate::types::VFace;
 use crate::{
     asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
     cache::LayerMask,
 };
 use crate::{coordinates, Terrain};
-use anyhow::Error;
+use anyhow::{Context, Error};
+use atomicwrites::{AtomicFile, OverwriteBehavior};
 use bytemuck::Pod;
 use cgmath::Vector2;
 use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use image::{png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
@@ -22,6 +26,7 @@ use maplit::hashmap;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
+use std::io::Cursor;
 use std::{
     borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32,
     path::PathBuf,
@@ -649,8 +654,7 @@ impl Terrain {
         nasadem_reprojected_directory: PathBuf,
         mut progress_callback: F,
     ) -> Result<(), Error> {
-        let (missing_tiles, _total_tiles) =
-            self.mapfile.get_missing_base(LayerType::Heightmaps)?;
+        let (missing_tiles, total_tiles) = self.mapfile.get_missing_base(LayerType::Heightmaps)?;
         if missing_tiles.is_empty() {
             return Ok(());
         }
@@ -661,26 +665,28 @@ impl Terrain {
         let layer = &self.mapfile.layers()[LayerType::Heightmaps];
         let resolution = layer.texture_resolution as usize;
         let border_size = layer.texture_border_size as usize;
+        let sectors_per_side = resolution / sector_size;
 
         assert_eq!((resolution - 1) % sector_size, 0);
 
+        // Scan the working directory to see what files already exist.
         fs::create_dir_all(&nasadem_reprojected_directory)?;
-        let (missing_sectors, total_sectors) = {
-            let mut existing_sectors = HashSet::new();
-
-            for entry in fs::read_dir(&nasadem_reprojected_directory)? {
-                if let Ok(s) = entry?.file_name().into_string() {
-                    existing_sectors.insert(s);
-                }
+        let mut existing_files = HashSet::new();
+        for entry in fs::read_dir(&nasadem_reprojected_directory)? {
+            if let Ok(s) = entry?.file_name().into_string() {
+                existing_files.insert(s);
             }
+        }
 
+        // See which sectors need to be generated.
+        let (missing_sectors, total_sectors) = {
             let mut missing_sectors = Vec::new();
             let mut total_sectors = 0;
             for root_node in VNode::roots() {
-                for x in 0..(resolution / sector_size) {
-                    for y in 0..(resolution / sector_size) {
+                for x in 0..sectors_per_side {
+                    for y in 0..sectors_per_side {
                         total_sectors += 1;
-                        if !existing_sectors.contains(&format!(
+                        if !existing_files.contains(&format!(
                             "nasadem_S{}-{}x{}.raw",
                             root_node.face(),
                             x,
@@ -694,6 +700,7 @@ impl Terrain {
             (missing_sectors, total_sectors)
         };
 
+        // Generate missing sectors.
         if !missing_sectors.is_empty() {
             let mut gen = heightmap::HeightmapGen {
                 resolution: (sector_size << base_level) + 1,
@@ -718,7 +725,7 @@ impl Terrain {
 
             loop {
                 progress_callback(
-                    "Generating heightmaps...",
+                    "Generating heightmap sectors...",
                     sectors_processed,
                     total_sectors,
                 );
@@ -729,7 +736,10 @@ impl Terrain {
                     let (num_rasters, future) = unstarted.take().unwrap();
                     loaded_rasters += num_rasters;
                     pending.push(future);
-                } else if unstarted.is_none() && pending.len() < MAX_CONCURRENT && missing.peek().is_some() {
+                } else if unstarted.is_none()
+                    && pending.len() < MAX_CONCURRENT
+                    && missing.peek().is_some()
+                {
                     let (root_node, x, y) = missing.next().unwrap();
                     unstarted = Some(gen.generate_sector(
                         root_node,
@@ -754,11 +764,168 @@ impl Terrain {
             }
         }
 
-        // let total_missing = missing.len();
-        // let mut missing_by_level = VecMap::new();
-        // for m in missing {
-        //     missing_by_level.entry(m.level().into()).or_insert(Vec::new()).push(m);
-        // }
+        // See which faces need to be generated.
+        let face_resolution = sectors_per_side * 256 + 1;
+        for face in 0..6 {
+            //progress_callback("Generating heightmap faces...", face as usize, 6);
+            let face_filename =
+                format!("nasadem_F-{}-{}x{}.tiff", VFace(face), face_resolution, face_resolution);
+            if existing_files.contains(&face_filename) {
+                continue;
+            }
+
+            let mut heightmap = vec![0i16; face_resolution * face_resolution];
+            for y in 0..sectors_per_side {
+                progress_callback(
+                    "Downsampling sectors...",
+                    face as usize * sectors_per_side * sectors_per_side + y * sectors_per_side,
+                    6 * sectors_per_side * sectors_per_side,
+                );
+
+                let mut unordered = FuturesUnordered::new();
+                for x in 0..sectors_per_side {
+                    let path = nasadem_reprojected_directory
+                        .join(&format!("nasadem_S{}-{}x{}.raw", face, x, y));
+                    unordered.push(async move {
+                        let bytes = tokio::fs::read(path).await?;
+                        let tile = tokio::task::spawn_blocking(move || {
+                            let (sector_resolution, sector) =
+                                heightmap::uncompress_heightmap_tile(None, &bytes);
+
+                            let step = ((sector_resolution - 1) * (resolution / sector_size))
+                                / (face_resolution - 1);
+
+                            let downsampled_resolution = (sector_resolution / step) + 1;
+                            let mut downsampled =
+                                vec![0; downsampled_resolution * downsampled_resolution];
+
+                            for y in 0..downsampled_resolution {
+                                for x in 0..downsampled_resolution {
+                                    downsampled[y * downsampled_resolution + x] =
+                                        sector[y * step * sector_resolution + x * step];
+                                }
+                            }
+
+                            (downsampled_resolution, downsampled)
+                        })
+                        .await?;
+
+                        Ok::<_, Error>((x, tile))
+                    });
+                }
+
+                while !unordered.is_empty() {
+                    let (x, (downsampled_resolution, downsampled)) =
+                        unordered.next().await.unwrap()?;
+
+                    let origin_x = x * (face_resolution - 1) / sectors_per_side;
+                    let origin_y = y * (face_resolution - 1) / sectors_per_side;
+
+                    for k in 0..downsampled_resolution {
+                        heightmap[(origin_y + k) * face_resolution + origin_x..]
+                            [..downsampled_resolution]
+                            .copy_from_slice(
+                                &downsampled[k * downsampled_resolution..]
+                                    [..downsampled_resolution],
+                            );
+                    }
+                }
+            }
+
+            let mut bytes = Vec::new();
+            tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                .write_image::<tiff::encoder::colortype::Gray16>(
+                face_resolution as u32,
+                face_resolution as u32,
+                bytemuck::cast_slice(&heightmap),
+            )?;
+
+            // let tile = heightmap::compress_heightmap_tile(face_resolution, 0, &heightmap, None, 9);
+            AtomicFile::new(
+                nasadem_reprojected_directory.join(&face_filename),
+                OverwriteBehavior::AllowOverwrite,
+            )
+            .write(|f| f.write_all(&bytes))?;
+        }
+
+        let mut tiles_processed = total_tiles - missing_tiles.len();
+        let mut missing_by_face = VecMap::new();
+        for m in missing_tiles {
+            missing_by_face.entry(m.face().into()).or_insert(Vec::new()).push(m);
+        }
+        let mut tile_cache = HeightmapCache::new(resolution, border_size, 128);
+        for (face, mut missing) in missing_by_face {
+            missing.sort_by_key(|m| m.level());
+
+            let mut face_heightmap = None;
+            for node in missing {
+                progress_callback(
+                    "Generating heightmap tiles...",
+                    tiles_processed,
+                    total_tiles,
+                );
+
+                if ((resolution - 1) << node.level() + 1) < face_resolution {
+                    if face_heightmap.is_none() {
+                        let face_filename = format!(
+                            "nasadem_F-{}-{}x{}.tiff",
+                            VFace(face as u8),
+                            face_resolution,
+                            face_resolution
+                        );
+                        let bytes =
+                            tokio::fs::read(nasadem_reprojected_directory.join(face_filename))
+                                .await?;
+                        let mut limits = tiff::decoder::Limits::default();
+                        limits.decoding_buffer_size = 1 << 30;
+                        let mut decoder =
+                            tiff::decoder::Decoder::new(Cursor::new(&bytes))?.with_limits(limits);
+                        if let tiff::decoder::DecodingResult::U16(v) = decoder.read_image()? {
+                            let mut heights = vec![0i16; face_resolution * face_resolution];
+                            heights.copy_from_slice(bytemuck::cast_slice(&v));
+                            face_heightmap = Some(heights);
+                        }
+                    }
+                    let face_heightmap = face_heightmap.as_ref().unwrap();
+
+                    let face_scale = (face_resolution - 1) / (resolution - 1);
+                    let face_step = face_scale >> node.level();
+                    let skirt = border_size * face_scale - border_size * face_step;
+                    let face_x = skirt + node.x() as usize * (resolution - border_size - 1) * face_step;
+                    let face_y = skirt + node.y() as usize * (resolution - border_size - 1) * face_step;
+
+                    let mut heights = vec![0; resolution * resolution];
+                    for y in 0..resolution {
+                        for x in 0..resolution {
+                            heights[y * resolution + x] = face_heightmap[(face_y + y * face_step)
+                                * face_resolution
+                                + face_x
+                                + x * face_step];
+                        }
+                    }
+
+                    let parent_heights;
+                    let parent = if let Some(p) = node.parent() {
+                        let tile = tile_cache.get_tile(&self.mapfile, p.0).await?;
+                        assert_eq!(tile.len(), resolution * resolution);
+                        parent_heights = tile;
+                        Some((p.1, border_size, &**parent_heights))
+                    } else {
+                        None
+                    };
+
+                    let bytes = heightmap::compress_heightmap_tile(
+                        resolution,
+                        2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
+                        &heights,
+                        parent,
+                        9,
+                    );
+                    self.mapfile.write_tile(LayerType::Heightmaps, node, &bytes, true)?;
+                    tiles_processed += 1;
+                }
+            }
+        }
 
         Ok(())
     }

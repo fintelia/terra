@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use vec_map::VecMap;
 
-fn compress_heightmap_tile(
+pub fn compress_heightmap_tile(
     resolution: usize,
     log2_scale_factor: i8,
     heights: &[i16],
@@ -120,7 +120,7 @@ fn compress_heightmap_tile(
     e.finish().0
 }
 
-fn uncompress_heightmap_tile(parent: Option<(u8, usize, usize, &[i16])>, bytes: &[u8]) -> Vec<i16> {
+pub fn uncompress_heightmap_tile(parent: Option<(u8, usize, usize, &[i16])>, bytes: &[u8]) -> (usize, Vec<i16>) {
     let scale_factor;
     let header_end;
     let resolution;
@@ -240,7 +240,7 @@ fn uncompress_heightmap_tile(parent: Option<(u8, usize, usize, &[i16])>, bytes: 
     assert_eq!(heights[resolution + 1], q_3[0]);
     assert_eq!(heights[resolution + 2], q_2[1]);
 
-    heights
+    (resolution, heights)
 }
 
 struct Cache<T> {
@@ -337,11 +337,11 @@ impl HeightmapCache {
             let tiles = future::join_all(tiles_pending.into_iter()).await;
             for (n, t) in tiles.into_iter().rev() {
                 let tile = Arc::new(match root.take() {
-                    None => uncompress_heightmap_tile(None, &*t?),
+                    None => uncompress_heightmap_tile(None, &*t?).1,
                     Some(parent_tile) => uncompress_heightmap_tile(
                         Some((n.parent().unwrap().1, border_size, resolution, &*parent_tile)),
                         &*t?,
-                    ),
+                    ).1,
                 });
                 let _ = sender.send((n, Arc::clone(&tile)));
                 root = Some(tile);
@@ -462,7 +462,7 @@ mod tests {
             (0..(resolution * resolution)).map(|_| dist.sample(&mut rng)).collect();
 
         let bytes = compress_heightmap_tile(resolution, 3, &*child, Some((0, skirt, &*parent)), 9);
-        let roundtrip = uncompress_heightmap_tile(Some((0, skirt, resolution, &*parent)), &*bytes);
+        let roundtrip = uncompress_heightmap_tile(Some((0, skirt, resolution, &*parent)), &*bytes).1;
 
         for i in 0..(resolution * resolution) {
             assert!(

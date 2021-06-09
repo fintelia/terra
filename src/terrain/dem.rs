@@ -336,8 +336,8 @@ pub(crate) fn parse_etopo1(
                 strip_count as usize,
             );
         }
-        if let tiff::decoder::DecodingResult::U16(v) = tiff_decoder.read_strip()? {
-            values[offset..][..v.len()].copy_from_slice(bytemuck::cast_slice(&v));
+        if let tiff::decoder::DecodingResult::I16(v) = tiff_decoder.read_strip()? {
+            values[offset..][..v.len()].copy_from_slice(&v);
             offset += v.len();
         } else {
             unreachable!();

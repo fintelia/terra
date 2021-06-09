@@ -18,6 +18,7 @@ mod sky;
 mod srgb;
 mod stream;
 mod terrain;
+mod types;
 mod utils;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
