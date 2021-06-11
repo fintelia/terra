@@ -32,10 +32,10 @@ its processing using wgpu's compute shader support.
 
 # Getting Started
 
-Install dependencies:
+[Install Rust](https://rustup.rs/) and then the other needed dependencies:
 
 ```bash
-$ sudo apt-get install libegl-dev libudev-dev
+$ sudo apt-get install libegl-dev libudev-dev build-essential libssl-dev cmake
 ```
 
 Running should be as simple as:
