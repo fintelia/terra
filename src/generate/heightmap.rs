@@ -13,9 +13,16 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::{Cursor, Read, Write};
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
-use vec_map::VecMap;
+
+#[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
+pub(crate) struct Sector {
+    pub face: u8,
+    pub x: u32,
+    pub y: u32,
+}
 
 pub fn compress_heightmap_tile(
     resolution: usize,
@@ -120,7 +127,10 @@ pub fn compress_heightmap_tile(
     e.finish().0
 }
 
-pub fn uncompress_heightmap_tile(parent: Option<(u8, usize, usize, &[i16])>, bytes: &[u8]) -> (usize, Vec<i16>) {
+pub fn uncompress_heightmap_tile(
+    parent: Option<(u8, usize, usize, &[i16])>,
+    bytes: &[u8],
+) -> (usize, Vec<i16>) {
     let scale_factor;
     let header_end;
     let resolution;
@@ -243,19 +253,18 @@ pub fn uncompress_heightmap_tile(parent: Option<(u8, usize, usize, &[i16])>, byt
     (resolution, heights)
 }
 
-struct Cache<T> {
-    weak: HashMap<VNode, Weak<T>>,
-    strong: VecMap<LruCache<VNode, Arc<T>>>,
-    sender: Sender<(VNode, Arc<T>)>,
-    receiver: Receiver<(VNode, Arc<T>)>,
-    capacity: usize,
+struct Cache<K: Eq + std::hash::Hash + Copy, T> {
+    weak: HashMap<K, Weak<T>>,
+    strong: LruCache<K, Arc<T>>,
+    sender: Sender<(K, Arc<T>)>,
+    receiver: Receiver<(K, Arc<T>)>,
 }
-impl<T> Cache<T> {
+impl<K: std::hash::Hash + Eq + Copy, T> Cache<K, T> {
     fn new(capacity: usize) -> Self {
         let (sender, receiver) = channel::unbounded();
-        Self { weak: HashMap::default(), strong: VecMap::default(), sender, receiver, capacity }
+        Self { weak: HashMap::default(), strong: LruCache::new(capacity), sender, receiver }
     }
-    fn get(&mut self, n: VNode) -> Option<Arc<T>> {
+    fn get(&mut self, n: K) -> Option<Arc<T>> {
         let mut found = None;
         while let Ok(t) = self.receiver.try_recv() {
             if t.0 == n {
@@ -267,15 +276,11 @@ impl<T> Cache<T> {
             return found;
         }
 
-        match self.strong.get_mut(n.level() as usize).and_then(|l| l.get_mut(&n)) {
+        match self.strong.get_mut(&n) {
             Some(e) => Some(Arc::clone(&e)),
             None => match self.weak.get(&n)?.upgrade() {
                 Some(t) => {
-                    let capacity = self.capacity;
-                    self.strong
-                        .entry(n.level() as usize)
-                        .or_insert_with(|| LruCache::new(capacity))
-                        .insert(n, t.clone());
+                    self.strong.insert(n, t.clone());
                     Some(Arc::clone(&t))
                 }
                 None => {
@@ -285,15 +290,11 @@ impl<T> Cache<T> {
             },
         }
     }
-    fn insert(&mut self, n: VNode, a: Arc<T>) {
-        let capacity = self.capacity;
+    fn insert(&mut self, n: K, a: Arc<T>) {
         self.weak.insert(n, Arc::downgrade(&a));
-        self.strong
-            .entry(n.level() as usize)
-            .or_insert_with(|| LruCache::new(capacity))
-            .insert(n, a);
+        self.strong.insert(n, a);
     }
-    fn sender(&self) -> Sender<(VNode, Arc<T>)> {
+    fn sender(&self) -> Sender<(K, Arc<T>)> {
         self.sender.clone()
     }
 }
@@ -301,7 +302,7 @@ impl<T> Cache<T> {
 pub(crate) struct HeightmapCache {
     resolution: usize,
     border_size: usize,
-    tiles: Cache<Vec<i16>>,
+    tiles: Cache<VNode, Vec<i16>>,
 }
 impl HeightmapCache {
     pub fn new(resolution: usize, border_size: usize, capacity: usize) -> Self {
@@ -338,10 +339,13 @@ impl HeightmapCache {
             for (n, t) in tiles.into_iter().rev() {
                 let tile = Arc::new(match root.take() {
                     None => uncompress_heightmap_tile(None, &*t?).1,
-                    Some(parent_tile) => uncompress_heightmap_tile(
-                        Some((n.parent().unwrap().1, border_size, resolution, &*parent_tile)),
-                        &*t?,
-                    ).1,
+                    Some(parent_tile) => {
+                        uncompress_heightmap_tile(
+                            Some((n.parent().unwrap().1, border_size, resolution, &*parent_tile)),
+                            &*t?,
+                        )
+                        .1
+                    }
                 });
                 let _ = sender.send((n, Arc::clone(&tile)));
                 root = Some(tile);
@@ -352,14 +356,47 @@ impl HeightmapCache {
     }
 }
 
-pub(crate) struct HeightmapGen {
+pub(crate) struct SectorCache {
+    sectors: Cache<Sector, Vec<i16>>,
+}
+impl SectorCache {
+    pub fn new(capacity: usize) -> Self {
+        Self { sectors: Cache::new(capacity) }
+    }
+
+    pub(crate) fn get_sector<'a>(
+        &mut self,
+        nasadem_reprojected_directory: &Path,
+        s: Sector,
+    ) -> BoxFuture<'a, Result<Arc<Vec<i16>>, Error>> {
+        if let Some(sector) = self.sectors.get(s) {
+            return futures::future::ready(Ok(sector)).boxed();
+        }
+
+        let path =
+            nasadem_reprojected_directory.join(&format!("nasadem_S{}-{}x{}.raw", s.face, s.x, s.y));
+        let sender = self.sectors.sender();
+        async move {
+            let bytes = tokio::fs::read(path).await?;
+            tokio::task::spawn_blocking(move || {
+                let sector = Arc::new(uncompress_heightmap_tile(None, &bytes).1);
+                let _ = sender.send((s, Arc::clone(&sector)));
+                Ok(sector)
+            })
+            .await?
+        }
+        .boxed()
+    }
+}
+
+pub(crate) struct HeightmapSectorGen {
     pub root_resolution: usize,
     pub root_border_size: usize,
-    pub resolution: usize,
+    pub sector_resolution: usize,
     pub dems: RasterCache<f32, Vec<f32>>,
     pub global_dem: Arc<GlobalRaster<i16>>,
 }
-impl HeightmapGen {
+impl HeightmapSectorGen {
     pub(crate) fn generate_sector(
         &mut self,
         root_node: VNode,
@@ -368,12 +405,12 @@ impl HeightmapGen {
         output_file: PathBuf,
     ) -> (usize, BoxFuture<'static, Result<usize, Error>>) {
         // Reproject coordinates
-        let coordinates: Vec<_> = (0..(self.resolution * self.resolution))
+        let coordinates: Vec<_> = (0..(self.sector_resolution * self.sector_resolution))
             .into_par_iter()
             .map(|i| {
                 let cspace = root_node.grid_position_cspace(
-                    (x * (self.resolution - 1) + (i % self.resolution)) as i32,
-                    (y * (self.resolution - 1) + (i / self.resolution)) as i32,
+                    (x * (self.sector_resolution - 1) + (i % self.sector_resolution)) as i32,
+                    (y * (self.sector_resolution - 1) + (i / self.sector_resolution)) as i32,
                     self.root_border_size as u32,
                     self.root_resolution as u32,
                 );
@@ -401,7 +438,7 @@ impl HeightmapGen {
 
         let num_rasters = rasters.len();
         let global_dem = self.global_dem.clone();
-        let resolution = self.resolution;
+        let resolution = self.sector_resolution;
         let fut = async move {
             let mut heightmap = vec![0i16; resolution * resolution];
 
@@ -462,7 +499,8 @@ mod tests {
             (0..(resolution * resolution)).map(|_| dist.sample(&mut rng)).collect();
 
         let bytes = compress_heightmap_tile(resolution, 3, &*child, Some((0, skirt, &*parent)), 9);
-        let roundtrip = uncompress_heightmap_tile(Some((0, skirt, resolution, &*parent)), &*bytes).1;
+        let roundtrip =
+            uncompress_heightmap_tile(Some((0, skirt, resolution, &*parent)), &*bytes).1;
 
         for i in 0..(resolution * resolution) {
             assert!(

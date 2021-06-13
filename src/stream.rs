@@ -59,7 +59,7 @@ impl TileStreamerEndpoint {
                     heightmap_tiles: HeightmapCache::new(
                         mapfile.layers()[LayerType::Heightmaps].texture_resolution as usize,
                         mapfile.layers()[LayerType::Heightmaps].texture_border_size as usize,
-                        32,
+                        128,
                     ),
                     mapfile,
                 }
