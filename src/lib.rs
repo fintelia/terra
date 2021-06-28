@@ -189,7 +189,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
-        self.quadtree.update_visibility(camera);
+        self.quadtree.update_priorities(camera);
         if !self.loading_complete() {
             self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
             self.loading_complete()
@@ -337,7 +337,7 @@ impl Terrain {
             ));
         }
 
-        self.quadtree.update_visibility(camera);
+        self.quadtree.update_priorities(camera);
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
@@ -346,6 +346,7 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
+        self.quadtree.update_visibility(&self.cache.tiles);
         self.quadtree.prepare_vertex_buffer(
             queue,
             &mut self.gpu_state.node_buffer,

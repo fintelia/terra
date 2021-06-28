@@ -1,4 +1,5 @@
 use crate::cache::Priority;
+use crate::cache::TileCache;
 use cgmath::*;
 use fnv::FnvHashMap;
 use std::convert::TryInto;
@@ -76,25 +77,30 @@ impl QuadTree {
         buffer
     }
 
-    pub fn update_visibility(&mut self, camera: mint::Point3<f64>) {
+    pub fn update_priorities(&mut self, camera: mint::Point3<f64>) {
         if self.last_camera_position == Some(camera) {
             return;
         }
         self.last_camera_position = Some(camera);
-
         let camera = Vector3::new(camera.x, camera.y, camera.z);
 
-        self.visible_nodes.clear();
-        self.partially_visible_nodes.clear();
         self.node_priorities.clear();
-
-        let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
-
-        // Any node with all needed layers in cache is visible...
         VNode::breadth_first(|node| {
             let priority = node.priority(camera);
             self.node_priorities.insert(node, priority);
-            let visible = node.level() == 0 || priority >= Priority::cutoff();
+            priority >= Priority::cutoff() && node.level() < VNode::LEVEL_CELL_2CM
+        });
+    }
+
+    pub fn update_visibility(&mut self, tile_cache: &TileCache) {
+        self.visible_nodes.clear();
+        self.partially_visible_nodes.clear();
+
+        // Any node with all needed layers in cache is visible...
+        let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
+        VNode::breadth_first(|node| {
+            let priority = self.node_priority(node);
+            let visible = (node.level() == 0 || priority >= Priority::cutoff());
             node_visibilities.insert(node, visible);
             visible && node.level() < VNode::LEVEL_CELL_2CM
         });

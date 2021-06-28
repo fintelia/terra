@@ -58,7 +58,7 @@ sled = "0.34.6"
 snap = "1.0.3"
 structopt = "0.3.21"
 thiserror = "1.0.22"
-tiff = "0.7.0"
+tiff = { path = "../image-tiff" } #"0.7.0"
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = "0.8.0"

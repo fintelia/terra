@@ -318,21 +318,21 @@ impl VNode {
     }
 }
 
-// impl std::fmt::Display for VNode {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-//         let face = match self.face() {
-//             0 => "0E",
-//             1 => "180E",
-//             2 => "90E",
-//             3 => "90W",
-//             4 => "N",
-//             5 => "S",
-//             _ => unreachable!(),
-//         };
+impl std::fmt::Display for VNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let face = match self.face() {
+            0 => "0E",
+            1 => "180E",
+            2 => "90E",
+            3 => "90W",
+            4 => "N",
+            5 => "S",
+            _ => unreachable!(),
+        };
 
-//         write!(f, "N{}-{}-{}x{}", self.level(), face, self.x(), self.y())
-//     }
-// }
+        write!(f, "N{}-{}-{}x{}", self.level(), face, self.x(), self.y())
+    }
+}
 
 #[cfg(test)]
 mod tests {

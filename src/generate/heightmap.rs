@@ -3,6 +3,7 @@ use crate::coordinates;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, Raster, RasterCache};
+use crate::types::VFace;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use cgmath::Vector2;
@@ -374,7 +375,7 @@ impl SectorCache {
         }
 
         let path =
-            nasadem_reprojected_directory.join(&format!("nasadem_S{}-{}x{}.raw", s.face, s.x, s.y));
+            nasadem_reprojected_directory.join(&format!("nasadem_S-{}-{}x{}.raw", VFace(s.face), s.x, s.y));
         let sender = self.sectors.sender();
         async move {
             let bytes = tokio::fs::read(path).await?;
@@ -451,9 +452,11 @@ impl HeightmapSectorGen {
 
             heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
                 |(h, (lat, long))| {
-                    *h = match rasters.get(&(lat.floor() as i16, long.floor() as i16)) {
-                        Some(r) => r.interpolate(lat, long, 0).unwrap() as i16,
-                        None => global_dem.interpolate(lat, long, 0) as i16,
+                    if let Some(r) = rasters.get(&(lat.floor() as i16, long.floor() as i16)) {
+                        *h = r.interpolate(lat, long, 0).unwrap() as i16;
+                    }
+                    if *h == 0 {
+                        *h = global_dem.interpolate(lat, long, 0) as i16;
                     }
                 },
             );
@@ -464,7 +467,7 @@ impl HeightmapSectorGen {
                     0, // 2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
                     &*heightmap,
                     None, //parent.as_ref().map(|&(i, ref a)| (i, &***a)),
-                    1,
+                    7,
                 );
 
                 AtomicFile::new(output_file, OverwriteBehavior::AllowOverwrite)

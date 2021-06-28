@@ -606,7 +606,7 @@ impl MapFileBuilder {
         let mapfile = MapFile::new(layers);
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < VNode::LEVEL_CELL_153M
+            n.level() < VNode::LEVEL_CELL_76M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
@@ -687,13 +687,13 @@ impl Terrain {
         let (missing_sectors, total_sectors) = {
             let mut missing_sectors = Vec::new();
             let mut total_sectors = 0;
-            for root_node in VNode::roots() {
+            for &root_node in &VNode::roots() {
                 for x in 0..sectors_per_side {
                     for y in 0..sectors_per_side {
                         total_sectors += 1;
                         if !existing_files.contains(&format!(
-                            "nasadem_S{}-{}x{}.raw",
-                            root_node.face(),
+                            "nasadem_S-{}-{}x{}.raw",
+                            VFace(root_node.face() as u8),
                             x,
                             y
                         )) {
@@ -751,8 +751,8 @@ impl Terrain {
                         x,
                         y,
                         nasadem_reprojected_directory.join(&format!(
-                            "nasadem_S{}-{}x{}.raw",
-                            root_node.face(),
+                            "nasadem_S-{}-{}x{}.raw",
+                            VFace(root_node.face()),
                             x,
                             y
                         )),
@@ -770,7 +770,7 @@ impl Terrain {
         }
 
         // See which faces need to be generated.
-        let face_resolution = sectors_per_side * 256 + 1;
+        let face_resolution = sectors_per_side * 512 + 1;
         for face in 0..6 {
             //progress_callback("Generating heightmap faces...", face as usize, 6);
             let face_filename =
@@ -790,7 +790,7 @@ impl Terrain {
                 let mut unordered = FuturesUnordered::new();
                 for x in 0..sectors_per_side {
                     let path = nasadem_reprojected_directory
-                        .join(&format!("nasadem_S{}-{}x{}.raw", face, x, y));
+                        .join(&format!("nasadem_S-{}-{}x{}.raw", VFace(face), x, y));
                     unordered.push(async move {
                         let bytes = tokio::fs::read(path).await?;
                         let tile = tokio::task::spawn_blocking(move || {
@@ -839,10 +839,10 @@ impl Terrain {
 
             let mut bytes = Vec::new();
             tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                .write_image::<tiff::encoder::colortype::Gray16>(
+                .write_image::<tiff::encoder::colortype::GrayI16>(
                 face_resolution as u32,
                 face_resolution as u32,
-                bytemuck::cast_slice(&heightmap),
+                &heightmap,
             )?;
 
             // let tile = heightmap::compress_heightmap_tile(face_resolution, 0, &heightmap, None, 9);
@@ -859,7 +859,7 @@ impl Terrain {
             missing_by_face.entry(m.face().into()).or_insert(Vec::new()).push(m);
         }
 
-        let mut sector_cache = SectorCache::new(128);
+        let mut sector_cache = SectorCache::new(32);
         let mut tile_cache = HeightmapCache::new(resolution, border_size, 128);
         for (face, mut missing) in missing_by_face {
             missing.sort_by_key(|m| m.level());
@@ -878,13 +878,11 @@ impl Terrain {
                 let bytes =
                     tokio::fs::read(nasadem_reprojected_directory.join(face_filename)).await?;
                 let mut limits = tiff::decoder::Limits::default();
-                limits.decoding_buffer_size = 1 << 30;
+                limits.decoding_buffer_size = 4 << 30;
                 let mut decoder =
                     tiff::decoder::Decoder::new(Cursor::new(&bytes))?.with_limits(limits);
-                if let tiff::decoder::DecodingResult::U16(v) = decoder.read_image()? {
-                    let mut heights = vec![0i16; face_resolution * face_resolution];
-                    heights.copy_from_slice(bytemuck::cast_slice(&v));
-                    Arc::new(heights)
+                if let tiff::decoder::DecodingResult::I16(v) = decoder.read_image()? {
+                    Arc::new(v)
                 } else {
                     unreachable!()
                 }
@@ -892,7 +890,7 @@ impl Terrain {
 
             let mut unordered = FuturesUnordered::new();
             while !missing.is_empty() || !unordered.is_empty() {
-                if unordered.len() < 100 && !missing.is_empty() {
+                if unordered.len() < 16 && !missing.is_empty() {
                     let node = missing.pop().unwrap();
                     let parent =
                         node.parent().map(|p| (p.1, tile_cache.get_tile(&self.mapfile, p.0)));
@@ -901,27 +899,30 @@ impl Terrain {
                     let fut = if ((resolution - 1) << node.level() + 1) < face_resolution {
                         let face_scale = (face_resolution - 1) / (resolution - 1);
                         let face_step = face_scale >> node.level();
-                        let skirt = border_size * face_scale - border_size * face_step;
-                        let face_x =
-                            skirt + node.x() as usize * (resolution - border_size - 1) * face_step;
-                        let face_y =
-                            skirt + node.y() as usize * (resolution - border_size - 1) * face_step;
+                        let skirt = border_size * (face_scale - face_step);
+                        let face_x = skirt
+                            + node.x() as usize * (resolution - border_size * 2 - 1) * face_step;
+                        let face_y = skirt
+                            + node.y() as usize * (resolution - border_size * 2 - 1) * face_step;
 
                         let face_heightmap = Arc::clone(&face_heightmap);
 
                         async move {
-                            Ok::<_, anyhow::Error>(tokio::task::spawn_blocking(move || {
-                                for y in 0..resolution {
-                                    for x in 0..resolution {
-                                        heights[y * resolution + x] = face_heightmap[(face_y
-                                            + y * face_step)
-                                            * face_resolution
-                                            + face_x
-                                            + x * face_step];
+                            Ok::<_, anyhow::Error>(
+                                tokio::task::spawn_blocking(move || {
+                                    for y in 0..resolution {
+                                        for x in 0..resolution {
+                                            heights[y * resolution + x] = face_heightmap[(face_y
+                                                + y * face_step)
+                                                * face_resolution
+                                                + face_x
+                                                + x * face_step];
+                                        }
                                     }
-                                }
-                                heights
-                            }).await?)
+                                    heights
+                                })
+                                .await?,
+                            )
                         }
                         .boxed()
                     } else {
@@ -934,8 +935,8 @@ impl Terrain {
                             - border_size * step;
 
                         let mut sectors = FnvHashMap::default();
-                        for y in (0..resolution).step_by(16) {
-                            for x in (0..resolution).step_by(16) {
+                        for y in (0..resolution).step_by(8) {
+                            for x in (0..resolution).step_by(8) {
                                 let s = Sector {
                                     face: face as u8,
                                     x: ((x * step + root_x) / (sector_resolution - 1)) as u32,
@@ -956,6 +957,7 @@ impl Terrain {
                                 sectors.into_iter().map(|s| async { (s.0, s.1.await) }),
                             )
                             .await;
+
                             let mut sectors_map = FnvHashMap::default();
                             for s in sectors {
                                 sectors_map.insert(s.0, s.1?);
@@ -965,13 +967,13 @@ impl Terrain {
                                 tokio::task::spawn_blocking(move || {
                                     for y in 0..resolution {
                                         for x in 0..resolution {
-                                            let sector_x = (x + root_x) % (sector_resolution - 1);
-                                            let sector_y = (y + root_y) % (sector_resolution - 1);
+                                            let sector_x = (x * step + root_x) % (sector_resolution - 1);
+                                            let sector_y = (y * step + root_y) % (sector_resolution - 1);
 
                                             let s = Sector {
                                                 face: face as u8,
-                                                x: ((x + root_x) / (sector_resolution - 1)) as u32,
-                                                y: ((y + root_y) / (sector_resolution - 1)) as u32,
+                                                x: ((x * step + root_x) / (sector_resolution - 1)) as u32,
+                                                y: ((y * step + root_y) / (sector_resolution - 1)) as u32,
                                             };
                                             let sector = &sectors_map[&s];
                                             heights[y * resolution + x] =
@@ -1014,7 +1016,7 @@ impl Terrain {
                                             as i8,
                                         &heights,
                                         parent,
-                                        9,
+                                        5,
                                     ),
                                 )
                             })
