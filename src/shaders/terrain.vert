@@ -7,7 +7,6 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
 layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
 	NodeState nodes[];
 };
-layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 9) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
@@ -28,6 +27,16 @@ const vec3 tangents[6] = vec3[6](
 	vec3(-1,0,0)
 );
 
+vec3 sample_displacements(vec3 texcoord) {
+	vec2 t = texcoord.xy * textureSize(displacements, 0).xy - 0.5;
+	vec2 f = fract(t);
+	vec4 w = vec4(f.x * (1-f.y), (1-f.x)*(1-f.y), (1-f.x)*f.y, f.x * f.y);
+	return texelFetch(displacements, ivec3(t, texcoord.z), 0).xyz* (1-f.x) * (1-f.y)
+		+ texelFetch(displacements, ivec3(t+ivec2(1,0), texcoord.z), 0).xyz * (f.x) * (1-f.y)
+		+ texelFetch(displacements, ivec3(t+ivec2(1,1), texcoord.z), 0).xyz * (f.x) * (f.y)
+		+ texelFetch(displacements, ivec3(t+ivec2(0,1), texcoord.z), 0).xyz * (1-f.x) * (f.y);
+}
+
 void main() {
 	NodeState node = nodes[gl_InstanceIndex];
 
@@ -35,19 +44,19 @@ void main() {
 							(gl_VertexIndex) / (node.resolution+1));
 
 	vec3 texcoord = node.displacements.origin + vec3(vec2(iPosition) * node.displacements._step, 0);
-	vec3 position = texture(sampler2DArray(displacements, nearest), texcoord).rgb - node.relative_position;
-	
+	vec3 position = sample_displacements(texcoord) - node.relative_position;
+
 	float morph = 1 - smoothstep(0.9, 1, length(position) / node.min_distance);
 	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
 
 	if (morph < 1.0) {
-		if (node.displacements.parent_origin.z >= 0 && morph < 1.0) {
+		if (node.displacements.parent_origin.z >= 0) {
 			vec3 ptexcoord = node.displacements.parent_origin + vec3(vec2((iPosition / 2) * 2) * node.displacements.parent_step, 0);
-			vec3 displacement = texture(sampler2DArray(displacements, nearest), ptexcoord).rgb - node.parent_relative_position;
+			vec3 displacement = sample_displacements(ptexcoord) - node.parent_relative_position;
 			position = mix(displacement, position, morph);
 		} else {
 			vec3 itexcoord = node.displacements.origin + vec3(vec2((iPosition / 2) * 2) * node.displacements._step, 0);
-			vec3 displacement = texture(sampler2DArray(displacements, nearest), itexcoord).rgb - node.relative_position;
+			vec3 displacement = sample_displacements(itexcoord) - node.relative_position;
 			position = mix(displacement, position, morph);
 		}
 	}
