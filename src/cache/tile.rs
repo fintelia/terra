@@ -195,7 +195,7 @@ impl TileCache {
                 missing.push(Entry::new(node, priority));
             }
 
-            node.level() < VNode::LEVEL_CELL_2CM
+            node.level() < VNode::LEVEL_CELL_5MM
         });
         self.inner.insert(missing);
     }
