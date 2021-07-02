@@ -610,7 +610,7 @@ impl MapFileBuilder {
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
-            n.level() < VNode::LEVEL_CELL_625M
+            n.level() < VNode::LEVEL_CELL_610M
         });
         VNode::breadth_first(|n| {
             mapfile.reload_tile_state(LayerType::Roughness, n, true).unwrap();

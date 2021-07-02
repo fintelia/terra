@@ -25,7 +25,7 @@ impl VNode {
     pub const LEVEL_CELL_5KM: u8 = 2; // 2048 x 2048 x 6   =   24 MB
     pub const LEVEL_CELL_2KM: u8 = 3; // 4096 x 4096 x 6   =   96 MB
     pub const LEVEL_CELL_1KM: u8 = 4; // 8192 x 8192 x 6   =  384 MB
-    pub const LEVEL_CELL_625M: u8 = 5;
+    pub const LEVEL_CELL_610M: u8 = 5;
     pub const LEVEL_CELL_305M: u8 = 6;
     pub const LEVEL_CELL_153M: u8 = 7;
     pub const LEVEL_CELL_76M: u8 = 8;
