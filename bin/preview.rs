@@ -37,12 +37,13 @@ fn make_swapchain(
     surface: &wgpu::Surface,
     width: u32,
     height: u32,
+    format: wgpu::TextureFormat,
 ) -> wgpu::SwapChain {
     device.create_swap_chain(
         &surface,
         &wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format,
             width,
             height,
             present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
@@ -93,6 +94,8 @@ fn main() {
             compatible_surface: Some(&surface),
         }))
         .expect("Unable to create compatible wgpu adapter");
+    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface)
+        .expect("No compatible swapchain formats");
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
@@ -122,7 +125,7 @@ fn main() {
         &queue,
         size.width,
         size.height,
-        wgpu::TextureFormat::Bgra8UnormSrgb,
+        swapchain_format,
         smaa::SmaaMode::Smaa1X,
     );
 
@@ -247,7 +250,7 @@ fn main() {
             },
             event::Event::MainEventsCleared => {
                 if swap_chain.is_none() {
-                    swap_chain = Some(make_swapchain(&device, &surface, size.width, size.height));
+                    swap_chain = Some(make_swapchain(&device, &surface, size.width, size.height, swapchain_format));
                 }
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
