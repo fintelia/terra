@@ -27,6 +27,7 @@ layout(set = 0, binding = 6) uniform texture2DArray roughness;
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 layout(location = 2) in vec2 texcoord;
+layout(location = 3) in vec3 normal;
 
 layout(location = 0) out vec4 out_color;
 
@@ -41,16 +42,24 @@ void main() {
 
     // vec3 albedo_value = texture(sampler2DArray(albedo, linear), vec3(texcoord, node.nodes_slot)).xyz;
     // vec3 normal = extract_normal(texture(sampler2DArray(normals, linear), vec3(texcoord, node.nodes_slot)).xy);
-	float roughness_value = 0.9;
+	float roughness_value = 0.5;
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(color,
 						roughness_value,
 						position,
-						normalize(vec3(1)), // normal
+						normal,
 						globals.camera,
 						normalize(vec3(0.4, .7, 0.2)),
-						vec3(100000.0)) * .8;
+						vec3(100000.0));
+
+	out_color.rgb += pbr(color,
+						roughness_value,
+						position,
+						-normal,
+						globals.camera,
+						normalize(vec3(0.4, .7, 0.2)),
+						vec3(100000.0));
 
    	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);

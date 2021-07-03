@@ -170,7 +170,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
         }
 
         for layer in
-            layers.values().filter(|l| self.outputs(node.level()).contains_layer(l.layer_type))
+            layers.values().filter(|l| self.outputs(node.level()).contains_tile(l.layer_type))
         {
             image_views.insert(
                 format!("{}_out", layer.layer_type.name()).into(),
@@ -517,7 +517,7 @@ pub(crate) fn generators(
                     node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
 
                 let albedo_slot =
-                    if output_mask.contains_layer(LayerType::Albedo) { slot as i32 } else { -1 };
+                    if output_mask.contains_tile(LayerType::Albedo) { slot as i32 } else { -1 };
 
                 let parent_index = node.parent().unwrap().1;
 

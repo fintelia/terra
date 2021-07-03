@@ -33,7 +33,7 @@ void main() {
                    random(uvec3(gl_GlobalInvocationID.xy, 4)));
 
 	if(normal.y > 0.97)
-		value = vec4(r3,1);
+		value = vec4(r3 * vec3(.1,.8,.2) + vec3(0,.2,0),1);
 
     imageStore(grass_canopy, ivec3(gl_GlobalInvocationID.xy, ubo.output_slot), value);
 }

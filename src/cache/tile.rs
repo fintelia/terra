@@ -264,7 +264,7 @@ impl TileCache {
                 let parent_entry =
                     if let Some(p) = n.parent() { cache.tiles.inner.entry(&p.0) } else { None };
 
-                if entry.valid.contains_layer(layer) {
+                if entry.valid.contains_tile(layer) {
                     continue;
                 }
 
@@ -274,7 +274,7 @@ impl TileCache {
                     let peer_inputs = generator.peer_inputs(n.level());
                     let parent_inputs = generator.parent_inputs(n.level());
 
-                    let generates_layer = outputs.contains_layer(layer);
+                    let generates_layer = outputs.contains_tile(layer);
                     let has_peer_inputs = peer_inputs & !entry.valid == LayerMask::empty();
                     let root_input_missing =
                         n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
@@ -318,12 +318,12 @@ impl TileCache {
                         entry.valid |= output_mask;
                         entry.generated |= output_mask;
                         for layer in
-                            LayerType::iter().filter(|&layer| output_mask.contains_layer(layer))
+                            LayerType::iter().filter(|&layer| output_mask.contains_tile(layer))
                         {
                             entry.generators.insert(layer.index(), input_generators);
                         }
 
-                        if output_mask.contains_layer(LayerType::Heightmaps)
+                        if output_mask.contains_tile(LayerType::Heightmaps)
                             && n.level() <= VNode::LEVEL_CELL_1M
                         {
                             let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
@@ -521,7 +521,7 @@ impl TileCache {
     }
 
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
-        self.inner.entry(&node).map(|entry| entry.valid.contains_layer(ty)).unwrap_or(false)
+        self.inner.entry(&node).map(|entry| entry.valid.contains_tile(ty)).unwrap_or(false)
     }
     pub fn contains_all(&self, node: VNode, layer_mask: LayerMask) -> bool {
         self.inner

@@ -4,6 +4,7 @@ use crate::{
     gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::{QuadTree, VNode},
 };
+use cgmath::Vector2;
 use maplit::hashmap;
 use std::mem;
 use std::{collections::HashMap, convert::TryInto};
@@ -35,8 +36,13 @@ impl PriorityCacheEntry for Entry {
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub(crate) struct MeshGenerateUniforms {
-    input_slot: u32,
+    texture_slot: u32,
+    texture_step: f32,
+    texture_origin: [f32; 2],
+
+    tile_slot: u32,
     output_slot: u32,
+    padding: [u32; 2],
 }
 unsafe impl bytemuck::Zeroable for MeshGenerateUniforms {}
 unsafe impl bytemuck::Pod for MeshGenerateUniforms {}
@@ -154,13 +160,41 @@ impl MeshCache {
             });
 
             let mut zero_buffer = None;
-            for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
+            'outer: for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
                 if entry.valid || entry.priority < Priority::cutoff() {
                     continue;
                 }
-                if !cache.tiles.contains_all(entry.node, m.desc.dependency_mask) {
+                if !cache
+                    .tiles
+                    .contains_all(entry.node, m.desc.dependency_mask & LayerMask::all_tiles())
+                {
                     continue;
                 }
+
+                let mut texture_slot = None;
+                for cache in cache.textures.values() {
+                    if m.desc.dependency_mask.contains_texture(cache.desc.ty) {
+                        let texture_origin = Vector2::new(2.5, 2.5) / 516.0;
+                        let texture_ratio = 511.0 / 516.0;
+                        let texture_step = 511.0 / 516.0;
+                        let (ancestor, generations, offset) = entry.node
+                            .find_ancestor(|n| n.level() <= cache.desc.level)
+                            .unwrap();
+                        let scale = (0.5f32).powi(generations as i32);
+                        let offset = Vector2::new(offset.x as f32, offset.y as f32);
+                        let offset = texture_origin + scale * texture_ratio * offset;
+            
+                        match cache.inner.index_of(&ancestor) {
+                            None =>
+                            continue 'outer,
+                            Some(index) => {
+                                assert!(texture_slot.is_none());
+                                texture_slot = Some((index, scale * texture_step, [offset.x, offset.y]));
+                            }
+                        }
+                    }
+                }
+                let texture_slot = texture_slot.unwrap_or((0, 0.0, [0., 0.]));
 
                 if zero_buffer.is_none() {
                     zero_buffer =
@@ -185,8 +219,12 @@ impl MeshCache {
                     gpu_state,
                     (m.desc.dimensions, m.desc.dimensions, 1),
                     &MeshGenerateUniforms {
-                        input_slot: cache.tiles.get_slot(entry.node).unwrap() as u32,
+                        texture_slot: texture_slot.0 as u32,
+                        texture_origin: texture_slot.2,
+                        texture_step: texture_slot.1,
+                        tile_slot: cache.tiles.get_slot(entry.node).unwrap() as u32,
                         output_slot: index as u32,
+                        padding: [0; 2],
                     },
                 );
                 entry.valid = true;
@@ -307,14 +345,14 @@ impl MeshCache {
         if !nodes.is_empty() {
             queue.write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&nodes));
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-            rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             for (i, node_state) in nodes.into_iter().enumerate() {
                 rpass.set_bind_group(
                     0,
                     &self.bindgroup_pipeline.as_ref().unwrap().0,
                     &[(i * mem::size_of::<MeshNodeState>()) as u32],
                 );
-                rpass.draw_indirect(
+                rpass.draw_indexed_indirect(
                     &gpu_state.mesh_cache[self.desc.ty].indirect,
                     node_state.slot as u64 * mem::size_of::<DrawIndexedIndirect>() as u64,
                 );

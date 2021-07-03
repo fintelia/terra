@@ -43,6 +43,30 @@ impl VNode {
     pub const LEVEL_CELL_2CM: u8 = 20; // 2^58 cells/face
     pub const LEVEL_CELL_1CM: u8 = 21; // 2^60 cells/face
     pub const LEVEL_CELL_5MM: u8 = 22; // 2^62 cells/face
+
+    pub const LEVEL_SIDE_10000KM: u8 = 0;
+    pub const LEVEL_SIDE_5000KM: u8 = 1;
+    pub const LEVEL_SIDE_2500KM: u8 = 2;
+    pub const LEVEL_SIDE_1250KM: u8 = 3;
+    pub const LEVEL_SIDE_625KM: u8 = 4;
+    pub const LEVEL_SIDE_313KM: u8 = 5;
+    pub const LEVEL_SIDE_156KM: u8 = 6;
+    pub const LEVEL_SIDE_78KM: u8 = 7;
+    pub const LEVEL_SIDE_39KM: u8 = 8;
+    pub const LEVEL_SIDE_20KM: u8 = 9;
+    pub const LEVEL_SIDE_10KM: u8 = 10;
+    pub const LEVEL_SIDE_5KM: u8 = 11;
+    pub const LEVEL_SIDE_2KM: u8 = 12;
+    pub const LEVEL_SIDE_1KM: u8 = 13;
+    pub const LEVEL_SIDE_610M: u8 = 14;
+    pub const LEVEL_SIDE_305M: u8 = 15;
+    pub const LEVEL_SIDE_152M: u8 = 16;
+    pub const LEVEL_SIDE_76M: u8 = 17;
+    pub const LEVEL_SIDE_38M: u8 = 18;
+    pub const LEVEL_SIDE_19M: u8 = 19;
+    pub const LEVEL_SIDE_10M: u8 = 20;
+    pub const LEVEL_SIDE_5M: u8 = 21;
+    pub const LEVEL_SIDE_2M: u8 = 22;
 }
 
 impl VNode {

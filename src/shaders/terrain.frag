@@ -12,13 +12,13 @@ layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
 };
 layout(set = 0, binding = 2) uniform sampler linear;
 //layout(set = 0, binding = 3) uniform sampler nearest;
-layout(set = 0, binding = 4) uniform texture2DArray normals;
-layout(set = 0, binding = 5) uniform texture2DArray albedo;
-layout(set = 0, binding = 6) uniform texture2DArray roughness;
-layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
-layout(set = 0, binding = 8) uniform texture2DArray aerial_perspective;
-//layout(set = 0, binding = 9) uniform texture2DArray displacements;
-layout(set = 0, binding = 10) uniform sampler nearest;
+layout(set = 0, binding = 3) uniform texture2DArray normals;
+layout(set = 0, binding = 4) uniform texture2DArray albedo;
+layout(set = 0, binding = 5) uniform texture2DArray roughness;
+layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
+layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
+//layout(set = 0, binding = 8) uniform texture2DArray displacements;
+layout(set = 0, binding = 9) uniform sampler nearest;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -104,12 +104,10 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
 	// 	color = vec3(1);
 
+	// vec3 line_color = vec3(.5,0,0);
  	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
 	// float line = min(grid.x, grid.y);
-	// color = mix(color, vec3(0.8), smoothstep(1, 0, line));
-
-	// if (side_length / 512.0 <= 16.0)
-	// 	color = mix(color, vec3(1,0,0), 0.4);
+	// color = mix(color, line_color, .3* smoothstep(1, 0, line));
 
 	// if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
 	// 	color = mix(color, vec3(0.1), 0.3);
@@ -182,7 +180,7 @@ vec3 debug_overlay(vec3 color) {
 	// if (abs(length(position)-1000) < 10)
 	//  	color = mix(color, vec3(0), 0.5);
 
-	// float line2 = abs(length(position) - 30) / fwidth(length(position)) * 0.5;
+	// float line2 = abs(length(position) - 10) / fwidth(length(position)) * 0.5;
 	// color = mix(color, vec3(0.1), smoothstep(1, 0, line2));
 
 	// vec3 p = normalize(position + vec3(globals.camera));
@@ -242,7 +240,7 @@ void main() {
 		vec4 canopy = texture(sampler2DArray(grass_canopy, linear), node.grass_canopy_origin + vec3(texcoord * node.grass_canopy_step, 0));
 		canopy.a *= smoothstep(512*2, 512*1, length(position));
 		if (length(position) < 512*2) {
-			albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.05, canopy.a);
+			albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.15, canopy.a);
 		}
 	}
 

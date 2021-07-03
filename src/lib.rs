@@ -30,6 +30,7 @@ use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriority
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
+use std::array::IntoIter;
 use std::collections::HashMap;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
@@ -67,17 +68,23 @@ impl Terrain {
             vec![MeshCacheDesc {
                 size: 32,
                 ty: MeshType::Grass,
-                max_bytes_per_entry: 128 * 128 * 32,
+                max_bytes_per_entry: 128 * 128 * 64,
                 dimensions: 128 / 8,
                 dependency_mask: LayerType::Displacements.bit_mask()
                     | LayerType::Albedo.bit_mask()
-                    | LayerType::Normals.bit_mask(),
-                level: VNode::LEVEL_CELL_2CM,
+                    | LayerType::Normals.bit_mask()
+                    | SingularLayerType::GrassCanopy.bit_mask(),
+                level: VNode::LEVEL_SIDE_5M,
                 index_buffer: {
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("buffer.index.grass"),
                         contents: bytemuck::cast_slice(
-                            &*(0..128 * 128).flat_map(|_| 0..6).collect::<Vec<u16>>(),
+                            &*(0..128 * 128)
+                                .flat_map(|i| {
+                                    IntoIter::new([0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6])
+                                        .map(move |j| j + i * 7)
+                                })
+                                .collect::<Vec<u32>>(),
                         ),
                         usage: wgpu::BufferUsage::INDEX,
                     })
@@ -429,7 +436,9 @@ mod tests {
     #[test]
     fn check_send() {
         struct Helper<T>(T);
-        trait AssertImpl { fn assert() {} }
+        trait AssertImpl {
+            fn assert() {}
+        }
         impl<T: Send> AssertImpl for Helper<T> {}
         Helper::<super::Terrain>::assert();
     }

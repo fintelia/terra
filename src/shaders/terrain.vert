@@ -7,7 +7,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
 layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
 	NodeState nodes[];
 };
-layout(set = 0, binding = 9) uniform texture2DArray displacements;
+layout(set = 0, binding = 8) uniform texture2DArray displacements;
 
 layout(location = 0) out vec3 out_position;
 layout(location = 1) out vec2 out_texcoord;

@@ -314,8 +314,14 @@ fn reflect(
     let mut attribute_offset = 0;
     let mut attributes = Vec::new();
     for spirv in stages.iter() {
+        // let module = naga::front::spv::parse_u8_slice(bytemuck::cast_slice(spirv), &naga::front::spv::Options{
+        //     adjust_coordinate_space: false,
+        //     strict_capabilities: false,
+        //     flow_graph_dump_prefix: None,
+        // }).expect("Failed to parse with naga");
+
         let spv: SpirvBinary = spirv.to_vec().into();
-        let entries = spv.reflect()?;
+        let entries = spv.reflect_vec()?;
         let manifest = &entries[0].manifest;
 
         let stage = match entries[0].exec_model {
@@ -433,7 +439,7 @@ fn reflect(
                 DescriptorType::StorageBuffer(..) => wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage {
                         read_only: manifest.get_desc_access(desc.desc_bind).unwrap()
-                            == spirq::AccessType::ReadOnly,
+                            == spirq::AccessType::ReadOnly || stages.len() > 1, // TODO: Remove hack of assuming len=2 -> vertex+fragment -> readonly buffers
                     },
                     has_dynamic_offset: false,
                     min_binding_size: None,

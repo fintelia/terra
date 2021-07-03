@@ -10,6 +10,7 @@ name = "terra"
 readme = "README.md"
 repository = "https://github.com/fintelia/terra"
 version = "0.3.0"
+resolver = "2"
 
 [[bin]]
 name = "preview"
@@ -61,7 +62,7 @@ thiserror = "1.0.22"
 tiff = { git = "https://github.com/image-rs/image-tiff" }
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = "0.8.0"
+wgpu = "0.9.0"
 winit = "0.24.0"
 zip = "0.5.9"
 
