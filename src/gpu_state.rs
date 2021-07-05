@@ -241,7 +241,7 @@ impl GpuState {
                     }
                     wgpu::BindingType::Texture { ref mut sample_type, .. } => {
                         match name {
-                            "transmittance" | "inscattering" | "heightmaps" | "displacements" => {
+                            "transmittance" | "inscattering" | "displacements" => {
                                 *sample_type = wgpu::TextureSampleType::Float { filterable: false }
                             }
                             _ => {}

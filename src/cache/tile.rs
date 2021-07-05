@@ -1,4 +1,7 @@
-use crate::{cache::{self, Priority, PriorityCacheEntry}, terrain::quadtree::{QuadTree, VNode}};
+use crate::{
+    cache::{self, Priority, PriorityCacheEntry},
+    terrain::quadtree::{QuadTree, VNode},
+};
 use crate::{
     coordinates,
     stream::{TileResult, TileStreamerEndpoint},
@@ -26,6 +29,7 @@ pub enum TextureFormat {
     RG8,
     RGBA8,
     RGBA16F,
+    R32,
     R32F,
     RG32F,
     RGBA32F,
@@ -42,6 +46,7 @@ impl TextureFormat {
             TextureFormat::RG8 => 2,
             TextureFormat::RGBA8 => 4,
             TextureFormat::RGBA16F => 8,
+            TextureFormat::R32 => 4,
             TextureFormat::R32F => 4,
             TextureFormat::RG32F => 8,
             TextureFormat::RGBA32F => 16,
@@ -56,6 +61,7 @@ impl TextureFormat {
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
             TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
             TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
+            TextureFormat::R32 => wgpu::TextureFormat::R32Uint,
             TextureFormat::R32F => wgpu::TextureFormat::R32Float,
             TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
             TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
@@ -72,6 +78,7 @@ impl TextureFormat {
             | TextureFormat::RGBA8
             | TextureFormat::RGBA16F
             | TextureFormat::R32F
+            | TextureFormat::R32
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
             | TextureFormat::SRGBA => 1,
@@ -84,6 +91,7 @@ impl TextureFormat {
             | TextureFormat::RG8
             | TextureFormat::RGBA8
             | TextureFormat::RGBA16F
+            | TextureFormat::R32
             | TextureFormat::R32F
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
@@ -411,7 +419,18 @@ impl TileCache {
                         if let Some(entry) = self.inner.entry_mut(&node) {
                             entry.heightmap = Some(CpuHeightmap::I16(Arc::clone(&heights)));
                         }
-                        let heights: Vec<_> = heights.iter().map(|&h| h as f32).collect();
+                        let heights: Vec<_> = heights
+                            .iter()
+                            .map(
+                                |&h| {
+                                    if h < 0 {
+                                        0x800000
+                                    } else {
+                                        ((h as u32) << 9).min(0x7fffff)
+                                    }
+                                },
+                            )
+                            .collect();
                         height_data = vec![0; heights.len() * 4];
                         height_data.copy_from_slice(bytemuck::cast_slice(&heights));
                         data = &mut height_data;
@@ -469,7 +488,7 @@ impl TileCache {
                                 self.layers[LayerType::Heightmaps].texture_resolution as usize;
                             let row_bytes = resolution * bytes_per_pixel;
                             let row_pitch = (row_bytes + 255) & !255;
-                            let mut heights = vec![0.0; resolution * resolution];
+                            let mut heights = vec![0u32; resolution * resolution];
 
                             {
                                 let mapped_buffer = buffer.slice(..).get_mapped_range();
@@ -479,6 +498,7 @@ impl TileCache {
                             }
                             buffer.unmap();
 
+                            let heights = heights.into_iter().map(|h| (h & 0x7fffff) as f32 / 512.0).collect();
                             entry.heightmap = Some(CpuHeightmap::F32(Arc::new(heights)));
                         }
                     }

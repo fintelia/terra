@@ -558,7 +558,7 @@ impl MapFileBuilder {
                     layer_type: LayerType::Heightmaps,
                     texture_resolution: 521,
                     texture_border_size: 4,
-                    texture_format: TextureFormat::R32F,
+                    texture_format: TextureFormat::R32,
                     tiles_generated_per_frame: 16,
                     // peer_dependency_mask: 0,
                     // parent_dependency_mask: LayerType::Heightmaps.bit_mask(),

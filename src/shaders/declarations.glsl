@@ -30,3 +30,7 @@ struct NodeState {
 	float padding1;
 	vec4 padding2[4];
 };
+
+float extract_height(uint encoded) {
+	return float(encoded & 0x7fffff) * (1 / 512.0);
+}
