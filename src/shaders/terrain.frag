@@ -236,13 +236,13 @@ void main() {
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 
-	if (node.grass_canopy_origin.z >= 0) {
-		vec4 canopy = texture(sampler2DArray(grass_canopy, linear), node.grass_canopy_origin + vec3(texcoord * node.grass_canopy_step, 0));
-		canopy.a *= smoothstep(512*2, 512*1, length(position));
-		if (length(position) < 512*2) {
-			albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.15, canopy.a);
-		}
-	}
+	// if (node.grass_canopy_origin.z >= 0) {
+	// 	vec4 canopy = texture(sampler2DArray(grass_canopy, linear), node.grass_canopy_origin + vec3(texcoord * node.grass_canopy_step, 0));
+	// 	canopy.a *= smoothstep(512*2, 512*1, length(position));
+	// 	if (length(position) < 512*2) {
+	// 		albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.15, canopy.a);
+	// 	}
+	// }
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_value,

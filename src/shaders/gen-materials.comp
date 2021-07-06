@@ -30,19 +30,27 @@ void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
-	float h00 = extract_height(imageLoad(heightmaps, in_pos).x);
-	float h10 = extract_height(imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x);
-	float h01 = extract_height(imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x);
-	float h11 = extract_height(imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x);
+	uint e00 = imageLoad(heightmaps, in_pos).x;
+	uint e10 = imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x;
+	uint e01 = imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x;
+	uint e11 = imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x;
 
-	vec3 normal = vec3(h10 + h11 - h00 - h01,
-					   2.0 * ubo.spacing,
-					   -1.0 * (h01 + h11 - h00 - h10));
+	bool is_water = dot((uvec4(e00, e10, e01, e11) & uvec4(0x800000)) >> 23, uvec4(1)) > 2;
 
-	normal = normalize(normal);
+	float h00 = extract_height(e00);
+	float h10 = extract_height(e10);
+	float h01 = extract_height(e01);
+	float h11 = extract_height(e11);
+
+	vec3 normal = vec3(0,1,0);
+	if (!is_water) {
+		normal = vec3(h10 + h11 - h00 - h01,
+						2.0 * ubo.spacing,
+						-1.0 * (h01 + h11 - h00 - h10));
+		normal = normalize(normal);
+	}
 
 	vec4 noise_value = vec4(0.5);//texture(sampler2D(noise, linear_wrap), vec2(world_pos.xy*.0001));
-
 
 	vec4 albedo_roughness = vec4(.011, .03, .003, 0.7);
 	float rock = 1-smoothstep(0.80, .95, normal.y);
@@ -56,7 +64,22 @@ void main() {
 	if (ubo.parent_slot >= 0) {
 		vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
 		ivec2 offset = clamp(ivec2(round(nv)), ivec2(-1), ivec2(1));
-		albedo_roughness = texelFetch(albedo_in, ivec2(ubo.parent_origin + (out_pos+offset)/2), 0);
+		vec4 p = texelFetch(albedo_in, ivec2(ubo.parent_origin + (out_pos+offset)/2), 0);
+
+		// HACK: We want to avoid blending in water texels onto the land. Since those texels are 
+		// known to have low roughness, we can filter them with this check. If the lookup fails,
+		// we use albedo and roughness values for sand.
+		if (p.a > 0.5) {
+			albedo_roughness = p;
+		} else {
+			albedo_roughness = vec4(.2, .2, .15, .8);
+		}
+	}
+
+	if (is_water) {
+		albedo_roughness.a = 0.1;
+		float negative_depth = min(h00 + h10 + h01 + h11, 0);
+		albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
 	}
 
 	// if (ubo.normals_slot >= 0)

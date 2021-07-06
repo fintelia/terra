@@ -424,9 +424,9 @@ impl TileCache {
                             .map(
                                 |&h| {
                                     if h < 0 {
-                                        0x800000
+                                        0x800000 | (((h + 1024).max(0) as u32) << 9)
                                     } else {
-                                        ((h as u32) << 9).min(0x7fffff)
+                                        (((h as u32) + 1024) << 9).min(0x7fffff)
                                     }
                                 },
                             )
@@ -498,7 +498,7 @@ impl TileCache {
                             }
                             buffer.unmap();
 
-                            let heights = heights.into_iter().map(|h| (h & 0x7fffff) as f32 / 512.0).collect();
+                            let heights = heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
                             entry.heightmap = Some(CpuHeightmap::F32(Arc::new(heights)));
                         }
                     }

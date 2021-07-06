@@ -32,5 +32,12 @@ struct NodeState {
 };
 
 float extract_height(uint encoded) {
-	return float(encoded & 0x7fffff) * (1 / 512.0);
+	return (float(encoded & 0x7fffff) * (1 / 512.0)) - 1024.0;
+}
+float extract_height_above_water(uint encoded) {
+	float height = extract_height(encoded);
+	if ((encoded & 0x800000) != 0) {
+		height = max(height, 0);
+	}
+	return height;
 }
