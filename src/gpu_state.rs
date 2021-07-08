@@ -49,6 +49,8 @@ pub(crate) struct GpuState {
     inscattering: wgpu::Texture,
     aerial_perspective: wgpu::Texture,
 
+    clouds: wgpu::Texture,
+
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
     linear_wrap: wgpu::Sampler,
@@ -65,6 +67,7 @@ impl GpuState {
             sky: mapfile.read_texture(device, queue, "sky")?,
             transmittance: mapfile.read_texture(device, queue, "transmittance")?,
             inscattering: mapfile.read_texture(device, queue, "inscattering")?,
+            clouds: mapfile.read_texture(device, queue, "clouds")?,
             aerial_perspective: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
                 format: wgpu::TextureFormat::Rgba16Float,
@@ -134,7 +137,7 @@ impl GpuState {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Linear,
                 label: Some("sampler.linear"),
                 ..Default::default()
             }),
@@ -177,6 +180,7 @@ impl GpuState {
                                 "transmittance" => &self.transmittance,
                                 "inscattering" => &self.inscattering,
                                 "aerial_perspective" => &self.aerial_perspective,
+                                "clouds" => &self.clouds,
                                 "displacements" => &self.tile_cache[LayerType::Displacements],
                                 "albedo" => &self.tile_cache[LayerType::Albedo],
                                 "roughness" => &self.tile_cache[LayerType::Roughness],

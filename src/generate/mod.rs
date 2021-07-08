@@ -21,7 +21,7 @@ use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use image::{png::PngDecoder, ColorType, ImageDecoder};
+use image::{png::PngDecoder, ColorType, ImageDecoder, GenericImageView};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
@@ -639,6 +639,21 @@ impl MapFileBuilder {
         // generate_roughness(&mut mapfile, &mut context)?;
         generate_noise(&mut self.0, &mut context)?;
         generate_sky(&mut self.0, &mut context)?;
+
+        if !self.0.reload_texture("clouds") {
+            context.reset("Loading clouds texture... ", 1);
+            let sky = image::open("/home/jonathan/htmp/clouds_combined.png")?;
+            
+            let desc = TextureDescriptor {
+                width: sky.width(),
+                height: sky.height(),
+                depth: 1,
+                format: TextureFormat::RGBA8,
+                bytes: (sky.width() * sky.height() * 4) as usize,
+            };
+            self.0.write_texture("clouds", desc, &*sky.to_rgba8())?;
+        }
+    
 
         Ok(self.0)
     }

@@ -19,6 +19,7 @@ layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
+layout(set = 0, binding = 10) uniform texture2D clouds;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -244,6 +245,12 @@ void main() {
 	// 	}
 	// }
 
+	// vec3 vv = normalize(position + globals.camera);
+	// vec2 te = vec2(atan(vv.x, vv.y) / 3.141592 * 0.5 + 0.5, (vv.z)  * 0.5 + 0.5);
+	// float cloud_cover = texture(sampler2D(clouds, linear), te).x;
+	// albedo_value = mix(albedo_value, vec3(10), cloud_cover);
+	// //roughness_value = mix(roughness_value, 0, cloud_cover);
+
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_value,
 						roughness_value,
@@ -257,6 +264,12 @@ void main() {
 					  vec3((texcoord / 64.0 * 16 + 0.5) / 17, node.node_index));
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
+
+	vec3 vv = normalize(position + globals.camera);
+	vec2 te = vec2(atan(-vv.y, -vv.x) / 3.141592 * 0.5 + 0.5, vv.z * 0.5 + 0.5);
+	float cloud_cover = dot(texture(sampler2D(clouds, linear), te).rgb, vec3(.75, 0.25, 0.15));
+	out_color.rgb = mix(out_color.rgb, vec3(100000) * max(dot(normal, globals.sun_direction), 0), min(cloud_cover, 1) * .5);
+	//roughness_value = mix(roughness_value, 0, cloud_cover);
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);

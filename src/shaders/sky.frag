@@ -27,7 +27,7 @@ void main() {
 	vec4 r1 = globals.view_proj_inverse * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
 
-	float lat = acos(r.z)/3.141592 * 0.5 + 0.5;
+	float lat = r.z * 0.5 + 0.5;// acos(r.z)/3.141592 * 0.5 + 0.5;
 	float lon = atan(r.y, r.x) / 3.141592 * 0.5 + 0.5;
 	OutColor.rgb = pow(texture(sampler2D(sky, linear), vec2(lon, lat)).rgb, vec3(5)) * 10000;
 
