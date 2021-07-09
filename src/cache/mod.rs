@@ -341,7 +341,7 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
             let mut index = 0;
             'outer: while let Some(e) = entries.pop() {
                 // Find the next element to evict.
-                while self.slots[index].priority() >= cutoff {
+                while self.slots[index].priority() > cutoff {
                     index += 1;
                     if index == self.slots.len() {
                         break 'outer;
