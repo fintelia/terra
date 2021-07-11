@@ -1,5 +1,6 @@
 use crate::cache::Priority;
 use crate::cache::TileCache;
+use crate::utils::math::InfiniteFrustum;
 use cgmath::*;
 use fnv::FnvHashMap;
 use std::convert::TryInto;
@@ -92,15 +93,30 @@ impl QuadTree {
         });
     }
 
-    pub fn update_visibility(&mut self, tile_cache: &TileCache) {
+    pub fn update_visibility(
+        &mut self,
+        tile_cache: &TileCache,
+        view_proj: mint::ColumnMatrix4<f32>,
+        camera: mint::Point3<f64>,
+    ) {
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
+
+        let view_proj: cgmath::Matrix4<f64> =
+            cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap();
+        let view_proj = view_proj
+            * cgmath::Matrix4::from_translation(cgmath::Vector3::new(
+                -camera.x, -camera.y, -camera.z,
+            ));
+        let frustum = InfiniteFrustum::from_matrix(view_proj);
 
         // Any node with all needed layers in cache is visible...
         let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
         VNode::breadth_first(|node| {
             let priority = self.node_priority(node);
-            let visible = (node.level() == 0 || priority >= Priority::cutoff());
+            let visible =
+                (node.level() == 0 || priority >= Priority::cutoff()) && node.in_frustum(&frustum);
+
             node_visibilities.insert(node, visible);
             visible && node.level() < VNode::LEVEL_CELL_5MM
         });

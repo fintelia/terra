@@ -1,10 +1,14 @@
 use crate::cache::Priority;
+use crate::coordinates::PLANET_RADIUS;
 use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
+use crate::utils::math::InfiniteFrustum;
 use cgmath::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
+const MIN_RADIUS: f64 = EARTH_RADIUS - 1000.0;
+const MAX_RADIUS: f64 = EARTH_RADIUS + 9000.0;
 
 lazy_static! {
     pub static ref OFFSETS: [Vector2<i32>; 4] =
@@ -229,9 +233,6 @@ impl VNode {
             corners[3].cross(-corners[0]),
         ];
 
-        const MIN_RADIUS: f64 = EARTH_RADIUS - 1000.0;
-        const MAX_RADIUS: f64 = EARTH_RADIUS + 9000.0;
-
         // Top and bottom
         if normals.iter().all(|n| n.dot(point) >= 0.0) {
             let length2 = point.dot(point);
@@ -275,6 +276,26 @@ impl VNode {
         }
 
         d2
+    }
+
+    pub fn in_frustum(&self, f: &InfiniteFrustum) -> bool {
+        let corners = [
+            self.grid_position_cspace(0, 0, 0, 2).normalize(),
+            self.grid_position_cspace(1, 0, 0, 2).normalize(),
+            self.grid_position_cspace(1, 1, 0, 2).normalize(),
+            self.grid_position_cspace(0, 1, 0, 2).normalize(),
+        ];
+
+        let center =
+            self.cell_position_cspace(0, 0, 0, 1).normalize_to((MIN_RADIUS + MAX_RADIUS) * 0.5);
+
+        let mut radius2 = 0.0f64;
+        for &c in &corners {
+            radius2 = radius2.max(center.distance2(c * MIN_RADIUS));
+            radius2 = radius2.max(center.distance2(c * MAX_RADIUS));
+        }
+
+        f.intersects_sphere(center, radius2)
     }
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will

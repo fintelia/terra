@@ -353,7 +353,7 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        self.quadtree.update_visibility(&self.cache.tiles);
+        self.quadtree.update_visibility(&self.cache.tiles, view_proj, camera);
         self.quadtree.prepare_vertex_buffer(
             queue,
             &mut self.gpu_state.node_buffer,

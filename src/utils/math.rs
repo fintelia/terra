@@ -31,3 +31,37 @@ impl BoundingBox {
         dx * dx + dz * dz
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct InfiniteFrustum {
+    pub planes: [Vector4<f64>; 5],
+}
+impl InfiniteFrustum {
+    fn normalize_plane(plane: Vector4<f64>) -> Vector4<f64> {
+        let magnitude = (plane.x * plane.x + plane.y * plane.y + plane.z * plane.z).sqrt();
+        plane / magnitude
+    }
+
+    pub fn from_matrix(m: Matrix4<f64>) -> Self {
+        let m = m.transpose();
+        Self {
+            planes: [
+                Self::normalize_plane(m.w + m.x),
+                Self::normalize_plane(m.w - m.x),
+                Self::normalize_plane(m.w + m.y),
+                Self::normalize_plane(m.w - m.y),
+                Self::normalize_plane(m.w + m.z),
+            ],
+        }
+    }
+
+    pub fn intersects_sphere(&self, center: Vector3<f64>, radius_squared: f64) -> bool {
+        for p in &self.planes[0..5] {
+            let distance = p.x * center.x + p.y * center.y + p.z * center.z + p.w;
+            if distance < 0.0 && distance * distance > radius_squared {
+                return false;
+            }
+        }
+        true
+    }
+}
