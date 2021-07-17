@@ -28,8 +28,9 @@ layout(binding = 0) uniform UniformBlock {
 
 	uint tile_slot;
     uint output_slot;
+    uint level;
 
-    uvec2 padding;
+    uint padding;
 } ubo;
 layout(std430, binding = 1) buffer StorageDataBlock {
     Entry entries[][128*128];
@@ -92,7 +93,7 @@ void main() {
 
     grass_storage.entries[ubo.output_slot][entry].texcoord = material_texcoord;
     grass_storage.entries[ubo.output_slot][entry].position = position.xyz;
-    grass_storage.entries[ubo.output_slot][entry].albedo = ((canopy.rgb - 0.5) * 0.15 + albedo_value) * sqrt(2.0);// + (r3 - 0.5) * .05;
+    grass_storage.entries[ubo.output_slot][entry].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3(-.0)) * mix(vec3(.5), vec3(1.5), r3);
     grass_storage.entries[ubo.output_slot][entry].angle = angle;
     grass_storage.entries[ubo.output_slot][entry].slant = r.y;
 }

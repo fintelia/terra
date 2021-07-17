@@ -559,7 +559,7 @@ impl UnifiedPriorityCache {
         if mask.intersects(LayerMask::all_meshes()) {
             for cache in self.meshes.values().filter(|c| mask.contains_mesh(c.desc.ty)) {
                 let mut n = node;
-                while n.level() > cache.desc.level {
+                while n.level() > cache.desc.max_level {
                     n = n.parent().unwrap().0;
                 }
 

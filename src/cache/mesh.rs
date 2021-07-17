@@ -42,7 +42,8 @@ pub(crate) struct MeshGenerateUniforms {
 
     tile_slot: u32,
     output_slot: u32,
-    padding: [u32; 2],
+    level: u32,
+    padding: u32,
 }
 unsafe impl bytemuck::Zeroable for MeshGenerateUniforms {}
 unsafe impl bytemuck::Pod for MeshGenerateUniforms {}
@@ -69,7 +70,8 @@ pub(crate) struct MeshCacheDesc {
     pub render: rshader::ShaderSet,
     pub dimensions: u32,
     pub dependency_mask: LayerMask,
-    pub level: u8,
+    pub min_level: u8,
+    pub max_level: u8,
     pub ty: MeshType,
     pub size: usize,
 }
@@ -132,14 +134,15 @@ impl MeshCache {
             if priority < Priority::cutoff() {
                 return false;
             }
-            if node.level() == self.desc.level
+            if node.level() >= self.desc.min_level
                 && !self.inner.contains(&node)
                 && (priority > min_priority || !self.inner.is_full())
             {
+                assert!(node.level() <= self.desc.max_level);
                 missing.push(Entry::new(node, priority));
             }
 
-            node.level() < self.desc.level
+            node.level() < self.desc.max_level
         });
         self.inner.insert(missing);
     }
@@ -224,7 +227,8 @@ impl MeshCache {
                         texture_step: texture_slot.1,
                         tile_slot: cache.tiles.get_slot(entry.node).unwrap() as u32,
                         output_slot: index as u32,
-                        padding: [0; 2],
+                        level: entry.node.level() as u32,
+                        padding: 0,
                     },
                 );
                 entry.valid = true;

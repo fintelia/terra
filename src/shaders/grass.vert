@@ -47,7 +47,6 @@ const vec3 tangents[6] = vec3[6](
 );
 
 void main() {
-
     uint entry_index = gl_VertexIndex / 7;
     uint index = gl_VertexIndex % 7;
 
@@ -63,6 +62,18 @@ void main() {
     vec3 offset;
     float width = 0.01;
     float height = 0.1;
+
+    if (node.min_distance > 24) {
+        width *= mix(1, 1.5, smoothstep(0.7, .99, 4 * length(position) / node.min_distance));
+        width *= mix(1, 1.5, smoothstep(0.7, .99, 2 * length(position) / node.min_distance));
+
+        height *= mix(1, 1.5, smoothstep(0.7, .99, 4 * length(position) / node.min_distance));
+        height *= mix(1, 1.5, smoothstep(0.7, .99, 2 * length(position) / node.min_distance));
+        //morph *= smoothstep(0.7, .99, 2 * length(position) / node.min_distance);
+    } else if (node.min_distance > 12) {
+        width *= mix(1, 1.5, smoothstep(0.7, .99, 2 * length(position) / node.min_distance));
+        height *= mix(1, 1.5, smoothstep(0.7, .99, 2 * length(position) / node.min_distance));
+    }
 
     vec2 uv = vec2(0);
     if (index == 0) uv = vec2(-1, 0);

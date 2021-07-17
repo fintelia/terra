@@ -66,7 +66,7 @@ impl Terrain {
                 !device.features().contains(wgpu::Features::SHADER_FLOAT64),
             ),
             vec![MeshCacheDesc {
-                size: 32,
+                size: 96,
                 ty: MeshType::Grass,
                 max_bytes_per_entry: 128 * 128 * 64,
                 dimensions: 128 / 8,
@@ -74,7 +74,8 @@ impl Terrain {
                     | LayerType::Albedo.bit_mask()
                     | LayerType::Normals.bit_mask()
                     | SingularLayerType::GrassCanopy.bit_mask(),
-                level: VNode::LEVEL_SIDE_5M,
+                min_level: VNode::LEVEL_SIDE_19M,
+                max_level: VNode::LEVEL_SIDE_5M,
                 index_buffer: {
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("buffer.index.grass"),
