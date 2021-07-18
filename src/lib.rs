@@ -34,6 +34,7 @@ use std::array::IntoIter;
 use std::collections::HashMap;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
+use utils::math::InfiniteFrustum;
 use wgpu::util::DeviceExt;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
@@ -197,7 +198,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
-        self.quadtree.update_priorities(camera);
+        self.quadtree.update_priorities(&self.cache.tiles, camera);
         if !self.loading_complete() {
             self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
             self.loading_complete()
@@ -345,7 +346,17 @@ impl Terrain {
             ));
         }
 
-        self.quadtree.update_priorities(camera);
+        let frustum = {
+            let view_proj: cgmath::Matrix4<f64> =
+                cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap();
+            let view_proj = view_proj
+                * cgmath::Matrix4::from_translation(cgmath::Vector3::new(
+                    -camera.x, -camera.y, -camera.z,
+                ));
+            InfiniteFrustum::from_matrix(view_proj)
+        };
+
+        self.quadtree.update_priorities(&self.cache.tiles, camera);
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
@@ -354,7 +365,7 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        self.quadtree.update_visibility(&self.cache.tiles, view_proj, camera);
+        self.quadtree.update_visibility(&self.cache.tiles, &frustum, camera);
         self.quadtree.prepare_vertex_buffer(
             queue,
             &mut self.gpu_state.node_buffer,
@@ -412,7 +423,7 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);
+            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, &frustum, camera);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);

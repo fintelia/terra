@@ -78,7 +78,7 @@ impl QuadTree {
         buffer
     }
 
-    pub fn update_priorities(&mut self, camera: mint::Point3<f64>) {
+    pub fn update_priorities(&mut self, tile_cache: &TileCache, camera: mint::Point3<f64>) {
         if self.last_camera_position == Some(camera) {
             return;
         }
@@ -87,7 +87,7 @@ impl QuadTree {
 
         self.node_priorities.clear();
         VNode::breadth_first(|node| {
-            let priority = node.priority(camera);
+            let priority = node.priority(camera, tile_cache.get_height_range(node));
             self.node_priorities.insert(node, priority);
             priority >= Priority::cutoff() && node.level() < VNode::LEVEL_CELL_5MM
         });
@@ -96,26 +96,18 @@ impl QuadTree {
     pub fn update_visibility(
         &mut self,
         tile_cache: &TileCache,
-        view_proj: mint::ColumnMatrix4<f32>,
+        frustum: &InfiniteFrustum,
         camera: mint::Point3<f64>,
     ) {
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
 
-        let view_proj: cgmath::Matrix4<f64> =
-            cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap();
-        let view_proj = view_proj
-            * cgmath::Matrix4::from_translation(cgmath::Vector3::new(
-                -camera.x, -camera.y, -camera.z,
-            ));
-        let frustum = InfiniteFrustum::from_matrix(view_proj);
-
         // Any node with all needed layers in cache is visible...
         let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
         VNode::breadth_first(|node| {
             let priority = self.node_priority(node);
-            let visible =
-                (node.level() == 0 || priority >= Priority::cutoff()) && node.in_frustum(&frustum);
+            let visible = (node.level() == 0 || priority >= Priority::cutoff())
+                && node.in_frustum(&frustum, tile_cache.get_height_range(node));
 
             node_visibilities.insert(node, visible);
             visible && node.level() < VNode::LEVEL_CELL_5MM

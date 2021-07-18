@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
-const MIN_RADIUS: f64 = EARTH_RADIUS - 1000.0;
-const MAX_RADIUS: f64 = EARTH_RADIUS + 9000.0;
 
 lazy_static! {
     pub static ref OFFSETS: [Vector2<i32>; 4] =
@@ -218,7 +216,10 @@ impl VNode {
         self.cell_position_cspace(0, 0, 0, 1).normalize() * crate::coordinates::PLANET_RADIUS
     }
 
-    fn distance2(&self, point: Vector3<f64>) -> f64 {
+    fn distance2(&self, point: Vector3<f64>, height_range: (f32, f32)) -> f64 {
+        let min_radius = EARTH_RADIUS + height_range.0 as f64;
+        let max_radius = EARTH_RADIUS + height_range.1 as f64;
+
         let corners = [
             self.grid_position_cspace(0, 0, 0, 2),
             self.grid_position_cspace(1, 0, 0, 2),
@@ -236,11 +237,11 @@ impl VNode {
         // Top and bottom
         if normals.iter().all(|n| n.dot(point) >= 0.0) {
             let length2 = point.dot(point);
-            if length2 > MIN_RADIUS * MIN_RADIUS && length2 < MAX_RADIUS * MAX_RADIUS {
+            if length2 > min_radius * min_radius && length2 < max_radius * max_radius {
                 return 0.0;
             }
             let length = length2.sqrt();
-            let d = (length - MAX_RADIUS).max(MIN_RADIUS - length);
+            let d = (length - max_radius).max(min_radius - length);
             return d * d;
         }
 
@@ -248,7 +249,7 @@ impl VNode {
         let mut d2 = f64::INFINITY;
         for i in 0..4 {
             let corner = corners[i].normalize();
-            let segment_point = point.dot(corner).min(MAX_RADIUS).max(MIN_RADIUS) * corner;
+            let segment_point = point.dot(corner).min(max_radius).max(min_radius) * corner;
             d2 = d2.min(segment_point.distance2(point));
         }
 
@@ -261,11 +262,11 @@ impl VNode {
                 let mut surface_point =
                     point - normals[i] * normals[i].dot(point) / normals[i].dot(normals[i]);
                 let length2 = surface_point.dot(surface_point);
-                if length2 > MAX_RADIUS * MAX_RADIUS {
-                    surface_point = surface_point.normalize() * MAX_RADIUS;
+                if length2 > max_radius * max_radius {
+                    surface_point = surface_point.normalize() * max_radius;
                     d2 = d2.min(surface_point.distance2(point));
-                } else if length2 < MIN_RADIUS * MIN_RADIUS {
-                    surface_point = surface_point.normalize() * MIN_RADIUS;
+                } else if length2 < min_radius * min_radius {
+                    surface_point = surface_point.normalize() * min_radius;
                     d2 = d2.min(surface_point.distance2(point));
                 } else {
                     let dot = normals[i].dot(point);
@@ -278,7 +279,7 @@ impl VNode {
         d2
     }
 
-    pub fn in_frustum(&self, f: &InfiniteFrustum) -> bool {
+    pub fn in_frustum(&self, f: &InfiniteFrustum, height_range: (f32, f32)) -> bool {
         let corners = [
             self.grid_position_cspace(0, 0, 0, 2).normalize(),
             self.grid_position_cspace(1, 0, 0, 2).normalize(),
@@ -286,13 +287,14 @@ impl VNode {
             self.grid_position_cspace(0, 1, 0, 2).normalize(),
         ];
 
-        let center =
-            self.cell_position_cspace(0, 0, 0, 1).normalize_to((MIN_RADIUS + MAX_RADIUS) * 0.5);
+        let center = self
+            .cell_position_cspace(0, 0, 0, 1)
+            .normalize_to(EARTH_RADIUS + (height_range.0 as f64 + height_range.1 as f64) * 0.5);
 
         let mut radius2 = 0.0f64;
         for &c in &corners {
-            radius2 = radius2.max(center.distance2(c * MIN_RADIUS));
-            radius2 = radius2.max(center.distance2(c * MAX_RADIUS));
+            radius2 = radius2.max(center.distance2(c * (EARTH_RADIUS + height_range.0 as f64)));
+            radius2 = radius2.max(center.distance2(c * (EARTH_RADIUS + height_range.1 as f64)));
         }
 
         f.intersects_sphere(center, radius2)
@@ -300,9 +302,9 @@ impl VNode {
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
-    pub(super) fn priority(&self, camera: Vector3<f64>) -> Priority {
+    pub(super) fn priority(&self, camera: Vector3<f64>, height_range: (f32, f32)) -> Priority {
         let min_distance = self.min_distance();
-        let distance2 = self.distance2(camera);
+        let distance2 = self.distance2(camera, height_range);
 
         Priority::from_f32(((min_distance * min_distance) / distance2.max(1e-12)) as f32)
     }

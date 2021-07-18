@@ -121,8 +121,8 @@ pub(crate) struct LayerParams {
 }
 
 enum CpuHeightmap {
-    I16(Arc<Vec<i16>>),
-    F32(Arc<Vec<f32>>),
+    I16 { min: f32, max: f32, heights: Arc<Vec<i16>> },
+    F32 { min: f32, max: f32, heights: Arc<Vec<f32>> },
 }
 
 pub(super) struct Entry {
@@ -417,19 +417,20 @@ impl TileCache {
                 match tile {
                     TileResult::Heightmaps(node, ref heights) => {
                         if let Some(entry) = self.inner.entry_mut(&node) {
-                            entry.heightmap = Some(CpuHeightmap::I16(Arc::clone(&heights)));
+                            let min = *heights.iter().min().unwrap() as f32;
+                            let max = *heights.iter().max().unwrap() as f32;
+                            entry.heightmap =
+                                Some(CpuHeightmap::I16 { min, max, heights: Arc::clone(&heights) });
                         }
                         let heights: Vec<_> = heights
                             .iter()
-                            .map(
-                                |&h| {
-                                    if h < 0 {
-                                        0x800000 | (((h + 1024).max(0) as u32) << 9)
-                                    } else {
-                                        (((h as u32) + 1024) << 9).min(0x7fffff)
-                                    }
-                                },
-                            )
+                            .map(|&h| {
+                                if h < 0 {
+                                    0x800000 | (((h + 1024).max(0) as u32) << 9)
+                                } else {
+                                    (((h as u32) + 1024) << 9).min(0x7fffff)
+                                }
+                            })
                             .collect();
                         height_data = vec![0; heights.len() * 4];
                         height_data.copy_from_slice(bytemuck::cast_slice(&heights));
@@ -498,8 +499,14 @@ impl TileCache {
                             }
                             buffer.unmap();
 
-                            let heights = heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
-                            entry.heightmap = Some(CpuHeightmap::F32(Arc::new(heights)));
+                            let heights: Vec<f32> = heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
+
+                            let (mut min, mut max) = (f32::MAX, 0.0);
+                            for &h in &heights {
+                                if min < h { min = h; }
+                                if max > h { max = h; }
+                            }
+                            entry.heightmap = Some(CpuHeightmap::F32 { min, max, heights: Arc::new(heights) });
                         }
                     }
                 }
@@ -586,14 +593,28 @@ impl TileCache {
         let i11 = x.ceil() as usize + y.ceil() as usize * resolution;
 
         self.inner.entry(&node).and_then(|entry| Some(entry.heightmap.as_ref()?)).map(|h| match h {
-            CpuHeightmap::I16(h) => (h[i00] as f32 * w00
+            CpuHeightmap::I16 { heights: h, .. } => (h[i00] as f32 * w00
                 + h[i10] as f32 * w10
                 + h[i01] as f32 * w01
                 + h[i11] as f32 * w11)
                 .max(0.0),
-            CpuHeightmap::F32(h) => {
+            CpuHeightmap::F32 { heights: h, .. } => {
                 (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0)
             }
         })
+    }
+
+    /// Returns a conservative estimate of the minimum and maximum heights in the given node.
+    pub fn get_height_range(&self, node: VNode) -> (f32, f32) {
+        let mut node = Some(node);
+        while let Some(n) = node {
+            if let Some(CpuHeightmap::I16 { min, max, .. } | CpuHeightmap::F32 { min, max, .. }) =
+                self.inner.entry(&n).and_then(|entry| Some(entry.heightmap.as_ref()?))
+            {
+                return (min.min(0.0), *max + 300.0);
+            }
+            node = n.parent().map(|p| p.0);
+        }
+        (0.0, 9000.0)
     }
 }

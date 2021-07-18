@@ -7,12 +7,7 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use texture::{SingularLayerCache, SingularLayerDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
-use crate::{
-    generate::GenerateTile,
-    gpu_state::{GpuMeshLayer, GpuState},
-    mapfile::MapFile,
-    terrain::quadtree::{QuadTree, VNode},
-};
+use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -515,10 +510,11 @@ impl UnifiedPriorityCache {
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
+        frustum: &InfiniteFrustum,
         camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(device, queue, rpass, gpu_state, camera);
+            c.render(device, queue, rpass, gpu_state, &self.tiles, frustum, camera);
         }
     }
 

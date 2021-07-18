@@ -1,16 +1,11 @@
-use crate::{
-    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
-    generate::ComputeShader,
-    gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
-    terrain::quadtree::{QuadTree, VNode},
-};
+use crate::{cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry}, generate::ComputeShader, gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState}, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
 use cgmath::Vector2;
 use maplit::hashmap;
 use std::mem;
 use std::{collections::HashMap, convert::TryInto};
 use wgpu::util::DeviceExt;
 
-use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
+use super::{GeneratorMask, LayerMask, TileCache, UnifiedPriorityCache};
 
 pub(super) struct Entry {
     priority: Priority,
@@ -250,6 +245,8 @@ impl MeshCache {
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
+        tile_cache: &TileCache,
+        frustum: &InfiniteFrustum,
         camera: mint::Point3<f64>,
     ) {
         if self.desc.render.refresh() {
@@ -324,7 +321,7 @@ impl MeshCache {
             .slots()
             .into_iter()
             .enumerate()
-            .filter(|e| e.1.valid && e.1.priority > Priority::cutoff())
+            .filter(|e| e.1.valid && e.1.priority > Priority::cutoff() && e.1.node.in_frustum(frustum, tile_cache.get_height_range(e.1.node)))
             // .filter_map(|(i, e)| tile_cache.get_slot(e.node).map(|s| (i, s, e)))
             // .map(|(i, j, &Entry { node, .. })| MeshNodeState {
             .map(|(i, &Entry { node, .. })| MeshNodeState {
