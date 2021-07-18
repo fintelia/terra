@@ -1,0 +1,61 @@
+#version 450 core
+#include "declarations.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0, std140) uniform GlobalBlock {
+    Globals globals;
+};
+
+coherent layout(std430, binding = 1) buffer IndirectBlock {
+    Indirect indirect[];
+} grass_indirect;
+
+struct Sphere {
+    vec3 center;
+    float radius_squared;
+};
+layout(std430, binding = 2) buffer BoundingBlock {
+    Sphere bounds;
+} bounding_spheres;
+
+struct Node {
+    vec3 relative_position;
+    uint valid;
+};
+layout(set = 0, binding = 3, std140) uniform UniformBlock {
+    uint num_nodes;
+    uint entries_per_node;
+    uvec2 padding1;
+
+    Node nodes[512];
+} ubo;
+
+void main() {
+    if (gl_GlobalInvocationID.x > ubo.num_nodes * ubo.entries_per_node)
+        return;
+
+    grass_indirect.indirect[gl_GlobalInvocationID.x].base_instance = gl_GlobalInvocationID.x;
+    Node node = ubo.nodes[gl_GlobalInvocationID.x / ubo.entries_per_node];
+    if (node.valid == 0) {
+        grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 0;
+        return;
+    }
+
+    // Sphere sphere = bounding_spheres[gl_GlobalInvocationID.x]
+    // float d0 = dot(sphere.center.xyz - relative_position, globals.frustum_planes[0].xyz) + globals.frustum_planes[0].w;
+    // float d1 = dot(sphere.center.xyz - relative_position, globals.frustum_planes[1].xyz) + globals.frustum_planes[1].w;
+    // float d2 = dot(sphere.center.xyz - relative_position, globals.frustum_planes[2].xyz) + globals.frustum_planes[2].w;
+    // float d3 = dot(sphere.center.xyz - relative_position, globals.frustum_planes[3].xyz) + globals.frustum_planes[3].w;
+    // float d4 = dot(sphere.center.xyz - relative_position, globals.frustum_planes[4].xyz) + globals.frustum_planes[4].w;
+
+    // if ((d0 < 0 && d0*d0 > sphere.radius_squared) ||
+    //     (d1 < 0 && d1*d1 > sphere.radius_squared) ||
+    //     (d2 < 0 && d2*d2 > sphere.radius_squared) ||
+    //     (d3 < 0 && d3*d3 > sphere.radius_squared) ||
+    //     (d4 < 0 && d4*d4 > sphere.radius_squared) {
+    //     grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 0;
+    // } else {
+        grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 1;
+    // }
+}

@@ -4,13 +4,6 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-struct Indirect {
-    uint vertex_count;
-    uint instance_count;
-    uint base_index;
-    uint vertex_offset;
-    uint base_instance;
-};
 struct Entry {
     vec3 position;
     float angle;

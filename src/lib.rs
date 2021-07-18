@@ -373,12 +373,21 @@ impl Terrain {
             camera,
         );
 
+        let relative_frustum =
+            InfiniteFrustum::from_matrix(cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap());
         queue.write_buffer(
             &self.gpu_state.globals,
             0,
             bytemuck::bytes_of(&GlobalUniformBlock {
                 view_proj,
                 view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
+                frustum_planes: [
+                    relative_frustum.planes[0].cast().unwrap().into(),
+                    relative_frustum.planes[1].cast().unwrap().into(),
+                    relative_frustum.planes[2].cast().unwrap().into(),
+                    relative_frustum.planes[3].cast().unwrap().into(),
+                    relative_frustum.planes[4].cast().unwrap().into(),
+                ],
                 camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0],
                 sun_direction: [0.4, 0.7, 0.2, 0.0],
             }),
@@ -387,7 +396,10 @@ impl Terrain {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
         });
+
         {
+            self.cache.cull_meshes(device, &mut encoder, &self.gpu_state, &frustum, camera);
+
             self.aerial_perspective.refresh();
             self.aerial_perspective.run(
                 device,
@@ -423,7 +435,7 @@ impl Terrain {
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
             );
 
-            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, &frustum, camera);
+            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);

@@ -107,6 +107,7 @@ fn main() {
     } else {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
+    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(

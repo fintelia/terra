@@ -18,6 +18,7 @@ pub(crate) struct DrawIndexedIndirect {
 
 pub(crate) struct GpuMeshLayer {
     pub indirect: wgpu::Buffer,
+    pub bounding: wgpu::Buffer,
     pub storage: wgpu::Buffer,
 }
 
@@ -26,6 +27,7 @@ pub(crate) struct GpuMeshLayer {
 pub(crate) struct GlobalUniformBlock {
     pub view_proj: mint::ColumnMatrix4<f32>,
     pub view_proj_inverse: mint::ColumnMatrix4<f32>,
+    pub frustum_planes: [[f32; 4]; 5],
     pub camera: [f32; 4],
     pub sun_direction: [f32; 4],
 }
@@ -202,6 +204,7 @@ impl GpuState {
                     if !buffers.contains_key(name) {
                         let buffer = match name {
                             "grass_indirect" => &self.mesh_cache[MeshType::Grass].indirect,
+                            "grass_bounding" => &self.mesh_cache[MeshType::Grass].bounding,
                             "grass_storage" => &self.mesh_cache[MeshType::Grass].storage,
                             "nodes" => &self.node_buffer,
                             "globals" => &self.globals,

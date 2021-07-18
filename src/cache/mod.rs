@@ -7,7 +7,13 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use texture::{SingularLayerCache, SingularLayerDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
-use crate::{generate::GenerateTile, gpu_state::{GpuMeshLayer, GpuState}, mapfile::MapFile, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
+use crate::{
+    generate::{ComputeShader, GenerateTile},
+    gpu_state::{GpuMeshLayer, GpuState},
+    mapfile::MapFile,
+    terrain::quadtree::{QuadTree, VNode},
+    utils::math::InfiniteFrustum,
+};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -143,11 +149,11 @@ impl LayerMask {
     pub fn empty() -> Self {
         Self(NonZeroU32::new(Self::VALID).unwrap())
     }
-    pub fn all_tiles() -> Self{
+    pub fn all_tiles() -> Self {
         Self(NonZeroU32::new(Self::VALID | 0x0000ff).unwrap())
     }
     #[allow(unused)]
-    pub fn all_meshes() -> Self{
+    pub fn all_meshes() -> Self {
         Self(NonZeroU32::new(Self::VALID | 0x00ff00).unwrap())
     }
     #[allow(unused)]
@@ -387,6 +393,8 @@ pub(crate) struct UnifiedPriorityCache {
     pub tiles: TileCache,
     meshes: VecMap<MeshCache>,
     textures: VecMap<SingularLayerCache>,
+
+    cull_shader: ComputeShader<mesh::CullMeshUniforms>,
 }
 
 impl UnifiedPriorityCache {
@@ -408,6 +416,10 @@ impl UnifiedPriorityCache {
                 .into_iter()
                 .map(|desc| (desc.ty as usize, SingularLayerCache::new(desc)))
                 .collect(),
+            cull_shader: ComputeShader::new(
+                rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
+                "cull-meshes".to_owned(),
+            ),
         }
     }
 
@@ -504,17 +516,30 @@ impl UnifiedPriorityCache {
         self.textures.iter().map(|(i, c)| (i, c.make_cache_texture(device))).collect()
     }
 
+    pub fn cull_meshes<'a>(
+        &'a mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        gpu_state: &'a GpuState,
+        frustum: &InfiniteFrustum,
+        camera: mint::Point3<f64>,
+    ) {
+        self.cull_shader.refresh();
+        for (_, c) in &mut self.meshes {
+            c.cull_meshes(device, encoder, gpu_state, &self.tiles, camera, frustum, &mut self.cull_shader);
+        }
+    }
+
     pub fn render_meshes<'a>(
         &'a mut self,
         device: &wgpu::Device,
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        frustum: &InfiniteFrustum,
         camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(device, queue, rpass, gpu_state, &self.tiles, frustum, camera);
+            c.render(device, queue, rpass, gpu_state, camera);
         }
     }
 

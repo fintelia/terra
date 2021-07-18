@@ -5,7 +5,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
 
-layout(set = 0, binding = 1, std140) uniform NodeBlock {
+struct GrassNode {
 	vec3 relative_position;
 	float min_distance;
 	vec3 parent_relative_position;
@@ -14,7 +14,11 @@ layout(set = 0, binding = 1, std140) uniform NodeBlock {
     uint slot;
     uint face;
     uvec2 padding2;
-} node;
+    uvec4 padding3;
+};
+layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
+    GrassNode nodes[];
+};
 
 struct Entry {
     vec3 position;
@@ -50,6 +54,7 @@ void main() {
     uint entry_index = gl_VertexIndex / 7;
     uint index = gl_VertexIndex % 7;
 
+    GrassNode node = nodes[gl_InstanceIndex];
     Entry entry = grass_storage.entries[node.slot][entry_index];
     position = entry.position - node.relative_position;
 

@@ -3,6 +3,7 @@
 struct Globals {
     mat4 view_proj;
 	mat4 view_proj_inverse;
+	vec4 frustum_planes[5];
 	vec3 camera;
 	vec3 sun_direction;
 };
@@ -29,6 +30,14 @@ struct NodeState {
 	vec3 parent_relative_position;
 	float padding1;
 	vec4 padding2[4];
+};
+
+struct Indirect {
+    uint vertex_count;
+    uint instance_count;
+    uint base_index;
+    uint vertex_offset;
+    uint base_instance;
 };
 
 float extract_height(uint encoded) {

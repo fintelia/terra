@@ -1,4 +1,10 @@
-use crate::{cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry}, generate::ComputeShader, gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState}, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
+use crate::{
+    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
+    generate::ComputeShader,
+    gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
+    terrain::quadtree::{QuadTree, VNode},
+    utils::math::InfiniteFrustum,
+};
 use cgmath::Vector2;
 use maplit::hashmap;
 use std::mem;
@@ -45,6 +51,29 @@ unsafe impl bytemuck::Pod for MeshGenerateUniforms {}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub(crate) struct CullMeshUniforms {
+    num_nodes: u32,
+    entries_per_node: u32,
+    padding: [u32; 2],
+
+    nodes: [([f32; 3], bool); 512],
+}
+unsafe impl bytemuck::Zeroable for CullMeshUniforms {}
+unsafe impl bytemuck::Pod for CullMeshUniforms {}
+
+impl Default for CullMeshUniforms {
+    fn default() -> Self {
+        Self {
+            num_nodes: 0,
+            entries_per_node: 1,
+            padding: [0; 2],
+            nodes: [([0.0; 3], false); 512],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 struct MeshNodeState {
     relative_position: [f32; 3],
     min_distance: f32,
@@ -53,7 +82,7 @@ struct MeshNodeState {
 
     slot: u32,
     face: u32,
-    _padding2: [u32; 54],
+    _padding2: [u32; 6],
 }
 unsafe impl bytemuck::Zeroable for MeshNodeState {}
 unsafe impl bytemuck::Pod for MeshNodeState {}
@@ -75,18 +104,18 @@ pub(crate) struct MeshCache {
     pub(super) inner: PriorityCache<Entry>,
     pub(super) desc: MeshCacheDesc,
 
-    uniforms: wgpu::Buffer,
+    nodes: wgpu::Buffer,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
 impl MeshCache {
     pub(super) fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
-        let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+        let nodes = device.create_buffer(&wgpu::BufferDescriptor {
             size: (mem::size_of::<MeshNodeState>() * desc.size) as u64,
-            usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
-            label: Some("grass.uniforms"),
+            label: Some("grass.nodes_buffer"),
         });
-        Self { inner: PriorityCache::new(desc.size), desc, uniforms, bindgroup_pipeline: None }
+        Self { inner: PriorityCache::new(desc.size), desc, nodes, bindgroup_pipeline: None }
     }
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
@@ -103,8 +132,22 @@ impl MeshCache {
         }
         indirect.unmap();
 
+        let bounding = device.create_buffer(&wgpu::BufferDescriptor {
+            size: 16 * self.inner.size() as u64,
+            usage: wgpu::BufferUsage::STORAGE
+                | wgpu::BufferUsage::STORAGE
+                | wgpu::BufferUsage::COPY_DST,
+            mapped_at_creation: true,
+            label: Some("grass.bounding"),
+        });
+        for b in &mut *bounding.slice(..).get_mapped_range_mut() {
+            *b = 0;
+        }
+        bounding.unmap();
+
         GpuMeshLayer {
             indirect,
+            bounding,
             storage: device.create_buffer(&wgpu::BufferDescriptor {
                 size: self.desc.max_bytes_per_entry * self.inner.size() as u64,
                 usage: wgpu::BufferUsage::STORAGE,
@@ -175,19 +218,18 @@ impl MeshCache {
                         let texture_origin = Vector2::new(2.5, 2.5) / 516.0;
                         let texture_ratio = 511.0 / 516.0;
                         let texture_step = 511.0 / 516.0;
-                        let (ancestor, generations, offset) = entry.node
-                            .find_ancestor(|n| n.level() <= cache.desc.level)
-                            .unwrap();
+                        let (ancestor, generations, offset) =
+                            entry.node.find_ancestor(|n| n.level() <= cache.desc.level).unwrap();
                         let scale = (0.5f32).powi(generations as i32);
                         let offset = Vector2::new(offset.x as f32, offset.y as f32);
                         let offset = texture_origin + scale * texture_ratio * offset;
-            
+
                         match cache.inner.index_of(&ancestor) {
-                            None =>
-                            continue 'outer,
+                            None => continue 'outer,
                             Some(index) => {
                                 assert!(texture_slot.is_none());
-                                texture_slot = Some((index, scale * texture_step, [offset.x, offset.y]));
+                                texture_slot =
+                                    Some((index, scale * texture_step, [offset.x, offset.y]));
                             }
                         }
                     }
@@ -239,14 +281,42 @@ impl MeshCache {
         queue.submit(command_buffers);
     }
 
+    pub fn cull_meshes<'a>(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        gpu_state: &GpuState,
+        tile_cache: &TileCache,
+        camera: mint::Point3<f64>,
+        frustum: &InfiniteFrustum,
+        cull_shader: &mut ComputeShader<CullMeshUniforms>,
+    ) {
+        let mut cull_ubo = CullMeshUniforms::default();
+        cull_ubo.num_nodes = self.desc.size as u32;
+        for (i, entry) in self.inner.slots().into_iter().enumerate() {
+            cull_ubo.nodes[i] = (
+                (cgmath::Point3::from(camera) - entry.node.center_wspace())
+                    .cast::<f32>()
+                    .unwrap()
+                    .into(),
+                    entry.valid && entry.priority > Priority::cutoff() && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node)),
+            );
+        }
+        cull_shader.run(
+            device,
+            encoder,
+            &gpu_state,
+            ((self.desc.size as u32 + 63) / 64, 1, 1),
+            &cull_ubo,
+        );
+    }
+
     pub fn render<'a>(
         &'a mut self,
         device: &wgpu::Device,
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        tile_cache: &TileCache,
-        frustum: &InfiniteFrustum,
         camera: mint::Point3<f64>,
     ) {
         if self.desc.render.refresh() {
@@ -257,10 +327,10 @@ impl MeshCache {
                 device,
                 &self.desc.render,
                 hashmap![
-                    "node".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.uniforms,
+                    "nodes".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.nodes,
                         offset: 0,
-                        size: Some((mem::size_of::<MeshNodeState>() as u64).try_into().unwrap()),
+                        size: None,
                     }))
                 ],
                 HashMap::new(),
@@ -321,7 +391,7 @@ impl MeshCache {
             .slots()
             .into_iter()
             .enumerate()
-            .filter(|e| e.1.valid && e.1.priority > Priority::cutoff() && e.1.node.in_frustum(frustum, tile_cache.get_height_range(e.1.node)))
+            //.filter(|e| e.1.valid && e.1.priority > Priority::cutoff() && e.1.node.in_frustum(frustum, tile_cache.get_height_range(e.1.node)))
             // .filter_map(|(i, e)| tile_cache.get_slot(e.node).map(|s| (i, s, e)))
             // .map(|(i, j, &Entry { node, .. })| MeshNodeState {
             .map(|(i, &Entry { node, .. })| MeshNodeState {
@@ -339,24 +409,28 @@ impl MeshCache {
                 face: node.face() as u32,
                 //tile_slot: j as u32,
                 _padding1: 0.0,
-                _padding2: [0; 54],
+                _padding2: [0; 6],
             })
             .collect();
 
         if !nodes.is_empty() {
-            queue.write_buffer(&self.uniforms, 0, bytemuck::cast_slice(&nodes));
+            queue.write_buffer(&self.nodes, 0, bytemuck::cast_slice(&nodes));
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            for (i, node_state) in nodes.into_iter().enumerate() {
-                rpass.set_bind_group(
-                    0,
-                    &self.bindgroup_pipeline.as_ref().unwrap().0,
-                    &[(i * mem::size_of::<MeshNodeState>()) as u32],
-                );
-                rpass.draw_indexed_indirect(
-                    &gpu_state.mesh_cache[self.desc.ty].indirect,
-                    node_state.slot as u64 * mem::size_of::<DrawIndexedIndirect>() as u64,
-                );
+            rpass.set_bind_group(
+                0,
+                &self.bindgroup_pipeline.as_ref().unwrap().0,
+                &[],
+            );
+            if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
+                rpass.multi_draw_indexed_indirect(&gpu_state.mesh_cache[self.desc.ty].indirect, 0, nodes.len() as u32);
+            } else {
+                for i in 0..nodes.len() {
+                    rpass.draw_indexed_indirect(
+                        &gpu_state.mesh_cache[self.desc.ty].indirect,
+                        i as u64 * mem::size_of::<DrawIndexedIndirect>() as u64,
+                    );
+                }
             }
         }
     }
