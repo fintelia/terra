@@ -56,7 +56,7 @@ pub(crate) struct CullMeshUniforms {
     entries_per_node: u32,
     padding: [u32; 2],
 
-    nodes: [([f32; 3], bool); 512],
+    nodes: [([f32; 3], u32); 512],
 }
 unsafe impl bytemuck::Zeroable for CullMeshUniforms {}
 unsafe impl bytemuck::Pod for CullMeshUniforms {}
@@ -65,9 +65,9 @@ impl Default for CullMeshUniforms {
     fn default() -> Self {
         Self {
             num_nodes: 0,
-            entries_per_node: 1,
+            entries_per_node: 16,
             padding: [0; 2],
-            nodes: [([0.0; 3], false); 512],
+            nodes: [([0.0; 3], 0); 512],
         }
     }
 }
@@ -120,7 +120,7 @@ impl MeshCache {
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
         let indirect = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (mem::size_of::<DrawIndexedIndirect>() * self.inner.size()) as u64,
+            size: (mem::size_of::<DrawIndexedIndirect>() * self.inner.size() * 16) as u64,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::INDIRECT
                 | wgpu::BufferUsage::COPY_DST,
@@ -133,7 +133,7 @@ impl MeshCache {
         indirect.unmap();
 
         let bounding = device.create_buffer(&wgpu::BufferDescriptor {
-            size: 16 * self.inner.size() as u64,
+            size: 16 * 16 * self.inner.size() as u64,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::COPY_DST,
@@ -241,7 +241,7 @@ impl MeshCache {
                         Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             usage: wgpu::BufferUsage::COPY_SRC,
                             label: Some(&format!("{}.clear_indirect.tmp", mesh_type.name())),
-                            contents: &vec![0; mem::size_of::<DrawIndexedIndirect>()],
+                            contents: &vec![0; mem::size_of::<DrawIndexedIndirect>() * 16],
                         }));
                 }
 
@@ -249,8 +249,8 @@ impl MeshCache {
                     zero_buffer.as_ref().unwrap(),
                     0,
                     &gpu_state.mesh_cache[m.desc.ty].indirect,
-                    (mem::size_of::<DrawIndexedIndirect>() * index) as u64,
-                    mem::size_of::<DrawIndexedIndirect>() as u64,
+                    (mem::size_of::<DrawIndexedIndirect>() * index * 16) as u64,
+                    mem::size_of::<DrawIndexedIndirect>() as u64 * 16,
                 );
 
                 m.desc.generate.run(
@@ -263,7 +263,7 @@ impl MeshCache {
                         texture_origin: texture_slot.2,
                         texture_step: texture_slot.1,
                         tile_slot: cache.tiles.get_slot(entry.node).unwrap() as u32,
-                        output_slot: index as u32,
+                        output_slot: index as u32 * 16,
                         level: entry.node.level() as u32,
                         padding: 0,
                     },
@@ -299,14 +299,14 @@ impl MeshCache {
                     .cast::<f32>()
                     .unwrap()
                     .into(),
-                    entry.valid && entry.priority > Priority::cutoff() && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node)),
+                    (entry.valid && entry.priority > Priority::cutoff() && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node))) as u32,
             );
         }
         cull_shader.run(
             device,
             encoder,
             &gpu_state,
-            ((self.desc.size as u32 + 63) / 64, 1, 1),
+            ((self.desc.size as u32 * 16 + 63) / 64, 1, 1),
             &cull_ubo,
         );
     }
@@ -423,9 +423,9 @@ impl MeshCache {
                 &[],
             );
             if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
-                rpass.multi_draw_indexed_indirect(&gpu_state.mesh_cache[self.desc.ty].indirect, 0, nodes.len() as u32);
+                rpass.multi_draw_indexed_indirect(&gpu_state.mesh_cache[self.desc.ty].indirect, 0, nodes.len() as u32 * 16);
             } else {
-                for i in 0..nodes.len() {
+                for i in 0..(nodes.len() * 16) {
                     rpass.draw_indexed_indirect(
                         &gpu_state.mesh_cache[self.desc.ty].indirect,
                         i as u64 * mem::size_of::<DrawIndexedIndirect>() as u64,

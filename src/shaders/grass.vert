@@ -30,7 +30,7 @@ struct Entry {
     vec4 _padding2;
 };
 layout(std430, binding = 2) readonly buffer DataBlock {
-    Entry entries[][128*128];
+    Entry entries[][32*32];
 } grass_storage;
 
 layout(set = 0, binding = 3) uniform sampler linear;
@@ -54,8 +54,8 @@ void main() {
     uint entry_index = gl_VertexIndex / 7;
     uint index = gl_VertexIndex % 7;
 
-    GrassNode node = nodes[gl_InstanceIndex];
-    Entry entry = grass_storage.entries[node.slot][entry_index];
+    GrassNode node = nodes[gl_InstanceIndex / 16];
+    Entry entry = grass_storage.entries[node.slot * 16 + gl_InstanceIndex % 16][entry_index];
     position = entry.position - node.relative_position;
 
     vec3 up = normalize(position + globals.camera);

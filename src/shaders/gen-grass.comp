@@ -26,7 +26,7 @@ layout(binding = 0) uniform UniformBlock {
     uint padding;
 } ubo;
 layout(std430, binding = 1) buffer StorageDataBlock {
-    Entry entries[][128*128];
+    Entry entries[][32*32];
 } grass_storage;
 coherent layout(std430, binding = 2) buffer IndirectBlock {
     Indirect indirect[];
@@ -54,11 +54,14 @@ vec3 extract_normal(vec2 n) {
 }
 
 void main() {
-    if (gl_GlobalInvocationID.xy == ivec2(0)) {
-       grass_indirect.indirect[ubo.output_slot].instance_count = 1;
+    uvec2 index = gl_GlobalInvocationID.xy % 32;
+    uint slot = ubo.output_slot + 4 * (gl_GlobalInvocationID.y / 32) + (gl_GlobalInvocationID.x / 32);
+
+    if (index == ivec2(0)) {
+       grass_indirect.indirect[slot].instance_count = 1;
     }
 
-    vec2 r = vec2(random(uvec3(gl_GlobalInvocationID.xy, 0)), random(uvec3(gl_GlobalInvocationID.xy, 1)));
+    vec2 r = vec2(random(uvec3(index, 0)), random(uvec3(index, 1)));
     vec2 texcoord = (vec2(gl_GlobalInvocationID.xy) + r) / 128.0;
 
     vec2 material_texcoord = (512.0 * texcoord + 2.0) / 516.0;
@@ -73,20 +76,20 @@ void main() {
     if (normal.y < 0.95)
         return;
 
-    vec3 r3 = vec3(random(uvec3(gl_GlobalInvocationID.xy, 2)), 
-                   random(uvec3(gl_GlobalInvocationID.xy, 3)), 
-                   random(uvec3(gl_GlobalInvocationID.xy, 4)));
+    vec3 r3 = vec3(random(uvec3(index, 2)), 
+                   random(uvec3(index, 3)), 
+                   random(uvec3(index, 4)));
 
-    float angle = random(uvec3(gl_GlobalInvocationID.xy, 5)) * 2.0 * 3.14159265;
+    float angle = random(uvec3(index, 5)) * 2.0 * 3.14159265;
 
-    uint entry = atomicAdd(grass_indirect.indirect[ubo.output_slot].vertex_count, 15) / 15;
+    uint entry = atomicAdd(grass_indirect.indirect[slot].vertex_count, 15) / 15;
 
     vec4 position;
     BILINEAR(position, displacements, vec3(texcoord, ubo.tile_slot))
 
-    grass_storage.entries[ubo.output_slot][entry].texcoord = material_texcoord;
-    grass_storage.entries[ubo.output_slot][entry].position = position.xyz;
-    grass_storage.entries[ubo.output_slot][entry].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3(-.0)) * mix(vec3(.5), vec3(1.5), r3);
-    grass_storage.entries[ubo.output_slot][entry].angle = angle;
-    grass_storage.entries[ubo.output_slot][entry].slant = r.y;
+    grass_storage.entries[slot][entry].texcoord = material_texcoord;
+    grass_storage.entries[slot][entry].position = position.xyz;
+    grass_storage.entries[slot][entry].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3(-.0)) * mix(vec3(.5), vec3(1.5), r3);
+    grass_storage.entries[slot][entry].angle = angle;
+    grass_storage.entries[slot][entry].slant = r.y;
 }

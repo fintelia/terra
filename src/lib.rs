@@ -81,7 +81,7 @@ impl Terrain {
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                         label: Some("buffer.index.grass"),
                         contents: bytemuck::cast_slice(
-                            &*(0..128 * 128)
+                            &*(0..32 * 32)
                                 .flat_map(|i| {
                                     IntoIter::new([0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6])
                                         .map(move |j| j + i * 7)
