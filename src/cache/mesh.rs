@@ -106,6 +106,8 @@ pub(crate) struct MeshCache {
 
     nodes: wgpu::Buffer,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
+
+    compute_bounds: ComputeShader<u32>,
 }
 impl MeshCache {
     pub(super) fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
@@ -115,7 +117,8 @@ impl MeshCache {
             mapped_at_creation: false,
             label: Some("grass.nodes_buffer"),
         });
-        Self { inner: PriorityCache::new(desc.size), desc, nodes, bindgroup_pipeline: None }
+        let compute_bounds = ComputeShader::new(rshader::shader_source!("../shaders", "bounding-sphere.comp", "declarations.glsl"), "bounding-sphere".to_owned());
+        Self { inner: PriorityCache::new(desc.size), desc, nodes, bindgroup_pipeline: None, compute_bounds }
     }
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
@@ -268,6 +271,8 @@ impl MeshCache {
                         padding: 0,
                     },
                 );
+                m.compute_bounds.run(device, &mut encoder, gpu_state, (16, 1, 1), &(index as u32 * 16));
+
                 entry.valid = true;
                 generated.push((mesh_type, entry.node));
             }

@@ -1,0 +1,87 @@
+#version 450 core
+#include "declarations.glsl"
+
+layout(local_size_x = 32) in;
+
+layout(std140, binding = 0) uniform UniformBlock {
+    uint base_slot;
+} ubo;
+
+layout(std430, binding = 1) readonly buffer IndirectBlock {
+    Indirect indirect[];
+} grass_indirect;
+
+struct Sphere {
+    vec3 center;
+    float radius;
+};
+layout(std430, binding = 2) writeonly buffer BoundingBlock {
+    Sphere bounds[];
+} grass_bounding;
+
+struct Entry {
+    vec3 position;
+    float angle;
+    vec3 albedo;
+    float slant;
+    vec2 texcoord;
+    vec2 _padding1;
+    vec4 _padding2;
+};
+layout(std430, binding = 3) readonly buffer DataBlock {
+    Entry entries[][32*32];
+} grass_storage;
+
+shared vec3 min_positions[32];
+shared vec3 max_positions[32];
+shared float max_radius2[32];
+
+shared vec3 center;
+
+void main() {
+    uint slot = ubo.base_slot + gl_WorkGroupID.x;
+    uint max_index = grass_indirect.indirect[slot].vertex_count / 15;
+
+    vec3 position = grass_storage.entries[slot][gl_LocalInvocationID.x].position;
+    min_positions[gl_LocalInvocationID.x] = position;
+    max_positions[gl_LocalInvocationID.x] = position;
+
+    for (int i = 32; i < 32*32; i += 32) {
+        if (i + gl_LocalInvocationID.x < max_index) {
+            position = grass_storage.entries[slot][gl_LocalInvocationID.x + i].position;
+            min_positions[gl_LocalInvocationID.x] = min(min_positions[gl_LocalInvocationID.x], position);
+            max_positions[gl_LocalInvocationID.x] = max(max_positions[gl_LocalInvocationID.x], position);
+        }
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationID.x == 0) {
+        for (int i = 1; i < 32; i++) {
+            min_positions[0] = min(min_positions[0], min_positions[gl_LocalInvocationID.x]);
+            max_positions[0] = max(max_positions[0], max_positions[gl_LocalInvocationID.x]);
+        }
+        center = (min_positions[0] + max_positions[0]) * 0.5;
+    }
+
+    barrier();
+
+    max_radius2[gl_LocalInvocationID.x] = 0;
+    for (int i = 0; i < 32*32; i += 32) {
+        if (i + gl_LocalInvocationID.x < max_index) {
+            vec3 v = grass_storage.entries[slot][gl_LocalInvocationID.x + i].position - center;
+            float radius2 = dot(v, v);
+            max_radius2[gl_LocalInvocationID.x] = max(max_radius2[gl_LocalInvocationID.x], radius2);
+        }
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationID.x == 0) {
+        for (int i = 1; i < 32; i++) {
+            max_radius2[0] = max(max_radius2[0], max_radius2[gl_LocalInvocationID.x]);
+        }
+        grass_bounding.bounds[slot].center = center;
+        grass_bounding.bounds[slot].radius = sqrt(max_radius2[0]) + 0.25;
+    }
+}
