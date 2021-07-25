@@ -55,7 +55,9 @@ pub(crate) struct GenMaterialsUniforms {
     pub albedo_slot: i32,
     pub parent_slot: i32,
     pub spacing: f32,
-    pub padding: i32,
+    pub level: u32,
+    pub position: [i32; 2],
+    pub level_resolution: u32,
 }
 unsafe impl bytemuck::Zeroable for GenMaterialsUniforms {}
 unsafe impl bytemuck::Pod for GenMaterialsUniforms {}

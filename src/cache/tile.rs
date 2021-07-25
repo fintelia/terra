@@ -36,6 +36,7 @@ pub enum TextureFormat {
     SRGBA,
     BC4,
     BC5,
+    UASTC,
 }
 impl TextureFormat {
     /// Returns the number of bytes in a single texel of the format. Actually reports bytes per
@@ -53,9 +54,10 @@ impl TextureFormat {
             TextureFormat::SRGBA => 4,
             TextureFormat::BC4 => 8,
             TextureFormat::BC5 => 16,
+            TextureFormat::UASTC => 16,
         }
     }
-    pub fn to_wgpu(&self) -> wgpu::TextureFormat {
+    pub fn to_wgpu(&self, wgpu_features: wgpu::Features) -> wgpu::TextureFormat {
         match *self {
             TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
@@ -68,11 +70,20 @@ impl TextureFormat {
             TextureFormat::SRGBA => wgpu::TextureFormat::Rgba8UnormSrgb,
             TextureFormat::BC4 => wgpu::TextureFormat::Bc4RUnorm,
             TextureFormat::BC5 => wgpu::TextureFormat::Bc5RgUnorm,
+            TextureFormat::UASTC => {
+                if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+                    wgpu::TextureFormat::Bc7RgbaUnorm
+                } else if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC_LDR) {
+                    wgpu::TextureFormat::Astc4x4RgbaUnorm
+                } else {
+                    unreachable!("Wgpu reports no texture compression support?")
+                }
+            }
         }
     }
     pub fn block_size(&self) -> u32 {
         match *self {
-            TextureFormat::BC4 | TextureFormat::BC5 => 4,
+            TextureFormat::BC4 | TextureFormat::BC5 | TextureFormat::UASTC => 4,
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
@@ -86,7 +97,7 @@ impl TextureFormat {
     }
     pub fn is_compressed(&self) -> bool {
         match *self {
-            TextureFormat::BC4 | TextureFormat::BC5 => true,
+            TextureFormat::BC4 | TextureFormat::BC5 | TextureFormat::UASTC => true,
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
@@ -528,7 +539,7 @@ impl TileCache {
                             height: layer.texture_resolution,
                             depth_or_array_layers: self.inner.size() as u32,
                         },
-                        format: layer.texture_format.to_wgpu(),
+                        format: layer.texture_format.to_wgpu(device.features()),
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,

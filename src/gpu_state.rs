@@ -51,6 +51,8 @@ pub(crate) struct GpuState {
     inscattering: wgpu::Texture,
     aerial_perspective: wgpu::Texture,
 
+    ground_albedo: wgpu::Texture,
+
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
     linear_wrap: wgpu::Sampler,
@@ -67,6 +69,7 @@ impl GpuState {
             sky: mapfile.read_texture(device, queue, "sky")?,
             transmittance: mapfile.read_texture(device, queue, "transmittance")?,
             inscattering: mapfile.read_texture(device, queue, "inscattering")?,
+            ground_albedo: mapfile.read_texture(device, queue, "ground_albedo")?,
             aerial_perspective: device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
                 format: wgpu::TextureFormat::Rgba16Float,
@@ -178,6 +181,7 @@ impl GpuState {
                                 "sky" => &self.sky,
                                 "transmittance" => &self.transmittance,
                                 "inscattering" => &self.inscattering,
+                                "ground_albedo" => &self.ground_albedo,
                                 "aerial_perspective" => &self.aerial_perspective,
                                 "displacements" => &self.tile_cache[LayerType::Displacements],
                                 "albedo" => &self.tile_cache[LayerType::Albedo],

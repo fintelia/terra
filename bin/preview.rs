@@ -94,8 +94,8 @@ fn main() {
             compatible_surface: Some(&surface),
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface)
-        .expect("No compatible swapchain formats");
+    let swapchain_format =
+        adapter.get_swap_chain_preferred_format(&surface).expect("No compatible swapchain formats");
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
@@ -146,42 +146,36 @@ fn main() {
     let mut long = plus_center.x().to_radians();
     let mut altitude = opt.elevation;
 
-    let mut terrain = terra::Terrain::new(&device, &queue).unwrap();
+    let mut terrain = match opt.generate {
+        Some(dataset_directory) => {
+            let pb = indicatif::ProgressBar::new(100);
+            pb.set_style(
+                indicatif::ProgressStyle::default_bar()
+                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+                    .progress_chars("=> "),
+            );
+            let mut last_message = None;
+            let progress_callback = |l: &str, i: usize, total: usize| {
+                if last_message.is_none() || l != last_message.as_ref().unwrap() {
+                    pb.set_message(l);
+                    pb.reset_eta();
+                    last_message = Some(l.to_string());
+                }
+                pb.set_length(total as u64);
+                pb.set_position(i as u64);
+            };
 
-    if let Some(dataset_directory) = opt.generate {
-        let pb = indicatif::ProgressBar::new(100);
-        pb.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
-                .progress_chars("=> "),
-        );
-        let mut last_message = None;
-        let mut progress_callback = |l: &str, i: usize, total: usize| {
-            if last_message.is_none() || l != last_message.as_ref().unwrap() {
-                pb.set_message(l);
-                pb.reset_eta();
-                last_message = Some(l.to_string());
-            }
-            pb.set_length(total as u64);
-            pb.set_position(i as u64);
-        };
-
-        runtime
-            .block_on(terrain.generate_heightmaps(
-                dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-                dataset_directory.join("nasadem"),
-                dataset_directory.join("nasadem_reprojected"),
-                &mut progress_callback,
-            ))
-            .unwrap();
-        runtime
-            .block_on(
-                terrain
-                    .generate_albedos(dataset_directory.join("bluemarble"), &mut progress_callback),
-            )
-            .unwrap();
-        runtime.block_on(terrain.generate_roughness(&mut progress_callback)).unwrap();
-    }
+            runtime
+                .block_on(terra::Terrain::generate_and_new(
+                    &device,
+                    &queue,
+                    dataset_directory,
+                    progress_callback,
+                ))
+                .unwrap()
+        }
+        None => terra::Terrain::new(&device, &queue).unwrap(),
+    };
 
     {
         let r = altitude + planet_radius;
@@ -251,7 +245,13 @@ fn main() {
             },
             event::Event::MainEventsCleared => {
                 if swap_chain.is_none() {
-                    swap_chain = Some(make_swapchain(&device, &surface, size.width, size.height, swapchain_format));
+                    swap_chain = Some(make_swapchain(
+                        &device,
+                        &surface,
+                        size.width,
+                        size.height,
+                        swapchain_format,
+                    ));
                 }
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));

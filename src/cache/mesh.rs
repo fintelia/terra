@@ -8,7 +8,7 @@ use crate::{
 use cgmath::Vector2;
 use maplit::hashmap;
 use std::mem;
-use std::{collections::HashMap, convert::TryInto};
+use std::collections::HashMap;
 use wgpu::util::DeviceExt;
 
 use super::{GeneratorMask, LayerMask, TileCache, UnifiedPriorityCache};

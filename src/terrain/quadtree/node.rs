@@ -1,5 +1,4 @@
 use crate::cache::Priority;
-use crate::coordinates::PLANET_RADIUS;
 use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
 use crate::utils::math::InfiniteFrustum;
 use cgmath::*;

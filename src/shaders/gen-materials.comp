@@ -12,7 +12,9 @@ layout(binding = 0) uniform UniformBlock {
 	int albedo_slot;
 	int parent_slot;
 	float spacing;
-	int padding;
+	uint level;
+	ivec2 position;
+	uint level_resolution;
 } ubo;
 
 layout(r32ui, binding = 1) readonly uniform uimage2DArray heightmaps;

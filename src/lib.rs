@@ -32,6 +32,7 @@ use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::array::IntoIter;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
 use utils::math::InfiniteFrustum;
@@ -55,9 +56,31 @@ pub struct Terrain {
     cache: UnifiedPriorityCache,
 }
 impl Terrain {
+    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(device: &wgpu::Device, queue: &wgpu::Queue, dataset_directory: P, mut progress_callback: F) -> Result<Self, Error> {
+        let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
+
+        let dataset_directory = dataset_directory.as_ref();
+        generate::generate_heightmaps(
+            &*mapfile,
+            dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
+            dataset_directory.join("nasadem"),
+            dataset_directory.join("nasadem_reprojected"),
+            &mut progress_callback,
+        ).await?;
+        generate::generate_albedos(&*mapfile, dataset_directory.join("bluemarble"), &mut progress_callback).await?;
+        generate::generate_roughness(&*mapfile, &mut progress_callback).await?;
+        generate::generate_materials(&*mapfile, dataset_directory.join("free_pbr"), &mut progress_callback).await?;
+
+        Self::new_impl(device, queue, mapfile)
+    }
+
     /// Create a new Terrain object.
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
+        Self::new_impl(device, queue, mapfile)
+    }
+
+    fn new_impl(device: &wgpu::Device, queue: &wgpu::Queue, mapfile: Arc<MapFile>) -> Result<Self, Error> {
         let cache = UnifiedPriorityCache::new(
             device,
             Arc::clone(&mapfile),
