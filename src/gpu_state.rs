@@ -12,8 +12,8 @@ pub(crate) struct DrawIndexedIndirect {
     vertex_count: u32,   // The number of vertices to draw.
     instance_count: u32, // The number of instances to draw.
     base_index: u32,     // The base index within the index buffer.
-    vertex_offset: i32,  // The value added to the vertex index before indexing into the vertex buffer.
-    base_instance: u32,  // The instance ID of the first instance to draw.
+    vertex_offset: i32, // The value added to the vertex index before indexing into the vertex buffer.
+    base_instance: u32, // The instance ID of the first instance to draw.
 }
 
 pub(crate) struct GpuMeshLayer {
@@ -41,9 +41,11 @@ pub(crate) struct GpuState {
 
     pub bc4_staging: wgpu::Texture,
     pub bc5_staging: wgpu::Texture,
+    pub staging_buffer: wgpu::Buffer,
 
     pub globals: wgpu::Buffer,
     pub node_buffer: wgpu::Buffer,
+    pub generate_uniforms: wgpu::Buffer,
 
     noise: wgpu::Texture,
     sky: wgpu::Texture,
@@ -106,6 +108,12 @@ impl GpuState {
                     | wgpu::TextureUsage::SAMPLED,
                 label: Some("texture.staging.bc5"),
             }),
+            staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                size: 4 * 1024 * 1024,
+                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
+                mapped_at_creation: false,
+                label: Some("buffer.staging"),
+            }),
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_cache: cache.make_gpu_mesh_cache(device),
             texture_cache: cache.make_gpu_texture_cache(device),
@@ -121,6 +129,14 @@ impl GpuState {
                     | wgpu::BufferUsage::UNIFORM
                     | wgpu::BufferUsage::STORAGE,
                 label: Some("buffer.nodes"),
+                mapped_at_creation: false,
+            }),
+            generate_uniforms: device.create_buffer(&wgpu::BufferDescriptor {
+                size: 256 * 1024,
+                usage: wgpu::BufferUsage::COPY_DST
+                    | wgpu::BufferUsage::UNIFORM
+                    | wgpu::BufferUsage::STORAGE,
+                label: Some("buffer.generate.tiles"),
                 mapped_at_creation: false,
             }),
             nearest: device.create_sampler(&wgpu::SamplerDescriptor {

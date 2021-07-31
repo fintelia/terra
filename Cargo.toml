@@ -64,6 +64,7 @@ structopt = "0.3.21"
 thiserror = "1.0.22"
 tiff = { git = "https://github.com/image-rs/image-tiff" }
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+tokio-stream = "0.1.7"
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = "0.9.0"
 winit = "0.24.0"

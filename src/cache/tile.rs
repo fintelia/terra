@@ -181,17 +181,35 @@ pub(crate) struct TileCache {
     pub(super) generators: Vec<Box<dyn GenerateTile>>,
 
     streamer: TileStreamerEndpoint,
-    pending_heightmap_downloads:
-        FuturesUnordered<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
+    start_download:
+        tokio::sync::mpsc::UnboundedSender<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
+    completed_downloads: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
+    free_download_buffers: Vec<wgpu::Buffer>,
+    total_download_buffers: usize,
 }
 impl TileCache {
     pub fn new(mapfile: Arc<MapFile>, generators: Vec<Box<dyn GenerateTile>>, size: usize) -> Self {
+        let layers = mapfile.layers().clone();
+
+        let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
+
+        let heightmap_resolution = layers[LayerType::Heightmaps].texture_resolution as usize;
+        let heightmap_bytes_per_pixel =
+            layers[LayerType::Heightmaps].texture_format.bytes_per_block() as usize;
+        std::thread::spawn(move || {
+            Self::download_thread(start_rx, completed_tx, heightmap_resolution, heightmap_bytes_per_pixel)
+        });
+
         Self {
             inner: PriorityCache::new(size),
-            layers: mapfile.layers().clone(),
+            layers,
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             generators,
-            pending_heightmap_downloads: FuturesUnordered::new(),
+            start_download: start_tx,
+            completed_downloads: completed_rx,
+            free_download_buffers: Vec::new(),
+            total_download_buffers: 0,
         }
     }
 
@@ -276,6 +294,7 @@ impl TileCache {
             label: Some("encoder.tiles.generate"),
         });
 
+        let mut uniform_data = Vec::new();
         for (i, nodes) in &mut pending_generate {
             let layer = LayerType::from_index(i);
             for n in nodes {
@@ -301,11 +320,15 @@ impl TileCache {
                         && (parent_entry.is_none()
                             || parent_inputs & !parent_entry.as_ref().unwrap().valid
                                 != LayerMask::empty());
+                    let missing_download_buffers = outputs.contains_tile(LayerType::Heightmaps)
+                        && cache.tiles.free_download_buffers.is_empty()
+                        && cache.tiles.total_download_buffers == 64;
 
                     if generates_layer
                         && has_peer_inputs
                         && !root_input_missing
                         && !parent_input_missing
+                        && !missing_download_buffers
                     {
                         let slot = cache.tiles.inner.index_of(&n).unwrap();
                         let parent_slot = if let Some(p) = n.parent() {
@@ -324,6 +347,7 @@ impl TileCache {
                             slot,
                             parent_slot,
                             output_mask,
+                            &mut uniform_data,
                         );
 
                         let mut input_generators = GeneratorMask::from_index(generator_index);
@@ -354,12 +378,17 @@ impl TileCache {
                             let row_bytes = resolution * bytes_per_pixel;
                             let row_pitch = (row_bytes + 255) & !255;
 
-                            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                                size: row_pitch * resolution,
-                                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                                label: Some(&format!("buffer.tiles.download.{}", i)),
-                                mapped_at_creation: false,
-                            });
+                            let buffer =
+                                cache.tiles.free_download_buffers.pop().unwrap_or_else(|| {
+                                    cache.tiles.total_download_buffers += 1;
+                                    device.create_buffer(&wgpu::BufferDescriptor {
+                                        size: row_pitch * resolution,
+                                        usage: wgpu::BufferUsage::COPY_DST
+                                            | wgpu::BufferUsage::MAP_READ,
+                                        label: Some(&format!("buffer.tiles.download")),
+                                        mapped_at_creation: false,
+                                    })
+                                });
                             encoder.copy_texture_to_buffer(
                                 wgpu::ImageCopyTexture {
                                     texture: &gpu_state.tile_cache[LayerType::Heightmaps],
@@ -391,10 +420,11 @@ impl TileCache {
                 }
             }
         }
+        queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
         queue.submit(Some(encoder.finish()));
 
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
-            cache.tiles.pending_heightmap_downloads.push(
+            let _ = cache.tiles.start_download.send(
                 buffer
                     .slice(..)
                     .map_async(wgpu::MapMode::Read)
@@ -488,43 +518,63 @@ impl TileCache {
     }
 
     pub(super) fn download_tiles(&mut self) {
-        loop {
-            futures::select! {
-                h = self.pending_heightmap_downloads.select_next_some() => {
-                    if let Ok((node, buffer)) = h {
-                        if let Some(entry) = self.inner.entry_mut(&node) {
-                            let bytes_per_pixel =
-                            self.layers[LayerType::Heightmaps].texture_format.bytes_per_block()
-                                as usize;
-                            let resolution =
-                                self.layers[LayerType::Heightmaps].texture_resolution as usize;
-                            let row_bytes = resolution * bytes_per_pixel;
-                            let row_pitch = (row_bytes + 255) & !255;
-                            let mut heights = vec![0u32; resolution * resolution];
+        while let Ok((node, buffer, heightmap)) = self.completed_downloads.try_recv() {
+            if let Some(entry) = self.inner.entry_mut(&node) {
+                self.free_download_buffers.push(buffer);
+                entry.heightmap = Some(heightmap);
+            }
+        }
+    }
 
+    fn download_thread(
+        start_rx: tokio::sync::mpsc::UnboundedReceiver<
+            BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>,
+        >,
+        completed_tx: crossbeam::channel::Sender<(VNode, wgpu::Buffer, CpuHeightmap)>,
+        heightmap_resolution: usize,
+        heightmap_bytes_per_pixel: usize,
+    ) {
+        let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
+        let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
+
+        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async move {
+            let mut pending_heightmap_downloads = FuturesUnordered::new();
+            let mut start_rx = tokio_stream::wrappers::UnboundedReceiverStream::new(start_rx).fuse();
+            loop {
+                futures::select! {
+                    n = start_rx.select_next_some() => {
+                        pending_heightmap_downloads.push(n);
+                    }
+                    h = pending_heightmap_downloads.select_next_some() => {
+                        if let Ok((node, buffer)) = h {
+                            let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
                             {
                                 let mapped_buffer = buffer.slice(..).get_mapped_range();
-                                for (h, b) in heights.chunks_exact_mut(resolution).zip(mapped_buffer.chunks_exact(row_pitch)) {
-                                    bytemuck::cast_slice_mut(h).copy_from_slice(&b[..row_bytes]);
+                                for (h, b) in heights.chunks_exact_mut(heightmap_resolution).zip(mapped_buffer.chunks_exact(heightmap_row_pitch)) {
+                                    bytemuck::cast_slice_mut(h).copy_from_slice(&b[..heightmap_row_bytes]);
                                 }
                             }
                             buffer.unmap();
 
-                            let heights: Vec<f32> = heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
-
+                            let heights: Vec<f32> =
+                                heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
                             let (mut min, mut max) = (f32::MAX, 0.0);
                             for &h in &heights {
-                                if min < h { min = h; }
-                                if max > h { max = h; }
+                                if min < h {
+                                    min = h;
+                                }
+                                if max > h {
+                                    max = h;
+                                }
                             }
-                            entry.heightmap = Some(CpuHeightmap::F32 { min, max, heights: Arc::new(heights) });
+
+                            let _ = completed_tx.send((node, buffer, CpuHeightmap::F32 { min, max, heights: Arc::new(heights) }));
                         }
                     }
+                    complete => break,
                 }
-                default => break,
-                complete => break,
             }
-        }
+        });
     }
 
     pub(super) fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
@@ -622,7 +672,7 @@ impl TileCache {
             if let Some(CpuHeightmap::I16 { min, max, .. } | CpuHeightmap::F32 { min, max, .. }) =
                 self.inner.entry(&n).and_then(|entry| Some(entry.heightmap.as_ref()?))
             {
-                return (min.min(0.0), *max + 300.0);
+                return (min.min(0.0), *max + 6000.0);
             }
             node = n.parent().map(|p| p.0);
         }

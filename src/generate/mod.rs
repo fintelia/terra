@@ -28,6 +28,7 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Cursor;
+use std::num::NonZeroU64;
 use std::{
     borrow::Cow, collections::HashMap, f64::consts::PI, fs::File, mem, num::NonZeroU32,
     path::PathBuf,
@@ -81,6 +82,7 @@ pub(crate) trait GenerateTile: Send {
         slot: usize,
         parent_slot: Option<usize>,
         output_mask: LayerMask,
+        uniform_data: &mut Vec<u8>,
     );
 }
 
@@ -142,19 +144,14 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
         slot: usize,
         parent_slot: Option<usize>,
         output_mask: LayerMask,
+        uniform_data: &mut Vec<u8>,
     ) {
         let uniforms = (self.f)(node, slot, parent_slot, output_mask);
 
-        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            size: mem::size_of::<T>() as u64,
-            usage: wgpu::BufferUsage::UNIFORM,
-            label: Some(&format!("buffer.generate.{}.uniforms", self.name)),
-            mapped_at_creation: true,
-        });
-        let mut buffer_view = uniform_buffer.slice(..).get_mapped_range_mut();
-        buffer_view.copy_from_slice(bytemuck::bytes_of(&uniforms));
-        drop(buffer_view);
-        uniform_buffer.unmap();
+        assert!(std::mem::size_of::<T>() <= 256);
+        let uniform_offset = uniform_data.len();
+        uniform_data.extend_from_slice(bytemuck::bytes_of(&uniforms));
+        uniform_data.resize(uniform_offset + 256, 0);
 
         let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
         if let Some(parent_slot) = parent_slot {
@@ -189,9 +186,9 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             device,
             &self.shader,
             hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                buffer: &uniform_buffer,
-                offset: 0,
-                size: None,
+                buffer: &state.generate_uniforms,
+                offset: uniform_offset as u64,
+                size: Some(NonZeroU64::new(mem::size_of::<T>() as u64).unwrap()),
             }))],
             image_views,
             &format!("generate.{}", self.name),
@@ -232,12 +229,6 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             let resolution_blocks = (resolution + 3) / 4;
             let row_pitch = (resolution_blocks * 16 + 255) & !255;
             assert!(resolution % 4 == 0);
-            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                size: row_pitch as u64 * resolution_blocks as u64,
-                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
-                mapped_at_creation: false,
-                label: Some("buffer.blit.bc5"),
-            });
             encoder.copy_texture_to_buffer(
                 wgpu::ImageCopyTexture {
                     texture: &state.bc5_staging,
@@ -245,7 +236,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                     origin: wgpu::Origin3d::default(),
                 },
                 wgpu::ImageCopyBuffer {
-                    buffer: &buffer,
+                    buffer: &state.staging_buffer,
                     layout: wgpu::ImageDataLayout {
                         bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
                         rows_per_image: None,
@@ -260,7 +251,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             );
             encoder.copy_buffer_to_texture(
                 wgpu::ImageCopyBuffer {
-                    buffer: &buffer,
+                    buffer: &state.staging_buffer,
                     layout: wgpu::ImageDataLayout {
                         bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
                         rows_per_image: Some(NonZeroU32::new(resolution).unwrap()),

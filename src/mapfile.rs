@@ -88,6 +88,10 @@ impl MapFile {
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
+        if node.level() > VNode::LEVEL_CELL_38M {
+            return Ok(TileState::GpuOnly);
+        }
+
         Ok(match self.lookup_tile_meta(layer, node)? {
             Some(meta) => meta.state,
             None => TileState::GpuOnly,
