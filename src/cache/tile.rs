@@ -7,11 +7,10 @@ use crate::{
     stream::{TileResult, TileStreamerEndpoint},
 };
 use crate::{
-    generate::GenerateTile,
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use cache::{LayerType, PriorityCache};
+use cache::{LayerType, PriorityCache, generators::GenerateTile};
 use cgmath::Vector3;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;

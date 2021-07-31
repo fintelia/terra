@@ -1,3 +1,4 @@
+pub mod generators;
 mod mesh;
 mod texture;
 mod tile;
@@ -8,7 +9,7 @@ pub(crate) use texture::{SingularLayerCache, SingularLayerDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use crate::{
-    generate::{ComputeShader, GenerateTile},
+    generate::ComputeShader,
     gpu_state::{GpuMeshLayer, GpuState},
     mapfile::MapFile,
     terrain::quadtree::{QuadTree, VNode},
@@ -23,6 +24,8 @@ use std::{
 };
 use std::{collections::HashMap, num::NonZeroU32};
 use vec_map::VecMap;
+
+use self::generators::GenerateTile;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
