@@ -401,13 +401,12 @@ impl UnifiedPriorityCache {
     pub fn new(
         device: &wgpu::Device,
         mapfile: Arc<MapFile>,
-        size: usize,
         generators: Vec<Box<dyn GenerateTile>>,
         mesh_layers: Vec<MeshCacheDesc>,
         texture_layers: Vec<SingularLayerDesc>,
     ) -> Self {
         Self {
-            tiles: TileCache::new(mapfile, generators, size),
+            tiles: TileCache::new(mapfile, generators),
             meshes: mesh_layers
                 .into_iter()
                 .map(|desc| (desc.ty as usize, MeshCache::new(device, desc)))
@@ -435,10 +434,12 @@ impl UnifiedPriorityCache {
             if gen.needs_refresh() {
                 assert!(i < 32);
                 let mask = GeneratorMask::from_index(i);
-                for slot in self.tiles.inner.slots_mut() {
-                    for (layer, generator_mask) in &slot.generators {
-                        if generator_mask.intersects(mask) {
-                            slot.valid &= !LayerType::from_index(layer).bit_mask();
+                for cache in self.tiles.levels.iter_mut() {
+                    for slot in cache.slots_mut() {
+                        for (layer, generator_mask) in &slot.generators {
+                            if generator_mask.intersects(mask) {
+                                slot.valid &= !LayerType::from_index(layer).bit_mask();
+                            }
                         }
                     }
                 }
@@ -494,7 +495,7 @@ impl UnifiedPriorityCache {
     fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
         let mut generators = GeneratorMask::empty();
 
-        if let Some(entry) = self.tiles.inner.entry(&node) {
+        if let Some(entry) = self.tiles.levels[node.level() as usize].entry(&node) {
             for layer in LayerType::iter().filter(|layer| mask.contains_tile(*layer)) {
                 generators |= entry
                     .generators

@@ -84,7 +84,6 @@ impl Terrain {
         let cache = UnifiedPriorityCache::new(
             device,
             Arc::clone(&mapfile),
-            512,
             crate::generate::generators(
                 mapfile.layers(),
                 !device.features().contains(wgpu::Features::SHADER_FLOAT64),

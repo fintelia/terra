@@ -1,4 +1,5 @@
 use crate::cache::{LayerParams, LayerType, TextureFormat};
+use crate::coordinates;
 use crate::generate::heightmap::{HeightmapCache, Sector, SectorCache};
 use crate::gpu_state::GpuState;
 use crate::mapfile::{MapFile, TextureDescriptor};
@@ -12,7 +13,6 @@ use crate::{
     asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset},
     cache::LayerMask,
 };
-use crate::coordinates;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use bytemuck::Pod;
@@ -26,6 +26,7 @@ use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::fs;
 use std::io::Cursor;
 use std::num::NonZeroU64;
@@ -39,7 +40,6 @@ use std::{
     sync::{Arc, Mutex},
 };
 use vec_map::VecMap;
-use std::convert::TryFrom;
 
 mod gpu;
 pub mod heightmap;
@@ -153,25 +153,28 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
         uniform_data.extend_from_slice(bytemuck::bytes_of(&uniforms));
         uniform_data.resize(uniform_offset + 256, 0);
 
+        let views_needed = self.outputs(node.level()) & self.parent_inputs(node.level());
         let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
         if let Some(parent_slot) = parent_slot {
-            for layer in layers.values() {
+            for layer in layers.values().filter(|l| views_needed.contains_tile(l.layer_type)) {
                 image_views.insert(
                     format!("{}_in", layer.layer_type.name()).into(),
-                    state.tile_cache[layer.layer_type].0.create_view(&wgpu::TextureViewDescriptor {
-                        label: Some(&format!("view.{}[{}]", layer.layer_type.name(), parent_slot)),
-                        base_array_layer: parent_slot as u32,
-                        array_layer_count: Some(NonZeroU32::new(1).unwrap()),
-                        ..Default::default()
-                    }),
+                    state.tile_cache[layer.layer_type].0.create_view(
+                        &wgpu::TextureViewDescriptor {
+                            label: Some(&format!(
+                                "view.{}[{}]",
+                                layer.layer_type.name(),
+                                parent_slot
+                            )),
+                            base_array_layer: parent_slot as u32,
+                            array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                            ..Default::default()
+                        },
+                    ),
                 );
             }
         }
-
-        let views_needed = self.outputs(node.level()) & self.parent_inputs(node.level());
-        for layer in
-            layers.values().filter(|l| views_needed.contains_tile(l.layer_type))
-        {
+        for layer in layers.values().filter(|l| views_needed.contains_tile(l.layer_type)) {
             image_views.insert(
                 format!("{}_out", layer.layer_type.name()).into(),
                 state.tile_cache[layer.layer_type].0.create_view(&wgpu::TextureViewDescriptor {
@@ -565,8 +568,8 @@ impl MapFileBuilder {
                     texture_border_size: 4,
                     texture_format: TextureFormat::R32,
                     tiles_generated_per_frame: 16,
-                    // peer_dependency_mask: 0,
-                    // parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Displacements.index() => LayerParams {
                     layer_type: LayerType::Displacements,
@@ -574,8 +577,8 @@ impl MapFileBuilder {
                     texture_border_size: 0,
                     texture_format: TextureFormat::RGBA32F,
                     tiles_generated_per_frame: 128,
-                    // peer_dependency_mask: 0,
-                    // parent_dependency_mask: LayerType::Heightmaps.bit_mask(),
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Albedo.index() => LayerParams {
                     layer_type: LayerType::Albedo,
@@ -583,8 +586,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::RGBA8,
                     tiles_generated_per_frame: 16,
-                    // peer_dependency_mask: 0,
-                    // parent_dependency_mask: LayerType::Albedo.bit_mask(),
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Roughness.index() => LayerParams {
                     layer_type: LayerType::Roughness,
@@ -592,8 +595,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC4,
                     tiles_generated_per_frame: 16,
-                    // peer_dependency_mask: 0,
-                    // parent_dependency_mask: LayerType::Roughness.bit_mask(),
+                    min_level: 0,
+                    max_level: 1,
                 },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
@@ -601,8 +604,8 @@ impl MapFileBuilder {
                     texture_border_size: 2,
                     texture_format: TextureFormat::BC5,
                     tiles_generated_per_frame: 16,
-                    // peer_dependency_mask: LayerType::Heightmaps.bit_mask(),
-                    // parent_dependency_mask: LayerType::Albedo.bit_mask(),
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
                 },
         ]
         .into_iter()
@@ -733,11 +736,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
         let mut unstarted: Option<(usize, BoxFuture<_>)> = None;
 
         loop {
-            progress_callback(
-                "Generating heightmap sectors...",
-                sectors_processed,
-                total_sectors,
-            );
+            progress_callback("Generating heightmap sectors...", sectors_processed, total_sectors);
             if unstarted.is_some()
                 && (loaded_rasters + unstarted.as_ref().unwrap().0 <= MAX_RASTERS
                     || loaded_rasters == 0)
@@ -828,8 +827,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
             }
 
             while !unordered.is_empty() {
-                let (x, (downsampled_resolution, downsampled)) =
-                    unordered.next().await.unwrap()?;
+                let (x, (downsampled_resolution, downsampled)) = unordered.next().await.unwrap()?;
 
                 let origin_x = x * (face_resolution - 1) / sectors_per_side;
                 let origin_y = y * (face_resolution - 1) / sectors_per_side;
@@ -838,8 +836,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                     heightmap[(origin_y + k) * face_resolution + origin_x..]
                         [..downsampled_resolution]
                         .copy_from_slice(
-                            &downsampled[k * downsampled_resolution..]
-                                [..downsampled_resolution],
+                            &downsampled[k * downsampled_resolution..][..downsampled_resolution],
                         );
                 }
             }
@@ -883,12 +880,10 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                 face_resolution,
                 face_resolution
             );
-            let bytes =
-                tokio::fs::read(nasadem_reprojected_directory.join(face_filename)).await?;
+            let bytes = tokio::fs::read(nasadem_reprojected_directory.join(face_filename)).await?;
             let mut limits = tiff::decoder::Limits::default();
             limits.decoding_buffer_size = 4 << 30;
-            let mut decoder =
-                tiff::decoder::Decoder::new(Cursor::new(&bytes))?.with_limits(limits);
+            let mut decoder = tiff::decoder::Decoder::new(Cursor::new(&bytes))?.with_limits(limits);
             if let tiff::decoder::DecodingResult::I16(v) = decoder.read_image()? {
                 Arc::new(v)
             } else {
@@ -900,18 +895,17 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
         while !missing.is_empty() || !unordered.is_empty() {
             if unordered.len() < 16 && !missing.is_empty() {
                 let node = missing.pop().unwrap();
-                let parent =
-                    node.parent().map(|p| (p.1, tile_cache.get_tile(&mapfile, p.0)));
+                let parent = node.parent().map(|p| (p.1, tile_cache.get_tile(&mapfile, p.0)));
 
                 let mut heights = vec![0; resolution * resolution];
                 let fut = if ((resolution - 1) << node.level() + 1) < face_resolution {
                     let face_scale = (face_resolution - 1) / (resolution - 1);
                     let face_step = face_scale >> node.level();
                     let skirt = border_size * (face_scale - face_step);
-                    let face_x = skirt
-                        + node.x() as usize * (resolution - border_size * 2 - 1) * face_step;
-                    let face_y = skirt
-                        + node.y() as usize * (resolution - border_size * 2 - 1) * face_step;
+                    let face_x =
+                        skirt + node.x() as usize * (resolution - border_size * 2 - 1) * face_step;
+                    let face_y =
+                        skirt + node.y() as usize * (resolution - border_size * 2 - 1) * face_step;
 
                     let face_heightmap = Arc::clone(&face_heightmap);
 
@@ -1024,8 +1018,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                                 node,
                                 heightmap::compress_heightmap_tile(
                                     resolution,
-                                    2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level())
-                                        as i8,
+                                    2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
                                     &heights,
                                     parent,
                                     5,
@@ -1040,11 +1033,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                 mapfile.write_tile(LayerType::Heightmaps, node, &bytes, true)?;
 
                 tiles_processed += 1;
-                progress_callback(
-                    "Generating heightmap tiles...",
-                    tiles_processed,
-                    total_tiles,
-                );
+                progress_callback("Generating heightmap tiles...", tiles_processed, total_tiles);
             }
         }
     }
@@ -1248,7 +1237,6 @@ pub(crate) async fn generate_materials<F: FnMut(&str, usize, usize) + Send>(
 
     Ok(())
 }
-
 
 fn generate_noise(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
     if !mapfile.reload_texture("noise") {
