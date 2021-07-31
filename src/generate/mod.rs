@@ -158,7 +158,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             for layer in layers.values() {
                 image_views.insert(
                     format!("{}_in", layer.layer_type.name()).into(),
-                    state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
+                    state.tile_cache[layer.layer_type].0.create_view(&wgpu::TextureViewDescriptor {
                         label: Some(&format!("view.{}[{}]", layer.layer_type.name(), parent_slot)),
                         base_array_layer: parent_slot as u32,
                         array_layer_count: Some(NonZeroU32::new(1).unwrap()),
@@ -168,12 +168,13 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             }
         }
 
+        let views_needed = self.outputs(node.level()) & self.parent_inputs(node.level());
         for layer in
-            layers.values().filter(|l| self.outputs(node.level()).contains_tile(l.layer_type))
+            layers.values().filter(|l| views_needed.contains_tile(l.layer_type))
         {
             image_views.insert(
                 format!("{}_out", layer.layer_type.name()).into(),
-                state.tile_cache[layer.layer_type].create_view(&wgpu::TextureViewDescriptor {
+                state.tile_cache[layer.layer_type].0.create_view(&wgpu::TextureViewDescriptor {
                     label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),
                     base_array_layer: slot as u32,
                     array_layer_count: Some(NonZeroU32::new(1).unwrap()),
@@ -190,7 +191,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                 offset: uniform_offset as u64,
                 size: Some(NonZeroU64::new(mem::size_of::<T>() as u64).unwrap()),
             }))],
-            image_views,
+            image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
             &format!("generate.{}", self.name),
         );
 
@@ -231,7 +232,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             assert!(resolution % 4 == 0);
             encoder.copy_texture_to_buffer(
                 wgpu::ImageCopyTexture {
-                    texture: &state.bc5_staging,
+                    texture: &state.bc5_staging.0,
                     mip_level: 0,
                     origin: wgpu::Origin3d::default(),
                 },
@@ -259,7 +260,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                     },
                 },
                 wgpu::ImageCopyTexture {
-                    texture: &state.tile_cache[LayerType::Normals],
+                    texture: &state.tile_cache[LayerType::Normals].0,
                     mip_level: 0,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                 },

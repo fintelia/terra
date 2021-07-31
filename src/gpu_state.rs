@@ -35,25 +35,25 @@ unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 
 pub(crate) struct GpuState {
-    pub tile_cache: VecMap<wgpu::Texture>,
+    pub tile_cache: VecMap<(wgpu::Texture, wgpu::TextureView)>,
     pub mesh_cache: VecMap<GpuMeshLayer>,
-    pub texture_cache: VecMap<wgpu::Texture>,
+    pub texture_cache: VecMap<(wgpu::Texture, wgpu::TextureView)>,
 
-    pub bc4_staging: wgpu::Texture,
-    pub bc5_staging: wgpu::Texture,
+    pub bc4_staging: (wgpu::Texture, wgpu::TextureView),
+    pub bc5_staging: (wgpu::Texture, wgpu::TextureView),
     pub staging_buffer: wgpu::Buffer,
 
     pub globals: wgpu::Buffer,
     pub node_buffer: wgpu::Buffer,
     pub generate_uniforms: wgpu::Buffer,
 
-    noise: wgpu::Texture,
-    sky: wgpu::Texture,
-    transmittance: wgpu::Texture,
-    inscattering: wgpu::Texture,
-    aerial_perspective: wgpu::Texture,
+    noise: (wgpu::Texture, wgpu::TextureView),
+    sky: (wgpu::Texture, wgpu::TextureView),
+    transmittance: (wgpu::Texture, wgpu::TextureView),
+    inscattering: (wgpu::Texture, wgpu::TextureView),
+    aerial_perspective: (wgpu::Texture, wgpu::TextureView),
 
-    ground_albedo: wgpu::Texture,
+    ground_albedo: (wgpu::Texture, wgpu::TextureView),
 
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
@@ -66,13 +66,21 @@ impl GpuState {
         mapfile: &MapFile,
         cache: &UnifiedPriorityCache,
     ) -> Result<Self, anyhow::Error> {
+        let with_view = |name: &'static str, t: wgpu::Texture| {
+            let view = t.create_view(&wgpu::TextureViewDescriptor {
+                label: Some(&format!("texture.{}.view", name)),
+                ..Default::default()
+            });
+            (t, view)
+        };
+
         Ok(GpuState {
-            noise: mapfile.read_texture(device, queue, "noise")?,
-            sky: mapfile.read_texture(device, queue, "sky")?,
-            transmittance: mapfile.read_texture(device, queue, "transmittance")?,
-            inscattering: mapfile.read_texture(device, queue, "inscattering")?,
-            ground_albedo: mapfile.read_texture(device, queue, "ground_albedo")?,
-            aerial_perspective: device.create_texture(&wgpu::TextureDescriptor {
+            noise: with_view("noise", mapfile.read_texture(device, queue, "noise")?),
+            sky: with_view("sky", mapfile.read_texture(device, queue, "sky")?),
+            transmittance: with_view("transmittance", mapfile.read_texture(device, queue, "transmittance")?),
+            inscattering: with_view("inscattering", mapfile.read_texture(device, queue, "inscattering")?),
+            ground_albedo: with_view("ground_albedo", mapfile.read_texture(device, queue, "ground_albedo")?),
+            aerial_perspective: with_view("aerial_perspective", device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
                 format: wgpu::TextureFormat::Rgba16Float,
                 mip_level_count: 1,
@@ -83,8 +91,8 @@ impl GpuState {
                     | wgpu::TextureUsage::STORAGE
                     | wgpu::TextureUsage::SAMPLED,
                 label: Some("texture.aerial_perspective"),
-            }),
-            bc4_staging: device.create_texture(&wgpu::TextureDescriptor {
+            })),
+            bc4_staging: with_view("bc4_staging", device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
                 format: wgpu::TextureFormat::Rg32Uint,
                 mip_level_count: 1,
@@ -95,8 +103,8 @@ impl GpuState {
                     | wgpu::TextureUsage::STORAGE
                     | wgpu::TextureUsage::SAMPLED,
                 label: Some("texture.staging.bc4"),
-            }),
-            bc5_staging: device.create_texture(&wgpu::TextureDescriptor {
+            })),
+            bc5_staging: with_view("bc5_staging", device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
                 format: wgpu::TextureFormat::Rgba32Uint,
                 mip_level_count: 1,
@@ -107,7 +115,7 @@ impl GpuState {
                     | wgpu::TextureUsage::STORAGE
                     | wgpu::TextureUsage::SAMPLED,
                 label: Some("texture.staging.bc5"),
-            }),
+            })),
             staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 4 * 1024 * 1024,
                 usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
@@ -177,7 +185,7 @@ impl GpuState {
         device: &wgpu::Device,
         shader: &rshader::ShaderSet,
         buffers: HashMap<Cow<str>, (bool, wgpu::BindingResource)>,
-        image_views: HashMap<Cow<str>, wgpu::TextureView>,
+        image_views: HashMap<Cow<str>, &wgpu::TextureView>,
         group_name: &str,
     ) -> (wgpu::BindGroup, wgpu::BindGroupLayout) {
         let mut layout_descriptor_entries = shader.layout_descriptor().entries.to_vec();
@@ -193,30 +201,24 @@ impl GpuState {
                         image_views.insert(
                             name.into(),
                             match name {
-                                "noise" => &self.noise,
-                                "sky" => &self.sky,
-                                "transmittance" => &self.transmittance,
-                                "inscattering" => &self.inscattering,
-                                "ground_albedo" => &self.ground_albedo,
-                                "aerial_perspective" => &self.aerial_perspective,
-                                "displacements" => &self.tile_cache[LayerType::Displacements],
-                                "albedo" => &self.tile_cache[LayerType::Albedo],
-                                "roughness" => &self.tile_cache[LayerType::Roughness],
-                                "normals" => &self.tile_cache[LayerType::Normals],
-                                "heightmaps" => &self.tile_cache[LayerType::Heightmaps],
+                                "noise" => &self.noise.1,
+                                "sky" => &self.sky.1,
+                                "transmittance" => &self.transmittance.1,
+                                "inscattering" => &self.inscattering.1,
+                                "ground_albedo" => &self.ground_albedo.1,
+                                "aerial_perspective" => &self.aerial_perspective.1,
+                                "displacements" => &self.tile_cache[LayerType::Displacements].1,
+                                "albedo" => &self.tile_cache[LayerType::Albedo].1,
+                                "roughness" => &self.tile_cache[LayerType::Roughness].1,
+                                "normals" => &self.tile_cache[LayerType::Normals].1,
+                                "heightmaps" => &self.tile_cache[LayerType::Heightmaps].1,
                                 "grass_canopy" => {
-                                    &self.texture_cache[SingularLayerType::GrassCanopy]
+                                    &self.texture_cache[SingularLayerType::GrassCanopy].1
                                 }
-                                "bc4_staging" => &self.bc4_staging,
-                                "bc5_staging" => &self.bc5_staging,
+                                "bc4_staging" => &self.bc4_staging.1,
+                                "bc5_staging" => &self.bc5_staging.1,
                                 _ => unreachable!("unrecognized image: {}", name),
                             }
-                            .create_view(
-                                &wgpu::TextureViewDescriptor {
-                                    label: Some(&format!("view.{}", name)),
-                                    ..Default::default()
-                                },
-                            ),
                         );
                     }
                 }

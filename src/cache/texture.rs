@@ -125,8 +125,8 @@ impl SingularLayerCache {
         queue.submit(command_buffers);
     }
 
-    pub(super) fn make_cache_texture(&self, device: &wgpu::Device) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
+    pub(super) fn make_cache_texture(&self, device: &wgpu::Device) -> (wgpu::Texture, wgpu::TextureView) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
             size: wgpu::Extent3d {
                 width: self.desc.texture_resolution,
                 height: self.desc.texture_resolution,
@@ -145,6 +145,11 @@ impl SingularLayerCache {
                     wgpu::TextureUsage::empty()
                 },
             label: Some(&format!("texture.singular.{}", self.desc.ty.name())),
-        })
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some(&format!("texture.singular.{}.view", self.desc.ty.name())),
+            ..Default::default()
+        });
+        (texture, view)
     }
 }

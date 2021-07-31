@@ -198,7 +198,12 @@ impl TileCache {
         let heightmap_bytes_per_pixel =
             layers[LayerType::Heightmaps].texture_format.bytes_per_block() as usize;
         std::thread::spawn(move || {
-            Self::download_thread(start_rx, completed_tx, heightmap_resolution, heightmap_bytes_per_pixel)
+            Self::download_thread(
+                start_rx,
+                completed_tx,
+                heightmap_resolution,
+                heightmap_bytes_per_pixel,
+            )
         });
 
         Self {
@@ -391,7 +396,7 @@ impl TileCache {
                                 });
                             encoder.copy_texture_to_buffer(
                                 wgpu::ImageCopyTexture {
-                                    texture: &gpu_state.tile_cache[LayerType::Heightmaps],
+                                    texture: &gpu_state.tile_cache[LayerType::Heightmaps].0,
                                     mip_level: 0,
                                     origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                                 },
@@ -439,7 +444,7 @@ impl TileCache {
         }
     }
 
-    pub(super) fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<wgpu::Texture>) {
+    pub(super) fn upload_tiles(&mut self, queue: &wgpu::Queue, textures: &VecMap<(wgpu::Texture, wgpu::TextureView)>) {
         while let Some(mut tile) = self.streamer.try_complete() {
             if let Some(entry) = self.inner.entry_mut(&tile.node()) {
                 entry.valid |= tile.layer().bit_mask();
@@ -497,7 +502,7 @@ impl TileCache {
 
                 queue.write_texture(
                     wgpu::ImageCopyTexture {
-                        texture: &textures[layer],
+                        texture: &textures[layer].0,
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
                     },
@@ -577,33 +582,41 @@ impl TileCache {
         });
     }
 
-    pub(super) fn make_cache_textures(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+    pub(super) fn make_cache_textures(
+        &self,
+        device: &wgpu::Device,
+    ) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
         self.layers
             .iter()
             .map(|(ty, layer)| {
-                (
-                    ty,
-                    device.create_texture(&wgpu::TextureDescriptor {
-                        size: wgpu::Extent3d {
-                            width: layer.texture_resolution,
-                            height: layer.texture_resolution,
-                            depth_or_array_layers: self.inner.size() as u32,
+                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d {
+                        width: layer.texture_resolution,
+                        height: layer.texture_resolution,
+                        depth_or_array_layers: self.inner.size() as u32,
+                    },
+                    format: layer.texture_format.to_wgpu(device.features()),
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsage::COPY_SRC
+                        | wgpu::TextureUsage::COPY_DST
+                        | wgpu::TextureUsage::SAMPLED
+                        | if !layer.texture_format.is_compressed() {
+                            wgpu::TextureUsage::STORAGE
+                        } else {
+                            wgpu::TextureUsage::empty()
                         },
-                        format: layer.texture_format.to_wgpu(device.features()),
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        usage: wgpu::TextureUsage::COPY_SRC
-                            | wgpu::TextureUsage::COPY_DST
-                            | wgpu::TextureUsage::SAMPLED
-                            | if !layer.texture_format.is_compressed() {
-                                wgpu::TextureUsage::STORAGE
-                            } else {
-                                wgpu::TextureUsage::empty()
-                            },
-                        label: Some(&format!("texture.tiles.{}", LayerType::from_index(ty).name())),
-                    }),
-                )
+                    label: Some(&format!("texture.tiles.{}", LayerType::from_index(ty).name())),
+                });
+                let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(&format!(
+                        "texture.tiles.{}.view",
+                        LayerType::from_index(ty).name()
+                    )),
+                    ..Default::default()
+                });
+                (ty, (texture, view))
             })
             .collect()
     }

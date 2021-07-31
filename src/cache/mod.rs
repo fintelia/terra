@@ -506,13 +506,13 @@ impl UnifiedPriorityCache {
         generators
     }
 
-    pub fn make_gpu_tile_cache(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+    pub fn make_gpu_tile_cache(&self, device: &wgpu::Device) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
         self.tiles.make_cache_textures(device)
     }
     pub fn make_gpu_mesh_cache(&self, device: &wgpu::Device) -> VecMap<GpuMeshLayer> {
         self.meshes.iter().map(|(i, c)| (i, c.make_buffers(device))).collect()
     }
-    pub fn make_gpu_texture_cache(&self, device: &wgpu::Device) -> VecMap<wgpu::Texture> {
+    pub fn make_gpu_texture_cache(&self, device: &wgpu::Device) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
         self.textures.iter().map(|(i, c)| (i, c.make_cache_texture(device))).collect()
     }
 
