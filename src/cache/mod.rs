@@ -1,11 +1,8 @@
 pub mod generators;
 mod mesh;
-mod texture;
 mod tile;
 
-use cgmath::Vector2;
 pub(crate) use mesh::{MeshCache, MeshCacheDesc};
-pub(crate) use texture::{SingularLayerCache, SingularLayerDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use crate::{
@@ -34,6 +31,8 @@ pub(crate) enum LayerType {
     Roughness = 2,
     Normals = 3,
     Heightmaps = 4,
+    GrassCanopy = 5,
+    MaterialKind = 6,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -46,6 +45,8 @@ impl LayerType {
             2 => LayerType::Roughness,
             3 => LayerType::Normals,
             4 => LayerType::Heightmaps,
+            5 => LayerType::GrassCanopy,
+            6 => LayerType::MaterialKind,
             _ => unreachable!(),
         }
     }
@@ -59,10 +60,12 @@ impl LayerType {
             LayerType::Roughness => "roughness",
             LayerType::Normals => "normals",
             LayerType::Heightmaps => "heightmaps",
+            LayerType::GrassCanopy => "grass_canopy",
+            LayerType::MaterialKind => "material_kind",
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=4).map(Self::from_index)
+        (0..=6).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {
@@ -109,41 +112,6 @@ impl<T> IndexMut<MeshType> for VecMap<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-pub(crate) enum SingularLayerType {
-    GrassCanopy = 0,
-}
-impl SingularLayerType {
-    pub fn name(&self) -> &'static str {
-        match *self {
-            SingularLayerType::GrassCanopy => "grass_canopy",
-        }
-    }
-    pub fn bit_mask(&self) -> LayerMask {
-        (*self).into()
-    }
-    fn from_index(i: usize) -> Self {
-        match i {
-            0 => SingularLayerType::GrassCanopy,
-            _ => unreachable!(),
-        }
-    }
-    fn iter() -> impl Iterator<Item = Self> {
-        (0..=0).map(Self::from_index)
-    }
-}
-impl<T> Index<SingularLayerType> for VecMap<T> {
-    type Output = T;
-    fn index(&self, i: SingularLayerType) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-impl<T> IndexMut<SingularLayerType> for VecMap<T> {
-    fn index_mut(&mut self, i: SingularLayerType) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) struct LayerMask(NonZeroU32);
 impl LayerMask {
@@ -159,16 +127,12 @@ impl LayerMask {
     pub fn all_meshes() -> Self {
         Self(NonZeroU32::new(Self::VALID | 0x00ff00).unwrap())
     }
-    #[allow(unused)]
-    pub fn all_textures() -> Self {
-        Self(NonZeroU32::new(Self::VALID | 0xff0000).unwrap())
-    }
 
     pub fn intersects(&self, other: Self) -> bool {
         self.0.get() & other.0.get() != Self::VALID
     }
 
-    pub fn contains_tile(&self, t: LayerType) -> bool {
+    pub fn contains_layer(&self, t: LayerType) -> bool {
         assert!((t as usize) < 8);
         self.0.get() & (1 << (t as usize)) != 0
     }
@@ -176,10 +140,6 @@ impl LayerMask {
     pub fn contains_mesh(&self, t: MeshType) -> bool {
         assert!((t as usize) < 8);
         self.0.get() & (1 << (t as usize + 8)) != 0
-    }
-    pub fn contains_texture(&self, t: SingularLayerType) -> bool {
-        assert!((t as usize) < 8);
-        self.0.get() & (1 << (t as usize + 16)) != 0
     }
 }
 impl From<LayerType> for LayerMask {
@@ -192,12 +152,6 @@ impl From<MeshType> for LayerMask {
     fn from(t: MeshType) -> Self {
         assert!((t as usize) < 8);
         Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 8))).unwrap())
-    }
-}
-impl From<SingularLayerType> for LayerMask {
-    fn from(t: SingularLayerType) -> Self {
-        assert!((t as usize) < 8);
-        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 16))).unwrap())
     }
 }
 impl std::ops::BitOr for LayerMask {
@@ -272,12 +226,6 @@ impl std::ops::Not for GeneratorMask {
     fn not(self) -> Self {
         Self(NonZeroU32::new(Self::VALID | !self.0.get()).unwrap())
     }
-}
-
-pub(crate) struct CacheLookup {
-    pub slot: usize,
-    pub offset: Vector2<u32>,
-    pub levels: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -395,7 +343,6 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
 pub(crate) struct UnifiedPriorityCache {
     pub tiles: TileCache,
     meshes: VecMap<MeshCache>,
-    textures: VecMap<SingularLayerCache>,
 
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
 }
@@ -406,17 +353,12 @@ impl UnifiedPriorityCache {
         mapfile: Arc<MapFile>,
         generators: Vec<Box<dyn GenerateTile>>,
         mesh_layers: Vec<MeshCacheDesc>,
-        texture_layers: Vec<SingularLayerDesc>,
     ) -> Self {
         Self {
             tiles: TileCache::new(mapfile, generators),
             meshes: mesh_layers
                 .into_iter()
                 .map(|desc| (desc.ty as usize, MeshCache::new(device, desc)))
-                .collect(),
-            textures: texture_layers
-                .into_iter()
-                .map(|desc| (desc.ty as usize, SingularLayerCache::new(desc)))
                 .collect(),
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
@@ -453,13 +395,6 @@ impl UnifiedPriorityCache {
                         }
                     }
                 }
-                for m in self.textures.values_mut() {
-                    for slot in m.inner.slots_mut() {
-                        if slot.generators.intersects(mask) {
-                            slot.valid = false;
-                        }
-                    }
-                }
             }
         }
 
@@ -470,19 +405,6 @@ impl UnifiedPriorityCache {
                 }
             }
         }
-
-        for texture_cache in self.textures.values_mut() {
-            if texture_cache.desc.generate.refresh() {
-                for entry in texture_cache.inner.slots_mut() {
-                    entry.valid = false;
-                }
-            }
-        }
-
-        for m in self.textures.values_mut() {
-            m.update(quadtree);
-        }
-        SingularLayerCache::generate_all(self, device, queue, gpu_state);
 
         self.tiles.update(quadtree);
         self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
@@ -499,7 +421,7 @@ impl UnifiedPriorityCache {
         let mut generators = GeneratorMask::empty();
 
         if let Some(entry) = self.tiles.levels[node.level() as usize].entry(&node) {
-            for layer in LayerType::iter().filter(|layer| mask.contains_tile(*layer)) {
+            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
                 generators |= entry
                     .generators
                     .get(layer.index())
@@ -515,9 +437,6 @@ impl UnifiedPriorityCache {
     }
     pub fn make_gpu_mesh_cache(&self, device: &wgpu::Device) -> VecMap<GpuMeshLayer> {
         self.meshes.iter().map(|(i, c)| (i, c.make_buffers(device))).collect()
-    }
-    pub fn make_gpu_texture_cache(&self, device: &wgpu::Device) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
-        self.textures.iter().map(|(i, c)| (i, c.make_cache_texture(device))).collect()
     }
 
     pub fn cull_meshes<'a>(
@@ -551,34 +470,12 @@ impl UnifiedPriorityCache {
         &self.tiles.layers[ty]
     }
 
-    pub fn lookup_texture(&self, ty: SingularLayerType, n: VNode) -> Option<CacheLookup> {
-        let cache = &self.textures[ty];
-        if n.level() < cache.desc.level {
-            return None;
-        }
-        let (n, levels, offset) = n.find_ancestor(|n| n.level() == cache.desc.level).unwrap();
-        cache.inner.index_of(&n).map(|slot| CacheLookup { slot, levels, offset })
-    }
-
     #[allow(unused)]
     fn contains_all(&self, node: VNode, mask: LayerMask) -> bool {
         if mask.intersects(LayerMask::all_tiles())
             && !self.tiles.contains_all(node, mask & LayerMask::all_tiles())
         {
             return false;
-        }
-
-        if mask.intersects(LayerMask::all_textures()) {
-            for cache in self.textures.values().filter(|c| mask.contains_texture(c.desc.ty)) {
-                let mut n = node;
-                while n.level() > cache.desc.level {
-                    n = n.parent().unwrap().0;
-                }
-
-                if !cache.inner.contains(&n) {
-                    return false;
-                }
-            }
         }
 
         if mask.intersects(LayerMask::all_meshes()) {

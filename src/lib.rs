@@ -26,7 +26,7 @@ use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
-use cache::{SingularLayerDesc, SingularLayerType, TextureFormat, UnifiedPriorityCache};
+use cache::UnifiedPriorityCache;
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
@@ -56,7 +56,12 @@ pub struct Terrain {
     cache: UnifiedPriorityCache,
 }
 impl Terrain {
-    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(device: &wgpu::Device, queue: &wgpu::Queue, dataset_directory: P, mut progress_callback: F) -> Result<Self, Error> {
+    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        dataset_directory: P,
+        mut progress_callback: F,
+    ) -> Result<Self, Error> {
         let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
 
         let dataset_directory = dataset_directory.as_ref();
@@ -66,10 +71,21 @@ impl Terrain {
             dataset_directory.join("nasadem"),
             dataset_directory.join("nasadem_reprojected"),
             &mut progress_callback,
-        ).await?;
-        generate::generate_albedos(&*mapfile, dataset_directory.join("bluemarble"), &mut progress_callback).await?;
+        )
+        .await?;
+        generate::generate_albedos(
+            &*mapfile,
+            dataset_directory.join("bluemarble"),
+            &mut progress_callback,
+        )
+        .await?;
         generate::generate_roughness(&*mapfile, &mut progress_callback).await?;
-        generate::generate_materials(&*mapfile, dataset_directory.join("free_pbr"), &mut progress_callback).await?;
+        generate::generate_materials(
+            &*mapfile,
+            dataset_directory.join("free_pbr"),
+            &mut progress_callback,
+        )
+        .await?;
 
         Self::new_impl(device, queue, mapfile)
     }
@@ -80,7 +96,11 @@ impl Terrain {
         Self::new_impl(device, queue, mapfile)
     }
 
-    fn new_impl(device: &wgpu::Device, queue: &wgpu::Queue, mapfile: Arc<MapFile>) -> Result<Self, Error> {
+    fn new_impl(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        mapfile: Arc<MapFile>,
+    ) -> Result<Self, Error> {
         let cache = UnifiedPriorityCache::new(
             device,
             Arc::clone(&mapfile),
@@ -93,10 +113,10 @@ impl Terrain {
                 ty: MeshType::Grass,
                 max_bytes_per_entry: 128 * 128 * 64,
                 dimensions: 128 / 8,
-                dependency_mask: LayerType::Displacements.bit_mask()
+                peer_dependency_mask: LayerType::Displacements.bit_mask()
                     | LayerType::Albedo.bit_mask()
-                    | LayerType::Normals.bit_mask()
-                    | SingularLayerType::GrassCanopy.bit_mask(),
+                    | LayerType::Normals.bit_mask(),
+                ancester_dependency_mask: LayerType::GrassCanopy.bit_mask(),
                 min_level: VNode::LEVEL_SIDE_19M,
                 max_level: VNode::LEVEL_SIDE_5M,
                 index_buffer: {
@@ -132,23 +152,6 @@ impl Terrain {
                     ),
                 )
                 .unwrap(),
-            }],
-            vec![SingularLayerDesc {
-                generate: ComputeShader::new(
-                    rshader::shader_source!(
-                        "shaders",
-                        "gen-grass-canopy.comp",
-                        "declarations.glsl",
-                        "hash.glsl"
-                    ),
-                    "grass-canopy".to_string(),
-                ),
-                cache_size: 32,
-                dependency_mask: LayerType::Normals.bit_mask(),
-                level: VNode::LEVEL_CELL_1M,
-                ty: SingularLayerType::GrassCanopy,
-                texture_resolution: 516,
-                texture_format: TextureFormat::RGBA8,
             }],
         );
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;

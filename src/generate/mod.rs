@@ -100,6 +100,15 @@ impl MapFileBuilder {
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
+            LayerType::GrassCanopy.index() => LayerParams {
+                    layer_type: LayerType::GrassCanopy,
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: TextureFormat::RGBA8,
+                    tiles_generated_per_frame: 16,
+                    min_level: VNode::LEVEL_CELL_1M,
+                    max_level: VNode::LEVEL_CELL_1M,
+            }
         ]
         .into_iter()
         .collect();

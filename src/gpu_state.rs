@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
-    cache::{LayerType, MeshType, SingularLayerType, UnifiedPriorityCache},
+    cache::{LayerType, MeshType, UnifiedPriorityCache},
     mapfile::MapFile,
     terrain::quadtree::NodeState,
 };
@@ -37,7 +37,6 @@ unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 pub(crate) struct GpuState {
     pub tile_cache: VecMap<(wgpu::Texture, wgpu::TextureView)>,
     pub mesh_cache: VecMap<GpuMeshLayer>,
-    pub texture_cache: VecMap<(wgpu::Texture, wgpu::TextureView)>,
 
     pub bc4_staging: (wgpu::Texture, wgpu::TextureView),
     pub bc5_staging: (wgpu::Texture, wgpu::TextureView),
@@ -77,45 +76,63 @@ impl GpuState {
         Ok(GpuState {
             noise: with_view("noise", mapfile.read_texture(device, queue, "noise")?),
             sky: with_view("sky", mapfile.read_texture(device, queue, "sky")?),
-            transmittance: with_view("transmittance", mapfile.read_texture(device, queue, "transmittance")?),
-            inscattering: with_view("inscattering", mapfile.read_texture(device, queue, "inscattering")?),
-            ground_albedo: with_view("ground_albedo", mapfile.read_texture(device, queue, "ground_albedo")?),
-            aerial_perspective: with_view("aerial_perspective", device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
-                format: wgpu::TextureFormat::Rgba16Float,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                usage: wgpu::TextureUsage::COPY_SRC
-                    | wgpu::TextureUsage::COPY_DST
-                    | wgpu::TextureUsage::STORAGE
-                    | wgpu::TextureUsage::SAMPLED,
-                label: Some("texture.aerial_perspective"),
-            })),
-            bc4_staging: with_view("bc4_staging", device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-                format: wgpu::TextureFormat::Rg32Uint,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                usage: wgpu::TextureUsage::COPY_SRC
-                    | wgpu::TextureUsage::COPY_DST
-                    | wgpu::TextureUsage::STORAGE
-                    | wgpu::TextureUsage::SAMPLED,
-                label: Some("texture.staging.bc4"),
-            })),
-            bc5_staging: with_view("bc5_staging", device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-                format: wgpu::TextureFormat::Rgba32Uint,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                usage: wgpu::TextureUsage::COPY_SRC
-                    | wgpu::TextureUsage::COPY_DST
-                    | wgpu::TextureUsage::STORAGE
-                    | wgpu::TextureUsage::SAMPLED,
-                label: Some("texture.staging.bc5"),
-            })),
+            transmittance: with_view(
+                "transmittance",
+                mapfile.read_texture(device, queue, "transmittance")?,
+            ),
+            inscattering: with_view(
+                "inscattering",
+                mapfile.read_texture(device, queue, "inscattering")?,
+            ),
+            ground_albedo: with_view(
+                "ground_albedo",
+                mapfile.read_texture(device, queue, "ground_albedo")?,
+            ),
+            aerial_perspective: with_view(
+                "aerial_perspective",
+                device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsage::COPY_SRC
+                        | wgpu::TextureUsage::COPY_DST
+                        | wgpu::TextureUsage::STORAGE
+                        | wgpu::TextureUsage::SAMPLED,
+                    label: Some("texture.aerial_perspective"),
+                }),
+            ),
+            bc4_staging: with_view(
+                "bc4_staging",
+                device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
+                    format: wgpu::TextureFormat::Rg32Uint,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsage::COPY_SRC
+                        | wgpu::TextureUsage::COPY_DST
+                        | wgpu::TextureUsage::STORAGE
+                        | wgpu::TextureUsage::SAMPLED,
+                    label: Some("texture.staging.bc4"),
+                }),
+            ),
+            bc5_staging: with_view(
+                "bc5_staging",
+                device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
+                    format: wgpu::TextureFormat::Rgba32Uint,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsage::COPY_SRC
+                        | wgpu::TextureUsage::COPY_DST
+                        | wgpu::TextureUsage::STORAGE
+                        | wgpu::TextureUsage::SAMPLED,
+                    label: Some("texture.staging.bc5"),
+                }),
+            ),
             staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 4 * 1024 * 1024,
                 usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
@@ -124,7 +141,6 @@ impl GpuState {
             }),
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_cache: cache.make_gpu_mesh_cache(device),
-            texture_cache: cache.make_gpu_texture_cache(device),
             globals: device.create_buffer(&wgpu::BufferDescriptor {
                 size: std::mem::size_of::<GlobalUniformBlock>() as u64,
                 usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
@@ -212,13 +228,11 @@ impl GpuState {
                                 "roughness" => &self.tile_cache[LayerType::Roughness].1,
                                 "normals" => &self.tile_cache[LayerType::Normals].1,
                                 "heightmaps" => &self.tile_cache[LayerType::Heightmaps].1,
-                                "grass_canopy" => {
-                                    &self.texture_cache[SingularLayerType::GrassCanopy].1
-                                }
+                                "grass_canopy" => &self.tile_cache[LayerType::GrassCanopy].1,
                                 "bc4_staging" => &self.bc4_staging.1,
                                 "bc5_staging" => &self.bc5_staging.1,
                                 _ => unreachable!("unrecognized image: {}", name),
-                            }
+                            },
                         );
                     }
                 }

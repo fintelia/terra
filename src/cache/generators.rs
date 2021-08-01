@@ -1,4 +1,9 @@
-use std::{borrow::Cow, collections::HashMap, mem, num::{NonZeroU32, NonZeroU64}};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    mem,
+    num::{NonZeroU32, NonZeroU64},
+};
 
 use super::{LayerMask, LayerParams, LayerType};
 use crate::{
@@ -10,8 +15,8 @@ use crate::{
 };
 use bytemuck::Pod;
 use cgmath::Vector2;
-use std::convert::TryFrom;
 use maplit::hashmap;
+use std::convert::TryFrom;
 use vec_map::VecMap;
 
 pub(crate) trait GenerateTile: Send {
@@ -108,7 +113,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
         let views_needed = self.outputs(node.level()) & self.parent_inputs(node.level());
         let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
         if let Some(parent_slot) = parent_slot {
-            for layer in layers.values().filter(|l| views_needed.contains_tile(l.layer_type)) {
+            for layer in layers.values().filter(|l| views_needed.contains_layer(l.layer_type)) {
                 image_views.insert(
                     format!("{}_in", layer.layer_type.name()).into(),
                     state.tile_cache[layer.layer_type].0.create_view(
@@ -126,7 +131,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                 );
             }
         }
-        for layer in layers.values().filter(|l| views_needed.contains_tile(l.layer_type)) {
+        for layer in layers.values().filter(|l| views_needed.contains_layer(l.layer_type)) {
             image_views.insert(
                 format!("{}_out", layer.layer_type.name()).into(),
                 state.tile_cache[layer.layer_type].0.create_view(&wgpu::TextureViewDescriptor {
@@ -320,6 +325,11 @@ pub(crate) fn generators(
     let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
     let normals_resolution = layers[LayerType::Normals].texture_resolution;
     let normals_border = layers[LayerType::Normals].texture_border_size;
+    let grass_canopy_resolution = layers[LayerType::GrassCanopy].texture_resolution;
+
+    let grass_canopy_base_slot = 30
+        + super::tile::SLOTS_PER_LEVEL as u32
+            * (layers[LayerType::GrassCanopy].min_level - 2) as u32;
 
     vec![
         ShaderGenBuilder::new(
@@ -466,7 +476,7 @@ pub(crate) fn generators(
                     node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
 
                 let albedo_slot =
-                    if output_mask.contains_tile(LayerType::Albedo) { slot as i32 } else { -1 };
+                    if output_mask.contains_layer(LayerType::Albedo) { slot as i32 } else { -1 };
 
                 let parent_index = node.parent().unwrap().1;
 
@@ -507,5 +517,17 @@ pub(crate) fn generators(
                 }
             },
         ),
+        ShaderGenBuilder::new(
+            "grass-canopy".into(),
+            rshader::shader_source!("../shaders", "gen-grass-canopy.comp", "declarations.glsl", "hash.glsl"),
+        )
+        .outputs(LayerType::GrassCanopy.bit_mask())
+        .dimensions((grass_canopy_resolution + 7) / 8)
+        .peer_inputs(LayerType::Normals.bit_mask())
+        .no_validate()
+        .build(move |node: VNode, slot: usize, _, _| -> [u32; 2] {
+            assert_eq!(node.level(), VNode::LEVEL_CELL_1M);
+            [slot as u32, slot as u32 - grass_canopy_base_slot]
+        })
     ]
 }

@@ -1,5 +1,5 @@
 use crate::{
-    cache::{MeshType, Priority, PriorityCache, PriorityCacheEntry},
+    cache::{LayerType, MeshType, Priority, PriorityCache, PriorityCacheEntry},
     generate::ComputeShader,
     gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::{QuadTree, VNode},
@@ -7,8 +7,8 @@ use crate::{
 };
 use cgmath::Vector2;
 use maplit::hashmap;
-use std::mem;
 use std::collections::HashMap;
+use std::mem;
 use wgpu::util::DeviceExt;
 
 use super::{GeneratorMask, LayerMask, TileCache, UnifiedPriorityCache};
@@ -63,12 +63,7 @@ unsafe impl bytemuck::Pod for CullMeshUniforms {}
 
 impl Default for CullMeshUniforms {
     fn default() -> Self {
-        Self {
-            num_nodes: 0,
-            entries_per_node: 16,
-            padding: [0; 2],
-            nodes: [([0.0; 3], 0); 512],
-        }
+        Self { num_nodes: 0, entries_per_node: 16, padding: [0; 2], nodes: [([0.0; 3], 0); 512] }
     }
 }
 
@@ -93,7 +88,8 @@ pub(crate) struct MeshCacheDesc {
     pub generate: ComputeShader<MeshGenerateUniforms>,
     pub render: rshader::ShaderSet,
     pub dimensions: u32,
-    pub dependency_mask: LayerMask,
+    pub peer_dependency_mask: LayerMask,
+    pub ancester_dependency_mask: LayerMask,
     pub min_level: u8,
     pub max_level: u8,
     pub ty: MeshType,
@@ -117,8 +113,17 @@ impl MeshCache {
             mapped_at_creation: false,
             label: Some("grass.nodes_buffer"),
         });
-        let compute_bounds = ComputeShader::new(rshader::shader_source!("../shaders", "bounding-sphere.comp", "declarations.glsl"), "bounding-sphere".to_owned());
-        Self { inner: PriorityCache::new(desc.size), desc, nodes, bindgroup_pipeline: None, compute_bounds }
+        let compute_bounds = ComputeShader::new(
+            rshader::shader_source!("../shaders", "bounding-sphere.comp", "declarations.glsl"),
+            "bounding-sphere".to_owned(),
+        );
+        Self {
+            inner: PriorityCache::new(desc.size),
+            desc,
+            nodes,
+            bindgroup_pipeline: None,
+            compute_bounds,
+        }
     }
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
@@ -194,6 +199,7 @@ impl MeshCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
     ) {
+        let tiles = &cache.tiles;
         let mut generated = Vec::new();
         let mut command_buffers = Vec::new();
         for mesh_type in MeshType::iter() {
@@ -210,30 +216,49 @@ impl MeshCache {
                 }
                 if !cache
                     .tiles
-                    .contains_all(entry.node, m.desc.dependency_mask & LayerMask::all_tiles())
+                    .contains_all(entry.node, m.desc.peer_dependency_mask & LayerMask::all_tiles())
                 {
                     continue;
                 }
 
-                let mut texture_slot = None;
-                for cache in cache.textures.values() {
-                    if m.desc.dependency_mask.contains_texture(cache.desc.ty) {
-                        let texture_origin = Vector2::new(2.5, 2.5) / 516.0;
-                        let texture_ratio = 511.0 / 516.0;
-                        let texture_step = 511.0 / 516.0;
-                        let (ancestor, generations, offset) =
-                            entry.node.find_ancestor(|n| n.level() <= cache.desc.level).unwrap();
-                        let scale = (0.5f32).powi(generations as i32);
-                        let offset = Vector2::new(offset.x as f32, offset.y as f32);
-                        let offset = texture_origin + scale * texture_ratio * offset;
+                let ancester_dependency_mask = m.desc.ancester_dependency_mask;
+                let has_all_ancestor_dependencies = LayerType::iter()
+                    .filter(|layer| ancester_dependency_mask.contains_layer(*layer))
+                    .all(|layer| {
+                        if entry.node.level() < tiles.layers[layer].min_level {
+                            false
+                        } else if entry.node.level() <= tiles.layers[layer].max_level {
+                            tiles.contains(entry.node, layer)
+                        } else {
+                            let ancestor = entry.node.find_ancestor(|node| {
+                                node.level() == tiles.layers[layer].max_level
+                            }).unwrap().0;
+                            tiles.contains(ancestor, layer)
+                        }
+                    });
+                if !has_all_ancestor_dependencies {
+                    continue;
+                }
 
-                        match cache.inner.index_of(&ancestor) {
-                            None => continue 'outer,
-                            Some(index) => {
-                                assert!(texture_slot.is_none());
-                                texture_slot =
-                                    Some((index, scale * texture_step, [offset.x, offset.y]));
-                            }
+                let mut texture_slot = None;
+                if m.desc.ancester_dependency_mask.contains_layer(LayerType::GrassCanopy) {
+                    assert_eq!(m.desc.ancester_dependency_mask, LayerType::GrassCanopy.bit_mask());
+
+                    let texture_origin = Vector2::new(2.5, 2.5) / 516.0;
+                    let texture_ratio = 511.0 / 516.0;
+                    let texture_step = 511.0 / 516.0;
+                    let (ancestor, generations, offset) =
+                        entry.node.find_ancestor(|n| n.level() <= tiles.layers[LayerType::GrassCanopy].max_level).unwrap();
+                    let scale = (0.5f32).powi(generations as i32);
+                    let offset = Vector2::new(offset.x as f32, offset.y as f32);
+                    let offset = texture_origin + scale * texture_ratio * offset;
+
+                    match cache.tiles.get_slot(ancestor) {
+                        None => continue 'outer,
+                        Some(index) => {
+                            assert!(texture_slot.is_none());
+                            texture_slot =
+                                Some((index, scale * texture_step, [offset.x, offset.y]));
                         }
                     }
                 }
@@ -271,7 +296,13 @@ impl MeshCache {
                         padding: 0,
                     },
                 );
-                m.compute_bounds.run(device, &mut encoder, gpu_state, (16, 1, 1), &(index as u32 * 16));
+                m.compute_bounds.run(
+                    device,
+                    &mut encoder,
+                    gpu_state,
+                    (16, 1, 1),
+                    &(index as u32 * 16),
+                );
 
                 entry.valid = true;
                 generated.push((mesh_type, entry.node));
@@ -280,7 +311,7 @@ impl MeshCache {
         }
         for (mesh_type, node) in generated {
             cache.meshes[mesh_type].inner.entry_mut(&node).unwrap().generators =
-                cache.generator_dependencies(node, cache.meshes[mesh_type].desc.dependency_mask);
+                cache.generator_dependencies(node, cache.meshes[mesh_type].desc.peer_dependency_mask);
         }
 
         queue.submit(command_buffers);
@@ -304,7 +335,10 @@ impl MeshCache {
                     .cast::<f32>()
                     .unwrap()
                     .into(),
-                    (entry.valid && entry.priority > Priority::cutoff() && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node))) as u32,
+                (entry.valid
+                    && entry.priority > Priority::cutoff()
+                    && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node)))
+                    as u32,
             );
         }
         cull_shader.run(
@@ -422,13 +456,13 @@ impl MeshCache {
             queue.write_buffer(&self.nodes, 0, bytemuck::cast_slice(&nodes));
             rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            rpass.set_bind_group(
-                0,
-                &self.bindgroup_pipeline.as_ref().unwrap().0,
-                &[],
-            );
+            rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
             if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
-                rpass.multi_draw_indexed_indirect(&gpu_state.mesh_cache[self.desc.ty].indirect, 0, nodes.len() as u32 * 16);
+                rpass.multi_draw_indexed_indirect(
+                    &gpu_state.mesh_cache[self.desc.ty].indirect,
+                    0,
+                    nodes.len() as u32 * 16,
+                );
             } else {
                 for i in 0..(nodes.len() * 16) {
                     rpass.draw_indexed_indirect(

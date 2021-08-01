@@ -10,7 +10,7 @@ use crate::{
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use cache::{LayerType, PriorityCache, generators::GenerateTile};
+use cache::{generators::GenerateTile, LayerType, PriorityCache};
 use cgmath::Vector3;
 use futures::future::BoxFuture;
 use futures::future::FutureExt;
@@ -22,7 +22,7 @@ use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
 
-const SLOTS_PER_LEVEL: usize = 32;
+pub(super) const SLOTS_PER_LEVEL: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
@@ -182,6 +182,7 @@ pub(crate) struct TileCache {
     pub(super) levels: Vec<PriorityCache<Entry>>,
     pub(super) layers: VecMap<LayerParams>,
     pub(super) generators: Vec<Box<dyn GenerateTile>>,
+    level_masks: Vec<LayerMask>,
 
     streamer: TileStreamerEndpoint,
     start_download:
@@ -214,11 +215,19 @@ impl TileCache {
             levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
         }
 
+        let mut level_masks = vec![LayerMask::empty(); 23];
+        for layer in layers.values() {
+            for i in layer.min_level..=layer.max_level {
+                level_masks[i as usize] |= layer.layer_type.bit_mask();
+            }
+        }
+
         Self {
             levels,
             layers: mapfile.layers().clone(),
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             generators,
+            level_masks,
             start_download: start_tx,
             completed_downloads: completed_rx,
             free_download_buffers: Vec::new(),
@@ -273,7 +282,7 @@ impl TileCache {
                     for layer in cache.tiles.layers.values() {
                         if level >= layer.min_level && level <= layer.max_level {
                             let ty = layer.layer_type;
-                            if !((entry.valid | entry.streaming).contains_tile(ty)) {
+                            if !((entry.valid | entry.streaming).contains_layer(ty)) {
                                 match mapfile.tile_state(ty, entry.node).unwrap() {
                                     TileState::MissingBase
                                     | TileState::Base
@@ -305,6 +314,7 @@ impl TileCache {
             let n = nodes.next().unwrap();
             let slot = cache.tiles.get_slot(n).unwrap();
             let parent_slot = n.parent().and_then(|p| cache.tiles.get_slot(p.0));
+            let level_mask = cache.tiles.level_masks[n.level() as usize];
 
             let entry = cache.tiles.levels[n.level() as usize].entry(&n).unwrap();
             let parent_entry = if let Some(p) = n.parent() {
@@ -322,7 +332,7 @@ impl TileCache {
                 let peer_inputs = generator.peer_inputs(n.level());
                 let parent_inputs = generator.parent_inputs(n.level());
 
-                let need_output = outputs & !entry.valid != LayerMask::empty();
+                let need_output = outputs & !entry.valid & level_mask != LayerMask::empty();
                 let has_peer_inputs = peer_inputs & !entry.valid == LayerMask::empty();
                 let root_input_missing =
                     n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
@@ -330,7 +340,7 @@ impl TileCache {
                     && (parent_entry.is_none()
                         || parent_inputs & !parent_entry.as_ref().unwrap().valid
                             != LayerMask::empty());
-                let missing_download_buffers = outputs.contains_tile(LayerType::Heightmaps)
+                let missing_download_buffers = outputs.contains_layer(LayerType::Heightmaps)
                     && cache.tiles.free_download_buffers.is_empty()
                     && cache.tiles.total_download_buffers + download_buffers_used == 64;
 
@@ -340,7 +350,7 @@ impl TileCache {
                     && !parent_input_missing
                     && !missing_download_buffers
                 {
-                    let output_mask = !entry.valid & generator.outputs(n.level());
+                    let output_mask = !entry.valid & level_mask & generator.outputs(n.level());
                     generator.generate(
                         device,
                         &mut encoder,
@@ -363,7 +373,7 @@ impl TileCache {
                     tiles_generated += 1;
                     generated_layers |= output_mask;
 
-                    if output_mask.contains_tile(LayerType::Heightmaps)
+                    if output_mask.contains_layer(LayerType::Heightmaps)
                         && n.level() <= VNode::LEVEL_CELL_1M
                     {
                         let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
@@ -412,7 +422,7 @@ impl TileCache {
             cache.tiles.total_download_buffers += download_buffers_used;
             let entry = cache.tiles.levels[n.level() as usize].entry_mut(&n).unwrap();
             entry.valid |= generated_layers;
-            for layer in LayerType::iter().filter(|&layer| generated_layers.contains_tile(layer)) {
+            for layer in LayerType::iter().filter(|&layer| generated_layers.contains_layer(layer)) {
                 entry.generators.insert(layer.index(), generators_used);
             }
         }
@@ -593,7 +603,10 @@ impl TileCache {
                             (0, 0) => 6,
                             (0, _) => 30 + SLOTS_PER_LEVEL as u32 * (layer.max_level - 1) as u32,
                             (1, _) => 24 + SLOTS_PER_LEVEL as u32 * (layer.max_level - 1) as u32,
-                            _ => SLOTS_PER_LEVEL as u32 * (1 + layer.max_level - layer.min_level) as u32,
+                            _ => {
+                                SLOTS_PER_LEVEL as u32
+                                    * (1 + layer.max_level - layer.min_level) as u32
+                            }
                         },
                     },
                     format: layer.texture_format.to_wgpu(device.features()),
@@ -625,7 +638,7 @@ impl TileCache {
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
         self.levels[node.level() as usize]
             .entry(&node)
-            .map(|entry| entry.valid.contains_tile(ty))
+            .map(|entry| entry.valid.contains_layer(ty))
             .unwrap_or(false)
     }
     pub fn contains_all(&self, node: VNode, layer_mask: LayerMask) -> bool {

@@ -1,5 +1,5 @@
 use super::*;
-use crate::cache::{CacheLookup, LayerType, SingularLayerType, UnifiedPriorityCache};
+use crate::cache::{LayerType, UnifiedPriorityCache};
 use std::mem;
 
 #[derive(Copy, Clone)]
@@ -75,18 +75,33 @@ impl QuadTree {
         }
     }
 
-    fn lookup_to_desc(
-        lookup: CacheLookup,
+    pub fn find_desc(
+        node: VNode,
+        cache: &UnifiedPriorityCache,
+        ty: LayerType,
         texture_origin: Vector2<f32>,
         base_origin: Vector2<f32>,
         texture_ratio: f32,
         texture_step: f32,
     ) -> [f32; 4] {
-        let scale = (0.5f32).powi(lookup.levels as i32);
-        let offset = Vector2::new(lookup.offset.x as f32, lookup.offset.y as f32);
-        let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
+        if cache.tiles.contains(node, ty) {
+            let child_slot = cache.tiles.get_slot(node).expect("child_slot") as f32;
+            let child_offset = texture_origin + texture_ratio * base_origin;
+            [child_offset.x, child_offset.y, child_slot, texture_step]
+        } else {
+            if let Some((ancestor, generations, offset)) =
+                node.find_ancestor(|n| cache.tiles.contains(n, ty))
+            {
+                let slot = cache.tiles.get_slot(ancestor).map(|s| s as f32).expect("slot");
+                let scale = (0.5f32).powi(generations as i32);
+                let offset = Vector2::new(offset.x as f32, offset.y as f32);
+                let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
 
-        [offset.x, offset.y, lookup.slot as f32, scale * texture_step]
+                [offset.x, offset.y, slot, scale * texture_step]
+            } else {
+                [0.0, 0.0, -1.0, 0.0]
+            }
+        }
     }
 
     pub fn prepare_vertex_buffer(
@@ -155,18 +170,15 @@ impl QuadTree {
                 texture_step,
             )
             .0;
-            let grass_canopy_desc = cache
-                .lookup_texture(SingularLayerType::GrassCanopy, node)
-                .map(|lookup| {
-                    Self::lookup_to_desc(
-                        lookup,
-                        Vector2::new(texture_origin, texture_origin),
-                        Vector2::new(0.0, 0.0),
-                        texture_ratio,
-                        texture_step,
-                    )
-                })
-                .unwrap_or([0.0, 0.0, -1.0, 0.0]);
+            let grass_canopy_desc = Self::find_desc(
+                node,
+                &cache,
+                LayerType::GrassCanopy,
+                Vector2::new(texture_origin, texture_origin),
+                Vector2::new(0.0, 0.0),
+                texture_ratio,
+                texture_step,
+            );
             let node_index = self.node_states.len() as u32;
             self.node_states.push(NodeState {
                 _padding1: [0; 17],
@@ -238,18 +250,15 @@ impl QuadTree {
                         texture_step,
                     )
                     .0;
-                    let grass_canopy_desc = cache
-                        .lookup_texture(SingularLayerType::GrassCanopy, node)
-                        .map(|lookup| {
-                            Self::lookup_to_desc(
-                                lookup,
-                                Vector2::new(texture_origin, texture_origin),
-                                base_origin,
-                                texture_ratio,
-                                texture_step,
-                            )
-                        })
-                        .unwrap_or([0.0, 0.0, -1.0, 0.0]);
+                    let grass_canopy_desc = Self::find_desc(
+                        node,
+                        &cache,
+                        LayerType::GrassCanopy,
+                        Vector2::new(texture_origin, texture_origin),
+                        base_origin,
+                        texture_ratio,
+                        texture_step,
+                    );
                     let node_index = self.node_states.len() as u32;
                     self.node_states.push(NodeState {
                         _padding1: [0; 17],
