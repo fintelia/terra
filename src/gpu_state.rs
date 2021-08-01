@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
-    cache::{LayerType, MeshType, UnifiedPriorityCache},
+    cache::{MeshType, UnifiedPriorityCache, LAYERS_BY_NAME},
     mapfile::MapFile,
     terrain::quadtree::NodeState,
 };
@@ -223,15 +223,9 @@ impl GpuState {
                                 "inscattering" => &self.inscattering.1,
                                 "ground_albedo" => &self.ground_albedo.1,
                                 "aerial_perspective" => &self.aerial_perspective.1,
-                                "displacements" => &self.tile_cache[LayerType::Displacements].1,
-                                "albedo" => &self.tile_cache[LayerType::Albedo].1,
-                                "roughness" => &self.tile_cache[LayerType::Roughness].1,
-                                "normals" => &self.tile_cache[LayerType::Normals].1,
-                                "heightmaps" => &self.tile_cache[LayerType::Heightmaps].1,
-                                "grass_canopy" => &self.tile_cache[LayerType::GrassCanopy].1,
                                 "bc4_staging" => &self.bc4_staging.1,
                                 "bc5_staging" => &self.bc5_staging.1,
-                                _ => unreachable!("unrecognized image: {}", name),
+                                _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,
                             },
                         );
                     }

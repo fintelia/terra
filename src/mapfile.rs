@@ -371,12 +371,10 @@ impl MapFile {
             _ => unreachable!(),
         };
         let (layer, ext) = match layer {
-            LayerType::Displacements => ("displacements", "raw"),
             LayerType::Albedo => ("albedo", "png"),
             LayerType::Roughness => ("roughness", "raw.lz4"),
-            LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
-            LayerType::GrassCanopy | LayerType::MaterialKind => unreachable!(),
+            _ => unreachable!(),
         };
         format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
     }

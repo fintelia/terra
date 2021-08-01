@@ -183,6 +183,12 @@ impl std::ops::Not for LayerMask {
     }
 }
 
+lazy_static! {
+    pub(crate) static ref LAYERS_BY_NAME: HashMap<&'static str, LayerType> = {
+        LayerType::iter().map(|t| (t.name(), t)).collect()
+    };
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) struct GeneratorMask(NonZeroU32);
 impl GeneratorMask {

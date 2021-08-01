@@ -131,7 +131,7 @@ impl TileStreamer {
                             lz4::Decoder::new(Cursor::new(&raw_data))?.read_to_end(&mut data)?;
                             Ok::<TileResult, Error>(TileResult::Roughness(request.node, data))
                         }.boxed()),
-                        LayerType::Normals | LayerType::Displacements | LayerType::GrassCanopy | LayerType::MaterialKind => unreachable!(),
+                        _ => unreachable!(),
                     }
                 },
                 tile_result = pending.select_next_some() => {
