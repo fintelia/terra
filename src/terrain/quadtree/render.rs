@@ -17,7 +17,9 @@ pub(crate) struct NodeState {
     relative_position: [f32; 3],
     min_distance: f32,
     parent_relative_position: [f32; 3],
-    _padding1: [u32; 17],
+    _padding1: u32,
+    base_origin: [u32; 2],
+    _padding2: [u32; 14],
     // side_length: f32,
     // padding0: f32,
     // padding1: u32,
@@ -33,24 +35,21 @@ impl QuadTree {
         cache: &UnifiedPriorityCache,
         ty: LayerType,
         texture_origin: Vector2<f32>,
-        base_origin: Vector2<f32>,
         texture_ratio: f32,
         texture_step: f32,
     ) -> ([[f32; 4]; 2], VNode) {
         if cache.tiles.contains(node, ty) {
             let child_slot = cache.tiles.get_slot(node).expect("child_slot") as f32;
-            let child_offset = texture_origin + texture_ratio * base_origin;
-
             if let Some((parent, child_index)) = node.parent() {
                 if cache.tiles.contains(parent, ty) {
                     let parent_slot = cache.tiles.get_slot(parent).unwrap() as f32;
                     let parent_offset = node::OFFSETS[child_index as usize].cast().unwrap();
                     let parent_offset =
-                        texture_origin + 0.5 * texture_ratio * (base_origin + parent_offset);
+                        texture_origin + 0.5 * texture_ratio * parent_offset;
 
                     return (
                         [
-                            [child_offset.x, child_offset.y, child_slot, texture_step],
+                            [texture_origin.x, texture_origin.y, child_slot, texture_step],
                             [parent_offset.x, parent_offset.y, parent_slot, texture_step * 0.5],
                         ],
                         node,
@@ -59,7 +58,7 @@ impl QuadTree {
             }
 
             (
-                [[child_offset.x, child_offset.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]],
+                [[texture_origin.x, texture_origin.y, child_slot, texture_step], [0.0, 0.0, -1.0, 0.0]],
                 node,
             )
         } else {
@@ -69,7 +68,7 @@ impl QuadTree {
             let slot = cache.tiles.get_slot(ancestor).map(|s| s as f32).expect("slot");
             let scale = (0.5f32).powi(generations as i32);
             let offset = Vector2::new(offset.x as f32, offset.y as f32);
-            let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
+            let offset = texture_origin + scale * texture_ratio * offset;
 
             ([[offset.x, offset.y, slot, scale * texture_step], [0.0, 0.0, -1.0, 0.0]], ancestor)
         }
@@ -80,14 +79,12 @@ impl QuadTree {
         cache: &UnifiedPriorityCache,
         ty: LayerType,
         texture_origin: Vector2<f32>,
-        base_origin: Vector2<f32>,
         texture_ratio: f32,
         texture_step: f32,
     ) -> [f32; 4] {
         if cache.tiles.contains(node, ty) {
             let child_slot = cache.tiles.get_slot(node).expect("child_slot") as f32;
-            let child_offset = texture_origin + texture_ratio * base_origin;
-            [child_offset.x, child_offset.y, child_slot, texture_step]
+            [texture_origin.x, texture_origin.y, child_slot, texture_step]
         } else {
             if let Some((ancestor, generations, offset)) =
                 node.find_ancestor(|n| cache.tiles.contains(n, ty))
@@ -95,7 +92,7 @@ impl QuadTree {
                 let slot = cache.tiles.get_slot(ancestor).map(|s| s as f32).expect("slot");
                 let scale = (0.5f32).powi(generations as i32);
                 let offset = Vector2::new(offset.x as f32, offset.y as f32);
-                let offset = texture_origin + scale * texture_ratio * (base_origin + offset);
+                let offset = texture_origin + scale * texture_ratio * offset;
 
                 [offset.x, offset.y, slot, scale * texture_step]
             } else {
@@ -136,7 +133,6 @@ impl QuadTree {
                 &cache,
                 LayerType::Displacements,
                 Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
-                Vector2::new(0.0, 0.0),
                 resolution as f32 / (resolution + 1) as f32,
                 1.0 / (resolution + 1) as f32,
             );
@@ -145,7 +141,6 @@ impl QuadTree {
                 &cache,
                 LayerType::Albedo,
                 Vector2::new(texture_origin, texture_origin),
-                Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             )
@@ -155,7 +150,6 @@ impl QuadTree {
                 &cache,
                 LayerType::Roughness,
                 Vector2::new(texture_origin, texture_origin),
-                Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             )
@@ -165,7 +159,6 @@ impl QuadTree {
                 &cache,
                 LayerType::Normals,
                 Vector2::new(texture_origin, texture_origin),
-                Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             )
@@ -175,13 +168,13 @@ impl QuadTree {
                 &cache,
                 LayerType::GrassCanopy,
                 Vector2::new(texture_origin, texture_origin),
-                Vector2::new(0.0, 0.0),
                 texture_ratio,
                 texture_step,
             );
             let node_index = self.node_states.len() as u32;
             self.node_states.push(NodeState {
-                _padding1: [0; 17],
+                _padding1: 0,
+                _padding2: [0; 14],
                 min_distance: node.min_distance() as f32,
                 displacements_desc,
                 albedo_desc,
@@ -202,6 +195,7 @@ impl QuadTree {
                 .cast::<f32>()
                 .unwrap()
                 .into(),
+                base_origin: [0, 0],
             });
         }
         for &(node, mask) in self.partially_visible_nodes.iter() {
@@ -209,14 +203,11 @@ impl QuadTree {
             assert!(node.min_distance() as f32 != 0.0);
             for i in 0..4u8 {
                 if mask & (1 << i) != 0 {
-                    let offset = ((i % 2) as f32, (i / 2) as f32);
-                    let base_origin = Vector2::new(offset.0 * (0.5), offset.1 * (0.5));
                     let (displacements_desc, displacements_node) = Self::find_descs(
                         node,
                         &cache,
                         LayerType::Displacements,
                         Vector2::new(0.5, 0.5) / (resolution + 1) as f32,
-                        Vector2::new(offset.0, offset.1) * 0.5,
                         resolution as f32 / (resolution + 1) as f32,
                         1.0 / (resolution + 1) as f32,
                     );
@@ -225,7 +216,6 @@ impl QuadTree {
                         &cache,
                         LayerType::Albedo,
                         Vector2::new(texture_origin, texture_origin),
-                        base_origin,
                         texture_ratio,
                         texture_step,
                     )
@@ -235,7 +225,6 @@ impl QuadTree {
                         &cache,
                         LayerType::Roughness,
                         Vector2::new(texture_origin, texture_origin),
-                        base_origin,
                         texture_ratio,
                         texture_step,
                     )
@@ -245,7 +234,6 @@ impl QuadTree {
                         &cache,
                         LayerType::Normals,
                         Vector2::new(texture_origin, texture_origin),
-                        base_origin,
                         texture_ratio,
                         texture_step,
                     )
@@ -255,13 +243,13 @@ impl QuadTree {
                         &cache,
                         LayerType::GrassCanopy,
                         Vector2::new(texture_origin, texture_origin),
-                        base_origin,
                         texture_ratio,
                         texture_step,
                     );
                     let node_index = self.node_states.len() as u32;
                     self.node_states.push(NodeState {
-                        _padding1: [0; 17],
+                        _padding1: 0,
+                        _padding2: [0; 14],
                         // side_length: node.side_length() * 0.5,
                         min_distance: node.min_distance() as f32,
                         displacements_desc,
@@ -287,6 +275,10 @@ impl QuadTree {
                         .cast::<f32>()
                         .unwrap()
                         .into(),
+                        base_origin: [
+                            (i as u32 % 2) * resolution / 2,
+                            (i as u32 / 2) * resolution / 2,
+                        ],
                     });
                 }
             }

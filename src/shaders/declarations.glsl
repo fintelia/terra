@@ -29,7 +29,9 @@ struct NodeState {
 	float min_distance;
 	vec3 parent_relative_position;
 	float padding1;
-	vec4 padding2[4];
+	uvec2 base_origin;
+	uvec2 padding2;
+	vec4 padding3[3];
 };
 
 struct Indirect {

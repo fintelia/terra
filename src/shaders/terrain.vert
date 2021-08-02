@@ -41,7 +41,7 @@ void main() {
 	NodeState node = nodes[gl_InstanceIndex];
 
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (node.resolution+1),
-							(gl_VertexIndex) / (node.resolution+1));
+							(gl_VertexIndex) / (node.resolution+1)) + ivec2(node.base_origin);
 
 	vec3 texcoord = node.displacements.origin + vec3(vec2(iPosition) * node.displacements._step, 0);
 	vec3 position = sample_displacements(texcoord) - node.relative_position;
