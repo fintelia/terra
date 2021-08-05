@@ -109,7 +109,6 @@ impl Terrain {
                 !device.features().contains(wgpu::Features::SHADER_FLOAT64),
             ),
             vec![MeshCacheDesc {
-                size: 96,
                 ty: MeshType::Grass,
                 max_bytes_per_entry: 128 * 128 * 64,
                 dimensions: 128 / 8,

@@ -1,5 +1,5 @@
 use crate::{
-    cache::{LayerType, MeshType, Priority, PriorityCache, PriorityCacheEntry},
+    cache::{LayerType, MeshType, Priority, PriorityCache, PriorityCacheEntry, SLOTS_PER_LEVEL},
     generate::ComputeShader,
     gpu_state::{DrawIndexedIndirect, GpuMeshLayer, GpuState},
     terrain::quadtree::{QuadTree, VNode},
@@ -12,27 +12,6 @@ use std::mem;
 use wgpu::util::DeviceExt;
 
 use super::{GeneratorMask, LayerMask, TileCache, UnifiedPriorityCache};
-
-pub(super) struct Entry {
-    priority: Priority,
-    node: VNode,
-    pub(super) valid: bool,
-    pub(super) generators: GeneratorMask,
-}
-impl Entry {
-    fn new(node: VNode, priority: Priority) -> Self {
-        Self { node, priority, valid: false, generators: GeneratorMask::empty() }
-    }
-}
-impl PriorityCacheEntry for Entry {
-    type Key = VNode;
-    fn priority(&self) -> Priority {
-        self.priority
-    }
-    fn key(&self) -> VNode {
-        self.node
-    }
-}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -68,7 +47,7 @@ impl Default for CullMeshUniforms {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 struct MeshNodeState {
     relative_position: [f32; 3],
     min_distance: f32,
@@ -93,11 +72,9 @@ pub(crate) struct MeshCacheDesc {
     pub min_level: u8,
     pub max_level: u8,
     pub ty: MeshType,
-    pub size: usize,
 }
 
 pub(crate) struct MeshCache {
-    pub(super) inner: PriorityCache<Entry>,
     pub(super) desc: MeshCacheDesc,
 
     nodes: wgpu::Buffer,
@@ -107,8 +84,12 @@ pub(crate) struct MeshCache {
 }
 impl MeshCache {
     pub(super) fn new(device: &wgpu::Device, desc: MeshCacheDesc) -> Self {
+        assert!(desc.min_level >= 2);
+        let num_slots =
+            super::SLOTS_PER_LEVEL as u64 * (1 + desc.max_level - desc.min_level) as u64;
+
         let nodes = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (mem::size_of::<MeshNodeState>() * desc.size) as u64,
+            size: mem::size_of::<MeshNodeState>() as u64 * num_slots,
             usage: wgpu::BufferUsage::STORAGE | wgpu::BufferUsage::COPY_DST,
             mapped_at_creation: false,
             label: Some("grass.nodes_buffer"),
@@ -117,18 +98,15 @@ impl MeshCache {
             rshader::shader_source!("../shaders", "bounding-sphere.comp", "declarations.glsl"),
             "bounding-sphere".to_owned(),
         );
-        Self {
-            inner: PriorityCache::new(desc.size),
-            desc,
-            nodes,
-            bindgroup_pipeline: None,
-            compute_bounds,
-        }
+        Self { desc, nodes, bindgroup_pipeline: None, compute_bounds }
     }
 
     pub(super) fn make_buffers(&self, device: &wgpu::Device) -> GpuMeshLayer {
+        let num_slots =
+            super::SLOTS_PER_LEVEL as u64 * (1 + self.desc.max_level - self.desc.min_level) as u64;
+
         let indirect = device.create_buffer(&wgpu::BufferDescriptor {
-            size: (mem::size_of::<DrawIndexedIndirect>() * self.inner.size() * 16) as u64,
+            size: mem::size_of::<DrawIndexedIndirect>() as u64 * num_slots * 16,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::INDIRECT
                 | wgpu::BufferUsage::COPY_DST,
@@ -141,7 +119,7 @@ impl MeshCache {
         indirect.unmap();
 
         let bounding = device.create_buffer(&wgpu::BufferDescriptor {
-            size: 16 * 16 * self.inner.size() as u64,
+            size: 16 * 16 * num_slots,
             usage: wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::STORAGE
                 | wgpu::BufferUsage::COPY_DST,
@@ -157,40 +135,12 @@ impl MeshCache {
             indirect,
             bounding,
             storage: device.create_buffer(&wgpu::BufferDescriptor {
-                size: self.desc.max_bytes_per_entry * self.inner.size() as u64,
+                size: self.desc.max_bytes_per_entry * num_slots,
                 usage: wgpu::BufferUsage::STORAGE,
                 mapped_at_creation: false,
                 label: Some("grass.storage"),
             }),
         }
-    }
-
-    pub(super) fn update(&mut self, quadtree: &QuadTree) {
-        // Update priorities
-        for entry in self.inner.slots_mut() {
-            entry.priority = quadtree.node_priority(entry.node);
-        }
-        let min_priority =
-            self.inner.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none());
-
-        // Find any tiles that may need to be added.
-        let mut missing = Vec::new();
-        VNode::breadth_first(|node| {
-            let priority = quadtree.node_priority(node);
-            if priority < Priority::cutoff() {
-                return false;
-            }
-            if node.level() >= self.desc.min_level
-                && !self.inner.contains(&node)
-                && (priority > min_priority || !self.inner.is_full())
-            {
-                assert!(node.level() <= self.desc.max_level);
-                missing.push(Entry::new(node, priority));
-            }
-
-            node.level() < self.desc.max_level
-        });
-        self.inner.insert(missing);
     }
 
     pub(super) fn generate_all(
@@ -204,19 +154,23 @@ impl MeshCache {
         let mut command_buffers = Vec::new();
         for mesh_type in MeshType::iter() {
             let m = &mut cache.meshes[mesh_type];
+            let min_level = m.desc.min_level;
 
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some(&format!("{}.command_encoder", mesh_type.name())),
             });
 
             let mut zero_buffer = None;
-            'outer: for (index, entry) in m.inner.slots_mut().into_iter().enumerate() {
-                if entry.valid || entry.priority < Priority::cutoff() {
-                    continue;
-                }
-                if !cache
-                    .tiles
-                    .contains_all(entry.node, m.desc.peer_dependency_mask & LayerMask::all_tiles())
+            'outer: for (index, entry) in (m.desc.min_level..=m.desc.max_level).flat_map(|l| {
+                tiles.levels[l as usize]
+                    .slots()
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(i, s)| ((l - min_level) as usize * SLOTS_PER_LEVEL + i, s))
+            }) {
+                if entry.valid.contains_mesh(mesh_type)
+                    || entry.priority() < Priority::cutoff()
+                    || entry.valid & m.desc.peer_dependency_mask != m.desc.peer_dependency_mask
                 {
                     continue;
                 }
@@ -230,9 +184,11 @@ impl MeshCache {
                         } else if entry.node.level() <= tiles.layers[layer].max_level {
                             tiles.contains(entry.node, layer)
                         } else {
-                            let ancestor = entry.node.find_ancestor(|node| {
-                                node.level() == tiles.layers[layer].max_level
-                            }).unwrap().0;
+                            let ancestor = entry
+                                .node
+                                .find_ancestor(|node| node.level() == tiles.layers[layer].max_level)
+                                .unwrap()
+                                .0;
                             tiles.contains(ancestor, layer)
                         }
                     });
@@ -247,8 +203,12 @@ impl MeshCache {
                     let texture_origin = Vector2::new(2.5, 2.5) / 516.0;
                     let texture_ratio = 511.0 / 516.0;
                     let texture_step = 511.0 / 516.0;
-                    let (ancestor, generations, offset) =
-                        entry.node.find_ancestor(|n| n.level() <= tiles.layers[LayerType::GrassCanopy].max_level).unwrap();
+                    let (ancestor, generations, offset) = entry
+                        .node
+                        .find_ancestor(|n| {
+                            n.level() <= tiles.layers[LayerType::GrassCanopy].max_level
+                        })
+                        .unwrap();
                     let scale = (0.5f32).powi(generations as i32);
                     let offset = Vector2::new(offset.x as f32, offset.y as f32);
                     let offset = texture_origin + scale * texture_ratio * offset;
@@ -304,14 +264,17 @@ impl MeshCache {
                     &(index as u32 * 16),
                 );
 
-                entry.valid = true;
                 generated.push((mesh_type, entry.node));
             }
             command_buffers.push(encoder.finish());
         }
+
+        // TODO: Update generators
         for (mesh_type, node) in generated {
-            cache.meshes[mesh_type].inner.entry_mut(&node).unwrap().generators =
-                cache.generator_dependencies(node, cache.meshes[mesh_type].desc.peer_dependency_mask);
+            cache.tiles.levels[node.level() as usize].entry_mut(&node).unwrap().valid |=
+                mesh_type.bit_mask();
+            // cache.meshes[mesh_type].inner.entry_mut(&node).unwrap().generators = cache
+            //     .generator_dependencies(node, cache.meshes[mesh_type].desc.peer_dependency_mask);
         }
 
         queue.submit(command_buffers);
@@ -327,31 +290,36 @@ impl MeshCache {
         frustum: &InfiniteFrustum,
         cull_shader: &mut ComputeShader<CullMeshUniforms>,
     ) {
+        let num_slots =
+            super::SLOTS_PER_LEVEL as u64 * (1 + self.desc.max_level - self.desc.min_level) as u64;
+
         let mut cull_ubo = CullMeshUniforms::default();
-        cull_ubo.num_nodes = self.desc.size as u32;
-        for (i, entry) in self.inner.slots().into_iter().enumerate() {
-            cull_ubo.nodes[i] = (
-                (cgmath::Point3::from(camera) - entry.node.center_wspace())
-                    .cast::<f32>()
-                    .unwrap()
-                    .into(),
-                (entry.valid
-                    && entry.priority > Priority::cutoff()
-                    && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node)))
-                    as u32,
-            );
+        cull_ubo.num_nodes = num_slots as u32;
+        for level in self.desc.min_level..=self.desc.max_level {
+            for (i, entry) in tile_cache.levels[level as usize].slots().into_iter().enumerate() {
+                cull_ubo.nodes[(level - self.desc.min_level) as usize * SLOTS_PER_LEVEL + i] = (
+                    (cgmath::Point3::from(camera) - entry.node.center_wspace())
+                        .cast::<f32>()
+                        .unwrap()
+                        .into(),
+                    (entry.valid.contains_mesh(self.desc.ty)/*&& entry.priority() > Priority::cutoff()
+                    && entry.node.in_frustum(frustum, tile_cache.get_height_range(entry.node))*/)
+                        as u32,
+                );
+            }
         }
         cull_shader.run(
             device,
             encoder,
             &gpu_state,
-            ((self.desc.size as u32 * 16 + 63) / 64, 1, 1),
+            ((num_slots as u32 * 16 + 63) / 64, 1, 1),
             &cull_ubo,
         );
     }
 
     pub fn render<'a>(
         &'a mut self,
+        tile_cache: &TileCache,
         device: &wgpu::Device,
         queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
@@ -424,33 +392,29 @@ impl MeshCache {
             ));
         }
 
-        // Compute attributes for each node.
-        let nodes: Vec<_> = self
-            .inner
-            .slots()
-            .into_iter()
-            .enumerate()
-            //.filter(|e| e.1.valid && e.1.priority > Priority::cutoff() && e.1.node.in_frustum(frustum, tile_cache.get_height_range(e.1.node)))
-            // .filter_map(|(i, e)| tile_cache.get_slot(e.node).map(|s| (i, s, e)))
-            // .map(|(i, j, &Entry { node, .. })| MeshNodeState {
-            .map(|(i, &Entry { node, .. })| MeshNodeState {
-                relative_position: (cgmath::Point3::from(camera) - node.center_wspace())
+        // // Compute attributes for each node.
+        let mut nodes = vec![Default::default(); (1 + self.desc.max_level - self.desc.min_level) as usize * SLOTS_PER_LEVEL];
+        for level in self.desc.min_level..=self.desc.max_level {
+            for (i, entry) in tile_cache.levels[level as usize].slots().into_iter().enumerate() {
+                let slot = (level - self.desc.min_level) as usize * SLOTS_PER_LEVEL + i;
+                nodes[slot] = MeshNodeState {
+                    relative_position: (cgmath::Point3::from(camera) - entry.node.center_wspace())
+                        .cast::<f32>()
+                        .unwrap()
+                        .into(),
+                    parent_relative_position: (cgmath::Point3::from(camera)
+                        - entry.node.parent().map(|x| x.0).unwrap_or(entry.node).center_wspace())
                     .cast::<f32>()
                     .unwrap()
                     .into(),
-                parent_relative_position: (cgmath::Point3::from(camera)
-                    - node.parent().map(|x| x.0).unwrap_or(node).center_wspace())
-                .cast::<f32>()
-                .unwrap()
-                .into(),
-                min_distance: node.min_distance() as f32,
-                slot: i as u32,
-                face: node.face() as u32,
-                //tile_slot: j as u32,
-                _padding1: 0.0,
-                _padding2: [0; 6],
-            })
-            .collect();
+                    min_distance: entry.node.min_distance() as f32,
+                    slot: slot as u32,
+                    face: entry.node.face() as u32,
+                    _padding1: 0.0,
+                    _padding2: [0; 6],
+                };
+            }
+        }
 
         if !nodes.is_empty() {
             queue.write_buffer(&self.nodes, 0, bytemuck::cast_slice(&nodes));

@@ -24,6 +24,8 @@ use vec_map::VecMap;
 
 use self::generators::GenerateTile;
 
+pub(crate) use tile::SLOTS_PER_LEVEL;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
     Displacements = 0,
@@ -85,6 +87,9 @@ pub(crate) enum MeshType {
     Grass = 0,
 }
 impl MeshType {
+    pub fn bit_mask(&self) -> LayerMask {
+        (*self).into()
+    }
     pub fn name(&self) -> &'static str {
         match *self {
             MeshType::Grass => "grass",
@@ -394,20 +399,15 @@ impl UnifiedPriorityCache {
                         }
                     }
                 }
-                for m in self.meshes.values_mut() {
-                    for slot in m.inner.slots_mut() {
-                        if slot.generators.intersects(mask) {
-                            slot.valid = false;
-                        }
-                    }
-                }
             }
         }
 
         for mesh_cache in self.meshes.values_mut() {
             if mesh_cache.desc.generate.refresh() {
-                for entry in mesh_cache.inner.slots_mut() {
-                    entry.valid = false;
+                for cache in self.tiles.levels.iter_mut() {
+                    for slot in cache.slots_mut() {
+                        slot.valid &= !mesh_cache.desc.ty.bit_mask();
+                    }
                 }
             }
         }
@@ -417,9 +417,6 @@ impl UnifiedPriorityCache {
         TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
         self.tiles.download_tiles();
 
-        for m in self.meshes.values_mut() {
-            m.update(quadtree);
-        }
         MeshCache::generate_all(self, device, queue, gpu_state);
     }
 
@@ -468,7 +465,7 @@ impl UnifiedPriorityCache {
         camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(device, queue, rpass, gpu_state, camera);
+            c.render(&self.tiles, device, queue, rpass, gpu_state, camera);
         }
     }
 
@@ -478,25 +475,6 @@ impl UnifiedPriorityCache {
 
     #[allow(unused)]
     fn contains_all(&self, node: VNode, mask: LayerMask) -> bool {
-        if mask.intersects(LayerMask::all_tiles())
-            && !self.tiles.contains_all(node, mask & LayerMask::all_tiles())
-        {
-            return false;
-        }
-
-        if mask.intersects(LayerMask::all_meshes()) {
-            for cache in self.meshes.values().filter(|c| mask.contains_mesh(c.desc.ty)) {
-                let mut n = node;
-                while n.level() > cache.desc.max_level {
-                    n = n.parent().unwrap().0;
-                }
-
-                if !cache.inner.contains(&n) {
-                    return false;
-                }
-            }
-        }
-
-        true
+        self.tiles.contains_all(node, mask)
     }
 }

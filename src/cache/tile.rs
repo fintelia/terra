@@ -22,7 +22,7 @@ use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
 
-pub(super) const SLOTS_PER_LEVEL: usize = 32;
+pub(crate) const SLOTS_PER_LEVEL: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
@@ -146,7 +146,7 @@ pub(super) struct Entry {
     /// How imporant this entry is for the current frame.
     priority: Priority,
     /// The node this entry is for.
-    node: VNode,
+    pub(super) node: VNode,
     /// bitmask of whether the tile for each layer is valid.
     pub(super) valid: LayerMask,
     /// bitmask of whether the tile for each layer is currently being streamed.

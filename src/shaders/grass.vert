@@ -53,9 +53,10 @@ const vec3 tangents[6] = vec3[6](
 void main() {
     uint entry_index = gl_VertexIndex / 7;
     uint index = gl_VertexIndex % 7;
+    uint slot = gl_InstanceIndex / 16;
 
-    GrassNode node = nodes[gl_InstanceIndex / 16];
-    Entry entry = grass_storage.entries[node.slot * 16 + gl_InstanceIndex % 16][entry_index];
+    GrassNode node = nodes[slot];
+    Entry entry = grass_storage.entries[slot * 16 + gl_InstanceIndex % 16][entry_index];
     position = entry.position - node.relative_position;
 
     vec3 up = normalize(position + globals.camera);
