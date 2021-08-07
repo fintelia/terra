@@ -47,6 +47,7 @@ pub(crate) trait GenerateTile: Send {
 struct ShaderGen<T, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T> {
     shader: rshader::ShaderSet,
     shader_validation: bool,
+    bind_group: Option<wgpu::BindGroup>,
     pipeline: Option<wgpu::ComputePipeline>,
     dimensions: u32,
     peer_inputs: LayerMask,
@@ -144,46 +145,58 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             );
         }
 
-        let (bind_group, bind_group_layout) = state.bind_group_for_shader(
-            device,
-            &self.shader,
-            hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                buffer: &state.generate_uniforms,
-                offset: uniform_offset as u64,
-                size: Some(NonZeroU64::new(mem::size_of::<T>() as u64).unwrap()),
-            }))],
-            image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
-            &format!("generate.{}", self.name),
-        );
-
-        if self.pipeline.is_none() {
-            self.pipeline =
-                Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        bind_group_layouts: [&bind_group_layout][..].into(),
-                        push_constant_ranges: &[],
-                        label: None,
-                    })),
-                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                        label: Some(&format!("shader.generate.{}", self.name)),
-                        source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                        flags: if self.shader_validation {
-                            wgpu::ShaderFlags::VALIDATION
-                        } else {
-                            wgpu::ShaderFlags::empty()
-                        },
-                    }),
-                    entry_point: "main",
-                    label: Some(&format!("pipeline.generate.{}", self.name)),
-                }));
-        }
-
-        {
+        if self.bind_group.is_some() && self.pipeline.is_some() {
             let mut cpass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-            cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
-            cpass.set_bind_group(0, &bind_group, &[]);
+            cpass.set_pipeline(self.pipeline.as_ref().unwrap());
+            cpass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[uniform_offset as u32]);
             cpass.dispatch(self.dimensions, self.dimensions, 1);
+        } else {
+            let (bind_group, bind_group_layout) = state.bind_group_for_shader(
+                device,
+                &self.shader,
+                hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &state.generate_uniforms,
+                    offset: 0,
+                    size: Some(NonZeroU64::new(mem::size_of::<T>() as u64).unwrap()),
+                }))],
+                image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
+                &format!("generate.{}", self.name),
+            );
+    
+            if self.pipeline.is_none() {
+                self.pipeline =
+                    Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                        layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                            bind_group_layouts: [&bind_group_layout][..].into(),
+                            push_constant_ranges: &[],
+                            label: None,
+                        })),
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some(&format!("shader.generate.{}", self.name)),
+                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                            flags: if self.shader_validation {
+                                wgpu::ShaderFlags::VALIDATION
+                            } else {
+                                wgpu::ShaderFlags::empty()
+                            },
+                        }),
+                        entry_point: "main",
+                        label: Some(&format!("pipeline.generate.{}", self.name)),
+                    }));
+            }
+    
+            {
+                let mut cpass =
+                    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+                cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
+                cpass.set_bind_group(0, &bind_group, &[uniform_offset as u32]);
+                cpass.dispatch(self.dimensions, self.dimensions, 1);
+            }
+
+            if image_views.is_empty() {
+                self.bind_group = Some(bind_group);
+            }
         }
 
         if let Some(layer) = self.blit_from_bc5_staging {
@@ -298,6 +311,7 @@ impl ShaderGenBuilder {
             name: self.name,
             shader_validation: self.shader_validation,
             shader: rshader::ShaderSet::compute_only(self.shader).unwrap(),
+            bind_group: None,
             pipeline: None,
             outputs: self.outputs,
             peer_inputs: self.peer_inputs,
