@@ -390,12 +390,6 @@ impl Terrain {
         }
 
         self.quadtree.update_visibility(&self.cache.tiles, &frustum, camera);
-        self.quadtree.prepare_vertex_buffer(
-            queue,
-            &mut self.gpu_state.node_buffer,
-            &self.cache,
-            camera,
-        );
 
         let relative_frustum =
             InfiniteFrustum::from_matrix(cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap());
@@ -417,6 +411,8 @@ impl Terrain {
             }),
         );
 
+        self.cache.tiles.write_node_slots(queue, &self.gpu_state, camera);
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
         });
@@ -424,14 +420,14 @@ impl Terrain {
         {
             self.cache.cull_meshes(device, &mut encoder, &self.gpu_state, &frustum, camera);
 
-            self.aerial_perspective.refresh();
-            self.aerial_perspective.run(
-                device,
-                &mut encoder,
-                &self.gpu_state,
-                (1, 1, self.quadtree.node_buffer_length() as u32),
-                &0,
-            );
+            // self.aerial_perspective.refresh();
+            // self.aerial_perspective.run(
+            //     device,
+            //     &mut encoder,
+            //     &self.gpu_state,
+            //     (1, 1, self.quadtree.node_buffer_length() as u32),
+            //     &0,
+            // );
 
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachment {
@@ -457,6 +453,7 @@ impl Terrain {
                 &mut rpass,
                 &self.index_buffer,
                 &self.bindgroup_pipeline.as_ref().unwrap().0,
+                &self.cache.tiles,
             );
 
             self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);

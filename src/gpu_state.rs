@@ -1,9 +1,8 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
-    cache::{MeshType, UnifiedPriorityCache, LAYERS_BY_NAME},
+    cache::{MeshType, UnifiedPriorityCache, LAYERS_BY_NAME, SLOTS_PER_LEVEL},
     mapfile::MapFile,
-    terrain::quadtree::NodeState,
 };
 use vec_map::VecMap;
 
@@ -43,8 +42,10 @@ pub(crate) struct GpuState {
     pub staging_buffer: wgpu::Buffer,
 
     pub globals: wgpu::Buffer,
-    pub node_buffer: wgpu::Buffer,
     pub generate_uniforms: wgpu::Buffer,
+
+    pub node_slots: wgpu::Buffer,
+    pub frame_nodes: wgpu::Buffer,
 
     noise: (wgpu::Texture, wgpu::TextureView),
     sky: (wgpu::Texture, wgpu::TextureView),
@@ -147,20 +148,28 @@ impl GpuState {
                 label: Some("buffer.globals"),
                 mapped_at_creation: false,
             }),
-            node_buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                size: (std::mem::size_of::<NodeState>() * 1024) as u64,
-                usage: wgpu::BufferUsage::COPY_DST
-                    | wgpu::BufferUsage::UNIFORM
-                    | wgpu::BufferUsage::STORAGE,
-                label: Some("buffer.nodes"),
-                mapped_at_creation: false,
-            }),
             generate_uniforms: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 256 * 1024,
                 usage: wgpu::BufferUsage::COPY_DST
                     | wgpu::BufferUsage::UNIFORM
                     | wgpu::BufferUsage::STORAGE,
                 label: Some("buffer.generate.tiles"),
+                mapped_at_creation: false,
+            }),
+            frame_nodes: device.create_buffer(&wgpu::BufferDescriptor {
+                size: 4 * (30 + 21 * SLOTS_PER_LEVEL) as u64,
+                usage: wgpu::BufferUsage::COPY_DST
+                    | wgpu::BufferUsage::UNIFORM
+                    | wgpu::BufferUsage::STORAGE,
+                label: Some("buffer.frame_nodes"),
+                mapped_at_creation: false,
+            }),
+            node_slots: device.create_buffer(&wgpu::BufferDescriptor {
+                size: 512 * (30 + 21 * SLOTS_PER_LEVEL) as u64,
+                usage: wgpu::BufferUsage::COPY_DST
+                    | wgpu::BufferUsage::UNIFORM
+                    | wgpu::BufferUsage::STORAGE,
+                label: Some("buffer.node_slots"),
                 mapped_at_creation: false,
             }),
             nearest: device.create_sampler(&wgpu::SamplerDescriptor {
@@ -236,8 +245,9 @@ impl GpuState {
                             "grass_indirect" => &self.mesh_cache[MeshType::Grass].indirect,
                             "grass_bounding" => &self.mesh_cache[MeshType::Grass].bounding,
                             "grass_storage" => &self.mesh_cache[MeshType::Grass].storage,
-                            "nodes" => &self.node_buffer,
                             "globals" => &self.globals,
+                            "frame_nodes" => &self.frame_nodes,
+                            "node_slots" => &self.node_slots,
                             _ => unreachable!("unrecognized storage buffer: {}", name),
                         };
                         let resource = wgpu::BindingResource::Buffer(wgpu::BufferBinding {
