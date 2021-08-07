@@ -270,11 +270,11 @@ fn main() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
-                        - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+                    lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * (0.0000001 * altitude).min(0.01)
+                        - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * (0.0000001 * altitude).min(0.01);
 
-                    long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
-                        + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+                    long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * (0.0000001 * altitude).min(0.01)
+                        + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * (0.0000001 * altitude).min(0.01);
 
                     angle -= gamepad.value(Axis::RightZ) as f64 * 0.01;
 
