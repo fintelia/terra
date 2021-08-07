@@ -9,7 +9,6 @@ impl QuadTree {
         tile_cache: &TileCache,
     ) {
         let resolution = self.heights_resolution;
-        let visible_nodes = self.visible_nodes.len() as u32;
 
         let num_indices_full = resolution * resolution * 6;
         let num_indices_partial = (resolution / 2) * (resolution / 2) * 6;

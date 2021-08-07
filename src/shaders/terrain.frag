@@ -7,9 +7,9 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-// layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
-// 	NodeState nodes[];
-// };
+layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
+	Node nodes[];
+};
 layout(set = 0, binding = 2) uniform sampler linear;
 //layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
@@ -19,9 +19,6 @@ layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
-layout(set = 0, binding = 10, std430) readonly buffer NodeSlots {
-	NodeSlot node_slots[];
-};
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -209,32 +206,32 @@ vec3 extract_normal(vec2 n) {
 	return normalize(vec3(n.x, y, n.y));
 }
 
-vec3 get_texcoord(uint layer) {
-	NodeSlot node = node_slots[instance];
+vec3 layer_to_texcoord(uint layer) {
+	Node node = nodes[instance];
 	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
 }
 
 void main() {
-	NodeSlot node = node_slots[instance];
+	Node node = nodes[instance];
 	//NodeState node = nodes[instance];
 
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
-	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), get_texcoord(NORMALS_LAYER)).xy);
+	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
 	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
-		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear), get_texcoord(PARENT_NORMALS_LAYER)).xy);
+		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER)).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
-	vec3 albedo_value = texture(sampler2DArray(albedo, linear), get_texcoord(ALBEDO_LAYER)).rgb;
+	vec3 albedo_value = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER)).rgb;
 	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
-		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), get_texcoord(PARENT_ALBEDO_LAYER)).rgb;
+		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER)).rgb;
 		albedo_value = mix(parent_albedo, albedo_value, morph);
 	}
 
-	float roughness_value = texture(sampler2DArray(roughness, linear), get_texcoord(ROUGHNESS_LAYER)).r;
+	float roughness_value = texture(sampler2DArray(roughness, linear), layer_to_texcoord(ROUGHNESS_LAYER)).r;
 	if (node.layer_slots[PARENT_ROUGHNESS_LAYER] >= 0) {
-		float parent_roughness = texture(sampler2DArray(roughness, linear), get_texcoord(PARENT_ROUGHNESS_LAYER)).r;
+		float parent_roughness = texture(sampler2DArray(roughness, linear), layer_to_texcoord(PARENT_ROUGHNESS_LAYER)).r;
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 

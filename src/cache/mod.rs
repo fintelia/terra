@@ -6,11 +6,11 @@ pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
 use crate::{
+    cache::tile::NodeSlot,
     generate::ComputeShader,
-    gpu_state::{GpuMeshLayer, GpuState},
+    gpu_state::GpuState,
     mapfile::MapFile,
     terrain::quadtree::{QuadTree, VNode},
-    utils::math::InfiniteFrustum,
 };
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
@@ -22,9 +22,7 @@ use std::{
 use std::{collections::HashMap, num::NonZeroU32};
 use vec_map::VecMap;
 
-use self::generators::GenerateTile;
-
-pub(crate) use tile::SLOTS_PER_LEVEL;
+use self::{generators::GenerateTile, mesh::CullMeshUniforms};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -125,6 +123,7 @@ impl LayerMask {
     pub fn empty() -> Self {
         Self(NonZeroU32::new(Self::VALID).unwrap())
     }
+    #[allow(unused)]
     pub fn all_tiles() -> Self {
         Self(NonZeroU32::new(Self::VALID | 0x0000ff).unwrap())
     }
@@ -133,6 +132,7 @@ impl LayerMask {
         Self(NonZeroU32::new(Self::VALID | 0x00ff00).unwrap())
     }
 
+    #[allow(unused)]
     pub fn intersects(&self, other: Self) -> bool {
         self.0.get() & other.0.get() != Self::VALID
     }
@@ -189,9 +189,8 @@ impl std::ops::Not for LayerMask {
 }
 
 lazy_static! {
-    pub(crate) static ref LAYERS_BY_NAME: HashMap<&'static str, LayerType> = {
-        LayerType::iter().map(|t| (t.name(), t)).collect()
-    };
+    pub(crate) static ref LAYERS_BY_NAME: HashMap<&'static str, LayerType> =
+        LayerType::iter().map(|t| (t.name(), t)).collect();
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -322,10 +321,6 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
         }
     }
 
-    pub fn size(&self) -> usize {
-        self.size
-    }
-
     pub fn is_full(&self) -> bool {
         self.slots.len() == self.size
     }
@@ -360,17 +355,23 @@ pub(crate) struct UnifiedPriorityCache {
 
 impl UnifiedPriorityCache {
     pub fn new(
-        device: &wgpu::Device,
         mapfile: Arc<MapFile>,
         generators: Vec<Box<dyn GenerateTile>>,
         mesh_layers: Vec<MeshCacheDesc>,
     ) -> Self {
+        let mut base_slot = 0;
+        let mut meshes = Vec::new();
+        for desc in mesh_layers {
+            let num_slots = (TileCache::base_slot(desc.max_level + 1)
+                - TileCache::base_slot(desc.min_level))
+                * desc.entries_per_node;
+            meshes.push((desc.ty as usize, MeshCache::new(desc, base_slot, num_slots)));
+            base_slot += num_slots;
+        }
+
         Self {
             tiles: TileCache::new(mapfile, generators),
-            meshes: mesh_layers
-                .into_iter()
-                .map(|desc| (desc.ty as usize, MeshCache::new(device, desc)))
-                .collect(),
+            meshes: meshes.into_iter().collect(),
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
@@ -385,6 +386,7 @@ impl UnifiedPriorityCache {
         gpu_state: &GpuState,
         mapfile: &MapFile,
         quadtree: &QuadTree,
+        camera: mint::Point3<f64>,
     ) {
         for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
@@ -403,7 +405,12 @@ impl UnifiedPriorityCache {
         }
 
         for mesh_cache in self.meshes.values_mut() {
-            if mesh_cache.desc.generate.refresh() {
+            let mut refresh = false;
+            for (_, shader) in &mut mesh_cache.desc.generate {
+                refresh = shader.refresh() || refresh;
+            }
+
+            if refresh {
                 for cache in self.tiles.levels.iter_mut() {
                     for slot in cache.slots_mut() {
                         slot.valid &= !mesh_cache.desc.ty.bit_mask();
@@ -417,7 +424,118 @@ impl UnifiedPriorityCache {
         TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
         self.tiles.download_tiles();
 
+        self.write_nodes(queue, gpu_state, camera);
+
         MeshCache::generate_all(self, device, queue, gpu_state);
+    }
+
+    pub fn write_nodes(
+        &self,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
+    ) {
+        assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
+
+        let mut data: Vec<NodeSlot> = vec![
+            NodeSlot {
+                layer_origins: [[0.0; 2]; 16],
+                layer_slots: [-1; 16],
+                layer_steps: [0.0; 16],
+                relative_position: [0.0; 3],
+                min_distance: 0.0,
+                mesh_valid_mask: [0; 4],
+                level: 0,
+                face: 0,
+                padding1: [0; 54],
+            };
+            TileCache::base_slot(self.tiles.levels.len() as u8)
+        ];
+        for (level_index, level) in self.tiles.levels.iter().enumerate() {
+            for (slot_index, slot) in level.slots().into_iter().enumerate() {
+                let index = TileCache::base_slot(level_index as u8) + slot_index;
+
+                data[index].level = level_index as u32;
+                data[index].face = slot.node.face() as u32;
+                data[index].relative_position = {
+                    (cgmath::Point3::from(camera) - slot.node.center_wspace())
+                        .cast::<f32>()
+                        .unwrap()
+                        .into()
+                };
+                data[index].min_distance = slot.node.min_distance() as f32;
+
+                for (mesh_index, m) in &self.meshes {
+                    assert!(m.desc.entries_per_node <= 32);
+                    data[index].mesh_valid_mask[mesh_index] =
+                        if slot.valid.contains_mesh(m.desc.ty) { 0xffffffff } else { 0 }
+                }
+
+                let mut ancestor = slot.node;
+                let mut base_offset = cgmath::Vector2::new(0.0, 0.0);
+                let mut found_layers = LayerMask::empty();
+                for ancestor_index in 0..=level_index {
+                    if let Some(ancestor_slot) =
+                        self.tiles.levels[ancestor.level() as usize].entry(&ancestor)
+                    {
+                        for (layer_index, layer) in LayerType::iter().enumerate() {
+                            let layer_slot = if (ancestor_index == 0
+                                && slot.valid.contains_layer(layer))
+                                || (!found_layers.contains_layer(layer)
+                                    && ancestor_slot.valid.contains_layer(layer))
+                            {
+                                found_layers |= layer.bit_mask();
+                                layer_index
+                            } else if ancestor_index == 1
+                                && slot.valid.contains_layer(layer)
+                                && ancestor_slot.valid.contains_layer(layer)
+                            {
+                                layer_index + 8
+                            } else {
+                                continue;
+                            };
+
+                            let texture_resolution =
+                                self.tiles.layers[layer].texture_resolution as f32;
+                            let texture_border =
+                                self.tiles.layers[layer].texture_border_size as f32;
+                            let texture_ratio = if self.tiles.layers[layer].grid_registration {
+                                (texture_resolution - 2.0 * texture_border - 1.0)
+                                    / texture_resolution
+                            } else {
+                                (texture_resolution - 2.0 * texture_border) / texture_resolution
+                            };
+                            let texture_step = texture_ratio / 64.0;
+                            let texture_origin = if self.tiles.layers[layer].grid_registration {
+                                (texture_border + 0.5) / texture_resolution
+                            } else {
+                                texture_border / texture_resolution
+                            };
+
+                            data[index].layer_origins[layer_slot] = [
+                                texture_origin + texture_ratio * base_offset.x,
+                                texture_origin + texture_ratio * base_offset.y,
+                            ];
+                            data[index].layer_slots[layer_slot] =
+                                self.tiles.get_slot(ancestor).unwrap() as i32;
+                            data[index].layer_steps[layer_slot] =
+                                f32::powi(0.5, ancestor_index as i32) * texture_step;
+                        }
+                    }
+
+                    if ancestor_index < level_index {
+                        let parent = ancestor.parent().unwrap();
+                        ancestor = parent.0;
+                        base_offset = (crate::terrain::quadtree::node::OFFSETS[parent.1 as usize]
+                            .cast()
+                            .unwrap()
+                            + base_offset)
+                            * 0.5;
+                    }
+                }
+            }
+        }
+        queue.write_buffer(&gpu_state.nodes, 0, bytemuck::cast_slice(&data));
     }
 
     fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
@@ -435,11 +553,31 @@ impl UnifiedPriorityCache {
         generators
     }
 
-    pub fn make_gpu_tile_cache(&self, device: &wgpu::Device) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
+    pub fn make_gpu_tile_cache(
+        &self,
+        device: &wgpu::Device,
+    ) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
         self.tiles.make_cache_textures(device)
     }
-    pub fn make_gpu_mesh_cache(&self, device: &wgpu::Device) -> VecMap<GpuMeshLayer> {
-        self.meshes.iter().map(|(i, c)| (i, c.make_buffers(device))).collect()
+    pub fn make_gpu_mesh_storage(&self, device: &wgpu::Device) -> VecMap<wgpu::Buffer> {
+        self.meshes
+            .iter()
+            .map(|(i, c)| {
+                (
+                    i,
+                    device.create_buffer(&wgpu::BufferDescriptor {
+                        size: c.desc.max_bytes_per_node
+                            * (c.num_entries / c.desc.entries_per_node) as u64,
+                        usage: wgpu::BufferUsage::STORAGE,
+                        mapped_at_creation: false,
+                        label: Some("grass.storage"),
+                    }),
+                )
+            })
+            .collect()
+    }
+    pub fn total_mesh_entries(&self) -> usize {
+        self.meshes.values().map(|m| m.num_entries).sum()
     }
 
     pub fn cull_meshes<'a>(
@@ -447,25 +585,33 @@ impl UnifiedPriorityCache {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         gpu_state: &'a GpuState,
-        frustum: &InfiniteFrustum,
-        camera: mint::Point3<f64>,
     ) {
         self.cull_shader.refresh();
-        for (_, c) in &mut self.meshes {
-            c.cull_meshes(device, encoder, gpu_state, &self.tiles, camera, frustum, &mut self.cull_shader);
+        for (mesh_index, c) in &self.meshes {
+            self.cull_shader.run(
+                device,
+                encoder,
+                &gpu_state,
+                ((c.num_entries as u32 + 63) / 64, 1, 1),
+                &CullMeshUniforms {
+                    base_entry: c.base_entry as u32,
+                    entries_per_node: c.desc.entries_per_node as u32,
+                    num_nodes: (c.num_entries / c.desc.entries_per_node) as u32,
+                    base_slot: TileCache::base_slot(c.desc.min_level) as u32,
+                    mesh_index: mesh_index as u32,
+                },
+            );
         }
     }
 
     pub fn render_meshes<'a>(
         &'a mut self,
         device: &wgpu::Device,
-        queue: &'a wgpu::Queue,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
-        camera: mint::Point3<f64>,
     ) {
         for (_, c) in &mut self.meshes {
-            c.render(&self.tiles, device, queue, rpass, gpu_state, camera);
+            c.render(device, rpass, gpu_state);
         }
     }
 

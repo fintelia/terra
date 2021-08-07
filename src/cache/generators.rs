@@ -7,6 +7,7 @@ use std::{
 
 use super::{LayerMask, LayerParams, LayerType};
 use crate::{
+    cache::TileCache,
     generate::{
         GenDisplacementsUniforms, GenHeightmapsUniforms, GenMaterialsUniforms, GenNormalsUniforms,
     },
@@ -327,9 +328,8 @@ pub(crate) fn generators(
     let normals_border = layers[LayerType::Normals].texture_border_size;
     let grass_canopy_resolution = layers[LayerType::GrassCanopy].texture_resolution;
 
-    let grass_canopy_base_slot = 30
-        + super::tile::SLOTS_PER_LEVEL as u32
-            * (layers[LayerType::GrassCanopy].min_level - 2) as u32;
+    let grass_canopy_base_slot =
+        TileCache::base_slot(layers[LayerType::GrassCanopy].min_level) as u32;
 
     vec![
         ShaderGenBuilder::new(

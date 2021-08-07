@@ -115,17 +115,19 @@ impl TextureFormat {
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeSlot {
-    layer_origins: [[f32; 2]; 16],
-    layer_steps: [f32; 16],
-    layer_slots: [i32; 16],
+    pub(super) layer_origins: [[f32; 2]; 16],
+    pub(super) layer_steps: [f32; 16],
+    pub(super) layer_slots: [i32; 16],
 
-    relative_position: [f32; 3],
-    min_distance: f32,
+    pub(super) relative_position: [f32; 3],
+    pub(super) min_distance: f32,
 
-    face: u32,
-    level: u32,
+    pub(super) mesh_valid_mask: [u32; 4],
 
-    padding1: [u32; 58],
+    pub(super) face: u32,
+    pub(super) level: u32,
+
+    pub(super) padding1: [u32; 54],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}
@@ -619,15 +621,9 @@ impl TileCache {
                     size: wgpu::Extent3d {
                         width: layer.texture_resolution,
                         height: layer.texture_resolution,
-                        depth_or_array_layers: match (layer.min_level, layer.max_level) {
-                            (0, 0) => 6,
-                            (0, _) => 30 + SLOTS_PER_LEVEL as u32 * (layer.max_level - 1) as u32,
-                            (1, _) => 24 + SLOTS_PER_LEVEL as u32 * (layer.max_level - 1) as u32,
-                            _ => {
-                                SLOTS_PER_LEVEL as u32
-                                    * (1 + layer.max_level - layer.min_level) as u32
-                            }
-                        },
+                        depth_or_array_layers: (Self::base_slot(layer.max_level + 1)
+                            - Self::base_slot(layer.min_level))
+                            as u32,
                     },
                     format: layer.texture_format.to_wgpu(device.features()),
                     mip_level_count: 1,
@@ -655,110 +651,6 @@ impl TileCache {
             .collect()
     }
 
-    pub fn write_node_slots(
-        &self,
-        queue: &wgpu::Queue,
-        gpu_state: &GpuState,
-        camera: mint::Point3<f64>,
-    ) {
-        assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
-
-        let mut data: Vec<NodeSlot> = vec![
-            NodeSlot {
-                layer_origins: [[0.0; 2]; 16],
-                layer_slots: [-1; 16],
-                layer_steps: [0.0; 16],
-                relative_position: [0.0; 3],
-                min_distance: 0.0,
-                level: 0,
-                face: 0,
-                padding1: [0; 58],
-            };
-            30 + SLOTS_PER_LEVEL * 21
-        ];
-        for (level_index, level) in self.levels.iter().enumerate() {
-            for (slot_index, slot) in level.slots().into_iter().enumerate() {
-                let index = match level_index {
-                    0 => slot_index,
-                    1 => 6 + slot_index,
-                    _ => 30 + (level_index - 2) * SLOTS_PER_LEVEL + slot_index,
-                };
-
-                data[index].level = level_index as u32;
-                data[index].face = slot.node.face() as u32;
-                data[index].relative_position = {
-                    (cgmath::Point3::from(camera) - slot.node.center_wspace())
-                        .cast::<f32>()
-                        .unwrap()
-                        .into()
-                };
-                data[index].min_distance = slot.node.min_distance() as f32;
-
-                let mut ancestor = slot.node;
-                let mut base_offset = cgmath::Vector2::new(0.0, 0.0);
-                let mut found_layers = LayerMask::empty();
-                for ancestor_index in 0..=level_index {
-                    if let Some(ancestor_slot) =
-                        self.levels[ancestor.level() as usize].entry(&ancestor)
-                    {
-                        for (layer_index, layer) in LayerType::iter().enumerate() {
-                            let layer_slot = if (ancestor_index == 0
-                                && slot.valid.contains_layer(layer))
-                                || (!found_layers.contains_layer(layer)
-                                    && ancestor_slot.valid.contains_layer(layer))
-                            {
-                                found_layers |= layer.bit_mask();
-                                layer_index
-                            } else if ancestor_index == 1
-                                && slot.valid.contains_layer(layer)
-                                && ancestor_slot.valid.contains_layer(layer)
-                            {
-                                layer_index + 8
-                            } else {
-                                continue;
-                            };
-
-                            let texture_resolution = self.layers[layer].texture_resolution as f32;
-                            let texture_border = self.layers[layer].texture_border_size as f32;
-                            let texture_ratio = if self.layers[layer].grid_registration {
-                                (texture_resolution - 2.0 * texture_border - 1.0)
-                                    / texture_resolution
-                            } else {
-                                (texture_resolution - 2.0 * texture_border) / texture_resolution
-                            };
-                            let texture_step = texture_ratio / 64.0;
-                            let texture_origin = if self.layers[layer].grid_registration {
-                                (texture_border + 0.5) / texture_resolution
-                            } else {
-                                texture_border / texture_resolution
-                            };
-
-                            data[index].layer_origins[layer_slot] = [
-                                texture_origin + texture_ratio * base_offset.x,
-                                texture_origin + texture_ratio * base_offset.y,
-                            ];
-                            data[index].layer_slots[layer_slot] =
-                                self.get_slot(ancestor).unwrap() as i32;
-                            data[index].layer_steps[layer_slot] =
-                                f32::powi(0.5, ancestor_index as i32) * texture_step;
-                        }
-                    }
-
-                    if ancestor_index < level_index {
-                        let parent = ancestor.parent().unwrap();
-                        ancestor = parent.0;
-                        base_offset = (crate::terrain::quadtree::node::OFFSETS[parent.1 as usize]
-                            .cast()
-                            .unwrap()
-                            + base_offset)
-                            * 0.5;
-                    }
-                }
-            }
-        }
-        queue.write_buffer(&gpu_state.node_slots, 0, bytemuck::cast_slice(&data));
-    }
-
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
         self.levels[node.level() as usize]
             .entry(&node)
@@ -772,16 +664,19 @@ impl TileCache {
             .unwrap_or(false)
     }
 
+    pub fn base_slot(level: u8) -> usize {
+        if level == 0 {
+            0
+        } else if level == 1 {
+            6
+        } else {
+            30 + SLOTS_PER_LEVEL * (level - 2) as usize
+        }
+    }
     pub fn get_slot(&self, node: VNode) -> Option<usize> {
-        self.levels[node.level() as usize].index_of(&node).map(|i| {
-            if node.level() == 0 {
-                i
-            } else if node.level() == 1 {
-                6 + i
-            } else {
-                30 + SLOTS_PER_LEVEL * (node.level() as usize - 2) + i
-            }
-        })
+        self.levels[node.level() as usize]
+            .index_of(&node)
+            .map(|i| Self::base_slot(node.level()) + i)
     }
 
     fn resolution(&self, ty: LayerType) -> u32 {

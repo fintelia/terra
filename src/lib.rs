@@ -47,7 +47,7 @@ pub struct Terrain {
 
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-    aerial_perspective: ComputeShader<u32>,
+    // aerial_perspective: ComputeShader<u32>,
 
     gpu_state: GpuState,
     quadtree: QuadTree,
@@ -102,7 +102,6 @@ impl Terrain {
         mapfile: Arc<MapFile>,
     ) -> Result<Self, Error> {
         let cache = UnifiedPriorityCache::new(
-            device,
             Arc::clone(&mapfile),
             crate::cache::generators::generators(
                 mapfile.layers(),
@@ -110,8 +109,8 @@ impl Terrain {
             ),
             vec![MeshCacheDesc {
                 ty: MeshType::Grass,
-                max_bytes_per_entry: 128 * 128 * 64,
-                dimensions: 128 / 8,
+                max_bytes_per_node: 128 * 128 * 64,
+                entries_per_node: 16,
                 peer_dependency_mask: LayerType::Displacements.bit_mask()
                     | LayerType::Albedo.bit_mask()
                     | LayerType::Normals.bit_mask(),
@@ -132,15 +131,31 @@ impl Terrain {
                         usage: wgpu::BufferUsage::INDEX,
                     })
                 },
-                generate: ComputeShader::new(
-                    rshader::shader_source!(
-                        "shaders",
-                        "gen-grass.comp",
-                        "declarations.glsl",
-                        "hash.glsl"
+                generate: vec![
+                    (
+                        (16, 16, 1),
+                        ComputeShader::new(
+                            rshader::shader_source!(
+                                "shaders",
+                                "gen-grass.comp",
+                                "declarations.glsl",
+                                "hash.glsl"
+                            ),
+                            "gen-grass".to_string(),
+                        ),
                     ),
-                    "gen-grass".to_string(),
-                ),
+                    (
+                        (16, 1, 1),
+                        ComputeShader::new(
+                            rshader::shader_source!(
+                                "shaders",
+                                "bounding-sphere.comp",
+                                "declarations.glsl"
+                            ),
+                            "bounding-sphere".to_owned(),
+                        ),
+                    ),
+                ],
                 render: rshader::ShaderSet::simple(
                     rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
                     rshader::shader_source!(
@@ -175,15 +190,15 @@ impl Terrain {
             ),
         )
         .unwrap();
-        let aerial_perspective = ComputeShader::new(
-            rshader::shader_source!(
-                "shaders",
-                "gen-aerial-perspective.comp",
-                "declarations.glsl",
-                "atmosphere.glsl"
-            ),
-            "gen-aerial-perspective".to_string(),
-        );
+        // let aerial_perspective = ComputeShader::new(
+        //     rshader::shader_source!(
+        //         "shaders",
+        //         "gen-aerial-perspective.comp",
+        //         "declarations.glsl",
+        //         "atmosphere.glsl"
+        //     ),
+        //     "gen-aerial-perspective".to_string(),
+        // );
 
         Ok(Self {
             bindgroup_pipeline: None,
@@ -193,7 +208,7 @@ impl Terrain {
 
             sky_shader,
             sky_bindgroup_pipeline: None,
-            aerial_perspective,
+            // aerial_perspective,
 
             gpu_state,
             quadtree,
@@ -224,7 +239,14 @@ impl Terrain {
     ) -> bool {
         self.quadtree.update_priorities(&self.cache.tiles, camera);
         if !self.loading_complete() {
-            self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
+            self.cache.update(
+                device,
+                queue,
+                &self.gpu_state,
+                &self.mapfile,
+                &self.quadtree,
+                camera,
+            );
             self.loading_complete()
         } else {
             true
@@ -384,7 +406,7 @@ impl Terrain {
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
-        self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree);
+        self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree, camera);
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
@@ -411,14 +433,12 @@ impl Terrain {
             }),
         );
 
-        self.cache.tiles.write_node_slots(queue, &self.gpu_state, camera);
-
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
         });
 
         {
-            self.cache.cull_meshes(device, &mut encoder, &self.gpu_state, &frustum, camera);
+            self.cache.cull_meshes(device, &mut encoder, &self.gpu_state);
 
             // self.aerial_perspective.refresh();
             // self.aerial_perspective.run(
@@ -456,7 +476,7 @@ impl Terrain {
                 &self.cache.tiles,
             );
 
-            self.cache.render_meshes(device, &queue, &mut rpass, &self.gpu_state, camera);
+            self.cache.render_meshes(device, &mut rpass, &self.gpu_state);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);

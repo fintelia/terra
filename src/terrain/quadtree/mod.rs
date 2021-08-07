@@ -3,20 +3,16 @@ use crate::cache::TileCache;
 use crate::utils::math::InfiniteFrustum;
 use cgmath::*;
 use fnv::FnvHashMap;
-use std::convert::TryInto;
 use wgpu::util::DeviceExt;
 
 pub(crate) mod node;
 pub(crate) mod render;
 
 pub(crate) use crate::terrain::quadtree::node::*;
-pub(crate) use crate::terrain::quadtree::render::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
 pub(crate) struct QuadTree {
-    // ocean: Ocean<R>,
-    /// List of nodes that will be rendered.
     visible_nodes: Vec<VNode>,
     partially_visible_nodes: Vec<(VNode, u8)>,
 
