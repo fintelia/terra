@@ -214,9 +214,7 @@ pub(crate) struct TileCache {
     total_download_buffers: usize,
 }
 impl TileCache {
-    pub fn new(mapfile: Arc<MapFile>, generators: Vec<Box<dyn GenerateTile>>) -> Self {
-        let layers = mapfile.layers().clone();
-
+    pub fn new(mapfile: Arc<MapFile>, layers: VecMap<LayerParams>, level_masks: Vec<LayerMask>, generators: Vec<Box<dyn GenerateTile>>) -> Self {
         let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
 
@@ -237,16 +235,9 @@ impl TileCache {
             levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
         }
 
-        let mut level_masks = vec![LayerMask::empty(); 23];
-        for layer in layers.values() {
-            for i in layer.min_level..=layer.max_level {
-                level_masks[i as usize] |= layer.layer_type.bit_mask();
-            }
-        }
-
         Self {
             levels,
-            layers: mapfile.layers().clone(),
+            layers,
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             generators,
             level_masks,
@@ -294,6 +285,7 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
     ) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
@@ -349,10 +341,11 @@ impl TileCache {
             let mut generators_used = GeneratorMask::empty();
             let mut generated_layers = LayerMask::empty();
             for generator_index in 0..cache.tiles.generators.len() {
-                let generator = &mut cache.tiles.generators[generator_index];
+                let generator = &cache.tiles.generators[generator_index];
                 let outputs = generator.outputs(n.level());
                 let peer_inputs = generator.peer_inputs(n.level());
                 let parent_inputs = generator.parent_inputs(n.level());
+                let ancestor_dependencies = generator.ancestor_dependencies(n.level());
 
                 let need_output = outputs & !entry.valid & level_mask != LayerMask::empty();
                 let has_peer_inputs = peer_inputs & !entry.valid == LayerMask::empty();
@@ -365,79 +358,100 @@ impl TileCache {
                 let missing_download_buffers = outputs.contains_layer(LayerType::Heightmaps)
                     && cache.tiles.free_download_buffers.is_empty()
                     && cache.tiles.total_download_buffers + download_buffers_used == 64;
-
-                if need_output
-                    && has_peer_inputs
-                    && !root_input_missing
-                    && !parent_input_missing
-                    && !missing_download_buffers
+                if !need_output
+                    || !has_peer_inputs
+                    || root_input_missing
+                    || parent_input_missing
+                    || missing_download_buffers
                 {
-                    let output_mask = !entry.valid & level_mask & generator.outputs(n.level());
-                    generator.generate(
-                        device,
-                        &mut encoder,
-                        gpu_state,
-                        &cache.tiles.layers,
-                        n,
-                        slot,
-                        parent_slot,
-                        output_mask,
-                        &mut uniform_data,
+                    continue;
+                }
+
+                let has_all_ancestor_dependencies = LayerType::iter()
+                    .filter(|layer| ancestor_dependencies.contains_layer(*layer))
+                    .all(|layer| {
+                        if entry.node.level() < cache.tiles.layers[layer].min_level {
+                            false
+                        } else if entry.node.level() <= cache.tiles.layers[layer].max_level {
+                            cache.tiles.contains(entry.node, layer)
+                        } else {
+                            let ancestor = entry
+                                .node
+                                .find_ancestor(|node| node.level() == cache.tiles.layers[layer].max_level)
+                                .unwrap()
+                                .0;
+                            cache.tiles.contains(ancestor, layer)
+                        }
+                    });    
+                if !has_all_ancestor_dependencies {
+                    continue;
+                }
+
+                let output_mask = !entry.valid & level_mask & generator.outputs(n.level());
+                cache.tiles.generators[generator_index].generate(
+                    device,
+                    &mut encoder,
+                    gpu_state,
+                    &cache.tiles.layers,
+                    n,
+                    slot,
+                    parent_slot,
+                    output_mask,
+                    &mut uniform_data,
+                );
+
+                generators_used |= GeneratorMask::from_index(generator_index);
+                generators_used |= cache.generator_dependencies(n, peer_inputs);
+                if parent_entry.is_some() {
+                    generators_used |=
+                        cache.generator_dependencies(n.parent().unwrap().0, parent_inputs);
+                }
+
+                tiles_generated += 1;
+                generated_layers |= output_mask;
+
+                if output_mask.contains_layer(LayerType::Heightmaps)
+                    && n.level() <= VNode::LEVEL_CELL_1M
+                {
+                    let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
+                        .texture_format
+                        .bytes_per_block() as u64;
+                    let resolution =
+                        cache.tiles.layers[LayerType::Heightmaps].texture_resolution as u64;
+                    let row_bytes = resolution * bytes_per_pixel;
+                    let row_pitch = (row_bytes + 255) & !255;
+
+                    let buffer = cache.tiles.free_download_buffers.pop().unwrap_or_else(|| {
+                        download_buffers_used += 1;
+                        device.create_buffer(&wgpu::BufferDescriptor {
+                            size: row_pitch * resolution,
+                            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                            label: Some(&format!("buffer.tiles.download")),
+                            mapped_at_creation: false,
+                        })
+                    });
+                    encoder.copy_texture_to_buffer(
+                        wgpu::ImageCopyTexture {
+                            texture: &gpu_state.tile_cache[LayerType::Heightmaps].0,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
+                        },
+                        wgpu::ImageCopyBuffer {
+                            buffer: &buffer,
+                            layout: wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
+                                rows_per_image: None,
+                            },
+                        },
+                        wgpu::Extent3d {
+                            width: resolution as u32,
+                            height: resolution as u32,
+                            depth_or_array_layers: 1,
+                        },
                     );
 
-                    generators_used |= GeneratorMask::from_index(generator_index);
-                    generators_used |= cache.generator_dependencies(n, peer_inputs);
-                    if parent_entry.is_some() {
-                        generators_used |=
-                            cache.generator_dependencies(n.parent().unwrap().0, parent_inputs);
-                    }
-
-                    tiles_generated += 1;
-                    generated_layers |= output_mask;
-
-                    if output_mask.contains_layer(LayerType::Heightmaps)
-                        && n.level() <= VNode::LEVEL_CELL_1M
-                    {
-                        let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
-                            .texture_format
-                            .bytes_per_block() as u64;
-                        let resolution =
-                            cache.tiles.layers[LayerType::Heightmaps].texture_resolution as u64;
-                        let row_bytes = resolution * bytes_per_pixel;
-                        let row_pitch = (row_bytes + 255) & !255;
-
-                        let buffer = cache.tiles.free_download_buffers.pop().unwrap_or_else(|| {
-                            download_buffers_used += 1;
-                            device.create_buffer(&wgpu::BufferDescriptor {
-                                size: row_pitch * resolution,
-                                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
-                                label: Some(&format!("buffer.tiles.download")),
-                                mapped_at_creation: false,
-                            })
-                        });
-                        encoder.copy_texture_to_buffer(
-                            wgpu::ImageCopyTexture {
-                                texture: &gpu_state.tile_cache[LayerType::Heightmaps].0,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
-                            },
-                            wgpu::ImageCopyBuffer {
-                                buffer: &buffer,
-                                layout: wgpu::ImageDataLayout {
-                                    offset: 0,
-                                    bytes_per_row: Some(NonZeroU32::new(row_pitch as u32).unwrap()),
-                                    rows_per_image: None,
-                                },
-                            },
-                            wgpu::Extent3d {
-                                width: resolution as u32,
-                                height: resolution as u32,
-                                depth_or_array_layers: 1,
-                            },
-                        );
-
-                        planned_heightmap_downloads.push((n, buffer));
-                    }
+                    planned_heightmap_downloads.push((n, buffer));
                 }
             }
 
@@ -448,6 +462,9 @@ impl TileCache {
                 entry.generators.insert(layer.index(), generators_used);
             }
         }
+
+        cache.write_nodes(queue, gpu_state, camera);
+
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
         queue.submit(Some(encoder.finish()));
 

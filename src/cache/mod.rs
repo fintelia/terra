@@ -22,7 +22,7 @@ use std::{
 use std::{collections::HashMap, num::NonZeroU32};
 use vec_map::VecMap;
 
-use self::{generators::GenerateTile, mesh::CullMeshUniforms};
+use self::mesh::CullMeshUniforms;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -355,10 +355,12 @@ pub(crate) struct UnifiedPriorityCache {
 
 impl UnifiedPriorityCache {
     pub fn new(
+        device: &wgpu::Device,
         mapfile: Arc<MapFile>,
-        generators: Vec<Box<dyn GenerateTile>>,
         mesh_layers: Vec<MeshCacheDesc>,
     ) -> Self {
+        let layers = mapfile.layers().clone();
+
         let mut base_slot = 0;
         let mut meshes = Vec::new();
         for desc in mesh_layers {
@@ -368,10 +370,26 @@ impl UnifiedPriorityCache {
             meshes.push((desc.ty as usize, MeshCache::new(desc, base_slot, num_slots)));
             base_slot += num_slots;
         }
+        let meshes = meshes.into_iter().collect();
+
+        let soft_float64 = !device.features().contains(wgpu::Features::SHADER_FLOAT64);
+        let generators = generators::generators(device, &layers, &meshes, soft_float64);
+
+        let mut level_masks = vec![LayerMask::empty(); 23];
+        for layer in layers.values() {
+            for i in layer.min_level..=layer.max_level {
+                level_masks[i as usize] |= layer.layer_type.bit_mask();
+            }
+        }
+        for mesh in meshes.values() {
+            for i in mesh.desc.min_level..=mesh.desc.max_level {
+                level_masks[i as usize] |= mesh.desc.ty.bit_mask();
+            }
+        }
 
         Self {
-            tiles: TileCache::new(mapfile, generators),
-            meshes: meshes.into_iter().collect(),
+            tiles: TileCache::new(mapfile, layers, level_masks, generators),
+            meshes,
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
@@ -394,6 +412,7 @@ impl UnifiedPriorityCache {
                 let mask = GeneratorMask::from_index(i);
                 for cache in self.tiles.levels.iter_mut() {
                     for slot in cache.slots_mut() {
+                        // TODO: handle meshes here somehow?
                         for (layer, generator_mask) in &slot.generators {
                             if generator_mask.intersects(mask) {
                                 slot.valid &= !LayerType::from_index(layer).bit_mask();
@@ -404,29 +423,10 @@ impl UnifiedPriorityCache {
             }
         }
 
-        for mesh_cache in self.meshes.values_mut() {
-            let mut refresh = false;
-            for (_, shader) in &mut mesh_cache.desc.generate {
-                refresh = shader.refresh() || refresh;
-            }
-
-            if refresh {
-                for cache in self.tiles.levels.iter_mut() {
-                    for slot in cache.slots_mut() {
-                        slot.valid &= !mesh_cache.desc.ty.bit_mask();
-                    }
-                }
-            }
-        }
-
         self.tiles.update(quadtree);
         self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
-        TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
+        TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
         self.tiles.download_tiles();
-
-        self.write_nodes(queue, gpu_state, camera);
-
-        MeshCache::generate_all(self, device, queue, gpu_state);
     }
 
     pub fn write_nodes(

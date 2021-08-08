@@ -28,7 +28,6 @@ use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use cache::UnifiedPriorityCache;
 use cgmath::SquareMatrix;
-use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::array::IntoIter;
 use std::collections::HashMap;
@@ -102,19 +101,12 @@ impl Terrain {
         mapfile: Arc<MapFile>,
     ) -> Result<Self, Error> {
         let cache = UnifiedPriorityCache::new(
+            device,
             Arc::clone(&mapfile),
-            crate::cache::generators::generators(
-                mapfile.layers(),
-                !device.features().contains(wgpu::Features::SHADER_FLOAT64),
-            ),
             vec![MeshCacheDesc {
                 ty: MeshType::Grass,
                 max_bytes_per_node: 128 * 128 * 64,
                 entries_per_node: 16,
-                peer_dependency_mask: LayerType::Displacements.bit_mask()
-                    | LayerType::Albedo.bit_mask()
-                    | LayerType::Normals.bit_mask(),
-                ancester_dependency_mask: LayerType::GrassCanopy.bit_mask(),
                 min_level: VNode::LEVEL_SIDE_19M,
                 max_level: VNode::LEVEL_SIDE_5M,
                 index_buffer: {
@@ -131,31 +123,6 @@ impl Terrain {
                         usage: wgpu::BufferUsage::INDEX,
                     })
                 },
-                generate: vec![
-                    (
-                        (16, 16, 1),
-                        ComputeShader::new(
-                            rshader::shader_source!(
-                                "shaders",
-                                "gen-grass.comp",
-                                "declarations.glsl",
-                                "hash.glsl"
-                            ),
-                            "gen-grass".to_string(),
-                        ),
-                    ),
-                    (
-                        (16, 1, 1),
-                        ComputeShader::new(
-                            rshader::shader_source!(
-                                "shaders",
-                                "bounding-sphere.comp",
-                                "declarations.glsl"
-                            ),
-                            "bounding-sphere".to_owned(),
-                        ),
-                    ),
-                ],
                 render: rshader::ShaderSet::simple(
                     rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
                     rshader::shader_source!(
