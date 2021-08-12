@@ -43,7 +43,6 @@ pub struct Terrain {
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     // aerial_perspective: ComputeShader<u32>,
-
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
@@ -160,8 +159,7 @@ impl Terrain {
             ],
         );
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
-        let quadtree =
-            QuadTree::new();
+        let quadtree = QuadTree::new();
 
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "sky.vert", "declarations.glsl"),
@@ -197,9 +195,12 @@ impl Terrain {
 
     fn loading_complete(&self) -> bool {
         VNode::roots().iter().copied().all(|root| {
-            self.cache.tiles.contains(root, LayerType::Heightmaps)
-                && self.cache.tiles.contains(root, LayerType::Albedo)
-                && self.cache.tiles.contains(root, LayerType::Roughness)
+            self.cache.contains_all(
+                root,
+                LayerType::Heightmaps.bit_mask()
+                    | LayerType::Albedo.bit_mask()
+                    | LayerType::Roughness.bit_mask(),
+            )
         })
     }
 
@@ -215,7 +216,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
-        self.quadtree.update_priorities(&self.cache.tiles, camera);
+        self.quadtree.update_priorities(&self.cache, camera);
         if !self.loading_complete() {
             self.cache.update(
                 device,
@@ -335,7 +336,7 @@ impl Terrain {
             }),
         );
 
-        self.quadtree.update_priorities(&self.cache.tiles, camera);
+        self.quadtree.update_priorities(&self.cache, camera);
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
@@ -350,7 +351,6 @@ impl Terrain {
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
-
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
@@ -399,7 +399,7 @@ impl Terrain {
 
     pub fn get_height(&self, latitude: f64, longitude: f64) -> f32 {
         for level in (0..=VNode::LEVEL_CELL_1M).rev() {
-            if let Some(height) = self.cache.tiles.get_height(latitude, longitude, level) {
+            if let Some(height) = self.cache.get_height(latitude, longitude, level) {
                 return height;
             }
         }

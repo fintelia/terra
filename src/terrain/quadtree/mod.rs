@@ -1,5 +1,5 @@
 use crate::cache::Priority;
-use crate::cache::TileCache;
+use crate::cache::UnifiedPriorityCache;
 use cgmath::*;
 use fnv::FnvHashMap;
 use wgpu::util::DeviceExt;
@@ -47,7 +47,7 @@ impl QuadTree {
         })
     }
 
-    pub fn update_priorities(&mut self, tile_cache: &TileCache, camera: mint::Point3<f64>) {
+    pub fn update_priorities(&mut self, cache: &UnifiedPriorityCache, camera: mint::Point3<f64>) {
         if self.last_camera_position == Some(camera) {
             return;
         }
@@ -56,7 +56,7 @@ impl QuadTree {
 
         self.node_priorities.clear();
         VNode::breadth_first(|node| {
-            let priority = node.priority(camera, tile_cache.get_height_range(node));
+            let priority = node.priority(camera, cache.get_height_range(node));
             self.node_priorities.insert(node, priority);
             priority >= Priority::cutoff() && node.level() < VNode::LEVEL_CELL_5MM
         });

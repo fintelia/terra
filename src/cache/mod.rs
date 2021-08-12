@@ -2,11 +2,16 @@ pub mod generators;
 mod mesh;
 mod tile;
 
+pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
+pub(crate) use crate::cache::tile::TileCache;
+use crate::{
+    cache::tile::NodeSlot,
+    generate::ComputeShader,
+    gpu_state::GpuState,
+    mapfile::MapFile,
+    terrain::quadtree::{QuadTree, VNode},
+};
 use futures::FutureExt;
-pub(crate) use mesh::{MeshCache, MeshCacheDesc};
-pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
-
-use crate::{cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -15,6 +20,7 @@ use std::{
     sync::Arc,
 };
 use std::{collections::HashMap, num::NonZeroU32};
+pub(crate) use tile::{LayerParams, TextureFormat};
 use vec_map::VecMap;
 
 use self::mesh::CullMeshUniforms;
@@ -330,7 +336,7 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
 }
 
 pub(crate) struct UnifiedPriorityCache {
-    pub tiles: TileCache,
+    tiles: TileCache,
     meshes: VecMap<MeshCache>,
 
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
@@ -411,7 +417,7 @@ impl UnifiedPriorityCache {
 
         let (command_buffer, mut planned_heightmap_downloads) =
             TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
-        
+
         self.write_nodes(queue, gpu_state, camera);
 
         queue.submit(Some(command_buffer));
@@ -434,18 +440,16 @@ impl UnifiedPriorityCache {
         self.tiles.download_tiles();
     }
 
-    pub fn write_nodes(
-        &self,
-        queue: &wgpu::Queue,
-        gpu_state: &GpuState,
-        camera: mint::Point3<f64>,
-    ) {
+    fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
         assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
 
         let mut frame_nodes: VecMap<HashMap<_, _>> = VecMap::new();
         for (index, mesh) in &self.meshes {
             if !mesh.desc.render_overlapping_levels {
-                frame_nodes.insert(index, self.tiles.compute_visible(mesh.desc.ty.bit_mask()).into_iter().collect());
+                frame_nodes.insert(
+                    index,
+                    self.tiles.compute_visible(mesh.desc.ty.bit_mask()).into_iter().collect(),
+                );
             }
         }
 
@@ -486,7 +490,8 @@ impl UnifiedPriorityCache {
                         0
                     };
                     if let Some(ref frame_nodes) = frame_nodes.get(mesh_index) {
-                        data[index].mesh_valid_mask[mesh_index] &= *frame_nodes.get(&slot.node).unwrap_or(&0) as u32;
+                        data[index].mesh_valid_mask[mesh_index] &=
+                            *frame_nodes.get(&slot.node).unwrap_or(&0) as u32;
                     }
                 }
 
@@ -635,8 +640,14 @@ impl UnifiedPriorityCache {
         }
     }
 
-    #[allow(unused)]
-    fn contains_all(&self, node: VNode, mask: LayerMask) -> bool {
+    pub fn contains_all(&self, node: VNode, mask: LayerMask) -> bool {
         self.tiles.contains_all(node, mask)
+    }
+
+    pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {
+        self.tiles.get_height(latitude, longitude, level)
+    }
+    pub fn get_height_range(&self, node: VNode) -> (f32, f32) {
+        self.tiles.get_height_range(node)
     }
 }
