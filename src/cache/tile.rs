@@ -2,15 +2,12 @@ use crate::{
     cache::{self, Priority, PriorityCacheEntry},
     terrain::quadtree::{QuadTree, VNode},
 };
-use crate::{
-    coordinates,
-    stream::{TileResult, TileStreamerEndpoint},
-};
+use crate::{coordinates, stream::TileResult};
 use crate::{
     gpu_state::GpuState,
     mapfile::{MapFile, TileState},
 };
-use cache::{generators::GenerateTile, LayerType, PriorityCache};
+use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
 use futures::future::BoxFuture;
@@ -20,9 +17,9 @@ use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
 use vec_map::VecMap;
 
-use super::{GeneratorMask, LayerMask, UnifiedPriorityCache};
+use super::{GeneratorMask, LayerMask, TileCache};
 
-pub(crate) const SLOTS_PER_LEVEL: usize = 32;
+pub(super) const SLOTS_PER_LEVEL: usize = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
@@ -158,7 +155,7 @@ pub(crate) struct LayerParams {
 }
 
 #[derive(Clone)]
-enum CpuHeightmap {
+pub(super) enum CpuHeightmap {
     I16 { min: f32, max: f32, heights: Arc<Vec<i16>> },
     F32 { min: f32, max: f32, heights: Arc<Vec<f32>> },
 }
@@ -200,60 +197,8 @@ impl PriorityCacheEntry for Entry {
     }
 }
 
-pub(crate) struct TileCache {
-    pub(super) levels: Vec<PriorityCache<Entry>>,
-    pub(super) layers: VecMap<LayerParams>,
-    pub(super) generators: Vec<Box<dyn GenerateTile>>,
-    level_masks: Vec<LayerMask>,
-
-    streamer: TileStreamerEndpoint,
-    pub(super) start_download:
-        tokio::sync::mpsc::UnboundedSender<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
-    completed_downloads: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
-    free_download_buffers: Vec<wgpu::Buffer>,
-    total_download_buffers: usize,
-}
 impl TileCache {
-    pub fn new(
-        mapfile: Arc<MapFile>,
-        layers: VecMap<LayerParams>,
-        level_masks: Vec<LayerMask>,
-        generators: Vec<Box<dyn GenerateTile>>,
-    ) -> Self {
-        let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
-
-        let heightmap_resolution = layers[LayerType::Heightmaps].texture_resolution as usize;
-        let heightmap_bytes_per_pixel =
-            layers[LayerType::Heightmaps].texture_format.bytes_per_block() as usize;
-        std::thread::spawn(move || {
-            Self::download_thread(
-                start_rx,
-                completed_tx,
-                heightmap_resolution,
-                heightmap_bytes_per_pixel,
-            )
-        });
-
-        let mut levels = vec![PriorityCache::new(6), PriorityCache::new(24)];
-        for _ in 2..=22 {
-            levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
-        }
-
-        Self {
-            levels,
-            layers,
-            streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
-            generators,
-            level_masks,
-            start_download: start_tx,
-            completed_downloads: completed_rx,
-            free_download_buffers: Vec::new(),
-            total_download_buffers: 0,
-        }
-    }
-
-    pub(super) fn update(&mut self, quadtree: &QuadTree) {
+    pub(super) fn update_levels(&mut self, quadtree: &QuadTree) {
         let mut min_priorities = Vec::new();
         for cache in &mut self.levels {
             for entry in cache.slots_mut() {
@@ -285,7 +230,7 @@ impl TileCache {
     }
 
     pub(super) fn generate_tiles(
-        cache: &mut UnifiedPriorityCache,
+        &mut self,
         mapfile: &MapFile,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -296,9 +241,9 @@ impl TileCache {
         let mut pending_generate = Vec::new();
 
         for level in 0..=VNode::LEVEL_CELL_5MM {
-            for ref mut entry in cache.tiles.levels[level as usize].slots_mut() {
+            for ref mut entry in self.levels[level as usize].slots_mut() {
                 if entry.priority() > Priority::cutoff() {
-                    for layer in cache.tiles.layers.values() {
+                    for layer in self.layers.values() {
                         if level >= layer.min_level && level <= layer.max_level {
                             let ty = layer.layer_type;
                             if !((entry.valid | entry.streaming).contains_layer(ty)) {
@@ -306,9 +251,9 @@ impl TileCache {
                                     TileState::MissingBase
                                     | TileState::Base
                                     | TileState::Generated => {
-                                        if cache.tiles.streamer.num_inflight() < 128 {
+                                        if self.streamer.num_inflight() < 128 {
                                             entry.streaming |= ty.bit_mask();
-                                            cache.tiles.streamer.request_tile(entry.node, ty);
+                                            self.streamer.request_tile(entry.node, ty);
                                         }
                                     }
                                     TileState::GpuOnly | TileState::Missing => {
@@ -318,7 +263,7 @@ impl TileCache {
                             }
                         }
                     }
-                    for mesh in cache.meshes.values() {
+                    for mesh in self.meshes.values() {
                         if level >= mesh.desc.min_level
                             && level <= mesh.desc.max_level
                             && !entry.valid.contains_mesh(mesh.desc.ty)
@@ -341,13 +286,13 @@ impl TileCache {
         let mut nodes = pending_generate.into_iter().peekable();
         while tiles_generated < 16 && nodes.peek().is_some() {
             let n = nodes.next().unwrap();
-            let slot = cache.tiles.get_slot(n).unwrap();
-            let parent_slot = n.parent().and_then(|p| cache.tiles.get_slot(p.0));
-            let level_mask = cache.tiles.level_masks[n.level() as usize];
+            let slot = self.get_slot(n).unwrap();
+            let parent_slot = n.parent().and_then(|p| self.get_slot(p.0));
+            let level_mask = self.level_masks[n.level() as usize];
 
-            let entry = cache.tiles.levels[n.level() as usize].entry(&n).unwrap();
+            let entry = self.levels[n.level() as usize].entry(&n).unwrap();
             let parent_entry = if let Some(p) = n.parent() {
-                cache.tiles.levels[p.0.level() as usize].entry(&p.0)
+                self.levels[p.0.level() as usize].entry(&p.0)
             } else {
                 None
             };
@@ -355,8 +300,8 @@ impl TileCache {
             let mut download_buffers_used = 0;
             let mut generators_used = GeneratorMask::empty();
             let mut generated_layers = LayerMask::empty();
-            for generator_index in 0..cache.tiles.generators.len() {
-                let generator = &cache.tiles.generators[generator_index];
+            for generator_index in 0..self.generators.len() {
+                let generator = &self.generators[generator_index];
                 let outputs = generator.outputs(n.level());
                 let peer_inputs = generator.peer_inputs(n.level());
                 let parent_inputs = generator.parent_inputs(n.level());
@@ -373,8 +318,8 @@ impl TileCache {
                         || parent_inputs & !parent_entry.as_ref().unwrap().valid
                             != LayerMask::empty());
                 let missing_download_buffers = outputs.contains_layer(LayerType::Heightmaps)
-                    && cache.tiles.free_download_buffers.is_empty()
-                    && cache.tiles.total_download_buffers + download_buffers_used == 64;
+                    && self.free_download_buffers.is_empty()
+                    && self.total_download_buffers + download_buffers_used == 64;
                 if !need_output
                     || !has_peer_inputs
                     || root_input_missing
@@ -387,19 +332,17 @@ impl TileCache {
                 let has_all_ancestor_dependencies = LayerType::iter()
                     .filter(|layer| ancestor_dependencies.contains_layer(*layer))
                     .all(|layer| {
-                        if entry.node.level() < cache.tiles.layers[layer].min_level {
+                        if entry.node.level() < self.layers[layer].min_level {
                             false
-                        } else if entry.node.level() <= cache.tiles.layers[layer].max_level {
-                            cache.tiles.contains(entry.node, layer)
+                        } else if entry.node.level() <= self.layers[layer].max_level {
+                            self.contains(entry.node, layer)
                         } else {
                             let ancestor = entry
                                 .node
-                                .find_ancestor(|node| {
-                                    node.level() == cache.tiles.layers[layer].max_level
-                                })
+                                .find_ancestor(|node| node.level() == self.layers[layer].max_level)
                                 .unwrap()
                                 .0;
-                            cache.tiles.contains(ancestor, layer)
+                            self.contains(ancestor, layer)
                         }
                     });
                 if !has_all_ancestor_dependencies {
@@ -408,11 +351,11 @@ impl TileCache {
 
                 let output_mask =
                     !(entry.valid | generated_layers) & level_mask & generator.outputs(n.level());
-                cache.tiles.generators[generator_index].generate(
+                self.generators[generator_index].generate(
                     device,
                     &mut encoder,
                     gpu_state,
-                    &cache.tiles.layers,
+                    &self.layers,
                     n,
                     slot,
                     parent_slot,
@@ -421,10 +364,10 @@ impl TileCache {
                 );
 
                 generators_used |= GeneratorMask::from_index(generator_index);
-                generators_used |= cache.generator_dependencies(n, peer_inputs);
+                generators_used |= self.generator_dependencies(n, peer_inputs);
                 if parent_entry.is_some() {
                     generators_used |=
-                        cache.generator_dependencies(n.parent().unwrap().0, parent_inputs);
+                        self.generator_dependencies(n.parent().unwrap().0, parent_inputs);
                 }
 
                 tiles_generated += 1;
@@ -433,15 +376,13 @@ impl TileCache {
                 if output_mask.contains_layer(LayerType::Heightmaps)
                     && n.level() <= VNode::LEVEL_CELL_1M
                 {
-                    let bytes_per_pixel = cache.tiles.layers[LayerType::Heightmaps]
-                        .texture_format
-                        .bytes_per_block() as u64;
-                    let resolution =
-                        cache.tiles.layers[LayerType::Heightmaps].texture_resolution as u64;
+                    let bytes_per_pixel =
+                        self.layers[LayerType::Heightmaps].texture_format.bytes_per_block() as u64;
+                    let resolution = self.layers[LayerType::Heightmaps].texture_resolution as u64;
                     let row_bytes = resolution * bytes_per_pixel;
                     let row_pitch = (row_bytes + 255) & !255;
 
-                    let buffer = cache.tiles.free_download_buffers.pop().unwrap_or_else(|| {
+                    let buffer = self.free_download_buffers.pop().unwrap_or_else(|| {
                         download_buffers_used += 1;
                         device.create_buffer(&wgpu::BufferDescriptor {
                             size: row_pitch * resolution,
@@ -475,8 +416,8 @@ impl TileCache {
                 }
             }
 
-            cache.tiles.total_download_buffers += download_buffers_used;
-            let entry = cache.tiles.levels[n.level() as usize].entry_mut(&n).unwrap();
+            self.total_download_buffers += download_buffers_used;
+            let entry = self.levels[n.level() as usize].entry_mut(&n).unwrap();
             entry.valid |= generated_layers;
             for layer in LayerType::iter().filter(|&layer| generated_layers.contains_layer(layer)) {
                 entry.generators.insert(layer.index(), generators_used);
@@ -579,7 +520,7 @@ impl TileCache {
         }
     }
 
-    fn download_thread(
+    pub(super) fn download_thread(
         start_rx: tokio::sync::mpsc::UnboundedReceiver<
             BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>,
         >,

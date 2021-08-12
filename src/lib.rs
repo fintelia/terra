@@ -26,7 +26,7 @@ use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
-use cache::UnifiedPriorityCache;
+use cache::TileCache;
 use cgmath::SquareMatrix;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::array::IntoIter;
@@ -47,7 +47,7 @@ pub struct Terrain {
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
 
-    cache: UnifiedPriorityCache,
+    cache: TileCache,
 }
 impl Terrain {
     pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
@@ -95,7 +95,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         mapfile: Arc<MapFile>,
     ) -> Result<Self, Error> {
-        let cache = UnifiedPriorityCache::new(
+        let cache = TileCache::new(
             device,
             Arc::clone(&mapfile),
             vec![

@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap};
 
 use crate::{
-    cache::{MeshType, TileCache, UnifiedPriorityCache, LAYERS_BY_NAME},
+    cache::{MeshType, TileCache, LAYERS_BY_NAME},
     mapfile::MapFile,
     terrain::quadtree::VNode,
 };
@@ -66,7 +66,7 @@ impl GpuState {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         mapfile: &MapFile,
-        cache: &UnifiedPriorityCache,
+        cache: &TileCache,
     ) -> Result<Self, anyhow::Error> {
         let with_view = |name: &'static str, t: wgpu::Texture| {
             let view = t.create_view(&wgpu::TextureViewDescriptor {

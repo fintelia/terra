@@ -3,7 +3,6 @@ mod mesh;
 mod tile;
 
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
-pub(crate) use crate::cache::tile::TileCache;
 use crate::{
     cache::tile::NodeSlot,
     generate::ComputeShader,
@@ -11,7 +10,8 @@ use crate::{
     mapfile::MapFile,
     terrain::quadtree::{QuadTree, VNode},
 };
-use futures::FutureExt;
+use crate::{cache::tile::SLOTS_PER_LEVEL, stream::TileStreamerEndpoint};
+use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -24,6 +24,8 @@ pub(crate) use tile::{LayerParams, TextureFormat};
 use vec_map::VecMap;
 
 use self::mesh::CullMeshUniforms;
+use self::tile::Entry;
+use self::{generators::GenerateTile, tile::CpuHeightmap};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -335,14 +337,25 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
     }
 }
 
-pub(crate) struct UnifiedPriorityCache {
-    tiles: TileCache,
+pub(crate) struct TileCache {
+    levels: Vec<PriorityCache<Entry>>,
+    level_masks: Vec<LayerMask>,
+
+    layers: VecMap<LayerParams>,
     meshes: VecMap<MeshCache>,
+    generators: Vec<Box<dyn GenerateTile>>,
+
+    streamer: TileStreamerEndpoint,
+    start_download:
+        tokio::sync::mpsc::UnboundedSender<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
+    completed_downloads: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
+    free_download_buffers: Vec<wgpu::Buffer>,
+    total_download_buffers: usize,
 
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
 }
 
-impl UnifiedPriorityCache {
+impl TileCache {
     pub fn new(
         device: &wgpu::Device,
         mapfile: Arc<MapFile>,
@@ -376,9 +389,37 @@ impl UnifiedPriorityCache {
             }
         }
 
+        let mut levels = vec![PriorityCache::new(6), PriorityCache::new(24)];
+        for _ in 2..=22 {
+            levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
+        }
+
+        let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
+
+        let heightmap_resolution = layers[LayerType::Heightmaps].texture_resolution as usize;
+        let heightmap_bytes_per_pixel =
+            layers[LayerType::Heightmaps].texture_format.bytes_per_block() as usize;
+        std::thread::spawn(move || {
+            Self::download_thread(
+                start_rx,
+                completed_tx,
+                heightmap_resolution,
+                heightmap_bytes_per_pixel,
+            )
+        });
+
         Self {
-            tiles: TileCache::new(mapfile, layers, level_masks, generators),
+            streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
+            level_masks,
+            start_download: start_tx,
+            completed_downloads: completed_rx,
+            free_download_buffers: Vec::new(),
+            total_download_buffers: 0,
+            levels,
+            layers,
             meshes,
+            generators,
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
@@ -395,11 +436,11 @@ impl UnifiedPriorityCache {
         quadtree: &mut QuadTree,
         camera: mint::Point3<f64>,
     ) {
-        for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
+        for (i, gen) in self.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
                 assert!(i < 32);
                 let mask = GeneratorMask::from_index(i);
-                for cache in self.tiles.levels.iter_mut() {
+                for cache in self.levels.iter_mut() {
                     for slot in cache.slots_mut() {
                         // TODO: handle meshes here somehow?
                         for (layer, generator_mask) in &slot.generators {
@@ -412,8 +453,8 @@ impl UnifiedPriorityCache {
             }
         }
 
-        self.tiles.update(quadtree);
-        self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
+        TileCache::update_levels(self, quadtree);
+        self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
             TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
@@ -423,7 +464,7 @@ impl UnifiedPriorityCache {
         queue.submit(Some(command_buffer));
 
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
-            let _ = self.tiles.start_download.send(
+            let _ = self.start_download.send(
                 buffer
                     .slice(..)
                     .map_async(wgpu::MapMode::Read)
@@ -437,7 +478,7 @@ impl UnifiedPriorityCache {
             );
         }
 
-        self.tiles.download_tiles();
+        self.download_tiles();
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
@@ -448,7 +489,7 @@ impl UnifiedPriorityCache {
             if !mesh.desc.render_overlapping_levels {
                 frame_nodes.insert(
                     index,
-                    self.tiles.compute_visible(mesh.desc.ty.bit_mask()).into_iter().collect(),
+                    self.compute_visible(mesh.desc.ty.bit_mask()).into_iter().collect(),
                 );
             }
         }
@@ -465,9 +506,9 @@ impl UnifiedPriorityCache {
                 face: 0,
                 padding1: [0; 54],
             };
-            TileCache::base_slot(self.tiles.levels.len() as u8)
+            TileCache::base_slot(self.levels.len() as u8)
         ];
-        for (level_index, level) in self.tiles.levels.iter().enumerate() {
+        for (level_index, level) in self.levels.iter().enumerate() {
             for (slot_index, slot) in level.slots().into_iter().enumerate() {
                 let index = TileCache::base_slot(level_index as u8) + slot_index;
 
@@ -500,7 +541,7 @@ impl UnifiedPriorityCache {
                 let mut found_layers = LayerMask::empty();
                 for ancestor_index in 0..=level_index {
                     if let Some(ancestor_slot) =
-                        self.tiles.levels[ancestor.level() as usize].entry(&ancestor)
+                        self.levels[ancestor.level() as usize].entry(&ancestor)
                     {
                         for (layer_index, layer) in LayerType::iter().enumerate() {
                             let layer_slot = if (ancestor_index == 0
@@ -519,18 +560,16 @@ impl UnifiedPriorityCache {
                                 continue;
                             };
 
-                            let texture_resolution =
-                                self.tiles.layers[layer].texture_resolution as f32;
-                            let texture_border =
-                                self.tiles.layers[layer].texture_border_size as f32;
-                            let texture_ratio = if self.tiles.layers[layer].grid_registration {
+                            let texture_resolution = self.layers[layer].texture_resolution as f32;
+                            let texture_border = self.layers[layer].texture_border_size as f32;
+                            let texture_ratio = if self.layers[layer].grid_registration {
                                 (texture_resolution - 2.0 * texture_border - 1.0)
                                     / texture_resolution
                             } else {
                                 (texture_resolution - 2.0 * texture_border) / texture_resolution
                             };
                             let texture_step = texture_ratio / 64.0;
-                            let texture_origin = if self.tiles.layers[layer].grid_registration {
+                            let texture_origin = if self.layers[layer].grid_registration {
                                 (texture_border + 0.5) / texture_resolution
                             } else {
                                 texture_border / texture_resolution
@@ -541,7 +580,7 @@ impl UnifiedPriorityCache {
                                 texture_origin + texture_ratio * base_offset.y,
                             ];
                             data[index].layer_slots[layer_slot] =
-                                self.tiles.get_slot(ancestor).unwrap() as i32;
+                                self.get_slot(ancestor).unwrap() as i32;
                             data[index].layer_steps[layer_slot] =
                                 f32::powi(0.5, ancestor_index as i32) * texture_step;
                         }
@@ -565,7 +604,7 @@ impl UnifiedPriorityCache {
     fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
         let mut generators = GeneratorMask::empty();
 
-        if let Some(entry) = self.tiles.levels[node.level() as usize].entry(&node) {
+        if let Some(entry) = self.levels[node.level() as usize].entry(&node) {
             for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
                 generators |= entry
                     .generators
@@ -581,7 +620,7 @@ impl UnifiedPriorityCache {
         &self,
         device: &wgpu::Device,
     ) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
-        self.tiles.make_cache_textures(device)
+        self.make_cache_textures(device)
     }
     pub fn make_gpu_mesh_storage(&self, device: &wgpu::Device) -> VecMap<wgpu::Buffer> {
         self.meshes
@@ -638,16 +677,5 @@ impl UnifiedPriorityCache {
         for (_, c) in &mut self.meshes {
             c.render(device, rpass, gpu_state);
         }
-    }
-
-    pub fn contains_all(&self, node: VNode, mask: LayerMask) -> bool {
-        self.tiles.contains_all(node, mask)
-    }
-
-    pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {
-        self.tiles.get_height(latitude, longitude, level)
-    }
-    pub fn get_height_range(&self, node: VNode) -> (f32, f32) {
-        self.tiles.get_height_range(node)
     }
 }

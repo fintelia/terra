@@ -1,5 +1,5 @@
 use crate::cache::Priority;
-use crate::cache::UnifiedPriorityCache;
+use crate::cache::TileCache;
 use cgmath::*;
 use fnv::FnvHashMap;
 use wgpu::util::DeviceExt;
@@ -47,7 +47,7 @@ impl QuadTree {
         })
     }
 
-    pub fn update_priorities(&mut self, cache: &UnifiedPriorityCache, camera: mint::Point3<f64>) {
+    pub fn update_priorities(&mut self, cache: &TileCache, camera: mint::Point3<f64>) {
         if self.last_camera_position == Some(camera) {
             return;
         }
