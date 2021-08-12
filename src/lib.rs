@@ -40,10 +40,6 @@ use wgpu::util::DeviceExt;
 pub use crate::generate::BLUE_MARBLE_URLS;
 
 pub struct Terrain {
-    shader: rshader::ShaderSet,
-    bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-    index_buffer: wgpu::Buffer,
-
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     // aerial_perspective: ComputeShader<u32>,
@@ -103,49 +99,68 @@ impl Terrain {
         let cache = UnifiedPriorityCache::new(
             device,
             Arc::clone(&mapfile),
-            vec![MeshCacheDesc {
-                ty: MeshType::Grass,
-                max_bytes_per_node: 128 * 128 * 64,
-                entries_per_node: 16,
-                min_level: VNode::LEVEL_SIDE_19M,
-                max_level: VNode::LEVEL_SIDE_5M,
-                index_buffer: {
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("buffer.index.grass"),
-                        contents: bytemuck::cast_slice(
-                            &*(0..32 * 32)
-                                .flat_map(|i| {
-                                    IntoIter::new([0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6])
-                                        .map(move |j| j + i * 7)
-                                })
-                                .collect::<Vec<u32>>(),
+            vec![
+                MeshCacheDesc {
+                    ty: MeshType::Terrain,
+                    max_bytes_per_node: 0,
+                    entries_per_node: 4,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
+                    index_format: wgpu::IndexFormat::Uint16,
+                    index_buffer: QuadTree::create_index_buffer(device, 64),
+                    cull_mode: Some(wgpu::Face::Front),
+                    render: rshader::ShaderSet::simple(
+                        rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
+                        rshader::shader_source!(
+                            "shaders",
+                            "terrain.frag",
+                            "declarations.glsl",
+                            "pbr.glsl"
                         ),
-                        usage: wgpu::BufferUsage::INDEX,
-                    })
+                    )
+                    .unwrap(),
                 },
-                render: rshader::ShaderSet::simple(
-                    rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
-                    rshader::shader_source!(
-                        "shaders",
-                        "grass.frag",
-                        "declarations.glsl",
-                        "pbr.glsl"
-                    ),
-                )
-                .unwrap(),
-            }],
+                MeshCacheDesc {
+                    ty: MeshType::Grass,
+                    max_bytes_per_node: 128 * 128 * 64,
+                    entries_per_node: 16,
+                    min_level: VNode::LEVEL_SIDE_19M,
+                    max_level: VNode::LEVEL_SIDE_5M,
+                    cull_mode: None,
+                    index_format: wgpu::IndexFormat::Uint32,
+                    index_buffer: {
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("buffer.index.grass"),
+                            contents: bytemuck::cast_slice(
+                                &*(0..32 * 32)
+                                    .flat_map(|i| {
+                                        IntoIter::new([
+                                            0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6,
+                                        ])
+                                        .map(move |j| j + i * 7)
+                                    })
+                                    .collect::<Vec<u32>>(),
+                            ),
+                            usage: wgpu::BufferUsage::INDEX,
+                        })
+                    },
+                    render: rshader::ShaderSet::simple(
+                        rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
+                        rshader::shader_source!(
+                            "shaders",
+                            "grass.frag",
+                            "declarations.glsl",
+                            "pbr.glsl"
+                        ),
+                    )
+                    .unwrap(),
+                },
+            ],
         );
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
         let quadtree =
             QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
 
-        let index_buffer = quadtree.create_index_buffers(device);
-
-        let shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
-            rshader::shader_source!("shaders", "terrain.frag", "declarations.glsl", "pbr.glsl"),
-        )
-        .unwrap();
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "sky.vert", "declarations.glsl"),
             rshader::shader_source!(
@@ -168,15 +183,9 @@ impl Terrain {
         // );
 
         Ok(Self {
-            bindgroup_pipeline: None,
-            shader,
-
-            index_buffer,
-
             sky_shader,
             sky_bindgroup_pipeline: None,
             // aerial_perspective,
-
             gpu_state,
             quadtree,
             mapfile,
@@ -211,7 +220,7 @@ impl Terrain {
                 queue,
                 &self.gpu_state,
                 &self.mapfile,
-                &self.quadtree,
+                &mut self.quadtree,
                 camera,
             );
             self.loading_complete()
@@ -235,70 +244,6 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
-        if self.shader.refresh() {
-            self.bindgroup_pipeline = None;
-        }
-
-        if self.bindgroup_pipeline.is_none() {
-            let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
-                device,
-                &self.shader,
-                HashMap::new(),
-                HashMap::new(),
-                "terrain",
-            );
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    bind_group_layouts: &[&bind_group_layout],
-                    push_constant_ranges: &[],
-                    label: Some("pipeline.terrain.layout"),
-                });
-            self.bindgroup_pipeline = Some((
-                bind_group,
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    layout: Some(&render_pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("shader.terrain.vertex"),
-                            source: wgpu::ShaderSource::SpirV(self.shader.vertex().into()),
-                            flags: wgpu::ShaderFlags::empty(),
-                        }),
-                        entry_point: "main",
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("shader.terrain.fragment"),
-                            source: wgpu::ShaderSource::SpirV(self.shader.fragment().into()),
-                            flags: wgpu::ShaderFlags::empty(),
-                        }),
-                        entry_point: "main",
-                        targets: &[wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                            blend: Some(wgpu::BlendState {
-                                color: wgpu::BlendComponent::REPLACE,
-                                alpha: wgpu::BlendComponent::REPLACE,
-                            }),
-                            write_mask: wgpu::ColorWrite::ALL,
-                        }],
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        cull_mode: Some(wgpu::Face::Front),
-                        ..Default::default()
-                    },
-                    depth_stencil: Some(wgpu::DepthStencilState {
-                        format: wgpu::TextureFormat::Depth32Float,
-                        depth_write_enabled: true,
-                        depth_compare: wgpu::CompareFunction::Greater,
-                        bias: Default::default(),
-                        stencil: Default::default(),
-                    }),
-                    multisample: Default::default(),
-                    label: Some("pipeline.terrain"),
-                }),
-            ));
-        }
-
         if self.sky_shader.refresh() {
             self.sky_bindgroup_pipeline = None;
         }
@@ -368,18 +313,6 @@ impl Terrain {
                 ));
             InfiniteFrustum::from_matrix(view_proj)
         };
-
-        self.quadtree.update_priorities(&self.cache.tiles, camera);
-
-        // Update the tile cache and then block until root tiles have been downloaded and streamed
-        // to the GPU.
-        self.cache.update(device, queue, &self.gpu_state, &self.mapfile, &self.quadtree, camera);
-        while !self.poll_loading_status(device, queue, camera) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        self.quadtree.update_visibility(&self.cache.tiles, &frustum, camera);
-
         let relative_frustum =
             InfiniteFrustum::from_matrix(cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap());
         queue.write_buffer(
@@ -399,6 +332,23 @@ impl Terrain {
                 sun_direction: [0.4, 0.7, 0.2, 0.0],
             }),
         );
+
+        self.quadtree.update_priorities(&self.cache.tiles, camera);
+
+        // Update the tile cache and then block until root tiles have been downloaded and streamed
+        // to the GPU.
+        self.cache.update(
+            device,
+            queue,
+            &self.gpu_state,
+            &self.mapfile,
+            &mut self.quadtree,
+            camera,
+        );
+        while !self.poll_loading_status(device, queue, camera) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
@@ -435,14 +385,6 @@ impl Terrain {
                 }),
                 label: Some("renderpass"),
             });
-            rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-            self.quadtree.render(
-                &mut rpass,
-                &self.index_buffer,
-                &self.bindgroup_pipeline.as_ref().unwrap().0,
-                &self.cache.tiles,
-            );
-
             self.cache.render_meshes(device, &mut rpass, &self.gpu_state);
 
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);

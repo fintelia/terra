@@ -207,7 +207,7 @@ pub(crate) struct TileCache {
     level_masks: Vec<LayerMask>,
 
     streamer: TileStreamerEndpoint,
-    start_download:
+    pub(super) start_download:
         tokio::sync::mpsc::UnboundedSender<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
     completed_downloads: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
     free_download_buffers: Vec<wgpu::Buffer>,
@@ -286,7 +286,7 @@ impl TileCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
         camera: mint::Point3<f64>,
-    ) {
+    ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
 
@@ -313,9 +313,16 @@ impl TileCache {
                             }
                         }
                     }
+                    for mesh in cache.meshes.values() {
+                        if level >= mesh.desc.min_level && level <= mesh.desc.max_level && !entry.valid.contains_mesh(mesh.desc.ty) {
+                            pending_generate.push(entry.node);
+                            break;
+                        }
+                    }
                 }
             }
         }
+        pending_generate.dedup();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.tiles.generate"),
@@ -347,8 +354,8 @@ impl TileCache {
                 let parent_inputs = generator.parent_inputs(n.level());
                 let ancestor_dependencies = generator.ancestor_dependencies(n.level());
 
-                let need_output = outputs & !entry.valid & level_mask != LayerMask::empty();
-                let has_peer_inputs = peer_inputs & !entry.valid == LayerMask::empty();
+                let need_output = outputs & !(entry.valid|generated_layers) & level_mask != LayerMask::empty();
+                let has_peer_inputs = peer_inputs & !(entry.valid|generated_layers) == LayerMask::empty();
                 let root_input_missing =
                     n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
                 let parent_input_missing = n.level() > 0
@@ -387,7 +394,7 @@ impl TileCache {
                     continue;
                 }
 
-                let output_mask = !entry.valid & level_mask & generator.outputs(n.level());
+                let output_mask = !(entry.valid|generated_layers) & level_mask & generator.outputs(n.level());
                 cache.tiles.generators[generator_index].generate(
                     device,
                     &mut encoder,
@@ -463,25 +470,9 @@ impl TileCache {
             }
         }
 
-        cache.write_nodes(queue, gpu_state, camera);
-
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
-        queue.submit(Some(encoder.finish()));
 
-        for (n, buffer) in planned_heightmap_downloads.drain(..) {
-            let _ = cache.tiles.start_download.send(
-                buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read)
-                    .then(move |result| {
-                        futures::future::ready(match result {
-                            Ok(()) => Ok((n, buffer)),
-                            Err(_) => Err(()),
-                        })
-                    })
-                    .boxed(),
-            );
-        }
+        (encoder.finish(), planned_heightmap_downloads)
     }
 
     pub(super) fn upload_tiles(

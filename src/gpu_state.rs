@@ -9,13 +9,16 @@ use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 pub(crate) struct DrawIndexedIndirect {
-    vertex_count: u32,   // The number of vertices to draw.
-    instance_count: u32, // The number of instances to draw.
-    base_index: u32,     // The base index within the index buffer.
-    vertex_offset: i32, // The value added to the vertex index before indexing into the vertex buffer.
-    base_instance: u32, // The instance ID of the first instance to draw.
+    pub(crate) vertex_count: u32,   // The number of vertices to draw.
+    pub(crate) instance_count: u32, // The number of instances to draw.
+    pub(crate) base_index: u32,     // The base index within the index buffer.
+    pub(crate) vertex_offset: i32, // The value added to the vertex index before indexing into the vertex buffer.
+    pub(crate) base_instance: u32, // The instance ID of the first instance to draw.
 }
+unsafe impl bytemuck::Pod for DrawIndexedIndirect {}
+unsafe impl bytemuck::Zeroable for DrawIndexedIndirect {}
 
 #[repr(C)]
 #[derive(Copy, Clone)]

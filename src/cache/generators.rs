@@ -707,5 +707,35 @@ pub(crate) fn generators(
                 contents: &vec![0; mem::size_of::<DrawIndexedIndirect>() * 16],
             })
         }),
+        Box::new(MeshGen {
+            shaders: vec![
+                ShaderSet::compute_only(rshader::shader_source!(
+                    "../shaders",
+                    "gen-terrain-bounding.comp",
+                    "declarations.glsl"
+                )).unwrap()
+            ],
+            dimensions: vec![(4, 1, 1)],
+            shader_validation: false,
+            bindgroup_pipeline: vec![None],
+            peer_inputs: LayerType::Displacements.bit_mask(),
+            ancestor_dependencies: LayerMask::empty(),
+            outputs: MeshType::Terrain.bit_mask(),
+            name: "terrain-mesh".to_string(),
+            min_level: meshes[MeshType::Terrain].desc.min_level,
+            base_entry: meshes[MeshType::Terrain].base_entry as u32,
+            entries_per_node: meshes[MeshType::Terrain].desc.entries_per_node as u32,
+            clear_indirect_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                usage: wgpu::BufferUsage::COPY_SRC,
+                label: Some("buffer.terrain.clear_indirect"),
+                contents: bytemuck::cast_slice(&(0..4).map(|i| DrawIndexedIndirect {
+                    vertex_count: 32 * 32 * 6,
+                    instance_count: 1,
+                    vertex_offset: 0,
+                    base_instance: 0,
+                    base_index: 32 * 32 * 6 * i,
+                }).collect::<Vec<_>>()),
+            })
+        }),
     ]
 }

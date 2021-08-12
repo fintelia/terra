@@ -1,0 +1,26 @@
+#version 450 core
+#include "declarations.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(std140, binding = 0) uniform UniformBlock {
+    GenMeshUniforms ubo;
+};
+
+layout(std430, binding = 1) readonly buffer IndirectBlock {
+    Indirect indirect[];
+} mesh_indirect;
+
+struct Sphere {
+    vec3 center;
+    float radius;
+};
+layout(std430, binding = 2) writeonly buffer BoundingBlock {
+    Sphere bounds[];
+} mesh_bounding;
+
+void main() {
+    uint mesh_slot = ubo.mesh_base_entry + gl_WorkGroupID.x;
+    mesh_bounding.bounds[mesh_slot].center = vec3(0);
+    mesh_bounding.bounds[mesh_slot].radius = 6000000.0;
+}

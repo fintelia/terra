@@ -40,7 +40,7 @@ vec3 sample_displacements(vec3 texcoord) {
 void main() {
 	uint resolution = 64;//nodes[gl_InstanceIndex].resolution;
 	uvec2 base_origin = uvec2(0);//nodes[gl_InstanceIndex].base_origin;
-	Node node = nodes[gl_InstanceIndex];
+	Node node = nodes[gl_InstanceIndex/4];
 
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
 							(gl_VertexIndex) / (resolution+1)) + ivec2(base_origin);
@@ -76,7 +76,7 @@ void main() {
 	out_tangent = tangent;
 	out_bitangent = bitangent;
 	out_i_position = vec2(iPosition);
-	out_instance = gl_InstanceIndex;
+	out_instance = gl_InstanceIndex/4;
 
 	gl_Position = globals.view_proj * vec4(position, 1.0);
 }

@@ -1,3 +1,4 @@
+use crate::cache::LayerType;
 use crate::cache::Priority;
 use crate::cache::TileCache;
 use crate::utils::math::InfiniteFrustum;
@@ -40,9 +41,8 @@ impl QuadTree {
         }
     }
 
-    pub(crate) fn create_index_buffers(&self, device: &wgpu::Device) -> wgpu::Buffer {
+    pub(crate) fn create_index_buffer(device: &wgpu::Device, resolution: u16) -> wgpu::Buffer {
         let mut data = Vec::new();
-        let resolution = self.heights_resolution as u16;
         let half_resolution = resolution / 2;
         let width = resolution + 1;
         for k in 0..2 {
@@ -83,12 +83,11 @@ impl QuadTree {
         });
     }
 
-    pub fn update_visibility(
+    pub fn compute_visibility(
         &mut self,
         tile_cache: &TileCache,
-        frustum: &InfiniteFrustum,
-        camera: mint::Point3<f64>,
-    ) {
+        // frustum: &InfiniteFrustum,
+    ) -> Vec<(VNode, u8)> {
         self.visible_nodes.clear();
         self.partially_visible_nodes.clear();
 
@@ -96,8 +95,8 @@ impl QuadTree {
         let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
         VNode::breadth_first(|node| {
             let priority = self.node_priority(node);
-            let visible = (node.level() == 0 || priority >= Priority::cutoff())
-                && node.in_frustum(&frustum, tile_cache.get_height_range(node));
+            let visible = (node.level() == 0 || priority >= Priority::cutoff()) && tile_cache.contains(node, LayerType::Displacements)
+               /*&& node.in_frustum(&frustum, tile_cache.get_height_range(node))*/;
 
             node_visibilities.insert(node, visible);
             visible && node.level() < VNode::LEVEL_CELL_5MM
@@ -139,6 +138,12 @@ impl QuadTree {
                 false
             }
         });
+
+        self.visible_nodes
+            .iter()
+            .map(|n| (*n, 0xf))
+            .chain(self.partially_visible_nodes.iter().cloned())
+            .collect()
     }
 
     pub fn node_priority(&self, node: VNode) -> Priority {

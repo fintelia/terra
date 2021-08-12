@@ -2,16 +2,11 @@ pub mod generators;
 mod mesh;
 mod tile;
 
+use futures::FutureExt;
 pub(crate) use mesh::{MeshCache, MeshCacheDesc};
 pub(crate) use tile::{LayerParams, TextureFormat, TileCache};
 
-use crate::{
-    cache::tile::NodeSlot,
-    generate::ComputeShader,
-    gpu_state::GpuState,
-    mapfile::MapFile,
-    terrain::quadtree::{QuadTree, VNode},
-};
+use crate::{cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile, terrain::quadtree::{QuadTree, VNode}, utils::math::InfiniteFrustum};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
@@ -82,7 +77,8 @@ impl<T> IndexMut<LayerType> for VecMap<T> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum MeshType {
-    Grass = 0,
+    Terrain = 0,
+    Grass = 1,
 }
 impl MeshType {
     pub fn bit_mask(&self) -> LayerMask {
@@ -90,17 +86,19 @@ impl MeshType {
     }
     pub fn name(&self) -> &'static str {
         match *self {
+            MeshType::Terrain => "terrain",
             MeshType::Grass => "grass",
         }
     }
     fn from_index(i: usize) -> Self {
         match i {
-            0 => MeshType::Grass,
+            0 => MeshType::Terrain,
+            1 => MeshType::Grass,
             _ => unreachable!(),
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=0).map(Self::from_index)
+        (0..=1).map(Self::from_index)
     }
 }
 impl<T> Index<MeshType> for VecMap<T> {
@@ -123,25 +121,10 @@ impl LayerMask {
     pub fn empty() -> Self {
         Self(NonZeroU32::new(Self::VALID).unwrap())
     }
-    #[allow(unused)]
-    pub fn all_tiles() -> Self {
-        Self(NonZeroU32::new(Self::VALID | 0x0000ff).unwrap())
-    }
-    #[allow(unused)]
-    pub fn all_meshes() -> Self {
-        Self(NonZeroU32::new(Self::VALID | 0x00ff00).unwrap())
-    }
-
-    #[allow(unused)]
-    pub fn intersects(&self, other: Self) -> bool {
-        self.0.get() & other.0.get() != Self::VALID
-    }
-
     pub fn contains_layer(&self, t: LayerType) -> bool {
         assert!((t as usize) < 8);
         self.0.get() & (1 << (t as usize)) != 0
     }
-    #[allow(unused)]
     pub fn contains_mesh(&self, t: MeshType) -> bool {
         assert!((t as usize) < 8);
         self.0.get() & (1 << (t as usize + 8)) != 0
@@ -403,7 +386,7 @@ impl UnifiedPriorityCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
         mapfile: &MapFile,
-        quadtree: &QuadTree,
+        quadtree: &mut QuadTree,
         camera: mint::Point3<f64>,
     ) {
         for (i, gen) in self.tiles.generators.iter_mut().enumerate() {
@@ -425,7 +408,30 @@ impl UnifiedPriorityCache {
 
         self.tiles.update(quadtree);
         self.tiles.upload_tiles(queue, &gpu_state.tile_cache);
-        TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
+
+        let (command_buffer, mut planned_heightmap_downloads) =
+            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
+        
+        let frame_nodes = quadtree.compute_visibility(&self.tiles);
+        self.write_nodes(queue, gpu_state, frame_nodes, camera);
+
+        queue.submit(Some(command_buffer));
+
+        for (n, buffer) in planned_heightmap_downloads.drain(..) {
+            let _ = self.tiles.start_download.send(
+                buffer
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read)
+                    .then(move |result| {
+                        futures::future::ready(match result {
+                            Ok(()) => Ok((n, buffer)),
+                            Err(_) => Err(()),
+                        })
+                    })
+                    .boxed(),
+            );
+        }
+
         self.tiles.download_tiles();
     }
 
@@ -433,9 +439,12 @@ impl UnifiedPriorityCache {
         &self,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
+        frame_nodes: Vec<(VNode, u8)>,
         camera: mint::Point3<f64>,
     ) {
         assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
+
+        let mut frame_nodes: HashMap<_, _> = frame_nodes.into_iter().collect();
 
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
@@ -467,8 +476,15 @@ impl UnifiedPriorityCache {
 
                 for (mesh_index, m) in &self.meshes {
                     assert!(m.desc.entries_per_node <= 32);
-                    data[index].mesh_valid_mask[mesh_index] =
-                        if slot.valid.contains_mesh(m.desc.ty) { 0xffffffff } else { 0 }
+                    data[index].mesh_valid_mask[mesh_index] = if slot.valid.contains_mesh(m.desc.ty)
+                    {
+                        0xffffffff >> (32 - m.desc.entries_per_node)
+                    } else {
+                        0
+                    };
+                    if m.desc.ty == MeshType::Terrain {
+                        data[index].mesh_valid_mask[mesh_index] &= *frame_nodes.get(&slot.node).unwrap_or(&0) as u32;
+                    }
                 }
 
                 let mut ancestor = slot.node;
@@ -562,6 +578,7 @@ impl UnifiedPriorityCache {
     pub fn make_gpu_mesh_storage(&self, device: &wgpu::Device) -> VecMap<wgpu::Buffer> {
         self.meshes
             .iter()
+            .filter(|(_, c)| c.desc.max_bytes_per_node > 0)
             .map(|(i, c)| {
                 (
                     i,
@@ -570,7 +587,7 @@ impl UnifiedPriorityCache {
                             * (c.num_entries / c.desc.entries_per_node) as u64,
                         usage: wgpu::BufferUsage::STORAGE,
                         mapped_at_creation: false,
-                        label: Some("grass.storage"),
+                        label: Some(&format!("buffer.storage.{}", c.desc.ty.name())),
                     }),
                 )
             })

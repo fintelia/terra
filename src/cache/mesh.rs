@@ -45,8 +45,10 @@ unsafe impl bytemuck::Pod for MeshNodeState {}
 
 pub(crate) struct MeshCacheDesc {
     pub max_bytes_per_node: u64,
+    pub index_format: wgpu::IndexFormat,
     pub index_buffer: wgpu::Buffer,
     pub render: rshader::ShaderSet,
+    pub cull_mode: Option<wgpu::Face>,
     pub entries_per_node: usize,
     pub min_level: u8,
     pub max_level: u8,
@@ -81,13 +83,13 @@ impl MeshCache {
                 &self.desc.render,
                 HashMap::new(),
                 HashMap::new(),
-                "grass",
+                self.desc.ty.name(),
             );
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     bind_group_layouts: &[&bind_group_layout],
                     push_constant_ranges: &[],
-                    label: Some("grass.pipeline_layout"),
+                    label: Some(&format!("{}.pipeline_layout", self.desc.ty.name())),
                 });
             self.bindgroup_pipeline = Some((
                 bind_group,
@@ -95,7 +97,7 @@ impl MeshCache {
                     layout: Some(&render_pipeline_layout),
                     vertex: wgpu::VertexState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("grass.vertex_shader"),
+                            label: Some(&format!("shader.{}.vertex", self.desc.ty.name())),
                             source: wgpu::ShaderSource::SpirV(self.desc.render.vertex().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -104,7 +106,7 @@ impl MeshCache {
                     },
                     fragment: Some(wgpu::FragmentState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                            label: Some("grass.fragment_shader"),
+                            label: Some(&format!("shader.{}.fragment", self.desc.ty.name())),
                             source: wgpu::ShaderSource::SpirV(self.desc.render.fragment().into()),
                             flags: wgpu::ShaderFlags::empty(),
                         }),
@@ -118,7 +120,10 @@ impl MeshCache {
                             write_mask: wgpu::ColorWrite::ALL,
                         }],
                     }),
-                    primitive: Default::default(),
+                    primitive: wgpu::PrimitiveState {
+                        cull_mode: self.desc.cull_mode,
+                        ..Default::default()
+                    },
                     depth_stencil: Some(wgpu::DepthStencilState {
                         format: wgpu::TextureFormat::Depth32Float,
                         depth_write_enabled: true,
@@ -127,13 +132,13 @@ impl MeshCache {
                         stencil: Default::default(),
                     }),
                     multisample: Default::default(),
-                    label: Some("grass.render_pipeline"),
+                    label: Some(&format!("pipeline.render.{}", self.desc.ty.name())),
                 }),
             ));
         }
 
         rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-        rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        rpass.set_index_buffer(self.desc.index_buffer.slice(..), self.desc.index_format);
         rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
             rpass.multi_draw_indexed_indirect(
