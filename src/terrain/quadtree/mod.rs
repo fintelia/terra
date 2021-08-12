@@ -1,44 +1,23 @@
-use crate::cache::LayerType;
 use crate::cache::Priority;
 use crate::cache::TileCache;
-use crate::utils::math::InfiniteFrustum;
 use cgmath::*;
 use fnv::FnvHashMap;
 use wgpu::util::DeviceExt;
 
 pub(crate) mod node;
-pub(crate) mod render;
 
 pub(crate) use crate::terrain::quadtree::node::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
 pub(crate) struct QuadTree {
-    visible_nodes: Vec<VNode>,
-    partially_visible_nodes: Vec<(VNode, u8)>,
-
-    heights_resolution: u32,
-
     node_priorities: FnvHashMap<VNode, Priority>,
     last_camera_position: Option<mint::Point3<f64>>,
 }
 
-impl std::fmt::Debug for QuadTree {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "QuadTree")
-    }
-}
-
-#[allow(unused)]
 impl QuadTree {
-    pub(crate) fn new(heights_resolution: u32) -> Self {
-        Self {
-            visible_nodes: Vec::new(),
-            partially_visible_nodes: Vec::new(),
-            heights_resolution,
-            node_priorities: FnvHashMap::default(),
-            last_camera_position: None,
-        }
+    pub(crate) fn new() -> Self {
+        Self { node_priorities: FnvHashMap::default(), last_camera_position: None }
     }
 
     pub(crate) fn create_index_buffer(device: &wgpu::Device, resolution: u16) -> wgpu::Buffer {
@@ -81,69 +60,6 @@ impl QuadTree {
             self.node_priorities.insert(node, priority);
             priority >= Priority::cutoff() && node.level() < VNode::LEVEL_CELL_5MM
         });
-    }
-
-    pub fn compute_visibility(
-        &mut self,
-        tile_cache: &TileCache,
-        // frustum: &InfiniteFrustum,
-    ) -> Vec<(VNode, u8)> {
-        self.visible_nodes.clear();
-        self.partially_visible_nodes.clear();
-
-        // Any node with all needed layers in cache is visible...
-        let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
-        VNode::breadth_first(|node| {
-            let priority = self.node_priority(node);
-            let visible = (node.level() == 0 || priority >= Priority::cutoff()) && tile_cache.contains(node, LayerType::Displacements)
-               /*&& node.in_frustum(&frustum, tile_cache.get_height_range(node))*/;
-
-            node_visibilities.insert(node, visible);
-            visible && node.level() < VNode::LEVEL_CELL_5MM
-        });
-        // let min_missing_level = node_visibilities
-        //     .iter()
-        //     .filter(|(&n, &v)| v && !tile_cache.contains(n, LayerType::Displacements))
-        //     .map(|(n, v)| n.level())
-        //     .min();
-        // if let Some(min) = min_missing_level {
-        //     for (n, v) in node_visibilities.iter_mut() {
-        //         if n.level() >= min {
-        //             *v = false;
-        //         }
-        //     }
-        // }
-
-        // ...Except if all its children are visible instead.
-        VNode::breadth_first(|node| {
-            if node.level() < VNode::LEVEL_CELL_5MM && node_visibilities[&node] {
-                let mut mask = 0;
-                for (i, c) in node.children().iter().enumerate() {
-                    if !node_visibilities[c] {
-                        mask = mask | (1 << i);
-                    }
-                }
-
-                if mask == 15 {
-                    self.visible_nodes.push(node);
-                } else if mask > 0 {
-                    self.partially_visible_nodes.push((node, mask));
-                }
-
-                mask < 15
-            } else if node_visibilities[&node] {
-                self.visible_nodes.push(node);
-                false
-            } else {
-                false
-            }
-        });
-
-        self.visible_nodes
-            .iter()
-            .map(|n| (*n, 0xf))
-            .chain(self.partially_visible_nodes.iter().cloned())
-            .collect()
     }
 
     pub fn node_priority(&self, node: VNode) -> Priority {

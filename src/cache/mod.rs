@@ -412,8 +412,7 @@ impl UnifiedPriorityCache {
         let (command_buffer, mut planned_heightmap_downloads) =
             TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
         
-        let frame_nodes = quadtree.compute_visibility(&self.tiles);
-        self.write_nodes(queue, gpu_state, frame_nodes, camera);
+        self.write_nodes(queue, gpu_state, camera);
 
         queue.submit(Some(command_buffer));
 
@@ -439,12 +438,16 @@ impl UnifiedPriorityCache {
         &self,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
-        frame_nodes: Vec<(VNode, u8)>,
         camera: mint::Point3<f64>,
     ) {
         assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
 
-        let mut frame_nodes: HashMap<_, _> = frame_nodes.into_iter().collect();
+        let mut frame_nodes: VecMap<HashMap<_, _>> = VecMap::new();
+        for (index, mesh) in &self.meshes {
+            if !mesh.desc.render_overlapping_levels {
+                frame_nodes.insert(index, self.tiles.compute_visible(mesh.desc.ty.bit_mask()).into_iter().collect());
+            }
+        }
 
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
@@ -482,7 +485,7 @@ impl UnifiedPriorityCache {
                     } else {
                         0
                     };
-                    if m.desc.ty == MeshType::Terrain {
+                    if let Some(ref frame_nodes) = frame_nodes.get(mesh_index) {
                         data[index].mesh_valid_mask[mesh_index] &= *frame_nodes.get(&slot.node).unwrap_or(&0) as u32;
                     }
                 }
@@ -630,10 +633,6 @@ impl UnifiedPriorityCache {
         for (_, c) in &mut self.meshes {
             c.render(device, rpass, gpu_state);
         }
-    }
-
-    pub fn tile_desc(&self, ty: LayerType) -> &LayerParams {
-        &self.tiles.layers[ty]
     }
 
     #[allow(unused)]

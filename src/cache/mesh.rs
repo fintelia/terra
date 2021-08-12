@@ -49,6 +49,7 @@ pub(crate) struct MeshCacheDesc {
     pub index_buffer: wgpu::Buffer,
     pub render: rshader::ShaderSet,
     pub cull_mode: Option<wgpu::Face>,
+    pub render_overlapping_levels: bool,
     pub entries_per_node: usize,
     pub min_level: u8,
     pub max_level: u8,

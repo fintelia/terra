@@ -108,6 +108,7 @@ impl Terrain {
                     max_level: VNode::LEVEL_CELL_5MM,
                     index_format: wgpu::IndexFormat::Uint16,
                     index_buffer: QuadTree::create_index_buffer(device, 64),
+                    render_overlapping_levels: false,
                     cull_mode: Some(wgpu::Face::Front),
                     render: rshader::ShaderSet::simple(
                         rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
@@ -127,6 +128,7 @@ impl Terrain {
                     min_level: VNode::LEVEL_SIDE_19M,
                     max_level: VNode::LEVEL_SIDE_5M,
                     cull_mode: None,
+                    render_overlapping_levels: true,
                     index_format: wgpu::IndexFormat::Uint32,
                     index_buffer: {
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -159,7 +161,7 @@ impl Terrain {
         );
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
         let quadtree =
-            QuadTree::new(cache.tile_desc(LayerType::Displacements).texture_resolution - 1);
+            QuadTree::new();
 
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "sky.vert", "declarations.glsl"),

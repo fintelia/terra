@@ -12,8 +12,8 @@ use crate::{
 };
 use cache::{generators::GenerateTile, LayerType, PriorityCache};
 use cgmath::Vector3;
+use fnv::FnvHashMap;
 use futures::future::BoxFuture;
-use futures::future::FutureExt;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -214,7 +214,12 @@ pub(crate) struct TileCache {
     total_download_buffers: usize,
 }
 impl TileCache {
-    pub fn new(mapfile: Arc<MapFile>, layers: VecMap<LayerParams>, level_masks: Vec<LayerMask>, generators: Vec<Box<dyn GenerateTile>>) -> Self {
+    pub fn new(
+        mapfile: Arc<MapFile>,
+        layers: VecMap<LayerParams>,
+        level_masks: Vec<LayerMask>,
+        generators: Vec<Box<dyn GenerateTile>>,
+    ) -> Self {
         let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
 
@@ -314,7 +319,10 @@ impl TileCache {
                         }
                     }
                     for mesh in cache.meshes.values() {
-                        if level >= mesh.desc.min_level && level <= mesh.desc.max_level && !entry.valid.contains_mesh(mesh.desc.ty) {
+                        if level >= mesh.desc.min_level
+                            && level <= mesh.desc.max_level
+                            && !entry.valid.contains_mesh(mesh.desc.ty)
+                        {
                             pending_generate.push(entry.node);
                             break;
                         }
@@ -354,8 +362,10 @@ impl TileCache {
                 let parent_inputs = generator.parent_inputs(n.level());
                 let ancestor_dependencies = generator.ancestor_dependencies(n.level());
 
-                let need_output = outputs & !(entry.valid|generated_layers) & level_mask != LayerMask::empty();
-                let has_peer_inputs = peer_inputs & !(entry.valid|generated_layers) == LayerMask::empty();
+                let need_output =
+                    outputs & !(entry.valid | generated_layers) & level_mask != LayerMask::empty();
+                let has_peer_inputs =
+                    peer_inputs & !(entry.valid | generated_layers) == LayerMask::empty();
                 let root_input_missing =
                     n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
                 let parent_input_missing = n.level() > 0
@@ -384,17 +394,20 @@ impl TileCache {
                         } else {
                             let ancestor = entry
                                 .node
-                                .find_ancestor(|node| node.level() == cache.tiles.layers[layer].max_level)
+                                .find_ancestor(|node| {
+                                    node.level() == cache.tiles.layers[layer].max_level
+                                })
                                 .unwrap()
                                 .0;
                             cache.tiles.contains(ancestor, layer)
                         }
-                    });    
+                    });
                 if !has_all_ancestor_dependencies {
                     continue;
                 }
 
-                let output_mask = !(entry.valid|generated_layers) & level_mask & generator.outputs(n.level());
+                let output_mask =
+                    !(entry.valid | generated_layers) & level_mask & generator.outputs(n.level());
                 cache.tiles.generators[generator_index].generate(
                     device,
                     &mut encoder,
@@ -657,6 +670,49 @@ impl TileCache {
                 (ty, (texture, view))
             })
             .collect()
+    }
+
+    pub fn compute_visible(&self, layer_mask: LayerMask) -> Vec<(VNode, u8)> {
+        // Any node with all needed layers in cache is visible...
+        let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();
+        VNode::breadth_first(|node| match self.levels[node.level() as usize].entry(&node) {
+            Some(entry) => {
+                let visible = (node.level() == 0 || entry.priority >= Priority::cutoff())
+                    && layer_mask & !entry.valid == LayerMask::empty();
+                node_visibilities.insert(node, visible);
+                visible && node.level() < VNode::LEVEL_CELL_5MM
+            }
+            None => {
+                node_visibilities.insert(node, false);
+                false
+            }
+        });
+
+        // ...Except if all its children are visible instead.
+        let mut visible_nodes = Vec::new();
+        VNode::breadth_first(|node| {
+            if node.level() < VNode::LEVEL_CELL_5MM && node_visibilities[&node] {
+                let mut mask = 0;
+                for (i, c) in node.children().iter().enumerate() {
+                    if !node_visibilities[c] {
+                        mask = mask | (1 << i);
+                    }
+                }
+
+                if mask > 0 {
+                    visible_nodes.push((node, mask));
+                }
+
+                mask < 15
+            } else if node_visibilities[&node] {
+                visible_nodes.push((node, 15));
+                false
+            } else {
+                false
+            }
+        });
+
+        visible_nodes
     }
 
     pub fn contains(&self, node: VNode, ty: LayerType) -> bool {
