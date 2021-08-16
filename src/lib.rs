@@ -42,11 +42,9 @@ pub use crate::generate::BLUE_MARBLE_URLS;
 pub struct Terrain {
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
-    // aerial_perspective: ComputeShader<u32>,
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
-
     cache: TileCache,
 }
 impl Terrain {
@@ -172,20 +170,10 @@ impl Terrain {
             ),
         )
         .unwrap();
-        // let aerial_perspective = ComputeShader::new(
-        //     rshader::shader_source!(
-        //         "shaders",
-        //         "gen-aerial-perspective.comp",
-        //         "declarations.glsl",
-        //         "atmosphere.glsl"
-        //     ),
-        //     "gen-aerial-perspective".to_string(),
-        // );
 
         Ok(Self {
             sky_shader,
             sky_bindgroup_pipeline: None,
-            // aerial_perspective,
             gpu_state,
             quadtree,
             mapfile,
@@ -224,6 +212,7 @@ impl Terrain {
                 &self.gpu_state,
                 &self.mapfile,
                 &mut self.quadtree,
+                None,
                 camera,
             );
             self.loading_complete()
@@ -346,6 +335,7 @@ impl Terrain {
             &self.gpu_state,
             &self.mapfile,
             &mut self.quadtree,
+            Some(frustum),
             camera,
         );
         while !self.poll_loading_status(device, queue, camera) {

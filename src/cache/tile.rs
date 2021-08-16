@@ -1,6 +1,7 @@
 use crate::{
-    cache::{self, Priority, PriorityCacheEntry},
+    cache::{self, Priority, PriorityCacheEntry, MAX_QUADTREE_LEVEL},
     terrain::quadtree::{QuadTree, VNode},
+    utils::math::InfiniteFrustum,
 };
 use crate::{coordinates, stream::TileResult};
 use crate::{
@@ -13,13 +14,16 @@ use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
+use maplit::hashmap;
 use serde::{Deserialize, Serialize};
-use std::{num::NonZeroU32, sync::Arc};
+use std::{
+    collections::HashMap,
+    num::{NonZeroU32, NonZeroU64},
+    sync::Arc,
+};
 use vec_map::VecMap;
 
-use super::{GeneratorMask, LayerMask, TileCache};
-
-pub(super) const SLOTS_PER_LEVEL: usize = 32;
+use super::{GeneratorMask, LayerMask, TileCache, SLOTS_PER_LEVEL};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum TextureFormat {
@@ -149,6 +153,7 @@ pub(crate) struct LayerParams {
     pub tiles_generated_per_frame: usize,
 
     pub grid_registration: bool,
+    pub dynamic: bool,
 
     pub min_level: u8,
     pub max_level: u8,
@@ -221,7 +226,7 @@ impl TileCache {
                 missing[level].push(Entry::new(node, priority));
             }
 
-            node.level() < VNode::LEVEL_CELL_5MM
+            node.level() < MAX_QUADTREE_LEVEL
         });
 
         for (cache, missing) in self.levels.iter_mut().zip(missing.into_iter()) {
@@ -235,47 +240,46 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
+        frustum: Option<InfiniteFrustum>,
         camera: mint::Point3<f64>,
     ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
 
-        for level in 0..=VNode::LEVEL_CELL_5MM {
-            for ref mut entry in self.levels[level as usize].slots_mut() {
-                if entry.priority() > Priority::cutoff() {
-                    for layer in self.layers.values() {
-                        if level >= layer.min_level && level <= layer.max_level {
-                            let ty = layer.layer_type;
-                            if !((entry.valid | entry.streaming).contains_layer(ty)) {
-                                match mapfile.tile_state(ty, entry.node).unwrap() {
-                                    TileState::MissingBase
-                                    | TileState::Base
-                                    | TileState::Generated => {
-                                        if self.streamer.num_inflight() < 128 {
-                                            entry.streaming |= ty.bit_mask();
-                                            self.streamer.request_tile(entry.node, ty);
-                                        }
-                                    }
-                                    TileState::GpuOnly | TileState::Missing => {
-                                        pending_generate.push(entry.node);
+        for layer in self.layers.values().filter(|l| !l.dynamic) {
+            for level in layer.min_level..=layer.max_level {
+                for ref mut entry in self.levels[level as usize].slots_mut() {
+                    if entry.priority() > Priority::cutoff() {
+                        let ty = layer.layer_type;
+                        if !((entry.valid | entry.streaming).contains_layer(ty)) {
+                            match mapfile.tile_state(ty, entry.node).unwrap() {
+                                TileState::MissingBase | TileState::Base | TileState::Generated => {
+                                    if self.streamer.num_inflight() < 128 {
+                                        entry.streaming |= ty.bit_mask();
+                                        self.streamer.request_tile(entry.node, ty);
                                     }
                                 }
+                                TileState::GpuOnly | TileState::Missing => {
+                                    pending_generate.push(entry.node);
+                                }
                             }
-                        }
-                    }
-                    for mesh in self.meshes.values() {
-                        if level >= mesh.desc.min_level
-                            && level <= mesh.desc.max_level
-                            && !entry.valid.contains_mesh(mesh.desc.ty)
-                        {
-                            pending_generate.push(entry.node);
-                            break;
                         }
                     }
                 }
             }
         }
-        pending_generate.dedup();
+        for mesh in self.meshes.values() {
+            for level in mesh.desc.min_level..=mesh.desc.max_level {
+                for ref mut entry in self.levels[level as usize].slots_mut() {
+                    if entry.priority() > Priority::cutoff()
+                        && !entry.valid.contains_mesh(mesh.desc.ty)
+                    {
+                        pending_generate.push(entry.node);
+                        break;
+                    }
+                }
+            }
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.tiles.generate"),
@@ -421,6 +425,96 @@ impl TileCache {
             entry.valid |= generated_layers;
             for layer in LayerType::iter().filter(|&layer| generated_layers.contains_layer(layer)) {
                 entry.generators.insert(layer.index(), generators_used);
+            }
+        }
+
+        if let Some(frustum) = frustum {
+            for g in &mut self.dynamic_generators {
+                let mut nodes = Vec::new();
+                for level in g.min_level..=g.max_level {
+                    let base = Self::base_slot(level);
+                    for (i, slot) in self.levels[level as usize].slots_mut().iter_mut().enumerate()
+                    {
+                        let height_range = match slot.heightmap {
+                            Some(
+                                CpuHeightmap::I16 { min, max, .. }
+                                | CpuHeightmap::F32 { min, max, .. },
+                            ) => (min, max),
+                            None => (0.0, 9000.0),
+                        };
+
+                        if slot.priority >= Priority::cutoff()
+                            && g.dependency_mask & !slot.valid == LayerMask::empty()
+                            && slot.node.in_frustum(&frustum, height_range)
+                        {
+                            nodes.push((base + i) as u32);
+                            slot.valid |= g.output.bit_mask();
+                        } else {
+                            slot.valid &= !g.output.bit_mask();
+                        }
+                    }
+                }
+
+                if !nodes.is_empty() {
+                    if g.shader.refresh() {
+                        g.bindgroup_pipeline = None;
+                    }
+
+                    assert!(nodes.len() <= 1024);
+                    let uniform_offset = uniform_data.len();
+                    uniform_data.extend_from_slice(bytemuck::cast_slice(&nodes));
+                    uniform_data.resize(uniform_offset + 4096, 0);
+
+                    if g.bindgroup_pipeline.is_none() {
+                        let (bindgroup, layout) = gpu_state.bind_group_for_shader(
+                            device,
+                            &g.shader,
+                            hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &gpu_state.generate_uniforms,
+                            offset: 0,
+                            size: Some(NonZeroU64::new(4096).unwrap()),
+                        }))],
+                        HashMap::new(),
+                        &format!("generate.{}", g.name),
+                        );
+                        let pipeline =
+                            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                                layout: Some(&device.create_pipeline_layout(
+                                    &wgpu::PipelineLayoutDescriptor {
+                                        bind_group_layouts: [&layout][..].into(),
+                                        push_constant_ranges: &[],
+                                        label: None,
+                                    },
+                                )),
+                                module: &device.create_shader_module(
+                                    &wgpu::ShaderModuleDescriptor {
+                                        label: Some(&format!("shader.generate.{}", g.name)),
+                                        source: wgpu::ShaderSource::SpirV(
+                                            g.shader.compute().into(),
+                                        ),
+                                        flags: if g.shader_validation {
+                                            wgpu::ShaderFlags::VALIDATION
+                                        } else {
+                                            wgpu::ShaderFlags::empty()
+                                        },
+                                    },
+                                ),
+                                entry_point: "main",
+                                label: Some(&format!("pipeline.generate.{}", g.name)),
+                            });
+                        g.bindgroup_pipeline = Some((bindgroup, pipeline));
+                    }
+
+                    let mut cpass =
+                        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+                    cpass.set_pipeline(&g.bindgroup_pipeline.as_ref().unwrap().1);
+                    cpass.set_bind_group(
+                        0,
+                        &g.bindgroup_pipeline.as_ref().unwrap().0,
+                        &[uniform_offset as u32],
+                    );
+                    cpass.dispatch(g.resolution.0, g.resolution.1, nodes.len() as u32);
+                }
             }
         }
 
@@ -621,7 +715,7 @@ impl TileCache {
                 let visible = (node.level() == 0 || entry.priority >= Priority::cutoff())
                     && layer_mask & !entry.valid == LayerMask::empty();
                 node_visibilities.insert(node, visible);
-                visible && node.level() < VNode::LEVEL_CELL_5MM
+                visible && node.level() < MAX_QUADTREE_LEVEL
             }
             None => {
                 node_visibilities.insert(node, false);
@@ -632,7 +726,7 @@ impl TileCache {
         // ...Except if all its children are visible instead.
         let mut visible_nodes = Vec::new();
         VNode::breadth_first(|node| {
-            if node.level() < VNode::LEVEL_CELL_5MM && node_visibilities[&node] {
+            if node.level() < MAX_QUADTREE_LEVEL && node_visibilities[&node] {
                 let mut mask = 0;
                 for (i, c) in node.children().iter().enumerate() {
                     if !node_visibilities[c] {

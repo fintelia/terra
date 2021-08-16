@@ -3,6 +3,8 @@ mod mesh;
 mod tile;
 
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
+use crate::stream::TileStreamerEndpoint;
+use crate::utils::math::InfiniteFrustum;
 use crate::{
     cache::tile::NodeSlot,
     generate::ComputeShader,
@@ -10,7 +12,6 @@ use crate::{
     mapfile::MapFile,
     terrain::quadtree::{QuadTree, VNode},
 };
-use crate::{cache::tile::SLOTS_PER_LEVEL, stream::TileStreamerEndpoint};
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
@@ -23,9 +24,12 @@ use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
 use vec_map::VecMap;
 
-use self::mesh::CullMeshUniforms;
 use self::tile::Entry;
+use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
 use self::{generators::GenerateTile, tile::CpuHeightmap};
+
+const SLOTS_PER_LEVEL: usize = 32;
+pub(crate) const MAX_QUADTREE_LEVEL: u8 = VNode::LEVEL_CELL_5MM;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -36,6 +40,7 @@ pub(crate) enum LayerType {
     Heightmaps = 4,
     GrassCanopy = 5,
     MaterialKind = 6,
+    AerialPerspective = 7,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -50,6 +55,7 @@ impl LayerType {
             4 => LayerType::Heightmaps,
             5 => LayerType::GrassCanopy,
             6 => LayerType::MaterialKind,
+            7 => LayerType::AerialPerspective,
             _ => unreachable!(),
         }
     }
@@ -65,10 +71,11 @@ impl LayerType {
             LayerType::Heightmaps => "heightmaps",
             LayerType::GrassCanopy => "grass_canopy",
             LayerType::MaterialKind => "material_kind",
+            LayerType::AerialPerspective => "aerial_perspective",
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=6).map(Self::from_index)
+        (0..=7).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {
@@ -344,6 +351,7 @@ pub(crate) struct TileCache {
     layers: VecMap<LayerParams>,
     meshes: VecMap<MeshCache>,
     generators: Vec<Box<dyn GenerateTile>>,
+    dynamic_generators: Vec<DynamicGenerator>,
 
     streamer: TileStreamerEndpoint,
     start_download:
@@ -390,7 +398,7 @@ impl TileCache {
         }
 
         let mut levels = vec![PriorityCache::new(6), PriorityCache::new(24)];
-        for _ in 2..=22 {
+        for _ in 2..=MAX_QUADTREE_LEVEL {
             levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
         }
 
@@ -420,6 +428,7 @@ impl TileCache {
             layers,
             meshes,
             generators,
+            dynamic_generators: generators::dynamic_generators(),
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
@@ -434,6 +443,7 @@ impl TileCache {
         gpu_state: &GpuState,
         mapfile: &MapFile,
         quadtree: &mut QuadTree,
+        frustum: Option<InfiniteFrustum>,
         camera: mint::Point3<f64>,
     ) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
@@ -457,7 +467,7 @@ impl TileCache {
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, camera);
+            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, frustum, camera);
 
         self.write_nodes(queue, gpu_state, camera);
 

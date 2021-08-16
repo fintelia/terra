@@ -1,10 +1,6 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::{
-    cache::{MeshType, TileCache, LAYERS_BY_NAME},
-    mapfile::MapFile,
-    terrain::quadtree::VNode,
-};
+use crate::{cache::{LAYERS_BY_NAME, MAX_QUADTREE_LEVEL, MeshType, TileCache}, mapfile::MapFile};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 
@@ -53,7 +49,6 @@ pub(crate) struct GpuState {
     sky: (wgpu::Texture, wgpu::TextureView),
     transmittance: (wgpu::Texture, wgpu::TextureView),
     inscattering: (wgpu::Texture, wgpu::TextureView),
-    aerial_perspective: (wgpu::Texture, wgpu::TextureView),
 
     ground_albedo: (wgpu::Texture, wgpu::TextureView),
 
@@ -90,21 +85,6 @@ impl GpuState {
             ground_albedo: with_view(
                 "ground_albedo",
                 mapfile.read_texture(device, queue, "ground_albedo")?,
-            ),
-            aerial_perspective: with_view(
-                "aerial_perspective",
-                device.create_texture(&wgpu::TextureDescriptor {
-                    size: wgpu::Extent3d { width: 17, height: 17, depth_or_array_layers: 1024 },
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsage::COPY_SRC
-                        | wgpu::TextureUsage::COPY_DST
-                        | wgpu::TextureUsage::STORAGE
-                        | wgpu::TextureUsage::SAMPLED,
-                    label: Some("texture.aerial_perspective"),
-                }),
             ),
             bc4_staging: with_view(
                 "bc4_staging",
@@ -177,7 +157,7 @@ impl GpuState {
                 mapped_at_creation: false,
             }),
             frame_nodes: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 4 * TileCache::base_slot(VNode::LEVEL_CELL_5MM + 1) as u64,
+                size: 4 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
                 usage: wgpu::BufferUsage::COPY_DST
                     | wgpu::BufferUsage::UNIFORM
                     | wgpu::BufferUsage::STORAGE,
@@ -185,7 +165,7 @@ impl GpuState {
                 mapped_at_creation: false,
             }),
             nodes: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 512 * TileCache::base_slot(VNode::LEVEL_CELL_5MM + 1) as u64,
+                size: 512 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
                 usage: wgpu::BufferUsage::COPY_DST
                     | wgpu::BufferUsage::UNIFORM
                     | wgpu::BufferUsage::STORAGE,
@@ -251,7 +231,6 @@ impl GpuState {
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
                                 "ground_albedo" => &self.ground_albedo.1,
-                                "aerial_perspective" => &self.aerial_perspective.1,
                                 "bc4_staging" => &self.bc4_staging.1,
                                 "bc5_staging" => &self.bc5_staging.1,
                                 _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,

@@ -252,10 +252,9 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0));
 
-	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear),
-	// 				  vec3((texcoord / 64.0 * 16 + 0.5) / 17, node.node_index));
-	// out_color.rgb *= ap.a * 16.0;
-	// out_color.rgb += ap.rgb * 16.0;
+	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
+	out_color.rgb *= ap.a * 16.0;
+	out_color.rgb += ap.rgb * 16.0;
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);

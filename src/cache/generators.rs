@@ -9,7 +9,8 @@ use super::{LayerMask, LayerParams, LayerType, MeshCache};
 use crate::{
     cache::{mesh::MeshGenerateUniforms, MeshType, TileCache},
     generate::{
-        GenDisplacementsUniforms, GenHeightmapsUniforms, GenMaterialsUniforms, GenNormalsUniforms,
+        GenDisplacementsUniforms, GenHeightmapsUniforms, GenMaterialsUniforms,
+        GenNormalsUniforms,
     },
     gpu_state::{DrawIndexedIndirect, GpuState},
     terrain::quadtree::VNode,
@@ -17,7 +18,7 @@ use crate::{
 use bytemuck::Pod;
 use cgmath::Vector2;
 use maplit::hashmap;
-use rshader::ShaderSet;
+use rshader::{ShaderSet, ShaderSource};
 use std::convert::TryFrom;
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
@@ -29,7 +30,7 @@ pub(crate) trait GenerateTile: Send {
     fn peer_inputs(&self, level: u8) -> LayerMask;
     /// Layers required to be present at `level-1` when generating a tile at `level`.
     fn parent_inputs(&self, level: u8) -> LayerMask;
-    /// Layers that must be present at some 
+    /// Layers that must be present at some
     fn ancestor_dependencies(&self, level: u8) -> LayerMask;
     /// Returns whether previously generated tiles from this generator are still valid.
     fn needs_refresh(&mut self) -> bool;
@@ -49,7 +50,7 @@ pub(crate) trait GenerateTile: Send {
 }
 
 struct MeshGen {
-    shaders: Vec<rshader::ShaderSet>,
+    shaders: Vec<ShaderSet>,
     dimensions: Vec<(u32, u32, u32)>,
     shader_validation: bool,
     bindgroup_pipeline: Vec<Option<(wgpu::BindGroup, wgpu::ComputePipeline)>>,
@@ -169,7 +170,7 @@ impl GenerateTile for MeshGen {
 }
 
 struct ShaderGen<T, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T> {
-    shader: rshader::ShaderSet,
+    shader: ShaderSet,
     shader_validation: bool,
     bind_group: Option<wgpu::BindGroup>,
     pipeline: Option<wgpu::ComputePipeline>,
@@ -377,7 +378,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
 struct ShaderGenBuilder {
     name: String,
     dimensions: u32,
-    shader: rshader::ShaderSource,
+    shader: ShaderSource,
     peer_inputs: LayerMask,
     parent_inputs: LayerMask,
     outputs: LayerMask,
@@ -387,7 +388,7 @@ struct ShaderGenBuilder {
     shader_validation: bool,
 }
 impl ShaderGenBuilder {
-    fn new(name: String, shader: rshader::ShaderSource) -> Self {
+    fn new(name: String, shader: ShaderSource) -> Self {
         Self {
             name,
             dimensions: 0,
@@ -440,7 +441,7 @@ impl ShaderGenBuilder {
         Box::new(ShaderGen {
             name: self.name,
             shader_validation: self.shader_validation,
-            shader: rshader::ShaderSet::compute_only(self.shader).unwrap(),
+            shader: ShaderSet::compute_only(self.shader).unwrap(),
             bind_group: None,
             pipeline: None,
             outputs: self.outputs,
@@ -738,4 +739,38 @@ pub(crate) fn generators(
             })
         }),
     ]
+}
+
+pub(super) struct DynamicGenerator {
+    pub dependency_mask: LayerMask,
+    pub output: LayerType,
+    pub min_level: u8,
+    pub max_level: u8,
+
+    pub shader: ShaderSet,
+    pub resolution: (u32, u32),
+    pub bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,
+
+    pub shader_validation: bool,
+    pub name: &'static str,
+}
+
+pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
+    vec![DynamicGenerator {
+        dependency_mask: LayerMask::empty(),
+        output: LayerType::AerialPerspective,
+        min_level: 0,
+        max_level: VNode::LEVEL_SIDE_610M,
+        shader: ShaderSet::compute_only(rshader::shader_source!(
+            "../shaders",
+            "gen-aerial-perspective.comp",
+            "declarations.glsl",
+            "atmosphere.glsl"
+        ))
+        .unwrap(),
+        resolution: (1, 1),
+        bindgroup_pipeline: None,
+        shader_validation: false,
+        name: "aerial-perspective",
+    }]
 }

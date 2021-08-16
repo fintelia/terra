@@ -11,15 +11,21 @@ layout(binding = 0) uniform UniformBlock {
 	int in_slot;
 	int out_slot;
 	int level_resolution;
-	uint face;
+	uint _face;
 } ubo;
 
 layout(r32ui, binding = 1) readonly uniform uimage2D heightmaps_in;
 layout(r32ui, binding = 2) writeonly uniform uimage2D heightmaps_out;
 
+layout(set = 0, binding = 3, std430) readonly buffer NodeSlots {
+	Node nodes[];
+};
+
 shared vec4 h[10][10];
 
 void main() {
+	Node node = nodes[ubo.out_slot];
+
 	uint x = gl_LocalInvocationID.x;
 	uint y = gl_LocalInvocationID.y;
 
@@ -71,12 +77,12 @@ void main() {
 	// Calculate position
 	ivec3 position;
 	ivec2 position2 = ivec2(gl_GlobalInvocationID.xy)+ubo.position;
-	if (ubo.face == 0) position = ivec3( ubo.level_resolution/2,   position2.x,             -position2.y);
-	if (ubo.face == 1) position = ivec3(-ubo.level_resolution/2,  -position2.x,             -position2.y);
-	if (ubo.face == 2) position = ivec3( position2.x,              ubo.level_resolution/2,   position2.y);
-	if (ubo.face == 3) position = ivec3(-position2.x,             -ubo.level_resolution/2,   position2.y);
-	if (ubo.face == 4) position = ivec3( position2.x,             -position2.y,              ubo.level_resolution/2);
-	if (ubo.face == 5) position = ivec3(-position2.x,             -position2.y,             -ubo.level_resolution/2);
+	if (node.face == 0) position = ivec3( ubo.level_resolution/2,   position2.x,             -position2.y);
+	if (node.face == 1) position = ivec3(-ubo.level_resolution/2,  -position2.x,             -position2.y);
+	if (node.face == 2) position = ivec3( position2.x,              ubo.level_resolution/2,   position2.y);
+	if (node.face == 3) position = ivec3(-position2.x,             -ubo.level_resolution/2,   position2.y);
+	if (node.face == 4) position = ivec3( position2.x,             -position2.y,              ubo.level_resolution/2);
+	if (node.face == 5) position = ivec3(-position2.x,             -position2.y,             -ubo.level_resolution/2);
 
 	// If we are on the edge of a tile, then make sure our slope matches what is on the other side
 	// of the seam (by setting both to zero).

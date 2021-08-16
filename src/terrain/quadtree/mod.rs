@@ -1,3 +1,4 @@
+use crate::cache::MAX_QUADTREE_LEVEL;
 use crate::cache::Priority;
 use crate::cache::TileCache;
 use cgmath::*;
@@ -58,7 +59,7 @@ impl QuadTree {
         VNode::breadth_first(|node| {
             let priority = node.priority(camera, cache.get_height_range(node));
             self.node_priorities.insert(node, priority);
-            priority >= Priority::cutoff() && node.level() < VNode::LEVEL_CELL_5MM
+            priority >= Priority::cutoff() && node.level() < MAX_QUADTREE_LEVEL
         });
     }
 
