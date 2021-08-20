@@ -42,7 +42,7 @@ impl QuadTree {
         }
 
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            usage: wgpu::BufferUsage::INDEX,
+            usage: wgpu::BufferUsages::INDEX,
             label: Some("buffer.terrain.index"),
             contents: bytemuck::cast_slice(&data),
         })

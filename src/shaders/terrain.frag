@@ -31,13 +31,13 @@ layout(location = 7) flat in uint instance;
 
 layout(location = 0) out vec4 out_color;
 
-float mipmap_level(in vec2 texture_coordinate)
-{
-    vec2  dx_vtc        = dFdx(texture_coordinate);
-    vec2  dy_vtc        = dFdy(texture_coordinate);
-    float delta_max_sqr = max(dot(dx_vtc, dx_vtc), dot(dy_vtc, dy_vtc));
-    return 0.5 * log2(delta_max_sqr);
-}
+// float mipmap_level(in vec2 texture_coordinate)
+// {
+//     vec2  dx_vtc        = dFdx(texture_coordinate);
+//     vec2  dy_vtc        = dFdy(texture_coordinate);
+//     float delta_max_sqr = max(dot(dx_vtc, dx_vtc), dot(dy_vtc, dy_vtc));
+//     return 0.5 * log2(delta_max_sqr);
+// }
 
 vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
@@ -218,20 +218,20 @@ void main() {
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
 	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
-		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER)).xy);
+		vec3 pn = extract_normal(textureLod(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER), 0).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
 	vec3 albedo_value = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER)).rgb;
 	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
-		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER)).rgb;
+		vec3 parent_albedo = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0).rgb;
 		albedo_value = mix(parent_albedo, albedo_value, morph);
 	}
 
 	float roughness_value = texture(sampler2DArray(roughness, linear), layer_to_texcoord(ROUGHNESS_LAYER)).r;
 	if (node.layer_slots[PARENT_ROUGHNESS_LAYER] >= 0) {
-		float parent_roughness = texture(sampler2DArray(roughness, linear), layer_to_texcoord(PARENT_ROUGHNESS_LAYER)).r;
+		float parent_roughness = textureLod(sampler2DArray(roughness, linear), layer_to_texcoord(PARENT_ROUGHNESS_LAYER), 0).r;
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 

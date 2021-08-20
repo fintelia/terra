@@ -20,7 +20,7 @@ sha2 = "0.9.1"
 shaderc = "0.7.0"
 spirq = { git = "https://github.com/PENGUINLIONG/spirq-rs" }
 spirv_headers = "1.4.2"
-wgpu = "0.9.0"
+wgpu = "0.10.0"
 
 [features]
 default = []

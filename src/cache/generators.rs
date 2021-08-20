@@ -52,7 +52,6 @@ pub(crate) trait GenerateTile: Send {
 struct MeshGen {
     shaders: Vec<ShaderSet>,
     dimensions: Vec<(u32, u32, u32)>,
-    shader_validation: bool,
     bindgroup_pipeline: Vec<Option<(wgpu::BindGroup, wgpu::ComputePipeline)>>,
     peer_inputs: LayerMask,
     ancestor_dependencies: LayerMask,
@@ -140,15 +139,10 @@ impl GenerateTile for MeshGen {
                         push_constant_ranges: &[],
                         label: None,
                     })),
-                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    module: &unsafe {device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
                         label: Some(&format!("shader.generate.{}", self.name)),
-                        source: wgpu::ShaderSource::SpirV(self.shaders[i].compute().into()),
-                        flags: if self.shader_validation {
-                            wgpu::ShaderFlags::VALIDATION
-                        } else {
-                            wgpu::ShaderFlags::empty()
-                        },
-                    }),
+                        source: self.shaders[i].compute().into(),
+                    }) },
                     entry_point: "main",
                     label: Some(&format!("pipeline.generate.{}", self.name)),
                 });
@@ -171,7 +165,6 @@ impl GenerateTile for MeshGen {
 
 struct ShaderGen<T, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T> {
     shader: ShaderSet,
-    shader_validation: bool,
     bind_group: Option<wgpu::BindGroup>,
     pipeline: Option<wgpu::ComputePipeline>,
     dimensions: u32,
@@ -303,15 +296,14 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                                 label: None,
                             },
                         )),
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        // module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        //     label: Some(&format!("shader.generate.{}", self.name)),
+                        //     source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                        // }),
+                        module: &unsafe {device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
                             label: Some(&format!("shader.generate.{}", self.name)),
-                            source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                            flags: if self.shader_validation {
-                                wgpu::ShaderFlags::VALIDATION
-                            } else {
-                                wgpu::ShaderFlags::empty()
-                            },
-                        }),
+                            source: self.shader.compute().into(),
+                        }) },
                         entry_point: "main",
                         label: Some(&format!("pipeline.generate.{}", self.name)),
                     }));
@@ -340,6 +332,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                     texture: &state.bc5_staging.0,
                     mip_level: 0,
                     origin: wgpu::Origin3d::default(),
+                    aspect: wgpu::TextureAspect::All,
                 },
                 wgpu::ImageCopyBuffer {
                     buffer: &state.staging_buffer,
@@ -368,6 +361,7 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                     texture: &state.tile_cache[LayerType::Normals].0,
                     mip_level: 0,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
+                    aspect: wgpu::TextureAspect::All,
                 },
                 wgpu::Extent3d { width: resolution, height: resolution, depth_or_array_layers: 1 },
             );
@@ -385,7 +379,6 @@ struct ShaderGenBuilder {
     root_outputs: Option<LayerMask>,
     root_peer_inputs: Option<LayerMask>,
     blit_from_bc5_staging: Option<LayerType>,
-    shader_validation: bool,
 }
 impl ShaderGenBuilder {
     fn new(name: String, shader: ShaderSource) -> Self {
@@ -399,7 +392,6 @@ impl ShaderGenBuilder {
             root_outputs: None,
             root_peer_inputs: None,
             blit_from_bc5_staging: None,
-            shader_validation: true,
         }
     }
     fn dimensions(mut self, dimensions: u32) -> Self {
@@ -430,17 +422,12 @@ impl ShaderGenBuilder {
         self.blit_from_bc5_staging = Some(layer);
         self
     }
-    fn no_validate(mut self) -> Self {
-        self.shader_validation = false;
-        self
-    }
     fn build<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T>(
         self,
         f: F,
     ) -> Box<dyn GenerateTile> {
         Box::new(ShaderGen {
             name: self.name,
-            shader_validation: self.shader_validation,
             shader: ShaderSet::compute_only(self.shader).unwrap(),
             bind_group: None,
             pipeline: None,
@@ -486,7 +473,6 @@ pub(crate) fn generators(
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions((heightmaps_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
-        .no_validate() // validation doesn't support barrier() yet.
         .build(
             move |node: VNode,
                   slot: usize,
@@ -526,9 +512,9 @@ pub(crate) fn generators(
             if soft_float64 {
                 rshader::shader_source!(
                     "../shaders",
+                    "gen-displacements.comp",
                     "declarations.glsl",
-                    "softdouble.glsl",
-                    "gen-displacements.comp";
+                    "softdouble.glsl";
                     "SOFT_DOUBLE" = "1"
                 )
             } else {
@@ -540,7 +526,6 @@ pub(crate) fn generators(
         .dimensions((displacements_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .root_peer_inputs(LayerType::Heightmaps.bit_mask())
-        .no_validate() // shaderFloat64 causes validation errors
         .build(
             move |node: VNode,
                   slot: usize,
@@ -587,7 +572,6 @@ pub(crate) fn generators(
         .dimensions((normals_resolution + 3) / 4)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
-        .no_validate() // validation doesn't support barrier() yet.
         .build(move |node: VNode, slot: usize, _, _| -> GenNormalsUniforms {
             let spacing =
                 node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
@@ -612,7 +596,6 @@ pub(crate) fn generators(
         .parent_inputs(LayerType::Albedo.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
-        .no_validate() // validation doesn't support barrier() yet.
         .build(
             move |node: VNode,
                   slot: usize,
@@ -671,7 +654,6 @@ pub(crate) fn generators(
         .outputs(LayerType::GrassCanopy.bit_mask())
         .dimensions((grass_canopy_resolution + 7) / 8)
         .peer_inputs(LayerType::Normals.bit_mask())
-        .no_validate()
         .build(move |node: VNode, slot: usize, _, _| -> [u32; 2] {
             assert_eq!(node.level(), VNode::LEVEL_CELL_1M);
             [slot as u32, slot as u32 - grass_canopy_base_slot]
@@ -691,7 +673,6 @@ pub(crate) fn generators(
                 )).unwrap(),
             ],
             dimensions: vec![(16, 16, 1), (16, 1, 1)],
-            shader_validation: false,
             bindgroup_pipeline: vec![None, None],
             peer_inputs: LayerType::Displacements.bit_mask()
                 | LayerType::Albedo.bit_mask()
@@ -703,7 +684,7 @@ pub(crate) fn generators(
             base_entry: meshes[MeshType::Grass].base_entry as u32,
             entries_per_node: meshes[MeshType::Grass].desc.entries_per_node as u32,
             clear_indirect_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                usage: wgpu::BufferUsage::COPY_SRC,
+                usage: wgpu::BufferUsages::COPY_SRC,
                 label: Some("buffer.grass.clear_indirect"),
                 contents: &vec![0; mem::size_of::<DrawIndexedIndirect>() * 16],
             })
@@ -717,7 +698,6 @@ pub(crate) fn generators(
                 )).unwrap()
             ],
             dimensions: vec![(4, 1, 1)],
-            shader_validation: false,
             bindgroup_pipeline: vec![None],
             peer_inputs: LayerType::Displacements.bit_mask(),
             ancestor_dependencies: LayerMask::empty(),
@@ -727,7 +707,7 @@ pub(crate) fn generators(
             base_entry: meshes[MeshType::Terrain].base_entry as u32,
             entries_per_node: meshes[MeshType::Terrain].desc.entries_per_node as u32,
             clear_indirect_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                usage: wgpu::BufferUsage::COPY_SRC,
+                usage: wgpu::BufferUsages::COPY_SRC,
                 label: Some("buffer.terrain.clear_indirect"),
                 contents: bytemuck::cast_slice(&(0..4).map(|i| DrawIndexedIndirect {
                     vertex_count: 32 * 32 * 6,
@@ -751,7 +731,6 @@ pub(super) struct DynamicGenerator {
     pub resolution: (u32, u32),
     pub bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,
 
-    pub shader_validation: bool,
     pub name: &'static str,
 }
 
@@ -770,7 +749,6 @@ pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
         .unwrap(),
         resolution: (1, 1),
         bindgroup_pipeline: None,
-        shader_validation: false,
         name: "aerial-perspective",
     }]
 }

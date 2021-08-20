@@ -140,7 +140,7 @@ impl Terrain {
                                     })
                                     .collect::<Vec<u32>>(),
                             ),
-                            usage: wgpu::BufferUsage::INDEX,
+                            usage: wgpu::BufferUsages::INDEX,
                         })
                     },
                     render: rshader::ShaderSet::simple(
@@ -261,7 +261,6 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.vertex"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                         buffers: &[],
@@ -270,7 +269,6 @@ impl Terrain {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.fragment"),
                             source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
-                            flags: wgpu::ShaderFlags::VALIDATION,
                         }),
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {
@@ -279,7 +277,7 @@ impl Terrain {
                                 color: wgpu::BlendComponent::REPLACE,
                                 alpha: wgpu::BlendComponent::REPLACE,
                             }),
-                            write_mask: wgpu::ColorWrite::ALL,
+                            write_mask: wgpu::ColorWrites::ALL,
                         }],
                     }),
                     primitive: Default::default(),

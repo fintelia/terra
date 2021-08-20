@@ -17,7 +17,7 @@ layout(binding = 0) uniform UniformBlock {
 	uint level_resolution;
 } ubo;
 
-layout(r32ui, binding = 1) readonly uniform uimage2DArray heightmaps;
+layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
 
 layout(binding = 3) uniform texture2D albedo_in;
@@ -32,10 +32,10 @@ void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
-	uint e00 = imageLoad(heightmaps, in_pos).x;
-	uint e10 = imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x;
-	uint e01 = imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x;
-	uint e11 = imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x;
+	uint e00 = texelFetch(heightmaps, in_pos, 0).x;
+	uint e10 = texelFetch(heightmaps, in_pos + ivec3(1,0,0), 0).x;
+	uint e01 = texelFetch(heightmaps, in_pos + ivec3(0,1,0), 0).x;
+	uint e11 = texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x;
 
 	bool is_water = dot((uvec4(e00, e10, e01, e11) & uvec4(0x800000)) >> 23, uvec4(1)) > 2;
 

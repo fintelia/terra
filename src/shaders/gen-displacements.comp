@@ -53,7 +53,7 @@ xdouble _abs(xdouble d) { return _fabs64(d); }
 xdouble _neg(xdouble d) { return _fneg64(d); }
 
 #else
-#error "SOFT_DOUBLE not defined"
+#error SOFT_DOUBLE not defined
 #endif
 
 
@@ -71,11 +71,11 @@ layout(binding = 0) uniform UniformBlock {
     uint level_resolution;
 } ubo;
 
-layout(r32ui, binding = 1) readonly uniform uimage2DArray heightmaps;
+layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
 
 void main() {
-    float height = extract_height_above_water(imageLoad(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot)).x);
+    float height = extract_height_above_water(texelFetch(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot), 0).x);
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
     // http://jcgt.org/published/0007/02/01/paper.pdf

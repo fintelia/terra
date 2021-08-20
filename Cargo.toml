@@ -58,7 +58,7 @@ serde = { version = "1.0.118", features = ["derive"] }
 serde_json = "1.0.60"
 sha2 = "0.9.2"
 sled = "0.34.6"
-smaa = { version = "0.4.0", optional = true }
+#smaa = { version = "0.4.0", optional = true }
 snap = "1.0.3"
 structopt = "0.3.21"
 thiserror = "1.0.22"
@@ -66,7 +66,7 @@ tiff = { git = "https://github.com/image-rs/image-tiff" }
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 tokio-stream = "0.1.7"
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = "0.9.0"
+wgpu = { version = "0.10.1", features = ["spirv"] }
 winit = "0.24.0"
 zip = "0.5.9"
 

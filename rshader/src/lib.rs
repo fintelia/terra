@@ -308,7 +308,7 @@ fn reflect(
     (Vec<wgpu::VertexAttribute>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
     anyhow::Error,
 > {
-    let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
+    let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStages)> =
         BTreeMap::new();
 
     let mut attribute_offset = 0;
@@ -325,13 +325,13 @@ fn reflect(
         let manifest = &entries[0].manifest;
 
         let stage = match entries[0].exec_model {
-            ExecutionModel::Vertex => wgpu::ShaderStage::VERTEX,
-            ExecutionModel::Fragment => wgpu::ShaderStage::FRAGMENT,
-            ExecutionModel::GLCompute => wgpu::ShaderStage::COMPUTE,
+            ExecutionModel::Vertex => wgpu::ShaderStages::VERTEX,
+            ExecutionModel::Fragment => wgpu::ShaderStages::FRAGMENT,
+            ExecutionModel::GLCompute => wgpu::ShaderStages::COMPUTE,
             _ => unimplemented!(),
         };
 
-        if let wgpu::ShaderStage::VERTEX = stage {
+        if let wgpu::ShaderStages::VERTEX = stage {
             let mut inputs = BTreeMap::new();
             for input in manifest.inputs() {
                 inputs.entry(u32::from(input.location.loc())).or_insert(Vec::new()).push(input);

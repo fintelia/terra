@@ -223,10 +223,10 @@ impl MapFile {
             } else {
                 wgpu::TextureDimension::D3
             },
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::SAMPLED
-                | if !desc.format.is_compressed() { wgpu::TextureUsage::STORAGE } else { wgpu::TextureUsage::empty() },
+            usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | if !desc.format.is_compressed() { wgpu::TextureUsages::STORAGE_BINDING } else { wgpu::TextureUsages::empty() },
             label: Some(&format!("texture.{}", name)),
         });
 
@@ -245,17 +245,19 @@ impl MapFile {
             }
         }
 
+        let mut offset = row_bytes * height * desc.depth as usize;
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
             },
-            &data,
+            &data[..offset],
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
-                rows_per_image: Some(NonZeroU32::new(height as u32 * desc.format.block_size()).unwrap()),
+                rows_per_image: Some(NonZeroU32::new(height as u32).unwrap()),
             },
             wgpu::Extent3d {
                 width: width as u32 * desc.format.block_size(),
@@ -264,7 +266,6 @@ impl MapFile {
             },
         );
 
-        let mut offset = row_bytes * height * desc.depth as usize;
         for mip in 1.. {
             let block_size = desc.format.block_size() as usize;
             let width = (width * block_size) >> mip;
@@ -291,6 +292,7 @@ impl MapFile {
                     texture: &texture,
                     mip_level: mip,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
                 },
                 &data[offset..],
                 wgpu::ImageDataLayout {
@@ -298,7 +300,7 @@ impl MapFile {
                     bytes_per_row: Some(
                         NonZeroU32::new((width * desc.format.bytes_per_block()) as u32).unwrap(),
                     ),
-                    rows_per_image: Some(NonZeroU32::new((height * block_size) as u32).unwrap()),
+                    rows_per_image: Some(NonZeroU32::new(height as u32).unwrap()),
                 },
                 wgpu::Extent3d {
                     width: width as u32 * desc.format.block_size(),

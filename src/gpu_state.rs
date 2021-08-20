@@ -94,10 +94,10 @@ impl GpuState {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsage::COPY_SRC
-                        | wgpu::TextureUsage::COPY_DST
-                        | wgpu::TextureUsage::STORAGE
-                        | wgpu::TextureUsage::SAMPLED,
+                    usage: wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
                     label: Some("texture.staging.bc4"),
                 }),
             ),
@@ -109,16 +109,16 @@ impl GpuState {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsage::COPY_SRC
-                        | wgpu::TextureUsage::COPY_DST
-                        | wgpu::TextureUsage::STORAGE
-                        | wgpu::TextureUsage::SAMPLED,
+                    usage: wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
                     label: Some("texture.staging.bc5"),
                 }),
             ),
             staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 4 * 1024 * 1024,
-                usage: wgpu::BufferUsage::COPY_SRC | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
                 label: Some("buffer.staging"),
             }),
@@ -130,45 +130,45 @@ impl GpuState {
                     std::mem::size_of::<DrawIndexedIndirect>()
                         * cache.total_mesh_entries()
                 ],
-                usage: wgpu::BufferUsage::STORAGE
-                    | wgpu::BufferUsage::INDIRECT
-                    | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::INDIRECT
+                    | wgpu::BufferUsages::COPY_DST,
                 label: Some("buffer.mesh_indirect"),
             }),
             mesh_bounding: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 contents: &vec![0; 16 * cache.total_mesh_entries()],
-                usage: wgpu::BufferUsage::STORAGE
-                    | wgpu::BufferUsage::INDIRECT
-                    | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::INDIRECT
+                    | wgpu::BufferUsages::COPY_DST,
                 label: Some("buffer.mesh_bounding"),
             }),
             globals: device.create_buffer(&wgpu::BufferDescriptor {
                 size: std::mem::size_of::<GlobalUniformBlock>() as u64,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 label: Some("buffer.globals"),
                 mapped_at_creation: false,
             }),
             generate_uniforms: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 256 * 1024,
-                usage: wgpu::BufferUsage::COPY_DST
-                    | wgpu::BufferUsage::UNIFORM
-                    | wgpu::BufferUsage::STORAGE,
+                usage: wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::STORAGE,
                 label: Some("buffer.generate.tiles"),
                 mapped_at_creation: false,
             }),
             frame_nodes: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 4 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
-                usage: wgpu::BufferUsage::COPY_DST
-                    | wgpu::BufferUsage::UNIFORM
-                    | wgpu::BufferUsage::STORAGE,
+                usage: wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::STORAGE,
                 label: Some("buffer.frame_nodes"),
                 mapped_at_creation: false,
             }),
             nodes: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 512 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
-                usage: wgpu::BufferUsage::COPY_DST
-                    | wgpu::BufferUsage::UNIFORM
-                    | wgpu::BufferUsage::STORAGE,
+                usage: wgpu::BufferUsages::COPY_DST
+                    | wgpu::BufferUsages::UNIFORM
+                    | wgpu::BufferUsages::STORAGE,
                 label: Some("buffer.nodes"),
                 mapped_at_creation: false,
             }),
@@ -285,6 +285,9 @@ impl GpuState {
                         match name {
                             "transmittance" | "inscattering" | "displacements" => {
                                 *sample_type = wgpu::TextureSampleType::Float { filterable: false }
+                            }
+                            "heightmaps" | "heightmaps_in" => {
+                                *sample_type = wgpu::TextureSampleType::Uint;
                             }
                             _ => {}
                         }

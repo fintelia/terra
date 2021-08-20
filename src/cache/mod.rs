@@ -642,7 +642,7 @@ impl TileCache {
                     device.create_buffer(&wgpu::BufferDescriptor {
                         size: c.desc.max_bytes_per_node
                             * (c.num_entries / c.desc.entries_per_node) as u64,
-                        usage: wgpu::BufferUsage::STORAGE,
+                        usage: wgpu::BufferUsages::STORAGE,
                         mapped_at_creation: false,
                         label: Some(&format!("buffer.storage.{}", c.desc.ty.name())),
                     }),

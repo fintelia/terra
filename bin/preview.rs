@@ -32,24 +32,6 @@ fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
         0.0,       0.0,  near,  0.0)
 }
 
-fn make_swapchain(
-    device: &wgpu::Device,
-    surface: &wgpu::Surface,
-    width: u32,
-    height: u32,
-    format: wgpu::TextureFormat,
-) -> wgpu::SwapChain {
-    device.create_swap_chain(
-        &surface,
-        &wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
-        },
-    )
-}
 fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
@@ -58,7 +40,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         })
         .create_view(&Default::default())
@@ -86,7 +68,7 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = runtime
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -95,7 +77,7 @@ fn main() {
         }))
         .expect("Unable to create compatible wgpu adapter");
     let swapchain_format =
-        adapter.get_swap_chain_preferred_format(&surface).expect("No compatible swapchain formats");
+        surface.get_preferred_format(&adapter).expect("No compatible swapchain formats");
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
@@ -107,7 +89,7 @@ fn main() {
     } else {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
-    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
+    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::SPIRV_SHADER_PASSTHROUGH;
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(
@@ -117,8 +99,8 @@ fn main() {
         .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
-    let mut swap_chain = None;
     let mut depth_buffer = None;
+    let mut configure_surface = true;
 
     #[cfg(feature = "smaa")]
     let mut smaa_target = smaa::SmaaTarget::new(
@@ -235,8 +217,8 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size;
-                    swap_chain = None;
                     depth_buffer = None;
+                    configure_surface = true;
 
                     #[cfg(feature = "smaa")]
                     smaa_target.resize(&device, new_size.width, new_size.height);
@@ -244,22 +226,22 @@ fn main() {
                 _ => {}
             },
             event::Event::MainEventsCleared => {
-                if swap_chain.is_none() {
-                    swap_chain = Some(make_swapchain(
-                        &device,
-                        &surface,
-                        size.width,
-                        size.height,
-                        swapchain_format,
-                    ));
+                if configure_surface {
+                    surface.configure(&device, &wgpu::SurfaceConfiguration {
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                        format: swapchain_format,
+                        width: size.width,
+                        height: size.height,
+                        present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+                    })
                 }
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
                 }
 
-                let frame = swap_chain.as_ref().unwrap().get_current_frame();
+                let frame = surface.get_current_frame();
                 let frame = match frame {
-                    Ok(ref f) => &f.output.view,
+                    Ok(ref f) => &f.output.texture,
                     Err(_) => return,
                 };
 
@@ -331,7 +313,7 @@ fn main() {
                 terrain.render(
                     &device,
                     &queue,
-                    &*frame,
+                    &frame.create_view(&Default::default()),
                     depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,

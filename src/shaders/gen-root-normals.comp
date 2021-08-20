@@ -12,7 +12,7 @@ layout(binding = 0) uniform UniformBlock {
 	vec3 padding;
 } ubo;
 
-layout(r32ui, binding = 1) readonly uniform uimage2DArray heightmaps;
+layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
 
 shared vec2 group_normals[16];
@@ -21,10 +21,10 @@ void main() {
 	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
-	float h00 = extract_height_above_water(imageLoad(heightmaps, in_pos).x);
-	float h10 = extract_height_above_water(imageLoad(heightmaps, in_pos + ivec3(1,0,0)).x);
-	float h01 = extract_height_above_water(imageLoad(heightmaps, in_pos + ivec3(0,1,0)).x);
-	float h11 = extract_height_above_water(imageLoad(heightmaps, in_pos + ivec3(1,1,0)).x);
+	float h00 = extract_height_above_water(texelFetch(heightmaps, in_pos, 0).x);
+	float h10 = extract_height_above_water(texelFetch(heightmaps, in_pos + ivec3(1,0,0), 0).x);
+	float h01 = extract_height_above_water(texelFetch(heightmaps, in_pos + ivec3(0,1,0), 0).x);
+	float h11 = extract_height_above_water(texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x);
 
 	vec3 normal = vec3(h10 + h11 - h00 - h01,
 					   2.0 * ubo.spacing,

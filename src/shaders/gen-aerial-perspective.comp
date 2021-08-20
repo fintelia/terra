@@ -6,10 +6,10 @@ layout(local_size_x = 17, local_size_y = 17) in;
 layout(set = 0, binding = 0, std140) uniform GlobalsBlock {
 	Globals globals;
 };
-layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
+layout(set = 0, binding = 1, std430) /*readonly*/ buffer NodeBlock {
     Node nodes[];
 };
-layout(binding = 2, std430) readonly buffer UniformBlock {
+layout(binding = 2, std430) /*readonly*/ buffer UniformBlock {
 	uint node_list[1024];
 } ubo;
 
@@ -17,7 +17,7 @@ layout(binding = 2, std430) readonly buffer UniformBlock {
 layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 4) uniform texture2DArray displacements;
 layout(set = 0, binding = 5) uniform texture2D transmittance;
-layout(rgba16f, set = 0, binding = 6) writeonly uniform image2DArray aerial_perspective;
+layout(rgba16f, binding = 6) writeonly uniform image2DArray aerial_perspective;
 
 const float planetRadius = 6371000.0;
 const float atmosphereRadius = 6371000.0 + 100000.0;

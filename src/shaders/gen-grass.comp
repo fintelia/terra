@@ -25,7 +25,7 @@ coherent layout(std430, binding = 2) buffer IndirectBlock {
 } mesh_indirect;
 
 layout(set = 0, binding = 3) uniform sampler linear;
-layout(rgba32f, set = 0, binding = 4) readonly uniform image2DArray displacements;
+layout(set = 0, binding = 4) uniform texture2DArray displacements;
 layout(set = 0, binding = 5) uniform texture2DArray normals;
 layout(set = 0, binding = 6) uniform texture2DArray albedo;
 layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
@@ -46,11 +46,11 @@ vec3 layer_to_texcoord(uint layer) {
 }
 
 #define BILINEAR(r, img, v) { \
-    vec2 f = fract(v.xy * imageSize(img).xy); \
-    vec4 i00 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)); \
-    vec4 i10 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,0,0)); \
-    vec4 i01 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(0,1,0)); \
-    vec4 i11 = imageLoad(img, ivec3(v.xy * imageSize(img).xy, v.z)+ivec3(1,1,0)); \
+    vec2 f = fract(v.xy * textureSize(img, 0).xy); \
+    vec4 i00 = texelFetch(img, ivec3(v.xy * textureSize(img,0).xy, v.z), 0); \
+    vec4 i10 = texelFetch(img, ivec3(v.xy * textureSize(img,0).xy, v.z)+ivec3(1,0,0), 0); \
+    vec4 i01 = texelFetch(img, ivec3(v.xy * textureSize(img,0).xy, v.z)+ivec3(0,1,0), 0); \
+    vec4 i11 = texelFetch(img, ivec3(v.xy * textureSize(img,0).xy, v.z)+ivec3(1,1,0), 0); \
     r = mix(mix(i00, i10, f.x), mix(i01, i11, f.y), f.y); \
 }
 

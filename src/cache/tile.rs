@@ -390,7 +390,7 @@ impl TileCache {
                         download_buffers_used += 1;
                         device.create_buffer(&wgpu::BufferDescriptor {
                             size: row_pitch * resolution,
-                            usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::MAP_READ,
+                            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                             label: Some(&format!("buffer.tiles.download")),
                             mapped_at_creation: false,
                         })
@@ -400,6 +400,7 @@ impl TileCache {
                             texture: &gpu_state.tile_cache[LayerType::Heightmaps].0,
                             mip_level: 0,
                             origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
+                            aspect: wgpu::TextureAspect::All,
                         },
                         wgpu::ImageCopyBuffer {
                             buffer: &buffer,
@@ -486,19 +487,20 @@ impl TileCache {
                                         label: None,
                                     },
                                 )),
-                                module: &device.create_shader_module(
-                                    &wgpu::ShaderModuleDescriptor {
+                                // module: &device.create_shader_module(
+                                //     &wgpu::ShaderModuleDescriptor {
+                                //         label: Some(&format!("shader.generate.{}", g.name)),
+                                //         source: wgpu::ShaderSource::SpirV(
+                                //             g.shader.compute().into(),
+                                //         ),
+                                //     },
+                                // ),
+                                module: &unsafe { device.create_shader_module_spirv(
+                                    &wgpu::ShaderModuleDescriptorSpirV {
                                         label: Some(&format!("shader.generate.{}", g.name)),
-                                        source: wgpu::ShaderSource::SpirV(
-                                            g.shader.compute().into(),
-                                        ),
-                                        flags: if g.shader_validation {
-                                            wgpu::ShaderFlags::VALIDATION
-                                        } else {
-                                            wgpu::ShaderFlags::empty()
-                                        },
+                                        source: g.shader.compute().into(),
                                     },
-                                ),
+                                ) },
                                 entry_point: "main",
                                 label: Some(&format!("pipeline.generate.{}", g.name)),
                             });
@@ -588,6 +590,7 @@ impl TileCache {
                         texture: &textures[layer].0,
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
+                        aspect: wgpu::TextureAspect::All,
                     },
                     &*data,
                     wgpu::ImageDataLayout {
@@ -685,13 +688,13 @@ impl TileCache {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsage::COPY_SRC
-                        | wgpu::TextureUsage::COPY_DST
-                        | wgpu::TextureUsage::SAMPLED
+                    usage: wgpu::TextureUsages::COPY_SRC
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::TEXTURE_BINDING
                         | if !layer.texture_format.is_compressed() {
-                            wgpu::TextureUsage::STORAGE
+                            wgpu::TextureUsages::STORAGE_BINDING
                         } else {
-                            wgpu::TextureUsage::empty()
+                            wgpu::TextureUsages::empty()
                         },
                     label: Some(&format!("texture.tiles.{}", LayerType::from_index(ty).name())),
                 });
