@@ -43,7 +43,10 @@
 #line 44
 
 #define fp64 uvec2
-#define SOFT_DOUBLE
+
+#ifndef SOFT_DOUBLE
+#define SOFT_DOUBLE 1
+#endif
 
 /* Software IEEE floating-point rounding mode.
  * GLSL spec section "4.7.1 Range and Precision":
