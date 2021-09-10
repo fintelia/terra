@@ -8,7 +8,7 @@ Terra is work in progress large scale terrain rendering library built on top of
 # Overview
 
 Terra supports rendering an entire planet with details ranging in scale from
-hundreds of kilometers down to centimeters. In Terra, terrain is treated as a
+thousands of kilometers down to centimeters. In Terra, terrain is treated as a
 [heightmap](https://en.wikipedia.org/wiki/Heightmap) along with a collection of
 texture maps storing the surface normal, albedo, etc.
 
