@@ -128,7 +128,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     })),
                     module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.{}", self.name)),
-                        source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
+                        source: self.shader.compute(),
                     }),
                     entry_point: "main",
                     label: Some(&format!("pipeline.{}", self.name)),

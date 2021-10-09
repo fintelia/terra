@@ -15,7 +15,7 @@ struct Sphere {
     vec3 center;
     float radius;
 };
-layout(std430, binding = 2) writeonly buffer BoundingBlock {
+layout(std430, binding = 2) buffer BoundingBlock {
     Sphere bounds[];
 } mesh_bounding;
 

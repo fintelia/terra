@@ -15,12 +15,13 @@ bytemuck = "1.7.0"
 generic-array = "0.14.4"
 lazy_static = "1.4.0"
 # naga = { git = "https://github.com/gfx-rs/naga", features = ["spv-in"] }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "52d74e9", features = ["spv-in"] }
 notify = "4.0.15"
 sha2 = "0.9.1"
 shaderc = "0.7.0"
 spirq = { git = "https://github.com/PENGUINLIONG/spirq-rs" }
 spirv_headers = "1.4.2"
-wgpu = "0.10.0"
+wgpu = { version = "0.10.1", git = "https://github.com/gfx-rs/wgpu", rev = "c8436de1ec525ef6d9329f705ec6d22f541eab57", features = ["spirv"] }
 
 [features]
 default = []

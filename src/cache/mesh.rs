@@ -99,7 +99,7 @@ impl MeshCache {
                     vertex: wgpu::VertexState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.{}.vertex", self.desc.ty.name())),
-                            source: wgpu::ShaderSource::SpirV(self.desc.render.vertex().into()),
+                            source: self.desc.render.vertex(),
                         }),
                         entry_point: "main",
                         buffers: &[],
@@ -107,7 +107,7 @@ impl MeshCache {
                     fragment: Some(wgpu::FragmentState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.{}.fragment", self.desc.ty.name())),
-                            source: wgpu::ShaderSource::SpirV(self.desc.render.fragment().into()),
+                            source: self.desc.render.fragment(),
                         }),
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {

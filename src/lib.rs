@@ -260,7 +260,7 @@ impl Terrain {
                     vertex: wgpu::VertexState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.vertex"),
-                            source: wgpu::ShaderSource::SpirV(self.sky_shader.vertex().into()),
+                            source: self.sky_shader.vertex(),
                         }),
                         entry_point: "main",
                         buffers: &[],
@@ -268,7 +268,7 @@ impl Terrain {
                     fragment: Some(wgpu::FragmentState {
                         module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.fragment"),
-                            source: wgpu::ShaderSource::SpirV(self.sky_shader.fragment().into()),
+                            source: self.sky_shader.fragment(),
                         }),
                         entry_point: "main",
                         targets: &[wgpu::ColorTargetState {
