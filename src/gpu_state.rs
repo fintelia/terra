@@ -50,7 +50,7 @@ pub(crate) struct GpuState {
     transmittance: (wgpu::Texture, wgpu::TextureView),
     inscattering: (wgpu::Texture, wgpu::TextureView),
 
-    ground_albedo: (wgpu::Texture, wgpu::TextureView),
+    //ground_albedo: (wgpu::Texture, wgpu::TextureView),
 
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
@@ -82,10 +82,10 @@ impl GpuState {
                 "inscattering",
                 mapfile.read_texture(device, queue, "inscattering")?,
             ),
-            ground_albedo: with_view(
-                "ground_albedo",
-                mapfile.read_texture(device, queue, "ground_albedo")?,
-            ),
+            // ground_albedo: with_view(
+            //     "ground_albedo",
+            //     mapfile.read_texture(device, queue, "ground_albedo")?,
+            // ),
             bc4_staging: with_view(
                 "bc4_staging",
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -230,7 +230,7 @@ impl GpuState {
                                 "sky" => &self.sky.1,
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
-                                "ground_albedo" => &self.ground_albedo.1,
+                                // "ground_albedo" => &self.ground_albedo.1,
                                 "bc4_staging" => &self.bc4_staging.1,
                                 "bc5_staging" => &self.bc5_staging.1,
                                 _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,

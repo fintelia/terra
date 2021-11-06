@@ -81,7 +81,7 @@ impl ShaderSource {
             }
         };
 
-        eprintln!("{}", name);
+        // eprintln!("{}", name);
         if let ShaderSource::FilesWGSL { .. } = self {
             Ok(wgpu::ShaderSource::Wgsl(contents.into()))
         } else {
