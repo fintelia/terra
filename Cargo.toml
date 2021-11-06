@@ -30,7 +30,7 @@ cgmath = { version = "0.18.0", features = ["mint", "serde"] }
 crossbeam = "0.8.0"
 curl = "0.4.34"
 dirs = "3.0.1"
-env_logger = "0.8.3"
+env_logger = "0.9.0"
 fnv = "1.0.7"
 futures = "0.3.8"
 gilrs = "0.8.0"
@@ -41,7 +41,7 @@ indicatif = "0.15.0"
 itertools = "0.9.0"
 lazy_static = "1.4.0"
 linked-hash-map = "0.5.3"
-log = "0.4.11"
+log = "0.4.14"
 lru-cache = "0.1.2"
 lz4 = "1.23.2"
 maplit = "1.0.2"
@@ -66,8 +66,8 @@ tiff = { git = "https://github.com/image-rs/image-tiff" }
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 tokio-stream = "0.1.7"
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = { version = "0.10.1", git = "https://github.com/gfx-rs/wgpu", rev = "c8436de1ec525ef6d9329f705ec6d22f541eab57", features = ["spirv"] }
-winit = "0.24.0"
+wgpu = { version = "0.11.0", features = ["spirv"] }
+winit = "0.25.0"
 zip = "0.5.9"
 
 [dev-dependencies]
@@ -88,5 +88,9 @@ opt-level = 3
 [profile.release]
 debug = true
 
-# [patch.crates-io]
-#naga = { git = "https://github.com/gfx-rs/naga", rev = "93db57c" }
+[patch.crates-io]
+naga = { git = "https://github.com/fintelia/naga", rev = "f3949186875e791de0c7223e47af4237ae050f9e" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "7e00abf651efb967c3eee5a94c0185f98aa8527c" }
+
+[patch."https://github.com/gfx-rs/naga"]
+naga = { git = "https://github.com/fintelia/naga", rev = "f3949186875e791de0c7223e47af4237ae050f9e" }

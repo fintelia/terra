@@ -143,10 +143,6 @@ impl GenerateTile for MeshGen {
                         label: Some(&format!("shader.generate.{}", self.name)),
                         source: self.shaders[i].compute(),
                     }),
-                    // module: &unsafe {device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
-                    //     label: Some(&format!("shader.generate.{}", self.name)),
-                    //     source: self.shaders[i].compute().into(),
-                    // }) },
                     entry_point: "main",
                     label: Some(&format!("pipeline.generate.{}{}", self.name, i)),
                 });
@@ -300,17 +296,10 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                                 label: None,
                             },
                         )),
-                        // module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-                        //     label: Some(&format!("shader.generate.{}", self.name)),
-                        //     source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                        // }),
-                        module: &unsafe {device.create_shader_module_spirv(&wgpu::ShaderModuleDescriptorSpirV {
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.generate.{}", self.name)),
-                            source: match self.shader.compute() {
-                                wgpu::ShaderSource::SpirV(s) => s,
-                                _ => unreachable!(),
-                            },
-                        }) },
+                            source: self.shader.compute().into(),
+                        }),
                         entry_point: "main",
                         label: Some(&format!("pipeline.generate.{}", self.name)),
                     }));
@@ -667,6 +656,12 @@ pub(crate) fn generators(
         }),
         Box::new(MeshGen {
             shaders: vec![
+                // ShaderSet::compute_only(rshader::shader_source!(
+                //     "../shaders",
+                //     "gen-grass.comp",
+                //     "declarations.glsl",
+                //     "hash.glsl"
+                // )).unwrap(),
                 ShaderSet::compute_only(rshader::wgsl_source!(
                     "../shaders",
                     "gen-grass.wgsl"

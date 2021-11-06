@@ -487,25 +487,12 @@ impl TileCache {
                                         label: None,
                                     },
                                 )),
-                                // module: &device.create_shader_module(
-                                //     &wgpu::ShaderModuleDescriptor {
-                                //         label: Some(&format!("shader.generate.{}", g.name)),
-                                //         source: wgpu::ShaderSource::SpirV(
-                                //             g.shader.compute().into(),
-                                //         ),
-                                //     },
-                                // ),
-                                module: &unsafe {
-                                    device.create_shader_module_spirv(
-                                        &wgpu::ShaderModuleDescriptorSpirV {
-                                            label: Some(&format!("shader.generate.{}", g.name)),
-                                            source: match g.shader.compute() {
-                                                wgpu::ShaderSource::SpirV(s) => s,
-                                                _ => unreachable!(),
-                                            },
-                                        },
-                                    )
-                                },
+                                module: &device.create_shader_module(
+                                    &wgpu::ShaderModuleDescriptor {
+                                        label: Some(&format!("shader.generate.{}", g.name)),
+                                        source: g.shader.compute(),
+                                    },
+                                ),
                                 entry_point: "main",
                                 label: Some(&format!("pipeline.generate.{}", g.name)),
                             });

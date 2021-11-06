@@ -74,6 +74,7 @@ fn main() {
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
         }))
         .expect("Unable to create compatible wgpu adapter");
     let swapchain_format =
@@ -81,7 +82,6 @@ fn main() {
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
-
     let features = if !adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
         || cfg!(feature = "soft-float64")
     {
@@ -89,11 +89,16 @@ fn main() {
     } else {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
-    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::SPIRV_SHADER_PASSTHROUGH;
+    let features = features
+        | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor { features, limits: wgpu::Limits::default(), label: None },
+            &wgpu::DeviceDescriptor {
+                features,
+                limits: wgpu::Limits { max_texture_array_layers: 1024, ..wgpu::Limits::default() },
+                label: None,
+            },
             trace_path,
         ))
         .expect("Unable to create compatible wgpu device");
@@ -227,23 +232,27 @@ fn main() {
             },
             event::Event::MainEventsCleared => {
                 if configure_surface {
-                    surface.configure(&device, &wgpu::SurfaceConfiguration {
-                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                        format: swapchain_format,
-                        width: size.width,
-                        height: size.height,
-                        present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
-                    })
+                    surface.configure(
+                        &device,
+                        &wgpu::SurfaceConfiguration {
+                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                            format: swapchain_format,
+                            width: size.width,
+                            height: size.height,
+                            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+                        },
+                    )
                 }
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
                 }
 
-                let frame = surface.get_current_frame();
-                let frame = match frame {
-                    Ok(ref f) => &f.output.texture,
+                let frame_texture = surface.get_current_texture();
+                let frame_texture = match frame_texture {
+                    Ok(f) => f,
                     Err(_) => return,
                 };
+                let frame = &frame_texture.texture;
 
                 #[cfg(feature = "smaa")]
                 let frame = smaa_target.start_frame(&device, &queue, frame);
@@ -252,11 +261,19 @@ fn main() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * (0.0000001 * altitude).min(0.01)
-                        - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * (0.0000001 * altitude).min(0.01);
+                    lat += angle.cos()
+                        * gamepad.value(Axis::LeftStickY) as f64
+                        * (0.0000001 * altitude).min(0.01)
+                        - angle.sin()
+                            * gamepad.value(Axis::LeftStickX) as f64
+                            * (0.0000001 * altitude).min(0.01);
 
-                    long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * (0.0000001 * altitude).min(0.01)
-                        + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * (0.0000001 * altitude).min(0.01);
+                    long += -angle.sin()
+                        * gamepad.value(Axis::LeftStickY) as f64
+                        * (0.0000001 * altitude).min(0.01)
+                        + angle.cos()
+                            * gamepad.value(Axis::LeftStickX) as f64
+                            * (0.0000001 * altitude).min(0.01);
 
                     angle -= gamepad.value(Axis::RightZ) as f64 * 0.01;
 
@@ -324,6 +341,8 @@ fn main() {
                     window.set_visible(true);
                     set_visible = true;
                 }
+
+                frame_texture.present();
             }
             _ => (),
         }

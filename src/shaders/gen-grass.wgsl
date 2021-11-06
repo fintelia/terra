@@ -4,8 +4,8 @@ struct Entry {
     albedo: vec3<f32>;
     slant: f32;
     texcoord: vec2<f32>;
-    _padding1: vec2<f32>;
-    _padding2: vec4<f32>;
+    padding1: vec2<f32>;
+    padding2: vec4<f32>;
 };
 struct Node {
     layer_origins: array<vec2<f32>, 16>;
