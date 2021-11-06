@@ -1,0 +1,46 @@
+#version 450 core
+#include "declarations.glsl"
+
+layout(local_size_x = 33) in;
+
+struct Sphere {
+    vec3 center;
+    float radius;
+};
+
+layout(std140, binding = 0) uniform UniformBlock {
+    GenMeshUniforms ubo;
+};
+layout(std430, binding = 1) /*writeonly*/ buffer BoundingBlock {
+    Sphere bounds[];
+} mesh_bounding;
+layout(set = 0, binding = 2) uniform texture2DArray displacements;
+layout(set = 0, binding = 3) uniform sampler nearest;
+
+shared float max_radius2[33];
+
+void main() {
+    uint mesh_slot = ubo.mesh_base_entry + gl_WorkGroupID.x;
+
+    ivec2 origin = ivec2(gl_WorkGroupID.x % 2, gl_WorkGroupID.x / 2) * 32;
+    vec3 center = texture(sampler2DArray(displacements, nearest), vec3((origin.x + 16+0.5) / 65.0, (origin.y+16+0.5) / 65.0, ubo.slot)).xyz;
+
+    max_radius2[gl_LocalInvocationID.x] = 0.0;
+    for (int i = 0; i < 33; i++) {
+        vec3 p = texture(sampler2DArray(displacements, nearest), vec3((origin.x + i+0.5) / 65.0, (origin.y + gl_LocalInvocationID.x+0.5) / 65.0, ubo.slot)).xyz;
+        vec3 v = p - center;
+        max_radius2[gl_LocalInvocationID.x] = max(max_radius2[gl_LocalInvocationID.x], dot(v, v));
+    }
+
+    barrier();
+
+    if (gl_LocalInvocationID.x == 0) {
+        float m = 0.0;
+        for (int i = 0; i < 33; i++) {
+            m = max(m, max_radius2[i]);
+        }
+
+        mesh_bounding.bounds[mesh_slot].center = center;
+        mesh_bounding.bounds[mesh_slot].radius = sqrt(m);
+    }
+}

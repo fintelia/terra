@@ -3,6 +3,7 @@ use crate::cache::{LayerParams, LayerType, TextureFormat};
 use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
+use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -41,7 +42,8 @@ pub(crate) struct TextureDescriptor {
     pub height: u32,
     pub depth: u32,
     pub format: TextureFormat,
-    pub bytes: usize,
+    #[serde(default)]
+    pub array_texture: bool,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -86,6 +88,10 @@ impl MapFile {
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
+        if node.level() > VNode::LEVEL_CELL_38M {
+            return Ok(TileState::GpuOnly);
+        }
+
         Ok(match self.lookup_tile_meta(layer, node)? {
             Some(meta) => meta.state,
             None => TileState::GpuOnly,
@@ -148,28 +154,8 @@ impl MapFile {
         name: &str,
     ) -> Result<wgpu::Texture, Error> {
         let desc = self.lookup_texture(name)?.unwrap();
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width: desc.width,
-                height: desc.height,
-                depth_or_array_layers: desc.depth,
-            },
-            format: desc.format.to_wgpu(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: if desc.depth == 1 {
-                wgpu::TextureDimension::D2
-            } else {
-                wgpu::TextureDimension::D3
-            },
-            usage: wgpu::TextureUsage::COPY_SRC
-                | wgpu::TextureUsage::COPY_DST
-                | wgpu::TextureUsage::SAMPLED
-                | wgpu::TextureUsage::STORAGE,
-            label: Some(&format!("texture.{}", name)),
-        });
 
-        let (width, height) = (desc.width as usize, (desc.height * desc.depth) as usize);
+        let (width, height) = (desc.width as usize, desc.height as usize);
         assert_eq!(width % desc.format.block_size() as usize, 0);
         assert_eq!(height % desc.format.block_size() as usize, 0);
         let (width, height) =
@@ -177,15 +163,77 @@ impl MapFile {
 
         let row_bytes = width * desc.format.bytes_per_block();
 
+        let mut mip_level_count = 1;
         let mut data = if desc.format == TextureFormat::RGBA8 {
             image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba8().into_vec()
+        } else if desc.format == TextureFormat::UASTC {
+            let raw_data = fs::read(TERRA_DIRECTORY.join(format!("{}.basis", name)))?;
+            let mut transcoder = Transcoder::new();
+            transcoder.prepare_transcoding(&raw_data).unwrap();
+
+            let mut data = Vec::new();
+            'outer: for level in 0.. {
+                if (width as u32 * desc.format.block_size()) >> level == 0 && (height as u32 * desc.format.block_size()) >> level == 0 {
+                    break;
+                }
+
+                for image in 0..desc.depth {
+                    let transcoded = transcoder
+                    .transcode_image_level(
+                        &raw_data,
+                        if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+                            TranscoderTextureFormat::BC7_RGBA
+                        } else {
+                            TranscoderTextureFormat::ASTC_4x4_RGBA
+                        },
+                        TranscodeParameters {
+                            image_index: image as u32,
+                            level_index: level,
+                            ..Default::default()
+                        },
+                    );
+
+                    match transcoded {
+                        Ok(bytes) => {
+                            mip_level_count = level + 1;
+                            data.extend_from_slice(&*bytes);
+                        }
+                        Err(_) => break 'outer,
+                    }
+                }
+            }
+
+            transcoder.end_transcoding();
+            data
         } else {
             fs::read(TERRA_DIRECTORY.join(format!("{}.raw", name)))?
         };
 
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: desc.width,
+                height: desc.height,
+                depth_or_array_layers: desc.depth,
+            },
+            format: desc.format.to_wgpu(device.features()),
+            mip_level_count,
+            sample_count: 1,
+            dimension: if desc.depth == 1 || desc.array_texture {
+                wgpu::TextureDimension::D2
+            } else {
+                wgpu::TextureDimension::D3
+            },
+            usage: wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | if !desc.format.is_compressed() { wgpu::TextureUsages::STORAGE_BINDING } else { wgpu::TextureUsages::empty() },
+            label: Some(&format!("texture.{}", name)),
+        });
+
+
         if cfg!(feature = "small-trace") {
             let bytes_per_block = desc.format.bytes_per_block();
-            for y in 0..height {
+            for y in 0..(height * desc.depth as usize) {
                 for x in 0..width {
                     if x % 16 == 0 && y % 16 == 0 {
                         continue;
@@ -197,24 +245,71 @@ impl MapFile {
             }
         }
 
+        let mut offset = row_bytes * height * desc.depth as usize;
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                aspect: wgpu::TextureAspect::All,
             },
-            &data,
+            &data[..offset],
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
-                rows_per_image: Some(NonZeroU32::new(height as u32 / desc.depth).unwrap()),
+                rows_per_image: Some(NonZeroU32::new(height as u32).unwrap()),
             },
             wgpu::Extent3d {
-                width: width as u32,
-                height: height as u32 / desc.depth,
+                width: width as u32 * desc.format.block_size(),
+                height: height as u32 * desc.format.block_size(),
                 depth_or_array_layers: desc.depth,
             },
         );
+
+        for mip in 1.. {
+            let block_size = desc.format.block_size() as usize;
+            let width = (width * block_size) >> mip;
+            let height = (height * block_size) >> mip;
+            let depth = if desc.array_texture {
+                desc.depth as usize
+            } else {
+                desc.depth as usize >> mip
+            };
+            if width == 0 && height == 0 && depth == 0 {
+                break;
+            }
+
+            let width = (width.max(1) - 1) / block_size + 1;
+            let height = (height.max(1) - 1) / block_size + 1;
+            let depth = depth.max(1);
+            let bytes = width * height * depth * desc.format.bytes_per_block();
+            if offset + bytes > data.len() {
+                break;
+            }
+
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &data[offset..],
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(
+                        NonZeroU32::new((width * desc.format.bytes_per_block()) as u32).unwrap(),
+                    ),
+                    rows_per_image: Some(NonZeroU32::new(height as u32).unwrap()),
+                },
+                wgpu::Extent3d {
+                    width: width as u32 * desc.format.block_size(),
+                    height: height as u32 * desc.format.block_size(),
+                    depth_or_array_layers: depth as u32,
+                },
+            );
+            offset += bytes;
+        }
 
         Ok(texture)
     }
@@ -237,6 +332,10 @@ impl MapFile {
             )?;
             Ok(AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
                 .write(|f| f.write_all(&encoded))?)
+        } else if desc.format == TextureFormat::UASTC {
+            let filename = TERRA_DIRECTORY.join(format!("{}.basis", name));
+            Ok(AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(data))?)
         } else {
             let filename = TERRA_DIRECTORY.join(format!("{}.raw", name));
             Ok(AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
@@ -249,6 +348,8 @@ impl MapFile {
         if let Ok(Some(desc)) = desc {
             if desc.format == TextureFormat::RGBA8 {
                 TERRA_DIRECTORY.join(format!("{}.bmp", name)).exists()
+            } else if desc.format == TextureFormat::UASTC {
+                TERRA_DIRECTORY.join(format!("{}.basis", name)).exists()
             } else {
                 TERRA_DIRECTORY.join(format!("{}.raw", name)).exists()
             }
@@ -272,11 +373,10 @@ impl MapFile {
             _ => unreachable!(),
         };
         let (layer, ext) = match layer {
-            LayerType::Displacements => ("displacements", "raw"),
             LayerType::Albedo => ("albedo", "png"),
             LayerType::Roughness => ("roughness", "raw.lz4"),
-            LayerType::Normals => ("normals", "raw"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
+            _ => unreachable!(),
         };
         format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
     }

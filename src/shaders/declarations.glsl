@@ -8,36 +8,35 @@ struct Globals {
 	vec3 sun_direction;
 };
 
-struct LayerDesc {
-	vec3 origin;
-	float _step;
-	vec3 parent_origin;
-	float parent_step;
-};
-struct NodeState {
-    LayerDesc displacements;
-	LayerDesc albedo;
-	LayerDesc roughness;
-	LayerDesc normals;
-	vec3 grass_canopy_origin;
-	float grass_canopy_step;
-	uint resolution;
-	uint face;
-	uint level;
-	uint node_index;
-	vec3 relative_position;
-	float min_distance;
-	vec3 parent_relative_position;
-	float padding1;
-	vec4 padding2[4];
-};
-
 struct Indirect {
     uint vertex_count;
     uint instance_count;
     uint base_index;
     uint vertex_offset;
     uint base_instance;
+};
+
+struct Node {
+	vec2 layer_origins[16];
+	float layer_steps[16];
+	int layer_slots[16];
+
+	vec3 relative_position;
+	float min_distance;
+
+	uint mesh_valid_mask[4];
+
+	uint face;
+	uint level;
+
+	uint padding2[54];
+};
+
+struct GenMeshUniforms {
+	uint slot;
+    uint storage_base_entry;
+    uint mesh_base_entry;
+    uint entries_per_node;
 };
 
 float extract_height(uint encoded) {
@@ -50,3 +49,24 @@ float extract_height_above_water(uint encoded) {
 	}
 	return height;
 }
+
+const uint NUM_LAYERS = 8;
+
+const uint DISPLACEMENTS_LAYER = 0;
+const uint ALBEDO_LAYER = 1;
+const uint ROUGHNESS_LAYER = 2;
+const uint NORMALS_LAYER = 3;
+const uint HEIGHTMAPS_LAYER = 4;
+const uint GRASS_CANOPY_LAYER = 5;
+const uint MATERIAL_KIND_LAYER = 6;
+const uint AERIAL_PERSPECTIVE_LAYER = 7;
+
+const uint PARENT_DISPLACEMENTS_LAYER = NUM_LAYERS + 0;
+const uint PARENT_ALBEDO_LAYER = NUM_LAYERS + 1;
+const uint PARENT_ROUGHNESS_LAYER = NUM_LAYERS + 2;
+const uint PARENT_NORMALS_LAYER = NUM_LAYERS + 3;
+const uint PARENT_HEIGHTMAPS_LAYER = NUM_LAYERS + 4;
+const uint PARENT_GRASS_CANOPY_LAYER = NUM_LAYERS + 5;
+const uint PARENT_MATERIAL_KIND_LAYER = NUM_LAYERS + 6;
+
+const uint GRASS_BASE_SLOT = 30 + (19 - 2) * 32;

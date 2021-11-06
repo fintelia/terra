@@ -14,13 +14,7 @@ layout(location = 0) in vec4 position;
 
 layout(location = 0) out vec4 OutColor;
 
-const float planetRadius = 6371000.0;
-const float atmosphereRadius = 6371000.0 + 100000.0;
-
-vec2 rsi(vec3 r0, vec3 rd, float sr);
-vec3 precomputed_transmittance(float r, float mu);
-vec3 precomputed_atmosphere(vec3 x, vec3 x0, vec3 sun_normalized);
-vec3 atmosphere(vec3 r0, vec3 r1, vec3 pSun);
+#include "atmosphere.glsl"
 
 void main() {
 	vec4 r0 = globals.view_proj_inverse * vec4(position.xy, 1, 1);
@@ -48,5 +42,3 @@ void main() {
 	// if (dot(x0 + r * max(p.x, 0.0), vec3(0.4, 0.7, 0.2)) < 0)
 	// 	OutColor.rgb = vec3(1,0,0);
 }
-
-#include "atmosphere.glsl"

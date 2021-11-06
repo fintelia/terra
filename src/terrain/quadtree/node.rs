@@ -1,5 +1,4 @@
-use crate::cache::Priority;
-use crate::coordinates::PLANET_RADIUS;
+use crate::cache::{MAX_QUADTREE_LEVEL, Priority};
 use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
 use crate::utils::math::InfiniteFrustum;
 use cgmath::*;
@@ -74,7 +73,7 @@ impl VNode {
 impl VNode {
     fn new(level: u8, face: u8, x: u32, y: u32) -> Self {
         debug_assert!(face < 6);
-        debug_assert!(level <= VNode::LEVEL_CELL_5MM);
+        debug_assert!(level <= MAX_QUADTREE_LEVEL);
         debug_assert!(x <= 0x3ffffff && x < (1 << level));
         debug_assert!(y <= 0x3ffffff && y < (1 << level));
         Self((level as u64) << 56 | (face as u64) << 53 | (y as u64) << 26 | (x as u64))

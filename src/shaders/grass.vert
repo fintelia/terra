@@ -5,19 +5,8 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
 
-struct GrassNode {
-	vec3 relative_position;
-	float min_distance;
-	vec3 parent_relative_position;
-	float padding1;
-
-    uint slot;
-    uint face;
-    uvec2 padding2;
-    uvec4 padding3;
-};
-layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
-    GrassNode nodes[];
+layout(set = 0, binding = 8, std430) readonly buffer NodeSlots {
+	Node nodes[];
 };
 
 struct Entry {
@@ -53,9 +42,10 @@ const vec3 tangents[6] = vec3[6](
 void main() {
     uint entry_index = gl_VertexIndex / 7;
     uint index = gl_VertexIndex % 7;
+    uint slot = gl_InstanceIndex / 16;
 
-    GrassNode node = nodes[gl_InstanceIndex / 16];
-    Entry entry = grass_storage.entries[node.slot * 16 + gl_InstanceIndex % 16][entry_index];
+    Node node = nodes[slot];
+    Entry entry = grass_storage.entries[(slot - GRASS_BASE_SLOT) * 16 + gl_InstanceIndex % 16][entry_index];
     position = entry.position - node.relative_position;
 
     vec3 up = normalize(position + globals.camera);

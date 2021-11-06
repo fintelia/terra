@@ -55,7 +55,9 @@ pub(crate) struct GenMaterialsUniforms {
     pub albedo_slot: i32,
     pub parent_slot: i32,
     pub spacing: f32,
-    pub padding: i32,
+    pub level: u32,
+    pub position: [i32; 2],
+    pub level_resolution: u32,
 }
 unsafe impl bytemuck::Zeroable for GenMaterialsUniforms {}
 unsafe impl bytemuck::Pod for GenMaterialsUniforms {}
@@ -99,7 +101,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         if self.uniforms.is_none() {
             self.uniforms = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,
-                usage: wgpu::BufferUsage::COPY_DST | wgpu::BufferUsage::UNIFORM,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
                 label: Some(&format!("buffer.{}.uniforms", self.name)),
             }));
@@ -126,8 +128,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     })),
                     module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.{}", self.name)),
-                        source: wgpu::ShaderSource::SpirV(self.shader.compute().into()),
-                        flags: wgpu::ShaderFlags::empty(),
+                        source: self.shader.compute(),
                     }),
                     entry_point: "main",
                     label: Some(&format!("pipeline.{}", self.name)),
@@ -137,7 +138,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
 
         let staging = device.create_buffer(&wgpu::BufferDescriptor {
             size: mem::size_of::<U>() as u64,
-            usage: wgpu::BufferUsage::COPY_SRC,
+            usage: wgpu::BufferUsages::COPY_SRC,
             label: Some(&format!("buffer.temporary.{}.upload", self.name)),
             mapped_at_creation: true,
         });

@@ -1,7 +1,8 @@
 use anyhow::anyhow;
+use naga::{
+    ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageClass, StorageFormat, TypeInner,
+};
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use spirq::ty::{DescriptorType, ImageArrangement, ScalarType, Type, VectorType};
-use spirq::{ExecutionModel, SpirvBinary};
 use spirv_headers::ImageFormat;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
@@ -22,6 +23,11 @@ pub enum ShaderSource {
         header_paths: HashMap<&'static str, PathBuf>,
         defines: Vec<(&'static str, &'static str)>,
     },
+    FilesWGSL {
+        name: &'static str,
+        path: PathBuf,
+        header_paths: HashMap<&'static str, PathBuf>,
+    },
 }
 impl ShaderSource {
     pub fn new(
@@ -37,15 +43,25 @@ impl ShaderSource {
         }
         ShaderSource::Files { name, path, header_paths, defines }
     }
+    pub fn new_wgsl(
+        directory: PathBuf,
+        name: &'static str,
+        mut header_paths: HashMap<&'static str, PathBuf>,
+    ) -> Self {
+        DIRECTORY_WATCHER.lock().unwrap().watch(&directory);
+        let path = std::fs::canonicalize(directory.join(&PathBuf::from(name))).unwrap();
+        for header in header_paths.values_mut() {
+            *header = std::fs::canonicalize(directory.join(&header)).unwrap();
+        }
+        ShaderSource::FilesWGSL { name, path, header_paths }
+    }
     pub(crate) fn load(
         &self,
-    ) -> Result<
-        (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
-        anyhow::Error,
-    > {
-        match self {
+        stage: shaderc::ShaderKind,
+    ) -> Result<wgpu::ShaderSource<'static>, anyhow::Error> {
+        let (name, contents, headers, defines) = match self {
             ShaderSource::Inline { name, contents, headers, defines } => {
-                Ok((&name, contents.clone(), headers.clone(), defines))
+                (name, contents.clone(), headers.clone(), Some(defines))
             }
             ShaderSource::Files { name, path, header_paths, defines } => {
                 let file = std::fs::read_to_string(path)?;
@@ -53,14 +69,80 @@ impl ShaderSource {
                 for (&name, path) in header_paths.iter() {
                     headers.insert(name, std::fs::read_to_string(path)?);
                 }
-                Ok((&name, file, headers, defines))
+                (name, file, headers, Some(defines))
             }
+            ShaderSource::FilesWGSL { name, path, header_paths } => {
+                let file = std::fs::read_to_string(path)?;
+                let mut headers = HashMap::new();
+                for (&name, path) in header_paths.iter() {
+                    headers.insert(name, std::fs::read_to_string(path)?);
+                }
+                (name, file, headers, None)
+            }
+        };
+
+        // eprintln!("{}", name);
+        if let ShaderSource::FilesWGSL { .. } = self {
+            Ok(wgpu::ShaderSource::Wgsl(contents.into()))
+        } else {
+            // let mut parser = naga::front::glsl::Parser::default();
+
+            // let mut combined_source = contents.clone();
+            // for (name, header_contents) in headers.iter() {
+            //     combined_source = combined_source
+            //         .replace(&format!("\n#include \"{}\"", name), &format!("\n{}", header_contents));
+            // }
+
+            // let module = parser.parse(
+            //     &naga::front::glsl::Options {
+            //         stage: match stage {
+            //             shaderc::ShaderKind::Vertex => naga::ShaderStage::Vertex,
+            //             shaderc::ShaderKind::Fragment => naga::ShaderStage::Fragment,
+            //             shaderc::ShaderKind::Compute => naga::ShaderStage::Compute,
+            //             _ => unreachable!(),
+            //         },
+            //         defines: Default::default(),
+            //     },
+            //     &combined_source,
+            // );
+
+            // if let Err(e) = module {
+            //     for e in e {
+            //         if let Some(range) = e.meta.to_range() {
+            //             println!("ERROR: {:?} '{}'", e.kind, &combined_source[(range.start.max(30) - 30) .. range.end]);
+            //         }
+            //     }
+            // }
+
+            let mut glsl_compiler = shaderc::Compiler::new().unwrap();
+            let mut options = shaderc::CompileOptions::new().unwrap();
+            options.set_include_callback(|f, _, _, _| match headers.get(f) {
+                Some(s) => Ok(shaderc::ResolvedInclude {
+                    resolved_name: f.to_string(),
+                    content: s.clone(),
+                }),
+                None => Err("not found".to_string()),
+            });
+            for (m, value) in defines.unwrap() {
+                options.add_macro_definition(m, Some(value));
+            }
+
+            let spv: Vec<u32> = glsl_compiler
+                .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
+                .as_binary()
+                .to_vec();
+
+            std::fs::write(format!("shader-out/{}.spv", name), bytemuck::cast_slice::<u32, u8>(spv.as_ref()));
+
+            Ok(wgpu::ShaderSource::SpirV(
+                spv.into()))
         }
     }
     pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
         match self {
             ShaderSource::Inline { .. } => false,
-            ShaderSource::Files { path, header_paths, .. } => {
+            ShaderSource::Files { path, header_paths, .. }
+            | ShaderSource::FilesWGSL { path, header_paths, .. } => {
                 let mut directory_watcher = DIRECTORY_WATCHER.lock().unwrap();
                 directory_watcher.detect_changes();
                 header_paths
@@ -74,9 +156,9 @@ impl ShaderSource {
 }
 
 pub(crate) struct ShaderSetInner {
-    pub vertex: Option<Vec<u32>>,
-    pub fragment: Option<Vec<u32>>,
-    pub compute: Option<Vec<u32>>,
+    pub vertex: Option<wgpu::ShaderSource<'static>>,
+    pub fragment: Option<wgpu::ShaderSource<'static>>,
+    pub compute: Option<wgpu::ShaderSource<'static>>,
 
     pub input_attributes: Vec<wgpu::VertexAttribute>,
     pub layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
@@ -84,14 +166,11 @@ pub(crate) struct ShaderSetInner {
 }
 impl ShaderSetInner {
     pub fn simple(
-        vsrc: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
-        fsrc: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
+        vertex: wgpu::ShaderSource<'static>,
+        fragment: wgpu::ShaderSource<'static>,
     ) -> Result<Self, anyhow::Error> {
-        let vertex = create_shader(vsrc.0, &vsrc.1, vsrc.2, vsrc.3, shaderc::ShaderKind::Vertex)?;
-        let fragment =
-            create_shader(fsrc.0, &fsrc.1, fsrc.2, vsrc.3, shaderc::ShaderKind::Fragment)?;
         let (input_attributes, desc_names, layout_descriptor) =
-            crate::reflect(&[&vertex[..], &fragment[..]])?;
+            reflect_naga(&[&vertex, &fragment])?;
 
         Ok(Self {
             vertex: Some(vertex),
@@ -103,17 +182,14 @@ impl ShaderSetInner {
         })
     }
 
-    pub fn compute_only(
-        src: (&str, String, HashMap<&'static str, String>, &[(&'static str, &'static str)]),
-    ) -> Result<Self, anyhow::Error> {
-        let compute = create_shader(src.0, &src.1, src.2, src.3, shaderc::ShaderKind::Compute)?;
-        let (input_attributes, desc_names, layout_descriptor) = crate::reflect(&[&compute[..]])?;
-        assert!(input_attributes.is_empty());
+    pub fn compute_only(source: wgpu::ShaderSource<'static>) -> Result<Self, anyhow::Error> {
+        let (input_attributes, desc_names, layout_descriptor) = reflect_naga(&[&source])?;
 
+        assert!(input_attributes.is_empty());
         Ok(Self {
             vertex: None,
             fragment: None,
-            compute: Some(compute),
+            compute: Some(source),
             desc_names,
             layout_descriptor,
             input_attributes,
@@ -162,7 +238,10 @@ impl ShaderSet {
         fragment_source: ShaderSource,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: ShaderSetInner::simple(vertex_source.load()?, fragment_source.load()?)?,
+            inner: ShaderSetInner::simple(
+                vertex_source.load(shaderc::ShaderKind::Vertex)?,
+                fragment_source.load(shaderc::ShaderKind::Fragment)?,
+            )?,
             vertex_source: Some(vertex_source),
             fragment_source: Some(fragment_source),
             compute_source: None,
@@ -171,7 +250,9 @@ impl ShaderSet {
     }
     pub fn compute_only(compute_source: ShaderSource) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: ShaderSetInner::compute_only(compute_source.load()?)?,
+            inner: ShaderSetInner::compute_only(
+                compute_source.load(shaderc::ShaderKind::Compute)?,
+            )?,
             vertex_source: None,
             fragment_source: None,
             compute_source: Some(compute_source),
@@ -200,10 +281,13 @@ impl ShaderSet {
             || -> Result<(), anyhow::Error> {
                 Ok(self.inner =
                     match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
-                        (Some(ref vs), Some(ref fs), None) => {
-                            ShaderSetInner::simple(vs.load()?, fs.load()?)
+                        (Some(ref vs), Some(ref fs), None) => ShaderSetInner::simple(
+                            vs.load(shaderc::ShaderKind::Vertex)?,
+                            fs.load(shaderc::ShaderKind::Fragment)?,
+                        ),
+                        (None, None, Some(ref cs)) => {
+                            ShaderSetInner::compute_only(cs.load(shaderc::ShaderKind::Compute)?)
                         }
-                        (None, None, Some(ref cs)) => ShaderSetInner::compute_only(cs.load()?),
                         _ => unreachable!(),
                     }?)
             }();
@@ -224,14 +308,23 @@ impl ShaderSet {
         &self.inner.input_attributes[..]
     }
 
-    pub fn vertex(&self) -> &[u32] {
-        self.inner.vertex.as_ref().unwrap()
+    pub fn vertex(&self) -> wgpu::ShaderSource {
+        match self.inner.vertex.as_ref().unwrap() {
+            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
+            wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+        }
     }
-    pub fn fragment(&self) -> &[u32] {
-        self.inner.fragment.as_ref().unwrap()
+    pub fn fragment(&self) -> wgpu::ShaderSource {
+        match self.inner.fragment.as_ref().unwrap() {
+            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
+            wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+        }
     }
-    pub fn compute(&self) -> &[u32] {
-        self.inner.compute.as_ref().unwrap()
+    pub fn compute(&self) -> wgpu::ShaderSource {
+        match self.inner.compute.as_ref().unwrap() {
+            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
+            wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+        }
     }
 }
 
@@ -249,7 +342,7 @@ macro_rules! shader_source {
             $( headers.insert($header, include_str!(concat!($directory, "/", $header)).to_string()); )*
             let mut defines = Vec::new();
             $( defines.push(($define, $value)); )*
-    
+
             $crate::ShaderSource::Inline {
                 name: $filename,
                 contents,
@@ -277,174 +370,145 @@ macro_rules! shader_source {
     };
 }
 
-fn create_shader(
-    input_file_name: &str,
-    source_text: &str,
-    headers: HashMap<&'static str, String>,
-    defines: &[(&'static str, &'static str)],
-    stage: shaderc::ShaderKind,
-) -> Result<Vec<u32>, anyhow::Error> {
-    let mut glsl_compiler = shaderc::Compiler::new().unwrap();
-    let mut options = shaderc::CompileOptions::new().unwrap();
-    options.set_include_callback(|f, _, _, _| match headers.get(f) {
-        Some(s) => {
-            Ok(shaderc::ResolvedInclude { resolved_name: f.to_string(), content: s.clone() })
-        }
-        None => Err("not found".to_string()),
-    });
-    for (m, value) in defines {
-        options.add_macro_definition(m, Some(value));
-    }
+#[macro_export]
+macro_rules! wgsl_source {
+    ($directory:literal, $filename:literal $(, $header:literal )* ) => {
+		{
+			let directory = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+				.join(file!()).parent().unwrap().join($directory);
+			let mut headers = std::collections::HashMap::new();
+			$( headers.insert($header, std::path::PathBuf::from($header)); )*
 
-    Ok(glsl_compiler
-        .compile_into_spirv(source_text, stage, input_file_name, "main", Some(&options))?
-        .as_binary()
-        .to_vec())
+            $crate::ShaderSource::new_wgsl(directory, $filename, headers)
+		}
+    };
 }
 
-fn reflect(
-    stages: &[&[u32]],
+fn reflect_naga(
+    stages: &[&wgpu::ShaderSource<'static>],
 ) -> Result<
     (Vec<wgpu::VertexAttribute>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
     anyhow::Error,
 > {
-    let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStage)> =
+    let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStages)> =
         BTreeMap::new();
 
     let mut attribute_offset = 0;
     let mut attributes = Vec::new();
-    for spirv in stages.iter() {
-        // let module = naga::front::spv::parse_u8_slice(bytemuck::cast_slice(spirv), &naga::front::spv::Options{
-        //     adjust_coordinate_space: false,
-        //     strict_capabilities: false,
-        //     flow_graph_dump_prefix: None,
-        // }).expect("Failed to parse with naga");
+    for stage in stages.iter() {
+        let module = match stage {
+            wgpu::ShaderSource::SpirV(s) => naga::front::spv::parse_u8_slice(
+                bytemuck::cast_slice(s),
+                &naga::front::spv::Options {
+                    adjust_coordinate_space: false,
+                    strict_capabilities: false,
+                    block_ctx_dump_prefix: None,
+                },
+            )?,
+            wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
+        };
 
-        let spv: SpirvBinary = spirv.to_vec().into();
-        let entries = spv.reflect_vec()?;
-        let manifest = &entries[0].manifest;
+        let module_info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::FLOAT64/*naga::valid::Capabilities::empty()*/,
+        )
+        .validate(&module)?;
 
-        let stage = match entries[0].exec_model {
-            ExecutionModel::Vertex => wgpu::ShaderStage::VERTEX,
-            ExecutionModel::Fragment => wgpu::ShaderStage::FRAGMENT,
-            ExecutionModel::GLCompute => wgpu::ShaderStage::COMPUTE,
+        let stage = match module.entry_points[0].stage {
+            naga::ShaderStage::Vertex => wgpu::ShaderStages::VERTEX,
+            naga::ShaderStage::Fragment => wgpu::ShaderStages::FRAGMENT,
+            naga::ShaderStage::Compute => wgpu::ShaderStages::COMPUTE,
             _ => unimplemented!(),
         };
 
-        if let wgpu::ShaderStage::VERTEX = stage {
-            let mut inputs = BTreeMap::new();
-            for input in manifest.inputs() {
-                inputs.entry(u32::from(input.location.loc())).or_insert(Vec::new()).push(input);
-            }
-            for (shader_location, mut input) in inputs {
-                input.sort_by_key(|i| u32::from(i.location.comp()));
-                let i = input.last().unwrap();
-                let (scalar_ty, nscalar) = match i.ty {
-                    Type::Scalar(s) => (s, 1),
-                    Type::Vector(VectorType { scalar_ty, nscalar }) => (scalar_ty, *nscalar),
-                    _ => return Err(anyhow!("Unsupported attribute type")),
-                };
-                let (format, nbytes) = match (scalar_ty, nscalar + u32::from(i.location.comp())) {
-                    (ScalarType::Signed(4), 1) => (wgpu::VertexFormat::Sint32, 4),
-                    (ScalarType::Signed(4), 2) => (wgpu::VertexFormat::Sint32x2, 8),
-                    (ScalarType::Signed(4), 3) => (wgpu::VertexFormat::Sint32x3, 12),
-                    (ScalarType::Signed(4), 4) => (wgpu::VertexFormat::Sint32x4, 16),
-                    (ScalarType::Unsigned(4), 1) => (wgpu::VertexFormat::Uint32, 4),
-                    (ScalarType::Unsigned(4), 2) => (wgpu::VertexFormat::Uint32x2, 8),
-                    (ScalarType::Unsigned(4), 3) => (wgpu::VertexFormat::Uint32x3, 12),
-                    (ScalarType::Unsigned(4), 4) => (wgpu::VertexFormat::Uint32x4, 16),
-                    (ScalarType::Float(4), 1) => (wgpu::VertexFormat::Float32, 4),
-                    (ScalarType::Float(4), 2) => (wgpu::VertexFormat::Float32x2, 8),
-                    (ScalarType::Float(4), 3) => (wgpu::VertexFormat::Float32x3, 12),
-                    (ScalarType::Float(4), 4) => (wgpu::VertexFormat::Float32x4, 16),
-                    _ => return Err(anyhow!("Unsupported attribute type")),
-                };
+        // TODO: handle vertex attributes
 
-                attributes.push(wgpu::VertexAttribute {
-                    offset: attribute_offset,
-                    format,
-                    shader_location,
-                });
-                attribute_offset += nbytes;
-            }
-        }
-
-        for desc in manifest.descs() {
-            let (set, binding) = desc.desc_bind.into_inner();
-            assert_eq!(set, 0);
-            let mut name = manifest.get_desc_name(desc.desc_bind).map(ToString::to_string);
+        for (handle, variable) in module.global_variables.iter() {
+            let (set, binding) = match &variable.binding {
+                Some(r) => (r.group, r.binding),
+                None => continue,
+            };
+            let mut name = variable.name.clone();
+            let ty = &module.types.get_handle(variable.ty).unwrap().inner;
 
             // If this is an unnamed interface block, but it contains only a single named item,
             // use the item's name instead.
-            if name.is_none() {
-                match desc.desc_ty {
-                    DescriptorType::UniformBuffer(_, Type::Struct(s))
-                    | DescriptorType::StorageBuffer(_, Type::Struct(s)) => {
-                        if s.nmember() == 1 {
-                            name = s.get_member(0).unwrap().name.clone();
-                        }
+            if name.is_none() || name.as_ref().unwrap().is_empty() {
+                if let TypeInner::Struct { members, .. } = ty {
+                    if members.len() == 1 {
+                        name = members[0].name.clone();
                     }
-                    _ => {}
                 }
             }
 
-            let ty = match desc.desc_ty {
-                DescriptorType::Sampler(_) => {
-                    wgpu::BindingType::Sampler { filtering: true, comparison: false }
+            let ty = match ty {
+                TypeInner::Sampler { comparison } => {
+                    wgpu::BindingType::Sampler { filtering: true, comparison: *comparison }
                 }
-                DescriptorType::UniformBuffer(..) => wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                DescriptorType::Image(_, spirq::ty::Type::Image(ty)) => {
-                    let view_dimension = match ty.arng {
-                        ImageArrangement::Image2D => wgpu::TextureViewDimension::D2,
-                        ImageArrangement::Image2DArray => wgpu::TextureViewDimension::D2Array,
-                        ImageArrangement::Image3D => wgpu::TextureViewDimension::D3,
-                        _ => unimplemented!(),
+                TypeInner::Image { dim, arrayed, class } => {
+                    let view_dimension = match (dim, arrayed) {
+                        (ImageDimension::D1, false) => wgpu::TextureViewDimension::D1,
+                        (ImageDimension::D2, false) => wgpu::TextureViewDimension::D2,
+                        (ImageDimension::D3, false) => wgpu::TextureViewDimension::D3,
+                        (ImageDimension::D2, true) => wgpu::TextureViewDimension::D2Array,
+                        _ => unreachable!(),
                     };
-                    match ty.unit_fmt {
-                        spirq::ty::ImageUnitFormat::Color(c) => wgpu::BindingType::StorageTexture {
-                            view_dimension,
-                            access: match manifest.get_desc_access(desc.desc_bind).unwrap() {
-                                spirq::AccessType::ReadOnly => wgpu::StorageTextureAccess::ReadOnly,
-                                spirq::AccessType::WriteOnly => {
-                                    wgpu::StorageTextureAccess::WriteOnly
-                                }
-                                spirq::AccessType::ReadWrite => {
+                    match class {
+                        ImageClass::Storage { format, access } => {
+                            wgpu::BindingType::StorageTexture {
+                                view_dimension,
+                                access: if access.contains(StorageAccess::STORE)
+                                    && access.contains(StorageAccess::LOAD)
+                                {
                                     wgpu::StorageTextureAccess::ReadWrite
-                                }
-                            },
-                            format: match c {
-                                ImageFormat::Rgba16f => wgpu::TextureFormat::Rgba16Float,
-                                ImageFormat::R32f => wgpu::TextureFormat::R32Float,
-                                ImageFormat::Rg32f => wgpu::TextureFormat::Rg32Float,
-                                ImageFormat::Rgba32f => wgpu::TextureFormat::Rgba32Float,
-                                ImageFormat::R32ui => wgpu::TextureFormat::R32Uint,
-                                ImageFormat::Rg32ui => wgpu::TextureFormat::Rg32Uint,
-                                ImageFormat::Rgba32ui => wgpu::TextureFormat::Rgba32Uint,
-                                ImageFormat::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
-                                _ => unimplemented!("component type {:?}", c),
-                            },
-                        },
-                        spirq::ty::ImageUnitFormat::Sampled => wgpu::BindingType::Texture {
-                            multisampled: false,
+                                } else if access.contains(StorageAccess::STORE) {
+                                    wgpu::StorageTextureAccess::WriteOnly
+                                } else {
+                                    wgpu::StorageTextureAccess::ReadOnly
+                                },
+                                format: match format {
+                                    StorageFormat::Rgba16Float => wgpu::TextureFormat::Rgba16Float,
+                                    StorageFormat::R32Float => wgpu::TextureFormat::R32Float,
+                                    StorageFormat::Rg32Float => wgpu::TextureFormat::Rg32Float,
+                                    StorageFormat::Rgba32Float => wgpu::TextureFormat::Rgba32Float,
+                                    StorageFormat::R32Uint => wgpu::TextureFormat::R32Uint,
+                                    StorageFormat::Rg32Uint => wgpu::TextureFormat::Rg32Uint,
+                                    StorageFormat::Rgba32Uint => wgpu::TextureFormat::Rgba32Uint,
+                                    StorageFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+                                    _ => unimplemented!("format {:?}", format),
+                                },
+                            }
+                        }
+                        ImageClass::Sampled { kind, multi } => wgpu::BindingType::Texture {
+                            multisampled: *multi,
                             view_dimension,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            sample_type: match kind {
+                                ScalarKind::Float => {
+                                    wgpu::TextureSampleType::Float { filterable: true }
+                                }
+                                ScalarKind::Uint => wgpu::TextureSampleType::Uint,
+                                ScalarKind::Sint => wgpu::TextureSampleType::Sint,
+                                ScalarKind::Bool => unreachable!(),
+                            },
                         },
-                        spirq::ty::ImageUnitFormat::Depth => unimplemented!(),
+                        ImageClass::Depth { .. } => unimplemented!(),
                     }
                 }
-                DescriptorType::StorageBuffer(..) => wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage {
-                        read_only: manifest.get_desc_access(desc.desc_bind).unwrap()
-                            == spirq::AccessType::ReadOnly || stages.len() > 1, // TODO: Remove hack of assuming len=2 -> vertex+fragment -> readonly buffers
+                _ => match variable.class {
+                    StorageClass::Storage { access } => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage {
+                            read_only: !access.contains(StorageAccess::STORE),
+                        },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    StorageClass::Uniform => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    _ => continue,
                 },
-                v => unimplemented!("{:?}", v),
             };
 
             match binding_map.entry(binding) {

@@ -32,24 +32,6 @@ fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
         0.0,       0.0,  near,  0.0)
 }
 
-fn make_swapchain(
-    device: &wgpu::Device,
-    surface: &wgpu::Surface,
-    width: u32,
-    height: u32,
-    format: wgpu::TextureFormat,
-) -> wgpu::SwapChain {
-    device.create_swap_chain(
-        &surface,
-        &wgpu::SwapChainDescriptor {
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-            format,
-            width,
-            height,
-            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
-        },
-    )
-}
 fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
@@ -58,7 +40,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             label: None,
         })
         .create_view(&Default::default())
@@ -86,20 +68,20 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = runtime
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let swapchain_format = adapter.get_swap_chain_preferred_format(&surface)
-        .expect("No compatible swapchain formats");
+    let swapchain_format =
+        surface.get_preferred_format(&adapter).expect("No compatible swapchain formats");
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
-
     let features = if !adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
         || cfg!(feature = "soft-float64")
     {
@@ -107,18 +89,23 @@ fn main() {
     } else {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
-    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
+    let features = features
+        | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor { features, limits: wgpu::Limits::default(), label: None },
+            &wgpu::DeviceDescriptor {
+                features,
+                limits: wgpu::Limits { max_texture_array_layers: 1024, ..wgpu::Limits::default() },
+                label: None,
+            },
             trace_path,
         ))
         .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
-    let mut swap_chain = None;
     let mut depth_buffer = None;
+    let mut configure_surface = true;
 
     #[cfg(feature = "smaa")]
     let mut smaa_target = smaa::SmaaTarget::new(
@@ -146,42 +133,36 @@ fn main() {
     let mut long = plus_center.x().to_radians();
     let mut altitude = opt.elevation;
 
-    let mut terrain = terra::Terrain::new(&device, &queue).unwrap();
+    let mut terrain = match opt.generate {
+        Some(dataset_directory) => {
+            let pb = indicatif::ProgressBar::new(100);
+            pb.set_style(
+                indicatif::ProgressStyle::default_bar()
+                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+                    .progress_chars("=> "),
+            );
+            let mut last_message = None;
+            let progress_callback = |l: &str, i: usize, total: usize| {
+                if last_message.is_none() || l != last_message.as_ref().unwrap() {
+                    pb.set_message(l);
+                    pb.reset_eta();
+                    last_message = Some(l.to_string());
+                }
+                pb.set_length(total as u64);
+                pb.set_position(i as u64);
+            };
 
-    if let Some(dataset_directory) = opt.generate {
-        let pb = indicatif::ProgressBar::new(100);
-        pb.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
-                .progress_chars("=> "),
-        );
-        let mut last_message = None;
-        let mut progress_callback = |l: &str, i: usize, total: usize| {
-            if last_message.is_none() || l != last_message.as_ref().unwrap() {
-                pb.set_message(l);
-                pb.reset_eta();
-                last_message = Some(l.to_string());
-            }
-            pb.set_length(total as u64);
-            pb.set_position(i as u64);
-        };
-
-        runtime
-            .block_on(terrain.generate_heightmaps(
-                dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-                dataset_directory.join("nasadem"),
-                dataset_directory.join("nasadem_reprojected"),
-                &mut progress_callback,
-            ))
-            .unwrap();
-        runtime
-            .block_on(
-                terrain
-                    .generate_albedos(dataset_directory.join("bluemarble"), &mut progress_callback),
-            )
-            .unwrap();
-        runtime.block_on(terrain.generate_roughness(&mut progress_callback)).unwrap();
-    }
+            runtime
+                .block_on(terra::Terrain::generate_and_new(
+                    &device,
+                    &queue,
+                    dataset_directory,
+                    progress_callback,
+                ))
+                .unwrap()
+        }
+        None => terra::Terrain::new(&device, &queue).unwrap(),
+    };
 
     {
         let r = altitude + planet_radius;
@@ -241,8 +222,8 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size;
-                    swap_chain = None;
                     depth_buffer = None;
+                    configure_surface = true;
 
                     #[cfg(feature = "smaa")]
                     smaa_target.resize(&device, new_size.width, new_size.height);
@@ -250,18 +231,28 @@ fn main() {
                 _ => {}
             },
             event::Event::MainEventsCleared => {
-                if swap_chain.is_none() {
-                    swap_chain = Some(make_swapchain(&device, &surface, size.width, size.height, swapchain_format));
+                if configure_surface {
+                    surface.configure(
+                        &device,
+                        &wgpu::SurfaceConfiguration {
+                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                            format: swapchain_format,
+                            width: size.width,
+                            height: size.height,
+                            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+                        },
+                    )
                 }
                 if depth_buffer.is_none() {
                     depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
                 }
 
-                let frame = swap_chain.as_ref().unwrap().get_current_frame();
-                let frame = match frame {
-                    Ok(ref f) => &f.output.view,
+                let frame_texture = surface.get_current_texture();
+                let frame_texture = match frame_texture {
+                    Ok(f) => f,
                     Err(_) => return,
                 };
+                let frame = &frame_texture.texture;
 
                 #[cfg(feature = "smaa")]
                 let frame = smaa_target.start_frame(&device, &queue, frame);
@@ -270,11 +261,19 @@ fn main() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    lat += angle.cos() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
-                        - angle.sin() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+                    lat += angle.cos()
+                        * gamepad.value(Axis::LeftStickY) as f64
+                        * (0.0000001 * altitude).min(0.01)
+                        - angle.sin()
+                            * gamepad.value(Axis::LeftStickX) as f64
+                            * (0.0000001 * altitude).min(0.01);
 
-                    long += -angle.sin() * gamepad.value(Axis::LeftStickY) as f64 * 0.01
-                        + angle.cos() * gamepad.value(Axis::LeftStickX) as f64 * 0.01;
+                    long += -angle.sin()
+                        * gamepad.value(Axis::LeftStickY) as f64
+                        * (0.0000001 * altitude).min(0.01)
+                        + angle.cos()
+                            * gamepad.value(Axis::LeftStickX) as f64
+                            * (0.0000001 * altitude).min(0.01);
 
                     angle -= gamepad.value(Axis::RightZ) as f64 * 0.01;
 
@@ -331,7 +330,7 @@ fn main() {
                 terrain.render(
                     &device,
                     &queue,
-                    &*frame,
+                    &frame.create_view(&Default::default()),
                     depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,
@@ -342,6 +341,8 @@ fn main() {
                     window.set_visible(true);
                     set_visible = true;
                 }
+
+                frame_texture.present();
             }
             _ => (),
         }

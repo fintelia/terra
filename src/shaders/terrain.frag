@@ -7,8 +7,8 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
-	NodeState nodes[];
+layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
+	Node nodes[];
 };
 layout(set = 0, binding = 2) uniform sampler linear;
 //layout(set = 0, binding = 3) uniform sampler nearest;
@@ -31,13 +31,13 @@ layout(location = 7) flat in uint instance;
 
 layout(location = 0) out vec4 out_color;
 
-float mipmap_level(in vec2 texture_coordinate)
-{
-    vec2  dx_vtc        = dFdx(texture_coordinate);
-    vec2  dy_vtc        = dFdy(texture_coordinate);
-    float delta_max_sqr = max(dot(dx_vtc, dx_vtc), dot(dy_vtc, dy_vtc));
-    return 0.5 * log2(delta_max_sqr);
-}
+// float mipmap_level(in vec2 texture_coordinate)
+// {
+//     vec2  dx_vtc        = dFdx(texture_coordinate);
+//     vec2  dy_vtc        = dFdy(texture_coordinate);
+//     float delta_max_sqr = max(dot(dx_vtc, dx_vtc), dot(dy_vtc, dy_vtc));
+//     return 0.5 * log2(delta_max_sqr);
+// }
 
 vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
@@ -206,33 +206,32 @@ vec3 extract_normal(vec2 n) {
 	return normalize(vec3(n.x, y, n.y));
 }
 
-void main() {
-	NodeState node = nodes[instance];
+vec3 layer_to_texcoord(uint layer) {
+	Node node = nodes[instance];
+	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+}
 
-	vec3 albedo_texcoord = node.albedo.origin + vec3(texcoord * node.albedo._step, 0);
-	vec3 albedo_parent_texcoord = node.albedo.parent_origin + vec3(texcoord * node.albedo.parent_step, 0);
-	vec3 roughness_texcoord = node.roughness.origin + vec3(texcoord * node.roughness._step, 0);
-	vec3 roughness_parent_texcoord = node.roughness.parent_origin + vec3(texcoord * node.roughness.parent_step, 0);
-	vec3 normals_texcoord = node.normals.origin + vec3(texcoord * node.normals._step, 0);
-	vec3 normals_parent_texcoord = node.normals.parent_origin + vec3(texcoord * node.normals.parent_step, 0);
+void main() {
+	Node node = nodes[instance];
+	//NodeState node = nodes[instance];
 
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
-	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), normals_texcoord).xy);
-	if (node.normals.parent_origin.z >= 0) {
-		vec3 pn = extract_normal(texture(sampler2DArray(normals, linear), normals_parent_texcoord).xy);
+	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
+	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
+		vec3 pn = extract_normal(textureLod(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER), 0).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
-	vec3 albedo_value = texture(sampler2DArray(albedo, linear), albedo_texcoord).rgb;
-	if (node.albedo.parent_origin.z >= 0) {
-		vec3 parent_albedo = texture(sampler2DArray(albedo, linear), albedo_parent_texcoord).rgb;
+	vec3 albedo_value = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER)).rgb;
+	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
+		vec3 parent_albedo = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0).rgb;
 		albedo_value = mix(parent_albedo, albedo_value, morph);
 	}
 
-	float roughness_value = texture(sampler2DArray(roughness, linear), roughness_texcoord).r;
-	if (node.roughness.parent_origin.z >= 0) {
-		float parent_roughness = texture(sampler2DArray(roughness, linear), roughness_parent_texcoord).r;
+	float roughness_value = texture(sampler2DArray(roughness, linear), layer_to_texcoord(ROUGHNESS_LAYER)).r;
+	if (node.layer_slots[PARENT_ROUGHNESS_LAYER] >= 0) {
+		float parent_roughness = textureLod(sampler2DArray(roughness, linear), layer_to_texcoord(PARENT_ROUGHNESS_LAYER), 0).r;
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 
@@ -253,8 +252,7 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0));
 
-	vec4 ap = texture(sampler2DArray(aerial_perspective, linear),
-					  vec3((texcoord / 64.0 * 16 + 0.5) / 17, node.node_index));
+	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
 

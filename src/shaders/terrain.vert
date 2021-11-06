@@ -4,8 +4,8 @@
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std140) readonly buffer NodeBlock {
-	NodeState nodes[];
+layout(set = 0, binding = 1, std430) readonly buffer NodeSlots {
+	Node nodes[];
 };
 layout(set = 0, binding = 8) uniform texture2DArray displacements;
 
@@ -38,25 +38,29 @@ vec3 sample_displacements(vec3 texcoord) {
 }
 
 void main() {
-	NodeState node = nodes[gl_InstanceIndex];
+	uint resolution = 64;//nodes[gl_InstanceIndex].resolution;
+	uvec2 base_origin = uvec2(0);//nodes[gl_InstanceIndex].base_origin;
+	Node node = nodes[gl_InstanceIndex/4];
 
-	ivec2 iPosition = ivec2((gl_VertexIndex) % (node.resolution+1),
-							(gl_VertexIndex) / (node.resolution+1));
+	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
+							(gl_VertexIndex) / (resolution+1)) + ivec2(base_origin);
 
-	vec3 texcoord = node.displacements.origin + vec3(vec2(iPosition) * node.displacements._step, 0);
-	vec3 position = sample_displacements(texcoord) - node.relative_position;
+	int displacements_slot = node.layer_slots[DISPLACEMENTS_LAYER];
+	vec3 texcoord = vec3(node.layer_origins[DISPLACEMENTS_LAYER] + vec2(iPosition) * node.layer_steps[DISPLACEMENTS_LAYER], displacements_slot); //vec3(0.5 / 65.0 + desc.origin * (64.0 / 65.0), desc.slot) + vec3(vec2(iPosition) / 64.0 * pow(0.5, node.layers[DISPLACEMENTS_LAYER]), 0);
+	vec3 position = sample_displacements(texcoord) - nodes[displacements_slot].relative_position;
 
 	float morph = 1 - smoothstep(0.9, 1, length(position) / node.min_distance);
 	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
 
 	if (morph < 1.0) {
-		if (node.displacements.parent_origin.z >= 0) {
-			vec3 ptexcoord = node.displacements.parent_origin + vec3(vec2((iPosition / 2) * 2) * node.displacements.parent_step, 0);
-			vec3 displacement = sample_displacements(ptexcoord) - node.parent_relative_position;
+		int parent_displacements_slot = node.layer_slots[PARENT_DISPLACEMENTS_LAYER];
+		if (parent_displacements_slot >= 0) {
+			vec3 ptexcoord = vec3(node.layer_origins[PARENT_DISPLACEMENTS_LAYER] + vec2((iPosition/2)*2) * node.layer_steps[PARENT_DISPLACEMENTS_LAYER], parent_displacements_slot);
+			vec3 displacement = sample_displacements(ptexcoord) - nodes[parent_displacements_slot].relative_position;
 			position = mix(displacement, position, morph);
 		} else {
-			vec3 itexcoord = node.displacements.origin + vec3(vec2((iPosition / 2) * 2) * node.displacements._step, 0);
-			vec3 displacement = sample_displacements(itexcoord) - node.relative_position;
+			vec3 itexcoord =  vec3(node.layer_origins[DISPLACEMENTS_LAYER] + vec2((iPosition/2)*2) * node.layer_steps[DISPLACEMENTS_LAYER], displacements_slot);
+			vec3 displacement = sample_displacements(itexcoord) - nodes[displacements_slot].relative_position;
 			position = mix(displacement, position, morph);
 		}
 	}
@@ -72,7 +76,7 @@ void main() {
 	out_tangent = tangent;
 	out_bitangent = bitangent;
 	out_i_position = vec2(iPosition);
-	out_instance = gl_InstanceIndex;
+	out_instance = gl_InstanceIndex/4;
 
 	gl_Position = globals.view_proj * vec4(position, 1.0);
 }

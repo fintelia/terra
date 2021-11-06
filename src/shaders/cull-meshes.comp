@@ -6,43 +6,48 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std140) uniform GlobalBlock {
     Globals globals;
 };
+layout(set = 0, binding = 1, std430) /*readonly*/ buffer NodeSlots {
+	Node nodes[];
+};
 
-coherent layout(std430, binding = 1) buffer IndirectBlock {
+coherent layout(std430, binding = 2) buffer IndirectBlock {
     Indirect indirect[];
-} grass_indirect;
+} mesh_indirect;
 
 struct Sphere {
     vec3 center;
     float radius;
 };
-layout(std430, binding = 2) buffer BoundingBlock {
+layout(std430, binding = 3) buffer BoundingBlock {
     Sphere bounds[];
-} grass_bounding;
+} mesh_bounding;
 
-struct Node {
+struct NodeEntry {
     vec3 relative_position;
     uint valid;
 };
-layout(set = 0, binding = 3, std140) uniform UniformBlock {
+layout(set = 0, binding = 4, std140) uniform UniformBlock {
+    uint base_entry;
     uint num_nodes;
     uint entries_per_node;
-    uvec2 padding1;
-
-    Node nodes[512];
+    uint base_slot;
+    uint mesh_index;
 } ubo;
 
 void main() {
     if (gl_GlobalInvocationID.x > ubo.num_nodes * ubo.entries_per_node)
         return;
 
-    grass_indirect.indirect[gl_GlobalInvocationID.x].base_instance = gl_GlobalInvocationID.x;
-    Node node = ubo.nodes[gl_GlobalInvocationID.x / ubo.entries_per_node];
-    if (node.valid == 0) {
-        grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 0;
+    uint entry = ubo.base_entry + gl_GlobalInvocationID.x;
+    mesh_indirect.indirect[entry].base_instance = ubo.base_slot * ubo.entries_per_node + gl_GlobalInvocationID.x;
+    Node node = nodes[ubo.base_slot + gl_GlobalInvocationID.x / ubo.entries_per_node];
+
+    if ((node.mesh_valid_mask[ubo.mesh_index] & (1 << (gl_GlobalInvocationID.x % ubo.entries_per_node))) == 0) {
+        mesh_indirect.indirect[entry].instance_count = 0;
         return;
     }
 
-    Sphere sphere = grass_bounding.bounds[gl_GlobalInvocationID.x];
+    Sphere sphere = mesh_bounding.bounds[entry];
     float d0 = dot(sphere.center.xyz - node.relative_position, globals.frustum_planes[0].xyz) + globals.frustum_planes[0].w;
     float d1 = dot(sphere.center.xyz - node.relative_position, globals.frustum_planes[1].xyz) + globals.frustum_planes[1].w;
     float d2 = dot(sphere.center.xyz - node.relative_position, globals.frustum_planes[2].xyz) + globals.frustum_planes[2].w;
@@ -54,8 +59,8 @@ void main() {
         (d2 < -sphere.radius) ||
         (d3 < -sphere.radius) ||
         (d4 < -sphere.radius)) {
-        grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 0;
+        mesh_indirect.indirect[entry].instance_count = 0;
     } else {
-        grass_indirect.indirect[gl_GlobalInvocationID.x].instance_count = 1;
+        mesh_indirect.indirect[entry].instance_count = 1;
     }
 }
