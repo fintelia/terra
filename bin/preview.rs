@@ -252,10 +252,13 @@ fn main() {
                     Ok(f) => f,
                     Err(_) => return,
                 };
-                let frame = &frame_texture.texture;
+                let frame_texture_view = frame_texture.texture.create_view(&Default::default());
+
+                #[cfg(not(feature = "smaa"))]
+                let frame = &frame_texture_view;
 
                 #[cfg(feature = "smaa")]
-                let frame = smaa_target.start_frame(&device, &queue, frame);
+                let frame = smaa_target.start_frame(&device, &queue, &frame_texture_view);
 
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
@@ -330,7 +333,7 @@ fn main() {
                 terrain.render(
                     &device,
                     &queue,
-                    &frame.create_view(&Default::default()),
+                    &frame,
                     depth_buffer.as_ref().unwrap(),
                     (size.width, size.height),
                     view_proj,
@@ -342,6 +345,7 @@ fn main() {
                     set_visible = true;
                 }
 
+                drop(frame);
                 frame_texture.present();
             }
             _ => (),
