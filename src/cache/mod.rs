@@ -105,6 +105,7 @@ impl MeshType {
             MeshType::Grass => "grass",
         }
     }
+    #[allow(unused)]
     fn from_index(i: usize) -> Self {
         match i {
             0 => MeshType::Terrain,
@@ -112,6 +113,7 @@ impl MeshType {
             _ => unreachable!(),
         }
     }
+    #[allow(unused)]
     fn iter() -> impl Iterator<Item = Self> {
         (0..=1).map(Self::from_index)
     }
@@ -467,7 +469,7 @@ impl TileCache {
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, frustum, camera);
+            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, frustum);
 
         self.write_nodes(queue, gpu_state, camera);
 

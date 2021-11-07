@@ -3,7 +3,6 @@ use naga::{
     ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageClass, StorageFormat, TypeInner,
 };
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use spirv_headers::ImageFormat;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::{Path, PathBuf};
@@ -131,8 +130,6 @@ impl ShaderSource {
                 .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
                 .as_binary()
                 .to_vec();
-
-            std::fs::write(format!("shader-out/{}.spv", name), bytemuck::cast_slice::<u32, u8>(spv.as_ref()));
 
             Ok(wgpu::ShaderSource::SpirV(
                 spv.into()))
@@ -393,8 +390,8 @@ fn reflect_naga(
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStages)> =
         BTreeMap::new();
 
-    let mut attribute_offset = 0;
-    let mut attributes = Vec::new();
+    // let mut attribute_offset = 0;
+    // let mut attributes = Vec::new();
     for stage in stages.iter() {
         let module = match stage {
             wgpu::ShaderSource::SpirV(s) => naga::front::spv::parse_u8_slice(
@@ -408,7 +405,7 @@ fn reflect_naga(
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
         };
 
-        let module_info = naga::valid::Validator::new(
+        let _module_info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
             naga::valid::Capabilities::FLOAT64/*naga::valid::Capabilities::empty()*/,
         )
@@ -418,13 +415,12 @@ fn reflect_naga(
             naga::ShaderStage::Vertex => wgpu::ShaderStages::VERTEX,
             naga::ShaderStage::Fragment => wgpu::ShaderStages::FRAGMENT,
             naga::ShaderStage::Compute => wgpu::ShaderStages::COMPUTE,
-            _ => unimplemented!(),
         };
 
         // TODO: handle vertex attributes
 
-        for (handle, variable) in module.global_variables.iter() {
-            let (set, binding) = match &variable.binding {
+        for (_handle, variable) in module.global_variables.iter() {
+            let (_set, binding) = match &variable.binding {
                 Some(r) => (r.group, r.binding),
                 None => continue,
             };
@@ -546,5 +542,5 @@ fn reflect_naga(
         bindings.push(wgpu::BindGroupLayoutEntry { binding, visibility, ty, count: None });
     }
 
-    Ok((attributes, names, bindings))
+    Ok((Vec::new(), names, bindings))
 }

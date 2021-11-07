@@ -241,7 +241,6 @@ impl TileCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
         frustum: Option<InfiniteFrustum>,
-        camera: mint::Point3<f64>,
     ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
