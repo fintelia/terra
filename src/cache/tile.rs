@@ -548,7 +548,7 @@ impl TileCache {
                         let heights: Vec<_> = heights
                             .iter()
                             .map(|&h| {
-                                if h < 0 {
+                                if h <= 0 {
                                     0x800000 | (((h + 1024).max(0) as u32) << 9)
                                 } else {
                                     (((h as u32) + 1024) << 9).min(0x7fffff)

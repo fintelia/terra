@@ -94,7 +94,7 @@ void main() {
 	float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
 	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
 
-	uint encoded_height = uint((height + 1024) * 512.0) | (height < 0 ? 0x800000 : 0);
+	uint encoded_height = uint((height + 1024) * 512.0) | (height <= 0 ? 0x800000 : 0);
 
 	// Write output
 	imageStore(heightmaps_out, ivec2(gl_GlobalInvocationID.xy), uvec4(encoded_height, 0, 0, 0));
