@@ -89,5 +89,5 @@ opt-level = 3
 debug = true
 
 [patch.crates-io]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "eda078d" }
-wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "f25a45f4e2588ed39183dc068b69f2aebfa6aa66" }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "29571cc" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "f4d5145" }

@@ -289,6 +289,7 @@ impl Terrain {
                         stencil: Default::default(),
                     }),
                     multisample: Default::default(),
+                    multiview: None,
                     label: Some("pipeline.sky"),
                 }),
             ));

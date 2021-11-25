@@ -500,6 +500,7 @@ pub(crate) fn generators(
                     out_slot: slot as i32,
                     level_resolution: level_resolution as i32,
                     face: node.face() as u32,
+                    _padding: [0; 3],
                 }
             },
         ),
@@ -640,6 +641,7 @@ pub(crate) fn generators(
                         },
                     ],
                     level: node.level() as u32,
+                    _padding: [0; 3],
                 }
             },
         ),

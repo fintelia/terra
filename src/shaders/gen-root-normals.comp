@@ -9,7 +9,7 @@ layout(binding = 0) uniform UniformBlock {
 	int heightmaps_slot;
 	int normals_slot;
 	float spacing;
-	vec3 padding;
+	//vec3 padding;
 } ubo;
 
 layout(binding = 1) uniform utexture2DArray heightmaps;

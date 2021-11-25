@@ -13,6 +13,7 @@ pub(crate) struct GenHeightmapsUniforms {
     pub out_slot: i32,
     pub level_resolution: i32,
     pub face: u32,
+    pub _padding: [u32; 3],
 }
 unsafe impl bytemuck::Zeroable for GenHeightmapsUniforms {}
 unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}
@@ -58,6 +59,7 @@ pub(crate) struct GenMaterialsUniforms {
     pub level: u32,
     pub position: [i32; 2],
     pub level_resolution: u32,
+    pub _padding: [u32; 3],
 }
 unsafe impl bytemuck::Zeroable for GenMaterialsUniforms {}
 unsafe impl bytemuck::Pod for GenMaterialsUniforms {}

@@ -131,8 +131,7 @@ impl ShaderSource {
                 .as_binary()
                 .to_vec();
 
-            Ok(wgpu::ShaderSource::SpirV(
-                spv.into()))
+            Ok(wgpu::ShaderSource::SpirV(spv.into()))
         }
     }
     pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
@@ -407,7 +406,7 @@ fn reflect_naga(
 
         let _module_info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::FLOAT64/*naga::valid::Capabilities::empty()*/,
+            naga::valid::Capabilities::FLOAT64, /*naga::valid::Capabilities::empty()*/
         )
         .validate(&module)?;
 
@@ -438,9 +437,11 @@ fn reflect_naga(
             }
 
             let ty = match ty {
-                TypeInner::Sampler { comparison } => {
-                    wgpu::BindingType::Sampler { filtering: true, comparison: *comparison }
-                }
+                TypeInner::Sampler { comparison } => wgpu::BindingType::Sampler(if *comparison {
+                    wgpu::SamplerBindingType::Comparison
+                } else {
+                    wgpu::SamplerBindingType::Filtering
+                }),
                 TypeInner::Image { dim, arrayed, class } => {
                     let view_dimension = match (dim, arrayed) {
                         (ImageDimension::D1, false) => wgpu::TextureViewDimension::D1,

@@ -267,10 +267,10 @@ impl GpuState {
             bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler { ref mut filtering, .. } => {
+                    wgpu::BindingType::Sampler (ref mut binding_type) => {
                         wgpu::BindingResource::Sampler(match name {
                             "nearest" => {
-                                *filtering = false;
+                                *binding_type = wgpu::SamplerBindingType::NonFiltering;
                                 &self.nearest
                             }
                             "linear" => &self.linear,

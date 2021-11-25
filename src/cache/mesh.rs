@@ -131,6 +131,7 @@ impl MeshCache {
                         stencil: Default::default(),
                     }),
                     multisample: Default::default(),
+                    multiview: None,
                     label: Some(&format!("pipeline.render.{}", self.desc.ty.name())),
                 }),
             ));
