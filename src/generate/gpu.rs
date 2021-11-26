@@ -100,7 +100,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         dimensions: (u32, u32, u32),
         uniforms: &U,
     ) {
-        if self.uniforms.is_none() {
+        if mem::size_of::<U>() > 0 && self.uniforms.is_none() {
             self.uniforms = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
@@ -112,11 +112,14 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
                 &self.shader,
-                hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                if self.uniforms.is_some() {
+                    hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: self.uniforms.as_ref().unwrap(),
                     offset: 0,
                     size: None,
-                }))],
+                }))] } else {
+                    HashMap::new()
+                },
                 HashMap::new(),
                 &format!("bindgroup.{}", self.name),
             );
@@ -138,24 +141,26 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
             ));
         }
 
-        let staging = device.create_buffer(&wgpu::BufferDescriptor {
-            size: mem::size_of::<U>() as u64,
-            usage: wgpu::BufferUsages::COPY_SRC,
-            label: Some(&format!("buffer.temporary.{}.upload", self.name)),
-            mapped_at_creation: true,
-        });
-        let mut buffer_view = staging.slice(..).get_mapped_range_mut();
-        buffer_view[..mem::size_of::<U>()].copy_from_slice(bytemuck::bytes_of(uniforms));
-        drop(buffer_view);
-        staging.unmap();
+        if self.uniforms.is_some() {
+            let staging = device.create_buffer(&wgpu::BufferDescriptor {
+                size: mem::size_of::<U>() as u64,
+                usage: wgpu::BufferUsages::COPY_SRC,
+                label: Some(&format!("buffer.temporary.{}.upload", self.name)),
+                mapped_at_creation: true,
+            });
+            let mut buffer_view = staging.slice(..).get_mapped_range_mut();
+            buffer_view[..mem::size_of::<U>()].copy_from_slice(bytemuck::bytes_of(uniforms));
+            drop(buffer_view);
+            staging.unmap();
 
-        encoder.copy_buffer_to_buffer(
-            &staging,
-            0,
-            self.uniforms.as_ref().unwrap(),
-            0,
-            mem::size_of::<U>() as u64,
-        );
+            encoder.copy_buffer_to_buffer(
+                &staging,
+                0,
+                self.uniforms.as_ref().unwrap(),
+                0,
+                mem::size_of::<U>() as u64,
+            );
+        }
 
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
