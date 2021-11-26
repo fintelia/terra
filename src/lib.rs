@@ -28,6 +28,7 @@ use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use cache::TileCache;
 use cgmath::SquareMatrix;
+use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::array::IntoIter;
 use std::collections::HashMap;
@@ -46,6 +47,7 @@ pub struct Terrain {
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
     cache: TileCache,
+    generate_skyview: ComputeShader<()>,
 }
 impl Terrain {
     pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
@@ -171,6 +173,16 @@ impl Terrain {
         )
         .unwrap();
 
+        let generate_skyview = ComputeShader::new(
+            rshader::shader_source!(
+                "shaders",
+                "gen-skyview.comp",
+                "declarations.glsl",
+                "atmosphere.glsl"
+            ),
+            "gen-skyview".to_string(),
+        );
+
         Ok(Self {
             sky_shader,
             sky_bindgroup_pipeline: None,
@@ -178,6 +190,7 @@ impl Terrain {
             quadtree,
             mapfile,
             cache,
+            generate_skyview,
         })
     }
 
@@ -347,6 +360,9 @@ impl Terrain {
 
         {
             self.cache.cull_meshes(device, &mut encoder, &self.gpu_state);
+
+            self.generate_skyview.refresh();
+            self.generate_skyview.run(device, &mut encoder, &self.gpu_state, (16, 16, 1), &());
 
             // self.aerial_perspective.refresh();
             // self.aerial_perspective.run(

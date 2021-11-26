@@ -1,0 +1,51 @@
+#version 450 core
+#include "declarations.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, std140) uniform GlobalsBlock {
+	Globals globals;
+};
+layout(set = 0, binding = 1) uniform sampler nearest;
+layout(set = 0, binding = 2) uniform texture2D transmittance;
+layout(rgba16f, binding = 3) writeonly uniform image2D skyview;
+
+#include "atmosphere.glsl"
+
+const ivec2 SKY_VIEW_DIMENSIONS = ivec2(128, 128);
+
+const float PI = 3.1415926535;
+
+void main() {
+    vec3 camera = normalize(globals.camera);
+    vec3 sun = normalize(globals.sun_direction);
+    vec3 a = normalize(cross(camera, sun));
+    vec3 b = normalize(cross(camera, a));
+
+    vec2 uv = vec2(gl_GlobalInvocationID.xy) / (SKY_VIEW_DIMENSIONS - 1);
+    uv.x = uv.x * uv.x;
+
+    float camera_distance = length(globals.camera);
+	float min_theta = -PI/2 + asin(planetRadius / camera_distance);
+    float max_theta = camera_distance < atmosphereRadius ? PI/2 : -PI/2 + asin(atmosphereRadius / camera_distance);
+
+    float theta = mix(min_theta, max_theta, uv.x);
+    float phi = mix(-PI, PI, uv.y);
+
+    vec3 r = camera * sin(theta) + (a * cos(phi) + b * sin(phi)) * cos(theta);
+
+	vec3 x0 = globals.camera;
+	vec2 p = rsi(x0, r, atmosphereRadius);
+
+    vec4 output_value = vec4(0, 0, 0, 1);
+	if (p.x < p.y && p.y > 0.0) {
+		vec3 x1 = x0 + r * p.y;
+		x0 = x0 + r * max(p.x, 0.0);
+
+	    output_value.a = precomputed_transmittance2(x1, x0).b;
+	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction);
+    }
+    output_value *= vec4(1.0 / 16.0);
+
+    imageStore(skyview, ivec2(gl_GlobalInvocationID.xy), output_value);
+}

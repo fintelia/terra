@@ -49,6 +49,7 @@ pub(crate) struct GpuState {
     sky: (wgpu::Texture, wgpu::TextureView),
     transmittance: (wgpu::Texture, wgpu::TextureView),
     inscattering: (wgpu::Texture, wgpu::TextureView),
+    skyview: (wgpu::Texture, wgpu::TextureView),
 
     //ground_albedo: (wgpu::Texture, wgpu::TextureView),
 
@@ -82,6 +83,16 @@ impl GpuState {
                 "inscattering",
                 mapfile.read_texture(device, queue, "inscattering")?,
             ),
+            skyview: with_view("skyview", device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d { width: 128, height: 128, depth_or_array_layers: 1 },
+                format: wgpu::TextureFormat::Rgba16Float,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                usage: wgpu::TextureUsages::STORAGE_BINDING
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                label: Some("texture.skyview"),
+            })),
             // ground_albedo: with_view(
             //     "ground_albedo",
             //     mapfile.read_texture(device, queue, "ground_albedo")?,
@@ -230,6 +241,7 @@ impl GpuState {
                                 "sky" => &self.sky.1,
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
+                                "skyview" => &self.skyview.1,
                                 // "ground_albedo" => &self.ground_albedo.1,
                                 "bc4_staging" => &self.bc4_staging.1,
                                 "bc5_staging" => &self.bc5_staging.1,
