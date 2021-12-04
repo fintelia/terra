@@ -46,6 +46,7 @@ void main() {
 	vec4 sv = texture(sampler2D(skyview, linear), (vec2(u, phi) * 127 + 0.5) / 128);
 	OutColor.rgb = sv.rgb * 16 + OutColor.rgb * sv.a * 16;
 
+	// OutColor.rgb = vec3(3e10,0,0);
 
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);

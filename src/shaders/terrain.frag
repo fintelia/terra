@@ -40,6 +40,8 @@ layout(location = 0) out vec4 out_color;
 // }
 
 vec3 debug_overlay(vec3 color) {
+	Node node = nodes[instance];
+
 	// if((fract(0.5*position.x/32) < 0.5) != (fract(0.5*position.z/32) < 0.5))
 	// 	color = mix(color, vec3(0,0,1), 0.3);
 
@@ -152,9 +154,20 @@ vec3 debug_overlay(vec3 color) {
 	// if(node.face == 4) color = mix(color, vec3(1,1,1), 0.1);
 	// if(node.face == 5) color = mix(color, vec3(0,0,0), 0.1);
 
+	// Node node = nodes[instance];
+	// if(node.level == 0)color = mix(color, vec3(1,0,0), .3); // 20km
+	// if(node.level == 1)color = mix(color, vec3(0,1,0), .3); // 10km
+	// if(node.level == 2)color = mix(color, vec3(0,0,1), .3); //  5km
+	// if(node.level == 3)color = mix(color, vec3(0,1,1), .3); //  2km
+	// if(node.level == 4)color = mix(color, vec3(1,1,0), .3); //  1km
+	// if(node.level == 5)color = mix(color, vec3(1,0,1), .3); // 600m
+	// if(node.level == 6)color = mix(color, vec3(1,1,1), .3); // 300m
+	// if(node.level == 7)color = mix(color, vec3(1,0,0), .2); // 150m
+	// if(node.level == 8)color = mix(color, vec3(0,1,0), .2); //  76m
+	// if(node.level == 9)color = mix(color, vec3(0,0,1), .2); //  38m
 	// if(node.level == 10)color = mix(color, vec3(1,0,0), .3); // 19m cell
 	// if(node.level == 11)color = mix(color, vec3(0,1,0), .3); // 10m
-	// if(node.level == 12)color = mix(color, vec3(0,0,1), .3); //  5m 
+	// if(node.level == 12)color = mix(color, vec3(0,0,1), .3); //  5m
 	// if(node.level == 13)color = mix(color, vec3(0,1,1), .3); //  2m
 	// if(node.level == 14)color = mix(color, vec3(1,1,0), .3); //  1m
 	// if(node.level == 15)color = mix(color, vec3(1,0,1), .3); // 60cm

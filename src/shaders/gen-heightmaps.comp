@@ -21,32 +21,28 @@ layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
-shared vec4 h[10][10];
+shared vec4 h[8][8];
 
 void main() {
 	Node node = nodes[ubo.out_slot];
-
 	uint x = gl_LocalInvocationID.x;
 	uint y = gl_LocalInvocationID.y;
 
 	// Load parent heights
-	if (x < 5 && y < 5) {
-		ivec2 origin = ivec2(ubo.origin+gl_WorkGroupID.xy*4);
-		ivec2 gpos = origin.xy + ivec2(gl_LocalInvocationID.xy*2-ivec2(2));
-		h[x*2][y*2].x = extract_height(texelFetch(heightmaps_in, gpos, 0).x);
-		h[x*2+1][y*2].x = extract_height(texelFetch(heightmaps_in, gpos + ivec2(1,0), 0).x);
-		h[x*2][y*2+1].x = extract_height(texelFetch(heightmaps_in, gpos + ivec2(0,1), 0).x);
-		h[x*2+1][y*2+1].x = extract_height(texelFetch(heightmaps_in, gpos + ivec2(1,1), 0).x);
-	}
+	ivec2 origin = ivec2(ubo.origin + gl_WorkGroupID.xy * 4) - ivec2(2);
+	h[x][y].x = extract_height(texelFetch(heightmaps_in, min(origin.xy + ivec2(x,y), 521), 0).x);
 	barrier();
 
 	// Compute slopes
-	if (x < 8 && y < 8) {
+	if (x < 6 && y < 6) {
 		h[x+1][y+1].y = (h[x+2][y+1].x - h[x][y+1].x) * 0.5;
 		h[x+1][y+1].z = (h[x+1][y+2].x - h[x+1][y].x) * 0.5;
 		h[x+1][y+1].w = (h[x+2][y+2].x - h[x][y+1].x - h[x+1][y].x + h[x+1][y+1].x) * 0.5;
 	}
 	barrier();
+
+	if (x >= 521 && y >= 521)
+		return;
 
 	// Bicubic Interpolation
 	x = x/2 + 2;
@@ -91,8 +87,9 @@ void main() {
 	}
 
 	// Apply noise
-	float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
-	height += n * ubo.spacing * mix(0.1, 0.4, smoothstep(0.4, 0.5, slope));
+	//float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
+	float n = random(uvec3(position+ubo.level_resolution/2)) - 0.5;
+	height += n * ubo.spacing * mix(0.1, 0.2, smoothstep(0.4, 0.5, slope));
 
 	uint encoded_height = uint((height + 1024) * 512.0) | (height <= 0 ? 0x800000 : 0);
 
