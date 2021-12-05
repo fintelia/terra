@@ -209,8 +209,8 @@ impl Terrain {
     /// `camera`.
     ///
     /// Terra cannot render any terrain until all root tiles have been downloaded and streamed to
-    /// the GPU. This function returns whether tohse tiles have been streamed, and also initiates
-    /// streaming of more detailed tiles for the indicated tile position.
+    /// the GPU. This function returns whether those tiles have been streamed, and also initiates
+    /// streaming of more detailed tiles for the indicated camera position.
     pub fn poll_loading_status(
         &mut self,
         device: &wgpu::Device,

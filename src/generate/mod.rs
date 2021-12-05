@@ -173,6 +173,8 @@ impl MapFileBuilder {
         generate_noise(&mut self.0, &mut context)?;
         generate_sky(&mut self.0, &mut context)?;
 
+        download_cloudcover(&mut self.0, &mut context)?;
+
         Ok(self.0)
     }
 }
@@ -830,6 +832,19 @@ fn generate_sky(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result
             bytemuck::cast_slice(&atmosphere.inscattering.data),
         )?;
     }
+    Ok(())
+}
+
+fn download_cloudcover(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
+    if !mapfile.reload_texture("cloudcover") {
+        let cloudcover = WebTextureAsset {
+            url: "https://terra.fintelia.io/file/terra-tiles/clouds_combined.png".to_owned(),
+            filename: "clouds_combined.png".to_owned(),
+        }
+        .load(context)?;
+        mapfile.write_texture("cloudcover", cloudcover.0, &cloudcover.1)?;
+    }
+
     Ok(())
 }
 
