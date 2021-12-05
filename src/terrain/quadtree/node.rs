@@ -305,7 +305,12 @@ impl VNode {
         let min_distance = self.min_distance();
         let distance2 = self.distance2(camera, height_range);
 
-        Priority::from_f32(((min_distance * min_distance) / distance2.max(1e-12)) as f32)
+        let mut priority = ((min_distance * min_distance) / distance2.max(1e-12)) as f32;
+        if self.level() == 0 {
+            priority = priority.max(2.0);
+        }
+
+        Priority::from_f32(priority)
     }
 
     pub fn parent(&self) -> Option<(VNode, u8)> {
