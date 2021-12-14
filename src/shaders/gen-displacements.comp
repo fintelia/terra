@@ -75,8 +75,9 @@ layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
 
 void main() {
-    // if (gl_GlobalInvocationID.x >= 64 || gl_GlobalInvocationID.y >= 64)
-    //     return;
+    if (gl_GlobalInvocationID.x > 64 || gl_GlobalInvocationID.y > 64)
+        return;
+
     float height = extract_height_above_water(texelFetch(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot), 0).x);
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"

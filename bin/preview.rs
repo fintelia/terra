@@ -104,8 +104,7 @@ fn main() {
         .expect("Unable to create compatible wgpu device");
 
     let mut size = window.inner_size();
-    let mut depth_buffer = None;
-    let mut configure_surface = true;
+    let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
 
     #[cfg(feature = "smaa")]
     let mut smaa_target = smaa::SmaaTarget::new(
@@ -175,14 +174,9 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
-
-    let mut set_visible = false;
+    window.set_visible(true);
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = if cfg!(feature = "metal-auto-capture") {
-            ControlFlow::Exit
-        } else {
-            ControlFlow::Poll
-        };
+        *control_flow = ControlFlow::Poll;
         match event {
             event::Event::WindowEvent { event, .. } => match event {
                 event::WindowEvent::CloseRequested => {
@@ -222,16 +216,10 @@ fn main() {
                 },
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size;
-                    depth_buffer = None;
-                    configure_surface = true;
 
                     #[cfg(feature = "smaa")]
                     smaa_target.resize(&device, new_size.width, new_size.height);
-                }
-                _ => {}
-            },
-            event::Event::MainEventsCleared => {
-                if configure_surface {
+
                     surface.configure(
                         &device,
                         &wgpu::SurfaceConfiguration {
@@ -241,12 +229,15 @@ fn main() {
                             height: size.height,
                             present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
                         },
-                    )
+                    );
+                    depth_buffer = make_depth_buffer(&device, size.width, size.height);
                 }
-                if depth_buffer.is_none() {
-                    depth_buffer = Some(make_depth_buffer(&device, size.width, size.height));
-                }
-
+                _ => {}
+            },
+            event::Event::MainEventsCleared => {
+                window.request_redraw();
+            }
+            event::Event::RedrawRequested(_) => {
                 let frame_texture = surface.get_current_texture();
                 let frame_texture = match frame_texture {
                     Ok(f) => f,
@@ -334,16 +325,11 @@ fn main() {
                     &device,
                     &queue,
                     &frame,
-                    depth_buffer.as_ref().unwrap(),
+                    &depth_buffer,
                     (size.width, size.height),
                     view_proj,
                     eye.into(),
                 );
-
-                if !set_visible {
-                    window.set_visible(true);
-                    set_visible = true;
-                }
 
                 drop(frame);
                 frame_texture.present();
