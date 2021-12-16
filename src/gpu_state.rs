@@ -47,7 +47,9 @@ pub(crate) struct GpuState {
 
     noise: (wgpu::Texture, wgpu::TextureView),
     sky: (wgpu::Texture, wgpu::TextureView),
-    cloudcover: (wgpu::Texture, wgpu::TextureView),
+    cloud_cover: (wgpu::Texture, wgpu::TextureView),
+    cloud_erosion: (wgpu::Texture, wgpu::TextureView),
+    cloud_shape: (wgpu::Texture, wgpu::TextureView),
     transmittance: (wgpu::Texture, wgpu::TextureView),
     inscattering: (wgpu::Texture, wgpu::TextureView),
     skyview: (wgpu::Texture, wgpu::TextureView),
@@ -76,7 +78,9 @@ impl GpuState {
         Ok(GpuState {
             noise: with_view("noise", mapfile.read_texture(device, queue, "noise")?),
             sky: with_view("sky", mapfile.read_texture(device, queue, "sky")?),
-            cloudcover: with_view("sky", mapfile.read_texture(device, queue, "cloudcover")?),
+            cloud_cover: with_view("cloud_cover", mapfile.read_texture(device, queue, "cloud_cover")?),
+            cloud_erosion: with_view("cloud_erosion", mapfile.read_texture(device, queue, "cloud_erosion")?),
+            cloud_shape: with_view("cloud_shape", mapfile.read_texture(device, queue, "cloud_shape")?),
             transmittance: with_view(
                 "transmittance",
                 mapfile.read_texture(device, queue, "transmittance")?,
@@ -241,7 +245,9 @@ impl GpuState {
                             match name {
                                 "noise" => &self.noise.1,
                                 "sky" => &self.sky.1,
-                                "cloudcover" => &self.cloudcover.1,
+                                "cloud_cover" => &self.cloud_cover.1,
+                                "cloud_erosion" => &self.cloud_erosion.1,
+                                "cloud_shape" => &self.cloud_shape.1,
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
                                 "skyview" => &self.skyview.1,

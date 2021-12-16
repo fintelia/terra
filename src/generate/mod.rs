@@ -15,7 +15,7 @@ use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use image::{png::PngDecoder, ColorType, ImageDecoder};
+use image::{png::PngDecoder, ColorType, DynamicImage, GenericImageView, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
@@ -836,13 +836,49 @@ fn generate_sky(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result
 }
 
 fn download_cloudcover(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result<(), Error> {
-    if !mapfile.reload_texture("cloudcover") {
+    if !mapfile.reload_texture("cloud_cover") {
         let cloudcover = WebTextureAsset {
             url: "https://terra.fintelia.io/file/terra-tiles/clouds_combined.png".to_owned(),
             filename: "clouds_combined.png".to_owned(),
         }
         .load(context)?;
-        mapfile.write_texture("cloudcover", cloudcover.0, &cloudcover.1)?;
+        mapfile.write_texture("cloud_cover", cloudcover.0, &cloudcover.1)?;
+    }
+    if !mapfile.reload_texture("cloud_erosion") {
+        let data = WebTextureAsset {
+            url: "https://terra.fintelia.io/file/terra-tiles/noiseErosionPacked.png".to_owned(),
+            filename: "cloud_erosion.png".to_owned(),
+        }
+        .load(context)?;
+        mapfile.write_texture(
+            "cloud_erosion",
+            TextureDescriptor {
+                width: 32,
+                height: 32,
+                depth: 32,
+                format: TextureFormat::R8,
+                array_texture: false,
+            },
+            &data.1,
+        )?;
+    }
+    if !mapfile.reload_texture("cloud_shape") {
+        let data = WebTextureAsset {
+            url: "https://terra.fintelia.io/file/terra-tiles/noiseShapePacked.png".to_owned(),
+            filename: "cloud_shape.png".to_owned(),
+        }
+        .load(context)?;
+        mapfile.write_texture(
+            "cloud_shape",
+            TextureDescriptor {
+                width: 128,
+                height: 128,
+                depth: 128,
+                format: TextureFormat::R8,
+                array_texture: false,
+            },
+            &data.1,
+        )?;
     }
 
     Ok(())
@@ -863,16 +899,24 @@ impl WebAsset for WebTextureAsset {
     }
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
         // TODO: handle other pixel formats
-        let img = image::load_from_memory(&data)?.into_rgba8();
-        Ok((
-            TextureDescriptor {
-                format: TextureFormat::RGBA8,
-                width: img.width(),
-                height: img.height(),
-                depth: 1,
-                array_texture: false,
-            },
-            img.into_raw(),
-        ))
+        let img = image::load_from_memory(&data)?;
+
+        let desc = TextureDescriptor {
+            format: TextureFormat::RGBA8,
+            width: img.dimensions().0,
+            height: img.dimensions().1,
+            depth: 1,
+            array_texture: false,
+        };
+
+        match img {
+            DynamicImage::ImageLuma8(img) => {
+                Ok((TextureDescriptor { format: TextureFormat::R8, ..desc }, img.into_raw()))
+            }
+            _ => {
+                let img = img.to_rgba8();
+                Ok((desc, img.into_raw()))
+            }
+        }
     }
 }

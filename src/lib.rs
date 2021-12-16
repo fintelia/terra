@@ -10,6 +10,7 @@ extern crate rshader;
 
 mod asset;
 mod cache;
+mod clouds;
 mod coordinates;
 mod generate;
 mod gpu_state;
@@ -115,7 +116,8 @@ impl Terrain {
                             "shaders",
                             "terrain.frag",
                             "declarations.glsl",
-                            "pbr.glsl"
+                            "pbr.glsl",
+                            "atmosphere.glsl"
                         ),
                     )
                     .unwrap(),

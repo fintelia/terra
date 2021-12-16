@@ -19,6 +19,8 @@ layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
+layout(set = 0, binding = 10) uniform texture2D cloud_cover;
+layout(set = 0, binding = 11) uniform texture3D cloud_shape;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -224,6 +226,21 @@ vec3 layer_to_texcoord(uint layer) {
 	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
 }
 
+// Ray-sphere intersection that assumes the sphere is centered at the origin.
+// No intersection when result.x > result.y
+vec2 rsi(vec3 r0, vec3 rd, float sr) {
+    float a = dot(rd, rd);
+    float b = 2.0 * dot(rd, r0);
+    float c = dot(r0, r0) - (sr * sr);
+    float d = (b*b) - 4.0*a*c;
+    if (d < 0.0) return vec2(1e5,-1e5);
+    return vec2(
+        (-b - sqrt(d))/(2.0*a),
+        (-b + sqrt(d))/(2.0*a)
+    );
+}
+const float planetRadius = 6371000.0;
+
 void main() {
 	Node node = nodes[instance];
 	//NodeState node = nodes[instance];
@@ -274,4 +291,14 @@ void main() {
 	out_color = tonemap(out_color, exposure, 2.2);
 
 	out_color.rgb = debug_overlay(out_color.rgb);
+
+	vec3 wx = fract(position/102400 + fract(globals.camera/102400));
+	vec3 v = normalize(position + globals.camera);
+	float shape = texture(sampler3D(cloud_shape, linear), wx).x;
+	float cover = texture(sampler2D(cloud_cover, linear), vec2(atan(v.y, v.x) * 0.5 / 3.141592 + 0.5, acos(v.z) / 3.141592)).x;
+
+	vec2 p = rsi(globals.camera, normalize(position-globals.camera), planetRadius+1000);
+	if (p.x < p.y && p.x > 0) {
+		out_color.rgb = mix(out_color.rgb, vec3(0.8), shape*cover);
+	}
 }

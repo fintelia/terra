@@ -226,7 +226,7 @@ impl MapFile {
             usage: wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | if !desc.format.is_compressed() { wgpu::TextureUsages::STORAGE_BINDING } else { wgpu::TextureUsages::empty() },
+                | if !desc.format.is_compressed() && desc.format != TextureFormat::R8 { wgpu::TextureUsages::STORAGE_BINDING } else { wgpu::TextureUsages::empty() },
             label: Some(&format!("texture.{}", name)),
         });
 
