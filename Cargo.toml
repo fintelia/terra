@@ -66,7 +66,7 @@ tiff = { git = "https://github.com/image-rs/image-tiff" }
 tokio = { version = "1.0.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 tokio-stream = "0.1.7"
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = { version = "0.11.0", features = ["spirv"] }
+wgpu = { version = "0.12.0", features = ["spirv"] }
 winit = "0.26.0"
 zip = "0.5.9"
 
@@ -88,6 +88,6 @@ opt-level = 3
 [profile.release]
 debug = true
 
-[patch.crates-io]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "c69f676" }
-wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "9bbea3d" }
+# [patch.crates-io]
+# naga = { git = "https://github.com/gfx-rs/naga", rev = "c69f676" }
+# wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "9bbea3d" }

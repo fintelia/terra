@@ -89,14 +89,17 @@ fn main() {
     } else {
         wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
     };
-    let features = features
-        | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
+    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
                 features,
-                limits: wgpu::Limits { max_texture_array_layers: 1024, ..wgpu::Limits::default() },
+                limits: wgpu::Limits {
+                    max_texture_array_layers: 1024,
+                    max_compute_invocations_per_workgroup: 512,
+                    ..wgpu::Limits::default()
+                },
                 label: None,
             },
             trace_path,
