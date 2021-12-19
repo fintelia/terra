@@ -3,12 +3,18 @@ use naga::{
     ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageClass, StorageFormat, TypeInner,
 };
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+thread_local! {
+    static GLSL_COMPILER: RefCell<shaderc::Compiler>  = RefCell::new(shaderc::Compiler::new().unwrap());
+}
+
 pub enum ShaderSource {
     Inline {
         name: &'static str,
@@ -113,7 +119,6 @@ impl ShaderSource {
             //     }
             // }
 
-            let mut glsl_compiler = shaderc::Compiler::new().unwrap();
             let mut options = shaderc::CompileOptions::new().unwrap();
             options.set_include_callback(|f, _, _, _| match headers.get(f) {
                 Some(s) => Ok(shaderc::ResolvedInclude {
@@ -126,10 +131,13 @@ impl ShaderSource {
                 options.add_macro_definition(m, Some(value));
             }
 
-            let spv: Vec<u32> = glsl_compiler
-                .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
-                .as_binary()
-                .to_vec();
+            let spv: Vec<u32> = GLSL_COMPILER.with(|compiler| -> Result<_, anyhow::Error> {
+                Ok(compiler
+                    .borrow_mut()
+                    .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
+                    .as_binary()
+                    .to_vec())
+            })?;
 
             Ok(wgpu::ShaderSource::SpirV(spv.into()))
         }
