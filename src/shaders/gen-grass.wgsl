@@ -26,19 +26,19 @@ struct Indirect {
     base_instance: u32;
 };
 
-[[block]] struct GenMeshUniforms {
+struct GenMeshUniforms {
     slot: u32;
     storage_base_entry: u32;
     mesh_base_entry: u32;
     entries_per_node: u32;
 };
-[[block]] struct Entries {
+struct Entries {
     entries: array<array<Entry, 1024>>;
 };
-[[block]] struct Indirects {
+struct Indirects {
     entries: array<Indirect>;
 };
-[[block]] struct Nodes {
+struct Nodes {
     entries: array<Node>;
 };
 
@@ -93,9 +93,9 @@ fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
 
     let l = layer % NUM_LAYERS;
     if (l == ALBEDO_LAYER) {            return textureSampleLevel(albedo, linear, texcoord, array_index, 0.0); }
-    elseif (l == NORMALS_LAYER) {           return textureSampleLevel(normals, linear, texcoord, array_index, 0.0); }
-    elseif (l == GRASS_CANOPY_LAYER) {      return textureSampleLevel(grass_canopy, linear, texcoord, array_index, 0.0); }
-    elseif (l == DISPLACEMENTS_LAYER) {
+    else if (l == NORMALS_LAYER) {           return textureSampleLevel(normals, linear, texcoord, array_index, 0.0); }
+    else if (l == GRASS_CANOPY_LAYER) {      return textureSampleLevel(grass_canopy, linear, texcoord, array_index, 0.0); }
+    else if (l == DISPLACEMENTS_LAYER) {
         let dimensions = textureDimensions(displacements);
         let f = fract(texcoord.xy * vec2<f32>(dimensions));
         let base_coords = vec2<i32>(texcoord.xy * vec2<f32>(dimensions));
