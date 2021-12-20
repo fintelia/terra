@@ -46,6 +46,24 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
         .create_view(&Default::default())
 }
 
+fn configure_surface(
+    device: &wgpu::Device,
+    surface: &wgpu::Surface,
+    swapchain_format: wgpu::TextureFormat,
+    size: winit::dpi::PhysicalSize<u32>,
+) {
+    surface.configure(
+        &device,
+        &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+        },
+    );
+}
+
 fn main() {
     env_logger::init();
 
@@ -64,7 +82,7 @@ fn main() {
         .find(|monitor| monitor.video_modes().any(|mode| mode.size().width == 1920));
     let window = winit::window::WindowBuilder::new()
         .with_visible(false)
-        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)))
+//        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)))
         .build(&event_loop)
         .unwrap();
 
@@ -108,6 +126,8 @@ fn main() {
 
     let mut size = window.inner_size();
     let mut depth_buffer = make_depth_buffer(&device, size.width, size.height);
+
+    configure_surface(&device, &surface, swapchain_format, size);
 
     #[cfg(feature = "smaa")]
     let mut smaa_target = smaa::SmaaTarget::new(
@@ -223,16 +243,7 @@ fn main() {
                     #[cfg(feature = "smaa")]
                     smaa_target.resize(&device, new_size.width, new_size.height);
 
-                    surface.configure(
-                        &device,
-                        &wgpu::SurfaceConfiguration {
-                            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                            format: swapchain_format,
-                            width: size.width,
-                            height: size.height,
-                            present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
-                        },
-                    );
+                    configure_surface(&device, &surface, swapchain_format, size);
                     depth_buffer = make_depth_buffer(&device, size.width, size.height);
                 }
                 _ => {}
