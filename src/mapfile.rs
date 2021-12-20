@@ -4,10 +4,11 @@ use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
-use image::bmp::BmpEncoder;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use std::{fs, num::NonZeroU32};
 use tokio::io::AsyncReadExt;
 use vec_map::VecMap;
@@ -16,24 +17,9 @@ const TERRA_TILES_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TileState {
-    Missing,
     Base,
-    Generated,
     GpuOnly,
     MissingBase,
-}
-
-#[derive(PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum TileKind {
-    Base,
-    Generate,
-    GpuOnly,
-}
-
-#[derive(PartialEq, Eq, Serialize, Deserialize)]
-struct TileMeta {
-    crc32: u32,
-    state: TileState,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
@@ -54,8 +40,9 @@ pub(crate) struct ShaderDescriptor {
 pub(crate) struct MapFile {
     layers: VecMap<LayerParams>,
     _db: sled::Db,
-    tiles: sled::Tree,
     textures: sled::Tree,
+
+    tiles_on_disk: Arc<Mutex<VecMap<HashSet<VNode>>>>,
 }
 impl MapFile {
     pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
@@ -81,21 +68,30 @@ impl MapFile {
 
         Self {
             layers,
-            tiles: db.open_tree("tiles").unwrap(),
             textures: db.open_tree("textures").unwrap(),
             _db: db,
+            tiles_on_disk: Default::default(),
         }
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
-        if node.level() > VNode::LEVEL_CELL_38M {
+        if node.level() >= self.layers[layer.index()].min_generated_level {
             return Ok(TileState::GpuOnly);
         }
 
-        Ok(match self.lookup_tile_meta(layer, node)? {
-            Some(meta) => meta.state,
-            None => TileState::GpuOnly,
-        })
+        let exists = self
+            .tiles_on_disk
+            .lock()
+            .unwrap()
+            .get(layer.index())
+            .map(|m| m.contains(&node))
+            .unwrap_or(false);
+
+        if exists {
+            Ok(TileState::Base)
+        } else {
+            Ok(TileState::MissingBase)
+        }
     }
     pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Vec<u8>, Error> {
         let filename = Self::tile_path(layer, node);
@@ -109,7 +105,7 @@ impl MapFile {
                     if resp.status().is_success() {
                         let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
                         // TODO: Fix lifetime issues so we can do this tile write asynchronously.
-                        tokio::task::block_in_place(|| self.write_tile(layer, node, &data, true))?;
+                        tokio::task::block_in_place(|| self.write_tile(layer, node, &data))?;
                         return Ok(data);
                     } else {
                         panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
@@ -130,7 +126,6 @@ impl MapFile {
         layer: LayerType,
         node: VNode,
         data: &[u8],
-        base: bool,
     ) -> Result<(), Error> {
         let filename = Self::tile_path(layer, node);
         if let Some(parent) = filename.parent() {
@@ -140,11 +135,14 @@ impl MapFile {
         AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
             .write(|f| f.write_all(data))?;
 
-        self.update_tile_meta(
-            layer,
-            node,
-            TileMeta { crc32: 0, state: if base { TileState::Base } else { TileState::Generated } },
-        )
+        self.tiles_on_disk
+            .lock()
+            .unwrap()
+            .entry(layer.index())
+            .or_insert_with(Default::default)
+            .insert(node);
+
+        Ok(())
     }
 
     pub(crate) fn read_texture(
@@ -165,7 +163,7 @@ impl MapFile {
 
         let mut mip_level_count = 1;
         let mut data = if desc.format == TextureFormat::RGBA8 {
-            image::open(TERRA_DIRECTORY.join(format!("{}.bmp", name)))?.to_rgba8().into_vec()
+            image::open(TERRA_DIRECTORY.join(format!("{}.tiff", name)))?.to_rgba8().into_vec()
         } else if desc.format == TextureFormat::UASTC {
             let raw_data = fs::read(TERRA_DIRECTORY.join(format!("{}.basis", name)))?;
             let mut transcoder = Transcoder::new();
@@ -173,13 +171,14 @@ impl MapFile {
 
             let mut data = Vec::new();
             'outer: for level in 0.. {
-                if (width as u32 * desc.format.block_size()) >> level == 0 && (height as u32 * desc.format.block_size()) >> level == 0 {
+                if (width as u32 * desc.format.block_size()) >> level == 0
+                    && (height as u32 * desc.format.block_size()) >> level == 0
+                {
                     break;
                 }
 
                 for image in 0..desc.depth {
-                    let transcoded = transcoder
-                    .transcode_image_level(
+                    let transcoded = transcoder.transcode_image_level(
                         &raw_data,
                         if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
                             TranscoderTextureFormat::BC7_RGBA
@@ -226,10 +225,13 @@ impl MapFile {
             usage: wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::TEXTURE_BINDING
-                | if !desc.format.is_compressed() { wgpu::TextureUsages::STORAGE_BINDING } else { wgpu::TextureUsages::empty() },
+                | if !desc.format.is_compressed() {
+                    wgpu::TextureUsages::STORAGE_BINDING
+                } else {
+                    wgpu::TextureUsages::empty()
+                },
             label: Some(&format!("texture.{}", name)),
         });
-
 
         if cfg!(feature = "small-trace") {
             let bytes_per_block = desc.format.bytes_per_block();
@@ -270,11 +272,8 @@ impl MapFile {
             let block_size = desc.format.block_size() as usize;
             let width = (width * block_size) >> mip;
             let height = (height * block_size) >> mip;
-            let depth = if desc.array_texture {
-                desc.depth as usize
-            } else {
-                desc.depth as usize >> mip
-            };
+            let depth =
+                if desc.array_texture { desc.depth as usize } else { desc.depth as usize >> mip };
             if width == 0 && height == 0 && depth == 0 {
                 break;
             }
@@ -322,9 +321,9 @@ impl MapFile {
     ) -> Result<(), Error> {
         self.update_texture(name, desc)?;
         if desc.format == TextureFormat::RGBA8 {
-            let filename = TERRA_DIRECTORY.join(format!("{}.bmp", name));
+            let filename = TERRA_DIRECTORY.join(format!("{}.tiff", name));
             let mut encoded = Vec::new();
-            BmpEncoder::new(&mut encoded).encode(
+            image::codecs::tiff::TiffEncoder::new(std::io::Cursor::new(&mut encoded)).encode(
                 data,
                 desc.width,
                 desc.height * desc.depth,
@@ -347,7 +346,7 @@ impl MapFile {
         let desc = self.lookup_texture(name);
         if let Ok(Some(desc)) = desc {
             if desc.format == TextureFormat::RGBA8 {
-                TERRA_DIRECTORY.join(format!("{}.bmp", name)).exists()
+                TERRA_DIRECTORY.join(format!("{}.tiff", name)).exists()
             } else if desc.format == TextureFormat::UASTC {
                 TERRA_DIRECTORY.join(format!("{}.basis", name)).exists()
             } else {
@@ -389,93 +388,88 @@ impl MapFile {
         format!("{}{}", TERRA_TILES_URL, Self::tile_name(layer, node))
     }
 
-    pub(crate) fn reload_tile_state(
-        &self,
-        layer: LayerType,
-        node: VNode,
-        base: bool,
-    ) -> Result<TileState, Error> {
-        let filename = Self::tile_path(layer, node);
-        let meta = self.lookup_tile_meta(layer, node);
-
-        let exists = filename.exists();
-
-        let target_state = if base && exists {
-            TileState::Base
-        } else if base {
-            TileState::MissingBase
-        } else if exists {
-            TileState::Generated
-        } else {
-            TileState::Missing
+    pub(crate) fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
+        let (target_layer, target_ext) = match layer {
+            LayerType::Albedo => ("albedo", "png"),
+            LayerType::Roughness => ("roughness", "raw.lz4"),
+            LayerType::Heightmaps => ("heightmaps", "raw"),
+            _ => unreachable!(),
         };
 
-        if let Ok(Some(TileMeta { state, .. })) = meta {
-            if state == target_state {
-                return Ok(state);
+        let mut existing = HashSet::new();
+
+        let directory = TERRA_DIRECTORY.join("tiles").join(target_layer);
+        for file in fs::read_dir(directory)? {
+            let filename = file?.file_name();
+            let filename = filename.to_string_lossy();
+
+            if let Some((layer, level, face, x, y, ext)) =
+                sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
+            {
+                if layer == target_layer && ext == target_ext {
+                    let face = match &*face {
+                        "0E" => 0,
+                        "180E" => 1,
+                        "90E" => 2,
+                        "90W" => 3,
+                        "N" => 4,
+                        "S" => 5,
+                        _ => continue,
+                    };
+
+                    existing.insert((level, face, x, y));
+                }
             }
         }
 
-        let new_meta = TileMeta { state: target_state, crc32: 0 };
-        self.update_tile_meta(layer, node, new_meta)?;
-        Ok(target_state)
-    }
-    #[allow(unused)]
-    pub(crate) fn clear_generated(&self, layer: LayerType) -> Result<(), Error> {
-        self.scan_tile_meta(layer, |node, meta| {
-            if let TileState::Generated = meta.state {
-                self.remove_tile_meta(layer, node)?;
+        let mut tiles_on_disk = self
+            .tiles_on_disk
+            .lock()
+            .unwrap();
+        let tiles_on_disk = tiles_on_disk
+            .entry(layer.index())
+            .or_insert_with(Default::default);
+
+        VNode::breadth_first(|n| {
+            if existing.contains(&(n.level(), n.face(), n.x(), n.y())) {
+                tiles_on_disk.insert(n);
+            } else {
+                tiles_on_disk.remove(&n);
             }
-            Ok(())
-        })
+
+            n.level() + 1 < self.layers[layer.index()].min_generated_level
+        });
+
+        Ok(())
     }
+
     /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
-    pub(crate) fn get_missing_base(&self, layer: LayerType) -> Result<(Vec<VNode>, usize), Error> {
+    pub(crate) fn get_missing_base(&self, layer: LayerType) -> (Vec<VNode>, usize) {
+        let mut tiles_on_disk = self
+            .tiles_on_disk
+            .lock()
+            .unwrap();
+        let tiles_on_disk = tiles_on_disk
+            .entry(layer.index())
+            .or_insert_with(Default::default);
+
         let mut total = 0;
         let mut missing = Vec::new();
-        self.scan_tile_meta(layer, |node, meta| {
+        VNode::breadth_first(|n| {
             total += 1;
-            if let TileState::MissingBase = meta.state {
-                missing.push(node);
+            if !tiles_on_disk.contains(&n) {
+                missing.push(n);
             }
-            Ok(())
-        })?;
-        Ok((missing, total))
+
+            n.level() + 1 < self.layers[layer.index()].min_generated_level
+        });
+
+        (missing, total)
     }
 
     //
     // These functions use the database.
     //
-    fn lookup_tile_meta(&self, layer: LayerType, node: VNode) -> Result<Option<TileMeta>, Error> {
-        let key = bincode::serialize(&(layer, node)).unwrap();
-        Ok(self.tiles.get(key)?.map(|value| bincode::deserialize(&value).unwrap()))
-    }
-    fn update_tile_meta(&self, layer: LayerType, node: VNode, meta: TileMeta) -> Result<(), Error> {
-        let key = bincode::serialize(&(layer, node)).unwrap();
-        let value = bincode::serialize(&meta).unwrap();
-        self.tiles.insert(key, value)?;
-        Ok(())
-    }
-    fn remove_tile_meta(&self, layer: LayerType, node: VNode) -> Result<(), Error> {
-        let key = bincode::serialize(&(layer, node)).unwrap();
-        self.tiles.remove(key)?;
-        Ok(())
-    }
-    fn scan_tile_meta<F: FnMut(VNode, TileMeta) -> Result<(), Error>>(
-        &self,
-        layer: LayerType,
-        mut f: F,
-    ) -> Result<(), Error> {
-        let prefix = bincode::serialize(&layer).unwrap();
-        for i in self.tiles.scan_prefix(&prefix) {
-            let (k, v) = i?;
-            let meta = bincode::deserialize::<TileMeta>(&v)?;
-            let node = bincode::deserialize::<(LayerType, VNode)>(&k)?.1;
-            f(node, meta)?;
-        }
-        Ok(())
-    }
-
     fn lookup_texture(&self, name: &str) -> Result<Option<TextureDescriptor>, Error> {
         Ok(self.textures.get(name)?.map(|value| serde_json::from_slice(&value).unwrap()))
     }

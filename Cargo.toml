@@ -60,6 +60,7 @@ sha2 = "0.9.2"
 sled = "0.34.6"
 smaa = { version = "0.5.0", optional = true }
 snap = "1.0.3"
+sscanf = "0.1.4"
 structopt = "0.3.21"
 thiserror = "1.0.22"
 tiff = { git = "https://github.com/image-rs/image-tiff" }
