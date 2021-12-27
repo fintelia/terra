@@ -23,6 +23,7 @@ mod types;
 mod utils;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
+use crate::clouds::Cloudscape;
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use crate::terrain::quadtree::node::VNode;
@@ -31,7 +32,6 @@ use cache::TileCache;
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
-use std::array::IntoIter;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -49,6 +49,7 @@ pub struct Terrain {
     mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
+    cloudscape: Cloudscape,
 }
 impl Terrain {
     pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
@@ -96,69 +97,70 @@ impl Terrain {
         queue: &wgpu::Queue,
         mapfile: Arc<MapFile>,
     ) -> Result<Self, Error> {
+        let mesh_layers = vec![
+            MeshCacheDesc {
+                ty: MeshType::Terrain,
+                max_bytes_per_node: 0,
+                entries_per_node: 4,
+                min_level: 0,
+                max_level: VNode::LEVEL_CELL_5MM,
+                index_format: wgpu::IndexFormat::Uint16,
+                index_buffer: QuadTree::create_index_buffer(device, 64),
+                render_overlapping_levels: false,
+                cull_mode: Some(wgpu::Face::Front),
+                render: rshader::ShaderSet::simple(
+                    rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
+                    rshader::shader_source!(
+                        "shaders",
+                        "terrain.frag",
+                        "declarations.glsl",
+                        "pbr.glsl"
+                    ),
+                )
+                .unwrap(),
+            },
+            MeshCacheDesc {
+                ty: MeshType::Grass,
+                max_bytes_per_node: 128 * 128 * 64,
+                entries_per_node: 16,
+                min_level: VNode::LEVEL_SIDE_19M,
+                max_level: VNode::LEVEL_SIDE_5M,
+                cull_mode: None,
+                render_overlapping_levels: true,
+                index_format: wgpu::IndexFormat::Uint32,
+                index_buffer: {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("buffer.index.grass"),
+                        contents: bytemuck::cast_slice(
+                            &*(0..32 * 32)
+                                .flat_map(|i| {
+                                    IntoIterator::into_iter([
+                                        0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6,
+                                    ])
+                                    .map(move |j| j + i * 7)
+                                })
+                                .collect::<Vec<u32>>(),
+                        ),
+                        usage: wgpu::BufferUsages::INDEX,
+                    })
+                },
+                render: rshader::ShaderSet::simple(
+                    rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
+                    rshader::shader_source!(
+                        "shaders",
+                        "grass.frag",
+                        "declarations.glsl",
+                        "pbr.glsl"
+                    ),
+                )
+                .unwrap(),
+            },
+        ];
+
         let cache = TileCache::new(
             device,
             Arc::clone(&mapfile),
-            vec![
-                MeshCacheDesc {
-                    ty: MeshType::Terrain,
-                    max_bytes_per_node: 0,
-                    entries_per_node: 4,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_5MM,
-                    index_format: wgpu::IndexFormat::Uint16,
-                    index_buffer: QuadTree::create_index_buffer(device, 64),
-                    render_overlapping_levels: false,
-                    cull_mode: Some(wgpu::Face::Front),
-                    render: rshader::ShaderSet::simple(
-                        rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
-                        rshader::shader_source!(
-                            "shaders",
-                            "terrain.frag",
-                            "declarations.glsl",
-                            "pbr.glsl",
-                            "atmosphere.glsl"
-                        ),
-                    )
-                    .unwrap(),
-                },
-                MeshCacheDesc {
-                    ty: MeshType::Grass,
-                    max_bytes_per_node: 128 * 128 * 64,
-                    entries_per_node: 16,
-                    min_level: VNode::LEVEL_SIDE_19M,
-                    max_level: VNode::LEVEL_SIDE_5M,
-                    cull_mode: None,
-                    render_overlapping_levels: true,
-                    index_format: wgpu::IndexFormat::Uint32,
-                    index_buffer: {
-                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("buffer.index.grass"),
-                            contents: bytemuck::cast_slice(
-                                &*(0..32 * 32)
-                                    .flat_map(|i| {
-                                        IntoIter::new([
-                                            0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6,
-                                        ])
-                                        .map(move |j| j + i * 7)
-                                    })
-                                    .collect::<Vec<u32>>(),
-                            ),
-                            usage: wgpu::BufferUsages::INDEX,
-                        })
-                    },
-                    render: rshader::ShaderSet::simple(
-                        rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
-                        rshader::shader_source!(
-                            "shaders",
-                            "grass.frag",
-                            "declarations.glsl",
-                            "pbr.glsl"
-                        ),
-                    )
-                    .unwrap(),
-                },
-            ],
+            mesh_layers,
         );
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
         let quadtree = QuadTree::new();
@@ -193,6 +195,7 @@ impl Terrain {
             mapfile,
             cache,
             generate_skyview,
+            cloudscape: Cloudscape::new(),
         })
     }
 
@@ -399,6 +402,8 @@ impl Terrain {
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
+
+            self.cloudscape.render(device, &mut rpass, &self.gpu_state);
         }
 
         queue.submit(Some(encoder.finish()));

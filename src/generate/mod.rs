@@ -15,7 +15,7 @@ use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
 use futures::{FutureExt, StreamExt};
-use image::{png::PngDecoder, ColorType, DynamicImage, GenericImageView, ImageDecoder};
+use image::{codecs::png::PngDecoder, ColorType, DynamicImage, GenericImageView, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
@@ -64,6 +64,7 @@ impl MapFileBuilder {
                     grid_registration: true,
                     dynamic: false,
                     min_level: 0,
+                    min_generated_level: VNode::LEVEL_CELL_38M,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Displacements.index() => LayerParams {
@@ -75,6 +76,7 @@ impl MapFileBuilder {
                     grid_registration: true,
                     dynamic: false,
                     min_level: 0,
+                    min_generated_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Albedo.index() => LayerParams {
@@ -86,6 +88,7 @@ impl MapFileBuilder {
                     grid_registration: false,
                     dynamic: false,
                     min_level: 0,
+                    min_generated_level: VNode::LEVEL_CELL_305M,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Roughness.index() => LayerParams {
@@ -97,6 +100,7 @@ impl MapFileBuilder {
                     grid_registration: false,
                     dynamic: false,
                     min_level: 0,
+                    min_generated_level: 1,
                     max_level: 1,
                 },
             LayerType::Normals.index() => LayerParams {
@@ -108,6 +112,7 @@ impl MapFileBuilder {
                     grid_registration: false,
                     dynamic: false,
                     min_level: 0,
+                    min_generated_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::GrassCanopy.index() => LayerParams {
@@ -119,6 +124,7 @@ impl MapFileBuilder {
                     grid_registration: false,
                     dynamic: false,
                     min_level: VNode::LEVEL_CELL_1M,
+                    min_generated_level: VNode::LEVEL_CELL_1M,
                     max_level: VNode::LEVEL_CELL_1M,
             },
             LayerType::AerialPerspective.index() => LayerParams {
@@ -130,6 +136,7 @@ impl MapFileBuilder {
                 grid_registration: true,
                 dynamic: true,
                 min_level: 0,
+                min_generated_level: 0,
                 max_level: VNode::LEVEL_SIDE_610M,
             }
         ]
@@ -137,19 +144,10 @@ impl MapFileBuilder {
         .collect();
 
         let mapfile = MapFile::new(layers);
-        VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Heightmaps, n, true).unwrap();
-            n.level() < VNode::LEVEL_CELL_76M
-        });
-        VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Albedo, n, true).unwrap();
-            n.level() < VNode::LEVEL_CELL_610M
-        });
-        VNode::breadth_first(|n| {
-            mapfile.reload_tile_state(LayerType::Roughness, n, true).unwrap();
-            false
-        });
-
+        mapfile.reload_tile_states(LayerType::Heightmaps).unwrap();
+        mapfile.reload_tile_states(LayerType::Albedo).unwrap();
+        mapfile.reload_tile_states(LayerType::Roughness).unwrap();
+        
         Self(mapfile)
     }
 
@@ -189,7 +187,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
     nasadem_reprojected_directory: PathBuf,
     mut progress_callback: F,
 ) -> Result<(), Error> {
-    let (missing_tiles, total_tiles) = mapfile.get_missing_base(LayerType::Heightmaps)?;
+    let (missing_tiles, total_tiles) = mapfile.get_missing_base(LayerType::Heightmaps);
     if missing_tiles.is_empty() {
         return Ok(());
     }
@@ -557,7 +555,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                 })
             } else {
                 let (node, bytes) = unordered.next().await.unwrap()?;
-                mapfile.write_tile(LayerType::Heightmaps, node, &bytes, true)?;
+                mapfile.write_tile(LayerType::Heightmaps, node, &bytes)?;
 
                 tiles_processed += 1;
                 progress_callback("Generating heightmap tiles...", tiles_processed, total_tiles);
@@ -577,7 +575,7 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
     blue_marble_directory: impl AsRef<Path>,
     mut progress_callback: F,
 ) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Albedo)?;
+    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Albedo);
     if missing.is_empty() {
         return Ok(());
     }
@@ -667,7 +665,7 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
             layer.texture_resolution as u32,
             image::ColorType::Rgba8,
         )?;
-        mapfile.write_tile(LayerType::Albedo, n, &data, true)
+        mapfile.write_tile(LayerType::Albedo, n, &data)
     })
 }
 
@@ -675,7 +673,7 @@ pub(crate) async fn generate_roughness<F: FnMut(&str, usize, usize) + Send>(
     mapfile: &MapFile,
     mut progress_callback: F,
 ) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Roughness)?;
+    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Roughness);
     if missing.is_empty() {
         return Ok(());
     }
@@ -704,7 +702,7 @@ pub(crate) async fn generate_roughness<F: FnMut(&str, usize, usize) + Send>(
         let mut e = lz4::EncoderBuilder::new().level(9).build(Vec::new())?;
         e.write_all(&data)?;
 
-        mapfile.write_tile(LayerType::Roughness, n, &e.finish().0, true)?;
+        mapfile.write_tile(LayerType::Roughness, n, &e.finish().0)?;
     }
 
     Ok(())

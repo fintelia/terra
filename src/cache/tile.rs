@@ -156,6 +156,7 @@ pub(crate) struct LayerParams {
     pub dynamic: bool,
 
     pub min_level: u8,
+    pub min_generated_level: u8,
     pub max_level: u8,
 }
 
@@ -252,13 +253,13 @@ impl TileCache {
                         let ty = layer.layer_type;
                         if !((entry.valid | entry.streaming).contains_layer(ty)) {
                             match mapfile.tile_state(ty, entry.node).unwrap() {
-                                TileState::MissingBase | TileState::Base | TileState::Generated => {
+                                TileState::MissingBase | TileState::Base => {
                                     if self.streamer.num_inflight() < 128 {
                                         entry.streaming |= ty.bit_mask();
                                         self.streamer.request_tile(entry.node, ty);
                                     }
                                 }
-                                TileState::GpuOnly | TileState::Missing => {
+                                TileState::GpuOnly => {
                                     pending_generate.push(entry.node);
                                 }
                             }

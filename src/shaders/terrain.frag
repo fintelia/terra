@@ -292,13 +292,13 @@ void main() {
 
 	out_color.rgb = debug_overlay(out_color.rgb);
 
-	vec3 wx = fract(position/102400 + fract(globals.camera/102400));
-	vec3 v = normalize(position + globals.camera);
-	float shape = texture(sampler3D(cloud_shape, linear), wx).x;
-	float cover = texture(sampler2D(cloud_cover, linear), vec2(atan(v.y, v.x) * 0.5 / 3.141592 + 0.5, acos(v.z) / 3.141592)).x;
+	// vec3 wx = fract(position/102400 + fract(globals.camera/102400));
+	// vec3 v = normalize(position + globals.camera);
+	// float shape = texture(sampler3D(cloud_shape, linear), wx).x;
+	// float cover = texture(sampler2D(cloud_cover, linear), vec2(atan(v.y, v.x) * 0.5 / 3.141592 + 0.5, acos(v.z) / 3.141592)).x;
 
-	vec2 p = rsi(globals.camera, normalize(position-globals.camera), planetRadius+1000);
-	if (p.x < p.y && p.x > 0) {
-		out_color.rgb = mix(out_color.rgb, vec3(0.8), shape*cover);
-	}
+	// vec2 p = rsi(globals.camera, normalize(position-globals.camera), planetRadius+1000);
+	// if (p.x < p.y && p.x > 0) {
+	// 	out_color.rgb = mix(out_color.rgb, vec3(0.8), shape*cover);
+	// }
 }
