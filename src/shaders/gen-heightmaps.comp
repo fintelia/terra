@@ -5,13 +5,7 @@
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(binding = 0) uniform UniformBlock {
-	ivec2 position;
-	ivec2 origin;
-	float spacing;
-	int in_slot;
-	int out_slot;
-	int level_resolution;
-	uint _face;
+	int slot;
 } ubo;
 
 layout(binding = 1) uniform utexture2D heightmaps_in;
@@ -21,16 +15,26 @@ layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
+const uint HEIGHTMAP_INNER_RESOLUTION = 512;
+const uint HEIGHTMAP_BORDER = 4;
+const uint HEIGHTMAP_RESOLUTION = 521;
+
 shared vec4 h[8][8];
 
 void main() {
-	Node node = nodes[ubo.out_slot];
+	Node node = nodes[ubo.slot];
 	uint x = gl_LocalInvocationID.x;
 	uint y = gl_LocalInvocationID.y;
 
+	int level_resolution = int(HEIGHTMAP_INNER_RESOLUTION << node.level);
+	float spacing = 19545.9832 / float(1 << node.level);
+	uvec2 parent_offset = node.coords & uvec2(1);
+	uvec2 parent_origin = parent_offset * HEIGHTMAP_INNER_RESOLUTION / 2 + HEIGHTMAP_BORDER / 2;
+	uvec2 base_position = (node.coords - (1 << node.level)/2) * HEIGHTMAP_INNER_RESOLUTION - HEIGHTMAP_BORDER;
+
 	// Load parent heights
-	ivec2 origin = ivec2(ubo.origin + gl_WorkGroupID.xy * 4) - ivec2(2);
-	h[x][y].x = extract_height(texelFetch(heightmaps_in, min(origin.xy + ivec2(x,y), 521), 0).x);
+	ivec2 origin = ivec2(parent_origin + gl_WorkGroupID.xy * 4) - ivec2(2);
+	h[x][y].x = extract_height(texelFetch(heightmaps_in, min(origin.xy + ivec2(x,y), ivec2(HEIGHTMAP_RESOLUTION)), 0).x);
 	barrier();
 
 	// Compute slopes
@@ -64,32 +68,32 @@ void main() {
 	vec4 ddx = vec4(0, 1, 2*t.x, 3*t.x*t.x);
 	vec4 ddy = vec4(0, 1, 2*t.y, 3*t.y*t.y);
 	float height = dot(xx * M, yy);
-	float dx = dot(ddx * M, yy) / ubo.spacing;
-	float dy = dot(xx * M, ddy) / ubo.spacing;
-	// float dxy = dot(ddx * M, ddy) / (ubo.spacing*ubo.spacing);
+	float dx = dot(ddx * M, yy) / spacing;
+	float dy = dot(xx * M, ddy) / spacing;
+	// float dxy = dot(ddx * M, ddy) / (spacing*spacing);
 	float slope = length(vec2(dx, dy));
 
 
 	// Calculate position
 	ivec3 position;
-	ivec2 position2 = ivec2(gl_GlobalInvocationID.xy)+ubo.position;
-	if (node.face == 0) position = ivec3( ubo.level_resolution/2,   position2.x,             -position2.y);
-	if (node.face == 1) position = ivec3(-ubo.level_resolution/2,  -position2.x,             -position2.y);
-	if (node.face == 2) position = ivec3( position2.x,              ubo.level_resolution/2,   position2.y);
-	if (node.face == 3) position = ivec3(-position2.x,             -ubo.level_resolution/2,   position2.y);
-	if (node.face == 4) position = ivec3( position2.x,             -position2.y,              ubo.level_resolution/2);
-	if (node.face == 5) position = ivec3(-position2.x,             -position2.y,             -ubo.level_resolution/2);
+	ivec2 position2 = ivec2(gl_GlobalInvocationID.xy)+ivec2(base_position);
+	if (node.face == 0) position = ivec3( level_resolution/2,   position2.x,             -position2.y);
+	if (node.face == 1) position = ivec3(-level_resolution/2,  -position2.x,             -position2.y);
+	if (node.face == 2) position = ivec3( position2.x,              level_resolution/2,   position2.y);
+	if (node.face == 3) position = ivec3(-position2.x,             -level_resolution/2,   position2.y);
+	if (node.face == 4) position = ivec3( position2.x,             -position2.y,              level_resolution/2);
+	if (node.face == 5) position = ivec3(-position2.x,             -position2.y,             -level_resolution/2);
 
 	// If we are on the edge of a tile, then make sure our slope matches what is on the other side
 	// of the seam (by setting both to zero).
-	if (any(greaterThanEqual(abs(position2), ivec2(ubo.level_resolution/2)))) {
+	if (any(greaterThanEqual(abs(position2), ivec2(level_resolution/2)))) {
 		slope = 0;
 	}
 
 	// Apply noise
-	//float n = pow(random(uvec3(position+ubo.level_resolution/2)), 2);
-	float n = random(uvec3(position+ubo.level_resolution/2)) - 0.5;
-	height += n * ubo.spacing * mix(0.1, 0.2, smoothstep(0.4, 0.5, slope));
+	//float n = pow(random(uvec3(position+level_resolution/2)), 2);
+	float n = random(uvec3(position+level_resolution/2)) - 0.5;
+	height += n * spacing * mix(0.1, 0.2, smoothstep(0.4, 0.5, slope));
 
 	uint encoded_height = uint((height + 1024) * 512.0) | (height <= 0 ? 0x800000 : 0);
 

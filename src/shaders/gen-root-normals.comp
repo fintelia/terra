@@ -5,20 +5,26 @@
 layout(local_size_x = 4, local_size_y = 4) in;
 
 layout(binding = 0) uniform UniformBlock {
-	ivec2 heightmaps_origin;
-	int heightmaps_slot;
-	int normals_slot;
-	float spacing;
-	//vec3 padding;
+	int slot;
 } ubo;
 
 layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
 
+layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
+	Node nodes[];
+};
+
 shared vec2 group_normals[16];
 
+const uint HEIGHTMAP_BORDER = 4;
+const uint NORMALS_BORDER = 2;
+
 void main() {
-	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ubo.heightmaps_origin, ubo.heightmaps_slot);
+	Node node = nodes[ubo.slot];
+	float spacing = 19545.9832 / float(1 << node.level);
+
+	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ivec2(HEIGHTMAP_BORDER - NORMALS_BORDER), ubo.slot);
 	ivec2 out_pos = ivec2(gl_GlobalInvocationID.xy);
 
 	float h00 = extract_height_above_water(texelFetch(heightmaps, in_pos, 0).x);
@@ -27,7 +33,7 @@ void main() {
 	float h11 = extract_height_above_water(texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x);
 
 	vec3 normal = vec3(h10 + h11 - h00 - h01,
-					   2.0 * ubo.spacing,
+					   2.0 * spacing,
 					   -1.0 * (h01 + h11 - h00 - h10));
 
 	normal = normalize(normal);

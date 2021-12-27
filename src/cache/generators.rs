@@ -9,8 +9,7 @@ use super::{LayerMask, LayerParams, LayerType, MeshCache};
 use crate::{
     cache::{mesh::MeshGenerateUniforms, MeshType, TileCache},
     generate::{
-        GenDisplacementsUniforms, GenHeightmapsUniforms, GenMaterialsUniforms,
-        GenNormalsUniforms,
+        GenDisplacementsUniforms, GenHeightmapsUniforms, GenMaterialsUniforms, GenNormalsUniforms,
     },
     gpu_state::{DrawIndexedIndirect, GpuState},
     terrain::quadtree::VNode,
@@ -470,37 +469,13 @@ pub(crate) fn generators(
         .dimensions((heightmaps_resolution + 7) / 8)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .build(
-            move |node: VNode,
+            move |_,
                   slot: usize,
-                  parent_slot: Option<usize>,
+                  _,
                   _|
                   -> GenHeightmapsUniforms {
-                let (_parent, parent_index) = node.parent().expect("root node missing");
-                let parent_offset = crate::terrain::quadtree::node::OFFSETS[parent_index as usize];
-                let origin = [
-                    heightmaps_border as i32 / 2,
-                    heightmaps_resolution as i32 / 2 - heightmaps_border as i32 / 2,
-                ];
-                let spacing = node.aprox_side_length()
-                    / (heightmaps_resolution - heightmaps_border * 2 - 1) as f32;
-                let resolution = heightmaps_resolution - heightmaps_border * 2 - 1;
-                let level_resolution = resolution << node.level();
                 GenHeightmapsUniforms {
-                    position: [
-                        i32::try_from(node.x() as i64 * resolution as i64
-                            - level_resolution as i64 / 2
-                            - heightmaps_border as i64).unwrap(),
-                        i32::try_from(node.y() as i64 * resolution as i64
-                            - level_resolution as i64 / 2
-                            - heightmaps_border as i64).unwrap(),
-                    ],
-                    origin: [origin[parent_offset.x as usize], origin[parent_offset.y as usize]],
-                    spacing,
-                    in_slot: parent_slot.unwrap() as i32,
-                    out_slot: slot as i32,
-                    level_resolution: level_resolution as i32,
-                    face: node.face() as u32,
-                    _padding: [0; 3],
+                    slot: slot as i32,
                 }
             },
         ),
@@ -569,19 +544,9 @@ pub(crate) fn generators(
         .dimensions((normals_resolution + 3) / 4)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
-        .build(move |node: VNode, slot: usize, _, _| -> GenNormalsUniforms {
-            let spacing =
-                node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
-
+        .build(move |_, slot: usize, _, _| -> GenNormalsUniforms {
             GenNormalsUniforms {
-                heightmaps_origin: [
-                    (heightmaps_border - normals_border) as i32,
-                    (heightmaps_border - normals_border) as i32,
-                ],
-                spacing,
-                heightmaps_slot: slot as i32,
-                normals_slot: slot as i32,
-                padding: [0.0; 3],
+                slot: slot as i32,
             }
         }),
         ShaderGenBuilder::new(

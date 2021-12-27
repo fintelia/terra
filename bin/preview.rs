@@ -82,7 +82,7 @@ fn main() {
         .find(|monitor| monitor.video_modes().any(|mode| mode.size().width == 1920));
     let window = winit::window::WindowBuilder::new()
         .with_visible(false)
-//        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)))
+        .with_fullscreen(Some(winit::window::Fullscreen::Borderless(monitor)))
         .build(&event_loop)
         .unwrap();
 

@@ -516,7 +516,8 @@ impl TileCache {
                 mesh_valid_mask: [0; 4],
                 level: 0,
                 face: 0,
-                padding1: [0; 54],
+                coords: [0; 2],
+                padding1: [0; 52],
             };
             TileCache::base_slot(self.levels.len() as u8)
         ];
@@ -526,6 +527,7 @@ impl TileCache {
 
                 data[index].level = level_index as u32;
                 data[index].face = slot.node.face() as u32;
+                data[index].coords = [slot.node.x(), slot.node.y()];
                 data[index].relative_position = {
                     (cgmath::Point3::from(camera) - slot.node.center_wspace())
                         .cast::<f32>()
