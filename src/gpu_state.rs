@@ -178,7 +178,7 @@ impl GpuState {
                 mapped_at_creation: false,
             }),
             nodes: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 512 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
+                size: 1024 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
                 usage: wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::UNIFORM
                     | wgpu::BufferUsages::STORAGE,

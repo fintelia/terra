@@ -116,9 +116,9 @@ impl TextureFormat {
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeSlot {
-    pub(super) layer_origins: [[f32; 2]; 16],
-    pub(super) layer_steps: [f32; 16],
-    pub(super) layer_slots: [i32; 16],
+    pub(super) layer_origins: [[f32; 2]; 48],
+    pub(super) layer_steps: [f32; 48],
+    pub(super) layer_slots: [i32; 48],
 
     pub(super) relative_position: [f32; 3],
     pub(super) min_distance: f32,

@@ -621,6 +621,14 @@ pub(crate) fn generators(
             assert_eq!(node.level(), VNode::LEVEL_CELL_1M);
             [slot as u32, slot as u32 - grass_canopy_base_slot]
         }),
+        ShaderGenBuilder::new(
+            "bent-normals".into(),
+            rshader::shader_source!("../shaders", "gen-bent-normals.comp", "declarations.glsl", "hash.glsl"),
+        )
+        .outputs(LayerType::BentNormals.bit_mask())
+        .dimensions((257 + 7) / 8)
+        .peer_inputs(LayerType::Heightmaps.bit_mask())
+        .build(move |_, slot: usize, _, _| -> i32 { slot as i32 }),
         Box::new(MeshGen {
             shaders: vec![
                 // ShaderSet::compute_only(rshader::shader_source!(

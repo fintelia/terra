@@ -17,9 +17,9 @@ struct Indirect {
 };
 
 struct Node {
-	vec2 layer_origins[16];
-	float layer_steps[16];
-	int layer_slots[16];
+	vec2 layer_origins[48];
+	float layer_steps[48];
+	int layer_slots[48];
 
 	vec3 relative_position;
 	float min_distance;
@@ -51,7 +51,7 @@ float extract_height_above_water(uint encoded) {
 	return height;
 }
 
-const uint NUM_LAYERS = 8;
+const uint NUM_LAYERS = 24;
 
 const uint DISPLACEMENTS_LAYER = 0;
 const uint ALBEDO_LAYER = 1;
@@ -61,6 +61,7 @@ const uint HEIGHTMAPS_LAYER = 4;
 const uint GRASS_CANOPY_LAYER = 5;
 const uint MATERIAL_KIND_LAYER = 6;
 const uint AERIAL_PERSPECTIVE_LAYER = 7;
+const uint BENT_NORMALS_LAYER = 8;
 
 const uint PARENT_DISPLACEMENTS_LAYER = NUM_LAYERS + 0;
 const uint PARENT_ALBEDO_LAYER = NUM_LAYERS + 1;

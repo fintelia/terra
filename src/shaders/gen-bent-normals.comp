@@ -1,0 +1,43 @@
+#version 450 core
+#include "declarations.glsl"
+#include "hash.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(binding = 0) uniform UniformBlock {
+	int slot;
+} ubo;
+
+layout(binding = 1) uniform utexture2DArray heightmaps;
+layout(rgba8, binding = 2) writeonly uniform image2DArray bent_normals;
+
+layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
+	Node nodes[];
+};
+
+const uint HEIGHTMAP_BORDER = 4;
+
+void main() {
+	Node node = nodes[ubo.slot];
+    vec4 value = vec4(1);
+	float spacing = 19545.9832 / float(1 << node.level);
+
+    ivec3 in_pos = ivec3(ivec2(gl_GlobalInvocationID.xy * 2 + HEIGHTMAP_BORDER), ubo.slot);
+
+    float height = extract_height_above_water(texelFetch(heightmaps, in_pos, 0).x);
+
+    for (int y = -2; y <= 2; y++) {
+        for (int x = -2; x <= 2; x++) {
+            if (x != 0 || y != 0) {
+                float h = extract_height_above_water(texelFetch(heightmaps, in_pos + ivec3( x, y, 0), 0).x) - height;
+                if (h > 0)
+                    value.a -= 1.0 / 24 * smoothstep(spacing*.25, spacing*.5, h);
+            }
+        }
+    }
+
+    // if (neighbors.x + neighbors.y + neighbors.z + neighbors.w < 0)
+    //     value = vec4(1);
+
+    imageStore(bent_normals, ivec3(gl_GlobalInvocationID.xy, node.layer_slots[BENT_NORMALS_LAYER]), value);
+}

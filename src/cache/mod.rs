@@ -41,6 +41,7 @@ pub(crate) enum LayerType {
     GrassCanopy = 5,
     MaterialKind = 6,
     AerialPerspective = 7,
+    BentNormals = 8,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -56,6 +57,7 @@ impl LayerType {
             5 => LayerType::GrassCanopy,
             6 => LayerType::MaterialKind,
             7 => LayerType::AerialPerspective,
+            8 => LayerType::BentNormals,
             _ => unreachable!(),
         }
     }
@@ -72,10 +74,11 @@ impl LayerType {
             LayerType::GrassCanopy => "grass_canopy",
             LayerType::MaterialKind => "material_kind",
             LayerType::AerialPerspective => "aerial_perspective",
+            LayerType::BentNormals => "bent_normals",
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=7).map(Self::from_index)
+        (0..=8).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {
@@ -139,24 +142,24 @@ impl LayerMask {
         Self(NonZeroU32::new(Self::VALID).unwrap())
     }
     pub fn contains_layer(&self, t: LayerType) -> bool {
-        assert!((t as usize) < 8);
+        assert!((t as usize) < 16);
         self.0.get() & (1 << (t as usize)) != 0
     }
     pub fn contains_mesh(&self, t: MeshType) -> bool {
         assert!((t as usize) < 8);
-        self.0.get() & (1 << (t as usize + 8)) != 0
+        self.0.get() & (1 << (t as usize + 16)) != 0
     }
 }
 impl From<LayerType> for LayerMask {
     fn from(t: LayerType) -> Self {
-        assert!((t as usize) < 8);
+        assert!((t as usize) < 16);
         Self(NonZeroU32::new(Self::VALID | (1 << (t as usize))).unwrap())
     }
 }
 impl From<MeshType> for LayerMask {
     fn from(t: MeshType) -> Self {
         assert!((t as usize) < 8);
-        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 8))).unwrap())
+        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 16))).unwrap())
     }
 }
 impl std::ops::BitOr for LayerMask {
@@ -494,7 +497,7 @@ impl TileCache {
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
-        assert_eq!(std::mem::size_of::<NodeSlot>(), 512);
+        assert_eq!(std::mem::size_of::<NodeSlot>(), 1024);
 
         let mut frame_nodes: VecMap<HashMap<_, _>> = VecMap::new();
         for (index, mesh) in &self.meshes {
@@ -508,9 +511,9 @@ impl TileCache {
 
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
-                layer_origins: [[0.0; 2]; 16],
-                layer_slots: [-1; 16],
-                layer_steps: [0.0; 16],
+                layer_origins: [[0.0; 2]; 48],
+                layer_slots: [-1; 48],
+                layer_steps: [0.0; 48],
                 relative_position: [0.0; 3],
                 min_distance: 0.0,
                 mesh_valid_mask: [0; 4],
@@ -569,7 +572,7 @@ impl TileCache {
                                 && slot.valid.contains_layer(layer)
                                 && ancestor_slot.valid.contains_layer(layer)
                             {
-                                layer_index + 8
+                                layer_index + 24
                             } else {
                                 continue;
                             };
@@ -593,8 +596,9 @@ impl TileCache {
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
                             ];
-                            data[index].layer_slots[layer_slot] =
-                                self.get_slot(ancestor).unwrap() as i32;
+                            data[index].layer_slots[layer_slot] = (self.get_slot(ancestor).unwrap()
+                                - Self::base_slot(self.layers[layer].min_level))
+                                as i32;
                             data[index].layer_steps[layer_slot] =
                                 f32::powi(0.5, ancestor_index as i32) * texture_step;
                         }

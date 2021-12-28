@@ -19,6 +19,7 @@ layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
+layout(set = 0, binding = 10) uniform texture2DArray bent_normals;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -103,7 +104,7 @@ vec3 debug_overlay(vec3 color) {
 	// if(abs(length(position.xz-globals.camera.xz) - 32*1024) < 100)
 	// 	color = vec3(1);
 
-	// if(abs(max(abs(position.x), abs(position.z)) - 2048*1.5) < 30)
+	// if(fract(length(position)/1024) < 0.05)
 	// 	color = vec3(1);
 
 	// vec3 line_color = vec3(.5,0,0);
@@ -248,6 +249,8 @@ void main() {
 		roughness_value = mix(parent_roughness, roughness_value, morph);
 	}
 
+	vec4 bn_value = texture(sampler2DArray(bent_normals, linear), layer_to_texcoord(BENT_NORMALS_LAYER));
+
 	// if (node.grass_canopy_origin.z >= 0) {
 	// 	vec4 canopy = texture(sampler2DArray(grass_canopy, linear), node.grass_canopy_origin + vec3(texcoord * node.grass_canopy_step, 0));
 	// 	canopy.a *= smoothstep(512*2, 512*1, length(position));
@@ -265,6 +268,9 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0));
 
+	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
+		out_color.rgb *= bn_value.a;
+
 	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
@@ -272,6 +278,10 @@ void main() {
 	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
+
+	// if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
+	// 	out_color.rgb = vec3(bn_value.a);
+
 
 	out_color.rgb = debug_overlay(out_color.rgb);
 }

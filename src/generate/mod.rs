@@ -101,7 +101,7 @@ impl MapFileBuilder {
                     dynamic: false,
                     min_level: 0,
                     min_generated_level: 1,
-                    max_level: 1,
+                    max_level: 0,
                 },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
@@ -138,7 +138,19 @@ impl MapFileBuilder {
                 min_level: 0,
                 min_generated_level: 0,
                 max_level: VNode::LEVEL_SIDE_610M,
-            }
+            },
+            LayerType::BentNormals.index() => LayerParams {
+                layer_type: LayerType::BentNormals,
+                texture_resolution: 257,
+                texture_border_size: 0,
+                texture_format: TextureFormat::RGBA8,
+                tiles_generated_per_frame: 8,
+                grid_registration: true,
+                dynamic: false,
+                min_level: VNode::LEVEL_CELL_153M,
+                min_generated_level: VNode::LEVEL_CELL_153M,
+                max_level: VNode::LEVEL_CELL_19M,
+            },
         ]
         .into_iter()
         .collect();
