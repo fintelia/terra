@@ -279,9 +279,5 @@ void main() {
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
 
-	// if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
-	// 	out_color.rgb = vec3(bn_value.a);
-
-
 	out_color.rgb = debug_overlay(out_color.rgb);
 }

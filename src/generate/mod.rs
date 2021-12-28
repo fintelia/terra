@@ -141,7 +141,7 @@ impl MapFileBuilder {
             },
             LayerType::BentNormals.index() => LayerParams {
                 layer_type: LayerType::BentNormals,
-                texture_resolution: 257,
+                texture_resolution: 513,
                 texture_border_size: 0,
                 texture_format: TextureFormat::RGBA8,
                 tiles_generated_per_frame: 8,
@@ -149,7 +149,7 @@ impl MapFileBuilder {
                 dynamic: false,
                 min_level: VNode::LEVEL_CELL_153M,
                 min_generated_level: VNode::LEVEL_CELL_153M,
-                max_level: VNode::LEVEL_CELL_19M,
+                max_level: VNode::LEVEL_CELL_76M,
             },
         ]
         .into_iter()

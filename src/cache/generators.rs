@@ -626,7 +626,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-bent-normals.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::BentNormals.bit_mask())
-        .dimensions((257 + 7) / 8)
+        .dimensions((513 + 7) / 8)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(move |_, slot: usize, _, _| -> i32 { slot as i32 }),
         Box::new(MeshGen {
