@@ -129,7 +129,8 @@ pub(crate) struct NodeSlot {
     pub(super) level: u32,
     pub(super) coords: [u32; 2],
 
-    pub(super) padding1: [u32; 52],
+    pub(super) parent: i32,
+    pub(super) padding: [u32; 51],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}

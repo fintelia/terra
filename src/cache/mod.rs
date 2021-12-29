@@ -520,7 +520,8 @@ impl TileCache {
                 level: 0,
                 face: 0,
                 coords: [0; 2],
-                padding1: [0; 52],
+                parent: -1,
+                padding: [0; 51],
             };
             TileCache::base_slot(self.levels.len() as u8)
         ];
@@ -538,6 +539,12 @@ impl TileCache {
                         .into()
                 };
                 data[index].min_distance = slot.node.min_distance() as f32;
+                data[index].parent = slot
+                    .node
+                    .parent()
+                    .and_then(|(parent, _)| self.get_slot(parent))
+                    .map(|s| s as i32)
+                    .unwrap_or(-1);
 
                 for (mesh_index, m) in &self.meshes {
                     assert!(m.desc.entries_per_node <= 32);

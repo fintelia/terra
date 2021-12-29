@@ -30,7 +30,8 @@ struct Node {
 	uint level;
 	uvec2 coords;
 
-	uint padding2[52];
+	int parent;
+	uint padding[51];
 };
 
 struct GenMeshUniforms {
