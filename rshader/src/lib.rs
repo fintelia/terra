@@ -167,13 +167,14 @@ pub(crate) struct ShaderSetInner {
     pub input_attributes: Vec<wgpu::VertexAttribute>,
     pub layout_descriptor: Vec<wgpu::BindGroupLayoutEntry>,
     pub desc_names: Vec<Option<String>>,
+    pub workgroup_size: Option<[u32; 3]>,
 }
 impl ShaderSetInner {
     pub fn simple(
         vertex: wgpu::ShaderSource<'static>,
         fragment: wgpu::ShaderSource<'static>,
     ) -> Result<Self, anyhow::Error> {
-        let (input_attributes, desc_names, layout_descriptor) =
+        let (input_attributes, desc_names, layout_descriptor, _) =
             reflect_naga(&[&vertex, &fragment])?;
 
         Ok(Self {
@@ -183,11 +184,12 @@ impl ShaderSetInner {
             desc_names,
             layout_descriptor,
             input_attributes,
+            workgroup_size: None,
         })
     }
 
     pub fn compute_only(source: wgpu::ShaderSource<'static>) -> Result<Self, anyhow::Error> {
-        let (input_attributes, desc_names, layout_descriptor) = reflect_naga(&[&source])?;
+        let (input_attributes, desc_names, layout_descriptor, workgroup_size) = reflect_naga(&[&source])?;
 
         assert!(input_attributes.is_empty());
         Ok(Self {
@@ -197,6 +199,7 @@ impl ShaderSetInner {
             desc_names,
             layout_descriptor,
             input_attributes,
+            workgroup_size: Some(workgroup_size),
         })
     }
 }
@@ -330,6 +333,9 @@ impl ShaderSet {
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
         }
     }
+    pub fn workgroup_size(&self) -> [u32; 3] {
+        self.inner.workgroup_size.unwrap()
+    }
 }
 
 lazy_static::lazy_static! {
@@ -391,7 +397,7 @@ macro_rules! wgsl_source {
 fn reflect_naga(
     stages: &[&wgpu::ShaderSource<'static>],
 ) -> Result<
-    (Vec<wgpu::VertexAttribute>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>),
+    (Vec<wgpu::VertexAttribute>, Vec<Option<String>>, Vec<wgpu::BindGroupLayoutEntry>, [u32; 3]),
     anyhow::Error,
 > {
     let mut binding_map: BTreeMap<u32, (Option<String>, wgpu::BindingType, wgpu::ShaderStages)> =
@@ -399,6 +405,7 @@ fn reflect_naga(
 
     // let mut attribute_offset = 0;
     // let mut attributes = Vec::new();
+    let mut workgroup_size = None;
     for stage in stages.iter() {
         let module = match stage {
             wgpu::ShaderSource::SpirV(s) => naga::front::spv::parse_u8_slice(
@@ -423,6 +430,8 @@ fn reflect_naga(
             naga::ShaderStage::Fragment => wgpu::ShaderStages::FRAGMENT,
             naga::ShaderStage::Compute => wgpu::ShaderStages::COMPUTE,
         };
+
+        workgroup_size = Some(module.entry_points[0].workgroup_size);
 
         // TODO: handle vertex attributes
 
@@ -551,5 +560,5 @@ fn reflect_naga(
         bindings.push(wgpu::BindGroupLayoutEntry { binding, visibility, ty, count: None });
     }
 
-    Ok((Vec::new(), names, bindings))
+    Ok((Vec::new(), names, bindings, workgroup_size.unwrap()))
 }

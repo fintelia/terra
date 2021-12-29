@@ -266,12 +266,18 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
             );
         }
 
+        let workgroup_size = self.shader.workgroup_size();
+
         if self.bind_group.is_some() && self.pipeline.is_some() {
             let mut cpass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             cpass.set_pipeline(self.pipeline.as_ref().unwrap());
             cpass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[uniform_offset as u32]);
-            cpass.dispatch(self.dimensions, self.dimensions, 1);
+            cpass.dispatch(
+                (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
+                (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
+                1,
+            );
         } else {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
@@ -309,7 +315,11 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
                 cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
                 cpass.set_bind_group(0, &bind_group, &[uniform_offset as u32]);
-                cpass.dispatch(self.dimensions, self.dimensions, 1);
+                cpass.dispatch(
+                    (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
+                    (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
+                    1,
+                );
             }
 
             if image_views.is_empty() {
@@ -466,7 +476,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-heightmaps.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::Heightmaps.bit_mask())
-        .dimensions((heightmaps_resolution + 7) / 8)
+        .dimensions(heightmaps_resolution)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .build(
             move |_,
@@ -495,7 +505,7 @@ pub(crate) fn generators(
         )
         .outputs(LayerType::Displacements.bit_mask())
         .root_outputs(LayerType::Displacements.bit_mask())
-        .dimensions((displacements_resolution + 7) / 8)
+        .dimensions(displacements_resolution)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
         .root_peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(
@@ -541,7 +551,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-root-normals.comp", "declarations.glsl", "hash.glsl"),
         )
         .root_outputs(LayerType::Normals.bit_mask())
-        .dimensions((normals_resolution + 3) / 4)
+        .dimensions(normals_resolution)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
         .build(move |_, slot: usize, _, _| -> GenNormalsUniforms {
@@ -554,7 +564,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-materials.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
-        .dimensions((normals_resolution + 3) / 4)
+        .dimensions(normals_resolution)
         .parent_inputs(LayerType::Albedo.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
@@ -615,7 +625,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-grass-canopy.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::GrassCanopy.bit_mask())
-        .dimensions((grass_canopy_resolution + 7) / 8)
+        .dimensions(grass_canopy_resolution)
         .peer_inputs(LayerType::Normals.bit_mask())
         .build(move |node: VNode, slot: usize, _, _| -> [u32; 2] {
             assert_eq!(node.level(), VNode::LEVEL_CELL_1M);
@@ -626,7 +636,7 @@ pub(crate) fn generators(
             rshader::shader_source!("../shaders", "gen-bent-normals.comp", "declarations.glsl", "hash.glsl"),
         )
         .outputs(LayerType::BentNormals.bit_mask())
-        .dimensions((513 + 7) / 8)
+        .dimensions(513)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(move |_, slot: usize, _, _| -> i32 { slot as i32 }),
         Box::new(MeshGen {
