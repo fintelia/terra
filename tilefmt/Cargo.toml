@@ -1,0 +1,10 @@
+[package]
+name = "tilefmt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bytemuck = "1.4.1"
+cgmath = "0.18.0"
+lz4 = "1.23.2"
+rand = "0.8.0"

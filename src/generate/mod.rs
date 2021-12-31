@@ -339,7 +339,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                     let bytes = tokio::fs::read(path).await?;
                     let tile = tokio::task::spawn_blocking(move || {
                         let (sector_resolution, sector) =
-                            heightmap::uncompress_heightmap_tile(None, &bytes);
+                            tilefmt::uncompress_heightmap_tile(None, &bytes);
 
                         let step = ((sector_resolution - 1) * (resolution / sector_size))
                             / (face_resolution - 1);
@@ -546,14 +546,14 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                             let parent = match parent {
                                 Some(p) => {
                                     parent_heights = p.2;
-                                    Some((p.0, p.1, &**parent_heights))
+                                    Some((crate::terrain::quadtree::node::OFFSETS[p.0 as usize], p.1, &**parent_heights))
                                 }
                                 None => None,
                             };
 
                             (
                                 node,
-                                heightmap::compress_heightmap_tile(
+                                tilefmt::compress_heightmap_tile(
                                     resolution,
                                     2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
                                     &heights,

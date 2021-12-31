@@ -6,7 +6,6 @@ extern crate test;
 
 #[macro_use]
 extern crate lazy_static;
-extern crate rshader;
 
 mod asset;
 mod cache;
