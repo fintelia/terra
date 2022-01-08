@@ -1,9 +1,0 @@
-/*!
-    @import /amethyst_window/src/config.rs#DisplayConfig
-    DisplayConfig
-*/
-
-(
-  title: "Terra Example",
-  dimensions: Some((1920, 1080)),
-)
