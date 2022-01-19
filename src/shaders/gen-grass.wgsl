@@ -8,15 +8,18 @@ struct Entry {
     padding2: vec4<f32>;
 };
 struct Node {
-    layer_origins: array<vec2<f32>, 16>;
-    layer_steps: array<f32, 16>;
-    layer_slots: array<i32, 16>;
+    layer_origins: array<vec2<f32>, 48>;
+    layer_steps: array<f32, 48>;
+    layer_slots: array<i32, 48>;
 	relative_position: vec3<f32>;
 	min_distance: f32;
 	mesh_valid_mask: array<u32, 4>;
     face: u32;
 	level: u32;
-	padding2: array<u32, 54>;
+    coords: vec2<u32>;
+
+    parent: i32;
+	padding2: array<u32, 51>;
 };
 struct Indirect {
     vertex_count: atomic<i32>; // TODO: why doesn't u32 work here?
@@ -52,7 +55,7 @@ struct Nodes {
 [[group(0), binding(7)]] var albedo: texture_2d_array<f32>;
 [[group(0), binding(8)]] var grass_canopy: texture_2d_array<f32>;
 
-let NUM_LAYERS: u32 = 8u;
+let NUM_LAYERS: u32 = 24u;
 
 let DISPLACEMENTS_LAYER: u32 = 0u;
 let ALBEDO_LAYER: u32 = 1u;
@@ -62,14 +65,15 @@ let HEIGHTMAPS_LAYER: u32 = 4u;
 let GRASS_CANOPY_LAYER: u32 = 5u;
 let MATERIAL_KIND_LAYER: u32 = 6u;
 let AERIAL_PERSPECTIVE_LAYER: u32 = 7u;
+let BENT_NORMALS_LAYER: u32 = 8u;
 
-let PARENT_DISPLACEMENTS_LAYER: u32 = 8u;
-let PARENT_ALBEDO_LAYER: u32 = 9u;
-let PARENT_ROUGHNESS_LAYER: u32 = 10u;
-let PARENT_NORMALS_LAYER: u32 = 11u;
-let PARENT_HEIGHTMAPS_LAYER: u32 = 12u;
-let PARENT_GRASS_CANOPY_LAYER: u32 = 13u;
-let PARENT_MATERIAL_KIND_LAYER: u32 = 14u;
+let PARENT_DISPLACEMENTS_LAYER: u32 = 24u;
+let PARENT_ALBEDO_LAYER: u32 = 25u;
+let PARENT_ROUGHNESS_LAYER: u32 = 26u;
+let PARENT_NORMALS_LAYER: u32 = 27u;
+let PARENT_HEIGHTMAPS_LAYER: u32 = 28u;
+let PARENT_GRASS_CANOPY_LAYER: u32 = 29u;
+let PARENT_MATERIAL_KIND_LAYER: u32 = 30u;
 
 let GRASS_BASE_SLOT: u32 = 574u;//30 + (19 - 2) * 32;
 
@@ -154,9 +158,22 @@ fn main(
         return;
     }
 
+    // Sample displacements texture at random offset (rnd1, rnd).
+    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0 * 64.0;
+    let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_steps[DISPLACEMENTS_LAYER];
+    let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
+    let dimensions = textureDimensions(displacements);
+    let f = fract(texcoord.xy * vec2<f32>(dimensions));
+    let base_coords = vec2<i32>(texcoord.xy * vec2<f32>(dimensions));
+    let i00 = textureLoad(displacements, base_coords, array_index, 0);
+    let i10 = textureLoad(displacements, base_coords + vec2<i32>(1,0), array_index, 0);
+    let i01 = textureLoad(displacements, base_coords + vec2<i32>(0,1), array_index, 0);
+    let i11 = textureLoad(displacements, base_coords + vec2<i32>(1,1), array_index, 0);
+    let position = mix(mix(i00, i10, f.x), mix(i01, i11, f.y), f.y);
+
     let i = atomicAdd(&mesh_indirect.entries[ubo.mesh_base_entry + entry].vertex_count, 15) / 15;
     grass_storage.entries[ubo.storage_base_entry + entry][i].texcoord = vec2<f32>(0.0); //layer_to_texcoord(NORMALS_LAYER).xy;
-    grass_storage.entries[ubo.storage_base_entry + entry][i].position = read_texture(DISPLACEMENTS_LAYER, global_id).xyz;
+    grass_storage.entries[ubo.storage_base_entry + entry][i].position = position.xyz;
     grass_storage.entries[ubo.storage_base_entry + entry][i].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3<f32>(-.0)) * mix(vec3<f32>(.5), vec3<f32>(1.5), vec3<f32>(rnd2, rnd3, rnd4));
     grass_storage.entries[ubo.storage_base_entry + entry][i].angle = rnd5 * 2.0 * 3.14159265;
     grass_storage.entries[ubo.storage_base_entry + entry][i].slant = rnd1;

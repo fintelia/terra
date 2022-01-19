@@ -532,7 +532,9 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                 };
 
                 unordered.push(async move {
-                    let heights = fut.await?;
+                    let mut heights = fut.await?;
+                    heights.iter_mut().for_each(|h| if *h < -512 { *h = -512; });
+
                     let parent = if let Some(p) = parent {
                         let tile = p.1.await?;
                         assert_eq!(tile.len(), resolution * resolution);

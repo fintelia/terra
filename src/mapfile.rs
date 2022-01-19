@@ -399,6 +399,8 @@ impl MapFile {
         let mut existing = HashSet::new();
 
         let directory = TERRA_DIRECTORY.join("tiles").join(target_layer);
+        std::fs::create_dir_all(&directory)?;
+
         for file in fs::read_dir(directory)? {
             let filename = file?.file_name();
             let filename = filename.to_string_lossy();
