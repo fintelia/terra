@@ -116,6 +116,9 @@ impl TextureFormat {
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeSlot {
+    pub(super) node_center: [f64; 3],
+    pub(super) padding0: f64,
+
     pub(super) layer_origins: [[f32; 2]; 48],
     pub(super) layer_steps: [f32; 48],
     pub(super) layer_slots: [i32; 48],
@@ -130,7 +133,7 @@ pub(crate) struct NodeSlot {
     pub(super) coords: [u32; 2],
 
     pub(super) parent: i32,
-    pub(super) padding: [u32; 51],
+    pub(super) padding: [u32; 43],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}

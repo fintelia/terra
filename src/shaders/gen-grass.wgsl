@@ -8,6 +8,8 @@ struct Entry {
     padding2: vec4<f32>;
 };
 struct Node {
+    node_center: array<vec2<u32>, 4>;
+
     layer_origins: array<vec2<f32>, 48>;
     layer_steps: array<f32, 48>;
     layer_slots: array<i32, 48>;
@@ -19,7 +21,7 @@ struct Node {
     coords: vec2<u32>;
 
     parent: i32;
-	padding2: array<u32, 51>;
+	padding2: array<u32, 43>;
 };
 struct Indirect {
     vertex_count: atomic<i32>; // TODO: why doesn't u32 work here?

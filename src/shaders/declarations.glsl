@@ -1,5 +1,9 @@
 #extension GL_EXT_samplerless_texture_functions: require
 
+#ifndef xdouble
+#define xdouble uvec2
+#endif
+
 struct Globals {
     mat4 view_proj;
 	mat4 view_proj_inverse;
@@ -17,6 +21,11 @@ struct Indirect {
 };
 
 struct Node {
+    xdouble node_center_x;
+    xdouble node_center_y;
+    xdouble node_center_z;
+    xdouble padding0;
+
 	vec2 layer_origins[48];
 	float layer_steps[48];
 	int layer_slots[48];
@@ -31,7 +40,7 @@ struct Node {
 	uvec2 coords;
 
 	int parent;
-	uint padding[51];
+	uint padding[43];
 };
 
 struct GenMeshUniforms {

@@ -16,6 +16,9 @@ unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}
 pub(crate) struct GenDisplacementsUniforms {
     pub node_center: [f64; 3],
     pub padding0: f64,
+
+    pub slot: i32,
+
     pub origin: [i32; 2],
     pub position: [i32; 2],
     pub stride: i32,

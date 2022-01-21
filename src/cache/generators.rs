@@ -452,6 +452,9 @@ impl ShaderGenBuilder {
             f,
         })
     }
+    fn build_default(self) -> Box<dyn GenerateTile> {
+        self.build(move |_, slot, _, _| -> i32 { slot as i32 })
+    }
 }
 
 pub(crate) fn generators(
@@ -478,17 +481,7 @@ pub(crate) fn generators(
         .outputs(LayerType::Heightmaps.bit_mask())
         .dimensions(heightmaps_resolution)
         .parent_inputs(LayerType::Heightmaps.bit_mask())
-        .build(
-            move |_,
-                  slot: usize,
-                  _,
-                  _|
-                  -> GenHeightmapsUniforms {
-                GenHeightmapsUniforms {
-                    slot: slot as i32,
-                }
-            },
-        ),
+        .build_default(),
         ShaderGenBuilder::new(
             "displacements".into(),
             if soft_float64 {
@@ -506,46 +499,8 @@ pub(crate) fn generators(
         .outputs(LayerType::Displacements.bit_mask())
         .root_outputs(LayerType::Displacements.bit_mask())
         .dimensions(displacements_resolution)
-        .parent_inputs(LayerType::Heightmaps.bit_mask())
-        .root_peer_inputs(LayerType::Heightmaps.bit_mask())
-        .build(
-            move |node: VNode,
-                  slot: usize,
-                  parent_slot: Option<usize>,
-                  _|
-                  -> GenDisplacementsUniforms {
-                let base_stride = (heightmaps_resolution - heightmaps_border * 2 - 1)
-                    / (displacements_resolution - 1);
-                let (offset, stride) = match parent_slot {
-                    Some(_) => (Vector2::new(node.x() & 1, node.y() & 1), base_stride / 2),
-                    None => (Vector2::new(0, 0), base_stride),
-                };
-                let world_center = node.center_wspace();
-                let resolution = displacements_resolution - 1;
-                let level_resolution = resolution << node.level();
-                GenDisplacementsUniforms {
-                    node_center: world_center.into(),
-                    origin: [
-                        (heightmaps_border
-                            + (heightmaps_resolution - heightmaps_border * 2 - 1) * offset.x / 2)
-                            as i32,
-                        (heightmaps_border
-                            + (heightmaps_resolution - heightmaps_border * 2 - 1) * offset.y / 2)
-                            as i32,
-                    ],
-                    stride: stride as i32,
-                    displacements_slot: slot as i32,
-                    heightmaps_slot: parent_slot.unwrap_or(slot) as i32,
-                    position: [
-                        i32::try_from(node.x() as i64 * resolution as i64 - level_resolution as i64 / 2).unwrap(),
-                        i32::try_from(node.y() as i64 * resolution as i64 - level_resolution as i64 / 2).unwrap(),
-                    ],
-                    face: node.face() as i32,
-                    level_resolution,
-                    padding0: 0.0,
-                }
-            },
-        ),
+        .peer_inputs(LayerType::Heightmaps.bit_mask())
+        .build_default(),
         ShaderGenBuilder::new(
             "root-normals".into(),
             rshader::shader_source!("../shaders", "gen-root-normals.comp", "declarations.glsl", "hash.glsl"),
@@ -554,11 +509,7 @@ pub(crate) fn generators(
         .dimensions(normals_resolution)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .blit_from_bc5_staging(LayerType::Normals)
-        .build(move |_, slot: usize, _, _| -> GenNormalsUniforms {
-            GenNormalsUniforms {
-                slot: slot as i32,
-            }
-        }),
+        .build_default(),
         ShaderGenBuilder::new(
             "materials".into(),
             rshader::shader_source!("../shaders", "gen-materials.comp", "declarations.glsl", "hash.glsl"),
@@ -627,10 +578,7 @@ pub(crate) fn generators(
         .outputs(LayerType::GrassCanopy.bit_mask())
         .dimensions(grass_canopy_resolution)
         .peer_inputs(LayerType::Normals.bit_mask())
-        .build(move |node: VNode, slot: usize, _, _| -> [u32; 2] {
-            assert_eq!(node.level(), VNode::LEVEL_CELL_1M);
-            [slot as u32, slot as u32 - grass_canopy_base_slot]
-        }),
+        .build_default(),
         ShaderGenBuilder::new(
             "bent-normals".into(),
             rshader::shader_source!("../shaders", "gen-bent-normals.comp", "declarations.glsl", "hash.glsl"),
@@ -638,7 +586,7 @@ pub(crate) fn generators(
         .outputs(LayerType::BentNormals.bit_mask())
         .dimensions(513)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
-        .build(move |_, slot: usize, _, _| -> i32 { slot as i32 }),
+        .build_default(),
         Box::new(MeshGen {
             shaders: vec![
                 // ShaderSet::compute_only(rshader::shader_source!(

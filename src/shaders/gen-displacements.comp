@@ -1,7 +1,4 @@
 #version 450 core
-#include "declarations.glsl"
-
-layout(local_size_x = 8, local_size_y = 8) in;
 
 #if SOFT_DOUBLE == 0
 
@@ -56,37 +53,45 @@ xdouble _neg(xdouble d) { return _fneg64(d); }
 #error SOFT_DOUBLE not defined
 #endif
 
+layout(local_size_x = 8, local_size_y = 8) in;
+
+#include "declarations.glsl"
+
 
 layout(binding = 0) uniform UniformBlock {
-    xdouble node_center_x;
-    xdouble node_center_y;
-    xdouble node_center_z;
-    xdouble padding0;
-    ivec2 origin;
-    ivec2 position;
-    int stride;
-    int heightmaps_slot;
-    int displacements_slot;
-    int face;
-    uint level_resolution;
+    int slot;
 } ubo;
-
 layout(binding = 1) uniform utexture2DArray heightmaps;
 layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
+layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
+	Node nodes[];
+};
+
+
+const uint HEIGHTMAP_INNER_RESOLUTION = 512;
+const uint HEIGHTMAP_BORDER = 4;
+const uint DISPLACEMENTS_RESOLUTION = 64;
 
 void main() {
-    if (gl_GlobalInvocationID.x > 64 || gl_GlobalInvocationID.y > 64)
+    if (max(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) > DISPLACEMENTS_RESOLUTION)
         return;
 
-    float height = extract_height_above_water(texelFetch(heightmaps, ivec3(ubo.origin + gl_GlobalInvocationID.xy*ubo.stride, ubo.heightmaps_slot), 0).x);
+    Node node = nodes[ubo.slot];
+
+    uint level_resolution = DISPLACEMENTS_RESOLUTION << node.level;
+    uint stride = HEIGHTMAP_INNER_RESOLUTION / DISPLACEMENTS_RESOLUTION;
+    uvec2 origin = uvec2(HEIGHTMAP_BORDER);
+    ivec2 position = ivec2(node.coords) * int(DISPLACEMENTS_RESOLUTION) - int(level_resolution) / 2;
+
+    float height = extract_height_above_water(texelFetch(heightmaps, ivec3(gl_GlobalInvocationID.xy * stride + HEIGHTMAP_BORDER, ubo.slot), 0).x);
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
     // http://jcgt.org/published/0007/02/01/paper.pdf
 
-    xdouble facePosition_x = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.x) + ubo.position.x)),
-                                  _float_to_xdouble(1.0 / ubo.level_resolution));
-    xdouble facePosition_y = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.y) + ubo.position.y)),
-                                  _float_to_xdouble(1.0 / ubo.level_resolution));
+    xdouble facePosition_x = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.x) + position.x)),
+                                  _float_to_xdouble(1.0 / level_resolution));
+    xdouble facePosition_y = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.y) + position.y)),
+                                  _float_to_xdouble(1.0 / level_resolution));
 
     xdouble warpedPosition_x = _mul(_mul(_sign(facePosition_x),
                                         _sub(CONST_1_4511,
@@ -109,36 +114,36 @@ void main() {
     xdouble cubePosition_y = _mul(warpedPosition_y, cubePosition_z);
 
     xdouble relativePosition_x, relativePosition_y, relativePosition_z;
-    if(ubo.face == 0) {
-        relativePosition_x = _sub((cubePosition_z), ubo.node_center_x);
-        relativePosition_y = _sub((cubePosition_x), ubo.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_y), ubo.node_center_z);
-    } else if(ubo.face == 1) {
-        relativePosition_x = _sub(_neg(cubePosition_z), ubo.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_x), ubo.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_y), ubo.node_center_z);
-    } else if(ubo.face == 2) {
-        relativePosition_x = _sub((cubePosition_x), ubo.node_center_x);
-        relativePosition_y = _sub((cubePosition_z), ubo.node_center_y);
-        relativePosition_z = _sub((cubePosition_y), ubo.node_center_z);
-    } else if(ubo.face == 3) {
-        relativePosition_x = _sub(_neg(cubePosition_x), ubo.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_z), ubo.node_center_y);
-        relativePosition_z = _sub((cubePosition_y), ubo.node_center_z);
-    } else if(ubo.face == 4) {
-        relativePosition_x = _sub((cubePosition_x), ubo.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_y), ubo.node_center_y);
-        relativePosition_z = _sub((cubePosition_z), ubo.node_center_z);
-    } else if(ubo.face == 5) {
-        relativePosition_x = _sub(_neg(cubePosition_x), ubo.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_y), ubo.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_z), ubo.node_center_z);
+    if(node.face == 0) {
+        relativePosition_x = _sub((cubePosition_z), node.node_center_x);
+        relativePosition_y = _sub((cubePosition_x), node.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_y), node.node_center_z);
+    } else if(node.face == 1) {
+        relativePosition_x = _sub(_neg(cubePosition_z), node.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_x), node.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_y), node.node_center_z);
+    } else if(node.face == 2) {
+        relativePosition_x = _sub((cubePosition_x), node.node_center_x);
+        relativePosition_y = _sub((cubePosition_z), node.node_center_y);
+        relativePosition_z = _sub((cubePosition_y), node.node_center_z);
+    } else if(node.face == 3) {
+        relativePosition_x = _sub(_neg(cubePosition_x), node.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_z), node.node_center_y);
+        relativePosition_z = _sub((cubePosition_y), node.node_center_z);
+    } else if(node.face == 4) {
+        relativePosition_x = _sub((cubePosition_x), node.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_y), node.node_center_y);
+        relativePosition_z = _sub((cubePosition_z), node.node_center_z);
+    } else if(node.face == 5) {
+        relativePosition_x = _sub(_neg(cubePosition_x), node.node_center_x);
+        relativePosition_y = _sub(_neg(cubePosition_y), node.node_center_y);
+        relativePosition_z = _sub(_neg(cubePosition_z), node.node_center_z);
     }
 
     vec3 relativePosition = vec3(_xdouble_to_float(relativePosition_x),
                                  _xdouble_to_float(relativePosition_y),
                                  _xdouble_to_float(relativePosition_z));
 
-    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.displacements_slot);
+    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.slot);
     imageStore(displacements, pos, vec4(relativePosition, 0.0));
 }

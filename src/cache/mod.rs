@@ -511,6 +511,7 @@ impl TileCache {
 
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
+                node_center: [0.0; 3],
                 layer_origins: [[0.0; 2]; 48],
                 layer_slots: [-1; 48],
                 layer_steps: [0.0; 48],
@@ -521,7 +522,8 @@ impl TileCache {
                 face: 0,
                 coords: [0; 2],
                 parent: -1,
-                padding: [0; 51],
+                padding0: 0.0,
+                padding: [0; 43],
             };
             TileCache::base_slot(self.levels.len() as u8)
         ];
@@ -529,6 +531,7 @@ impl TileCache {
             for (slot_index, slot) in level.slots().into_iter().enumerate() {
                 let index = TileCache::base_slot(level_index as u8) + slot_index;
 
+                data[index].node_center = slot.node.center_wspace().into();
                 data[index].level = level_index as u32;
                 data[index].face = slot.node.face() as u32;
                 data[index].coords = [slot.node.x(), slot.node.y()];
