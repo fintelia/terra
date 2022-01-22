@@ -5,41 +5,6 @@ use std::{collections::HashMap, mem};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub(crate) struct GenHeightmapsUniforms {
-    pub slot: i32,
-}
-unsafe impl bytemuck::Zeroable for GenHeightmapsUniforms {}
-unsafe impl bytemuck::Pod for GenHeightmapsUniforms {}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub(crate) struct GenDisplacementsUniforms {
-    pub node_center: [f64; 3],
-    pub padding0: f64,
-
-    pub slot: i32,
-
-    pub origin: [i32; 2],
-    pub position: [i32; 2],
-    pub stride: i32,
-    pub heightmaps_slot: i32,
-    pub displacements_slot: i32,
-    pub face: i32,
-    pub level_resolution: u32,
-}
-unsafe impl bytemuck::Zeroable for GenDisplacementsUniforms {}
-unsafe impl bytemuck::Pod for GenDisplacementsUniforms {}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub(crate) struct GenNormalsUniforms {
-    pub slot: i32,
-}
-unsafe impl bytemuck::Zeroable for GenNormalsUniforms {}
-unsafe impl bytemuck::Pod for GenNormalsUniforms {}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
 pub(crate) struct GenMaterialsUniforms {
     pub heightmaps_origin: [i32; 2],
     pub parent_origin: [u32; 2],
