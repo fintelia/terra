@@ -17,13 +17,10 @@ mod sky;
 mod srgb;
 mod stream;
 mod terrain;
-mod types;
-mod utils;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
-use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use cache::TileCache;
 use cgmath::SquareMatrix;
@@ -33,7 +30,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
-use utils::math::InfiniteFrustum;
+use types::{InfiniteFrustum, VNode};
 use wgpu::util::DeviceExt;
 
 pub use crate::generate::BLUE_MARBLE_URLS;

@@ -1,7 +1,6 @@
 use crate::{
-    cache::{self, Priority, PriorityCacheEntry, MAX_QUADTREE_LEVEL},
-    terrain::quadtree::{QuadTree, VNode},
-    utils::math::InfiniteFrustum,
+    cache::{self, PriorityCacheEntry},
+    terrain::quadtree::QuadTree,
 };
 use crate::{coordinates, stream::TileResult};
 use crate::{
@@ -21,6 +20,7 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
     sync::Arc,
 };
+use types::{InfiniteFrustum, Priority, VNode, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, TileCache, SLOTS_PER_LEVEL};
@@ -564,9 +564,7 @@ impl TileCache {
                         height_data.copy_from_slice(bytemuck::cast_slice(&heights));
                         data = &mut height_data;
                     }
-                    TileResult::Albedo(_, ref mut d) => {
-                        data = &mut *d
-                    }
+                    TileResult::Albedo(_, ref mut d) => data = &mut *d,
                 }
 
                 if cfg!(feature = "small-trace") {

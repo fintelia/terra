@@ -1,6 +1,5 @@
 use crate::asset::TERRA_DIRECTORY;
 use crate::cache::{LayerParams, LayerType, TextureFormat};
-use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
@@ -11,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, num::NonZeroU32};
 use tokio::io::AsyncReadExt;
+use types::VNode;
 use vec_map::VecMap;
 
 const TERRA_TILES_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
@@ -422,13 +422,8 @@ impl MapFile {
             }
         }
 
-        let mut tiles_on_disk = self
-            .tiles_on_disk
-            .lock()
-            .unwrap();
-        let tiles_on_disk = tiles_on_disk
-            .entry(layer.index())
-            .or_insert_with(Default::default);
+        let mut tiles_on_disk = self.tiles_on_disk.lock().unwrap();
+        let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
 
         VNode::breadth_first(|n| {
             if existing.contains(&(n.level(), n.face(), n.x(), n.y())) {
@@ -445,13 +440,8 @@ impl MapFile {
 
     /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
     pub(crate) fn get_missing_base(&self, layer: LayerType) -> (Vec<VNode>, usize) {
-        let mut tiles_on_disk = self
-            .tiles_on_disk
-            .lock()
-            .unwrap();
-        let tiles_on_disk = tiles_on_disk
-            .entry(layer.index())
-            .or_insert_with(Default::default);
+        let mut tiles_on_disk = self.tiles_on_disk.lock().unwrap();
+        let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
 
         let mut total = 0;
         let mut missing = Vec::new();

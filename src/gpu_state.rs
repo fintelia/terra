@@ -1,8 +1,9 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::{cache::{LAYERS_BY_NAME, MAX_QUADTREE_LEVEL, MeshType, TileCache}, mapfile::MapFile};
+use crate::{cache::{LAYERS_BY_NAME, MeshType, TileCache}, mapfile::MapFile};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
+use types::MAX_QUADTREE_LEVEL;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -34,8 +35,6 @@ pub(crate) struct GpuState {
     pub mesh_storage: VecMap<wgpu::Buffer>,
     pub mesh_indirect: wgpu::Buffer,
     pub mesh_bounding: wgpu::Buffer,
-
-    pub staging_buffer: wgpu::Buffer,
 
     pub globals: wgpu::Buffer,
     pub generate_uniforms: wgpu::Buffer,
@@ -97,12 +96,6 @@ impl GpuState {
             //     "ground_albedo",
             //     mapfile.read_texture(device, queue, "ground_albedo")?,
             // ),
-            staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 4 * 1024 * 1024,
-                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-                label: Some("buffer.staging"),
-            }),
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_storage: cache.make_gpu_mesh_storage(device),
             mesh_indirect: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

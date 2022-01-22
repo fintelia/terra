@@ -5,10 +5,8 @@ use crate::generate::heightmap::{HeightmapCache, Sector, SectorCache};
 use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
 use crate::terrain::dem::DemSource;
-use crate::terrain::quadtree::VNode;
 use crate::terrain::raster::GlobalRaster;
 use crate::terrain::raster::RasterCache;
-use crate::types::VFace;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use fnv::FnvHashMap;
@@ -22,12 +20,13 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Cursor;
-use std::{f64::consts::PI, fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf};
 use std::{
     io::{Read, Write},
     path::Path,
     sync::{Arc, Mutex},
 };
+use types::{VFace, VNode, NODE_OFFSETS};
 use vec_map::VecMap;
 
 mod gpu;
@@ -35,10 +34,6 @@ pub mod heightmap;
 mod material;
 
 pub(crate) use gpu::*;
-
-/// The radius of the earth in meters.
-pub(crate) const EARTH_RADIUS: f64 = 6371000.0;
-pub(crate) const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
 
 pub const BLUE_MARBLE_URLS: [&str; 8] = [
     "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x21600.A1.png",
@@ -146,7 +141,7 @@ impl MapFileBuilder {
         let mapfile = MapFile::new(layers);
         mapfile.reload_tile_states(LayerType::Heightmaps).unwrap();
         mapfile.reload_tile_states(LayerType::AlbedoRoughness).unwrap();
-        
+
         Self(mapfile)
     }
 
@@ -520,7 +515,11 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
 
                 unordered.push(async move {
                     let mut heights = fut.await?;
-                    heights.iter_mut().for_each(|h| if *h < -512 { *h = -512; });
+                    heights.iter_mut().for_each(|h| {
+                        if *h < -512 {
+                            *h = -512;
+                        }
+                    });
 
                     let parent = if let Some(p) = parent {
                         let tile = p.1.await?;
@@ -535,7 +534,11 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                             let parent = match parent {
                                 Some(p) => {
                                     parent_heights = p.2;
-                                    Some((crate::terrain::quadtree::node::OFFSETS[p.0 as usize], p.1, &**parent_heights))
+                                    Some((
+                                        NODE_OFFSETS[p.0 as usize],
+                                        p.1,
+                                        &**parent_heights,
+                                    ))
                                 }
                                 None => None,
                             };

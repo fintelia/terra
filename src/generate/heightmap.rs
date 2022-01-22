@@ -1,9 +1,7 @@
 use crate::cache::LayerType;
 use crate::coordinates;
 use crate::mapfile::MapFile;
-use crate::terrain::quadtree::node::VNode;
 use crate::terrain::raster::{GlobalRaster, Raster, RasterCache};
-use crate::types::VFace;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use crossbeam::channel::{self, Receiver, Sender};
@@ -15,6 +13,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
+use types::{VNode, VFace, NODE_OFFSETS};
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub(crate) struct Sector {
@@ -112,7 +111,7 @@ impl HeightmapCache {
                     Some(parent_tile) => {
                         tilefmt::uncompress_heightmap_tile(
                             Some((
-                                crate::terrain::quadtree::node::OFFSETS
+                                NODE_OFFSETS
                                     [n.parent().unwrap().1 as usize],
                                 border_size,
                                 resolution,

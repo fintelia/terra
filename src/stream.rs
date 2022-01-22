@@ -1,14 +1,13 @@
 use crate::cache::LayerType;
 use crate::generate::heightmap::HeightmapCache;
 use crate::mapfile::MapFile;
-use crate::terrain::quadtree::node::VNode;
 use anyhow::Error;
 use futures::{FutureExt, StreamExt};
-use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use types::VNode;
 
 #[derive(Copy, Clone, Debug)]
 struct TileRequest {

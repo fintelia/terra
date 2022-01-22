@@ -1,6 +1,4 @@
-use crate::cache::{MAX_QUADTREE_LEVEL, Priority};
-use crate::generate::{EARTH_CIRCUMFERENCE, EARTH_RADIUS};
-use crate::utils::math::InfiniteFrustum;
+use crate::{InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
 use cgmath::*;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
@@ -8,14 +6,12 @@ use std::collections::VecDeque;
 const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
 
 lazy_static! {
-    pub static ref OFFSETS: [Vector2<i32>; 4] =
+    pub static ref NODE_OFFSETS: [Vector2<i32>; 4] =
         [Vector2::new(0, 0), Vector2::new(1, 0), Vector2::new(0, 1), Vector2::new(1, 1),];
-    pub static ref CENTER_OFFSETS: [Vector2<i32>; 4] =
-        [Vector2::new(-1, -1), Vector2::new(1, -1), Vector2::new(-1, 1), Vector2::new(1, 1),];
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash, Serialize, Deserialize)]
-pub(crate) struct VNode(u64);
+pub struct VNode(u64);
 
 #[allow(unused)]
 impl VNode {
@@ -212,7 +208,7 @@ impl VNode {
     }
 
     pub fn center_wspace(&self) -> Vector3<f64> {
-        self.cell_position_cspace(0, 0, 0, 1).normalize() * crate::coordinates::PLANET_RADIUS
+        self.cell_position_cspace(0, 0, 0, 1).normalize() * EARTH_RADIUS
     }
 
     fn distance2(&self, point: Vector3<f64>, height_range: (f32, f32)) -> f64 {
@@ -301,7 +297,7 @@ impl VNode {
 
     /// How much this node is needed for the current frame. Nodes with priority less than 1.0 will
     /// not be rendered (they are too detailed).
-    pub(super) fn priority(&self, camera: Vector3<f64>, height_range: (f32, f32)) -> Priority {
+    pub fn priority(&self, camera: Vector3<f64>, height_range: (f32, f32)) -> Priority {
         let min_distance = self.min_distance();
         let distance2 = self.distance2(camera, height_range);
 

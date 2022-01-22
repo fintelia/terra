@@ -1,13 +1,8 @@
-use crate::cache::MAX_QUADTREE_LEVEL;
-use crate::cache::Priority;
 use crate::cache::TileCache;
 use cgmath::*;
 use fnv::FnvHashMap;
+use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
 use wgpu::util::DeviceExt;
-
-pub(crate) mod node;
-
-pub(crate) use crate::terrain::quadtree::node::*;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.

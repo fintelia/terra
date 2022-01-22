@@ -4,24 +4,18 @@ mod tile;
 
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
-use crate::utils::math::InfiniteFrustum;
 use crate::{
-    cache::tile::NodeSlot,
-    generate::ComputeShader,
-    gpu_state::GpuState,
-    mapfile::MapFile,
-    terrain::quadtree::{QuadTree, VNode},
+    cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
+    terrain::quadtree::QuadTree,
 };
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
-use std::{
-    cmp::{Eq, Ord, PartialOrd},
-    sync::Arc,
-};
+use std::{cmp::Eq, sync::Arc};
 use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
+use types::{InfiniteFrustum, VNode, Priority, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 
 use self::tile::Entry;
@@ -29,7 +23,6 @@ use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
 use self::{generators::GenerateTile, tile::CpuHeightmap};
 
 const SLOTS_PER_LEVEL: usize = 32;
-pub(crate) const MAX_QUADTREE_LEVEL: u8 = VNode::LEVEL_CELL_5MM;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
@@ -235,27 +228,6 @@ impl std::ops::Not for GeneratorMask {
     type Output = Self;
     fn not(self) -> Self {
         Self(NonZeroU32::new(Self::VALID | !self.0.get()).unwrap())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct Priority(f32);
-impl Priority {
-    pub fn cutoff() -> Self {
-        Priority(1.0)
-    }
-    pub fn none() -> Self {
-        Priority(-1.0)
-    }
-    pub fn from_f32(value: f32) -> Self {
-        assert!(value.is_finite());
-        Priority(value)
-    }
-}
-impl Eq for Priority {}
-impl Ord for Priority {
-    fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
-        self.partial_cmp(other).unwrap()
     }
 }
 
@@ -614,7 +586,7 @@ impl TileCache {
                     if ancestor_index < level_index {
                         let parent = ancestor.parent().unwrap();
                         ancestor = parent.0;
-                        base_offset = (crate::terrain::quadtree::node::OFFSETS[parent.1 as usize]
+                        base_offset = (NODE_OFFSETS[parent.1 as usize]
                             .cast()
                             .unwrap()
                             + base_offset)
