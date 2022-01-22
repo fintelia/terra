@@ -7,6 +7,9 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0) uniform UniformBlock {
 	Globals globals;
 };
+layout(set = 0, binding = 8, std430) readonly buffer NodeBlock {
+	Node nodes[];
+};
 
 // layout(set = 0, binding = 1, std140) uniform NodeBlock {
 // 	vec3 relative_position;
@@ -18,16 +21,17 @@ layout(set = 0, binding = 0) uniform UniformBlock {
 //     uvec3 padding2;
 // } node;
 
-layout(set = 0, binding = 3) uniform sampler linear;
-layout(set = 0, binding = 4) uniform texture2DArray normals;
-layout(set = 0, binding = 5) uniform texture2DArray albedo;
-layout(set = 0, binding = 6) uniform texture2DArray roughness;
+// layout(set = 0, binding = 3) uniform sampler linear;
+// layout(set = 0, binding = 4) uniform texture2DArray normals;
+// layout(set = 0, binding = 5) uniform texture2DArray albedo;
+// layout(set = 0, binding = 6) uniform texture2DArray roughness;
 
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 layout(location = 2) in vec2 texcoord;
 layout(location = 3) in vec3 normal;
+// layout(location = 4) flat in uint instance;
 
 layout(location = 0) out vec4 out_color;
 
@@ -36,12 +40,16 @@ vec3 extract_normal(vec2 n) {
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
 }
+// vec3 layer_to_texcoord(uint layer) {
+// 	Node node = nodes[instance];
+// 	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+// }
 
 void main() {
     out_color = vec4(color, 1);
 
     // vec3 albedo_value = texture(sampler2DArray(albedo, linear), vec3(texcoord, node.nodes_slot)).xyz;
-    // vec3 snormal = extract_normal(texture(sampler2DArray(normals, linear), vec3(texcoord, node.slot)).xy);
+    // vec3 snormal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
 	float roughness_value = 0.5;
 
 	out_color = vec4(1);

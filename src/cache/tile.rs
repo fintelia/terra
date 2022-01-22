@@ -564,7 +564,7 @@ impl TileCache {
                         height_data.copy_from_slice(bytemuck::cast_slice(&heights));
                         data = &mut height_data;
                     }
-                    TileResult::Albedo(_, ref mut d) | TileResult::Roughness(_, ref mut d) => {
+                    TileResult::Albedo(_, ref mut d) => {
                         data = &mut *d
                     }
                 }

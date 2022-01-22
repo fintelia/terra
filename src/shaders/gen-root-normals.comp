@@ -9,7 +9,7 @@ layout(binding = 0) uniform UniformBlock {
 } ubo;
 
 layout(binding = 1) uniform utexture2DArray heightmaps;
-layout(rgba32ui, binding = 2) writeonly uniform uimage2D bc5_staging;
+layout(rg8, binding = 2) writeonly uniform image2DArray normals;
 
 layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
@@ -38,47 +38,5 @@ void main() {
 
 	normal = normalize(normal);
 
-	if (gl_LocalInvocationID == uvec3(0)) {
-		for (int i = 0; i < 16; i++)
-			group_normals[i] = vec2(0);
-	}
-
-	barrier();
-
-	group_normals[gl_LocalInvocationID.x + 4*gl_LocalInvocationID.y] =
-		vec2(normal.x*0.5+0.5, normal.z*0.5+0.5);
-
-	barrier();
-
-	if (gl_LocalInvocationID == uvec3(0)) {
-		vec2 nmin = group_normals[0];
-		vec2 nmax = group_normals[0];
-		for (int i = 1; i < 16; i++) {
-			nmin = min(nmin, group_normals[i]);
-			nmax = max(nmax, group_normals[i]);
-		}
-
-		uvec2 qnmin = clamp(uvec2(floor(nmin * 255.0)), uvec2(0), uvec2(254));
-		uvec2 qnmax = clamp(uvec2(ceil(nmax * 255.0)), qnmin+uvec2(1), uvec2(255));
-
-		nmin = vec2(qnmin) / 255.0;
-		nmax = vec2(qnmax) / 255.0;
-
-		uvec2 weights[16];
-		uint permute[8] = uint[](1, 7, 6, 5, 4, 3, 2, 0);
-		for (int i = 0; i < 16; i++) {
-			weights[i] = uvec2(7.0 * (group_normals[i] - nmin) / (nmax - nmin));
-			weights[i] = uvec2(permute[weights[i].x], permute[weights[i].y]);
-		}
-
-		uvec4 bc5_output = uvec4(0);
-		bc5_output.xz = qnmax | qnmin << 8
-			| weights[0] << 16 | weights[1] << 19 | weights[2] << 22
-			| weights[3] << 25 | weights[4] << 28 | (weights[5]&1) << 31;
-		bc5_output.yw = ((weights[5]&6) >> 1) | weights[6] << 2 | weights[7] << 5 | weights[8] << 8
-			| weights[9] << 11 | weights[10] << 14 | weights[11] << 17 | weights[12] << 20
-			| weights[13] << 23 | weights[14] << 26 | weights[15] << 29;
-
-		imageStore(bc5_staging, ivec2(gl_WorkGroupID.xy), bc5_output);
-	}
+	imageStore(normals, ivec3(out_pos, ubo.slot), vec4(normal.xz*0.5+0.5, 0.0, 0.0));
 }

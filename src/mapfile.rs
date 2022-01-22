@@ -97,7 +97,7 @@ impl MapFile {
         let filename = Self::tile_path(layer, node);
         if !filename.exists() {
             match layer {
-                LayerType::Albedo | LayerType::Heightmaps | LayerType::Roughness => {
+                LayerType::AlbedoRoughness | LayerType::Heightmaps => {
                     let url = Self::tile_url(layer, node);
                     let client = hyper::Client::builder()
                         .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
@@ -372,8 +372,7 @@ impl MapFile {
             _ => unreachable!(),
         };
         let (layer, ext) = match layer {
-            LayerType::Albedo => ("albedo", "png"),
-            LayerType::Roughness => ("roughness", "raw.lz4"),
+            LayerType::AlbedoRoughness => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
             _ => unreachable!(),
         };
@@ -390,8 +389,7 @@ impl MapFile {
 
     pub(crate) fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
         let (target_layer, target_ext) = match layer {
-            LayerType::Albedo => ("albedo", "png"),
-            LayerType::Roughness => ("roughness", "raw.lz4"),
+            LayerType::AlbedoRoughness => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
             _ => unreachable!(),
         };

@@ -33,15 +33,14 @@ pub(crate) const MAX_QUADTREE_LEVEL: u8 = VNode::LEVEL_CELL_5MM;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
-    Displacements = 0,
-    Albedo = 1,
-    Roughness = 2,
+    Heightmaps = 0,
+    Displacements = 1,
+    AlbedoRoughness = 2,
     Normals = 3,
-    Heightmaps = 4,
-    GrassCanopy = 5,
-    MaterialKind = 6,
-    AerialPerspective = 7,
-    BentNormals = 8,
+    GrassCanopy = 4,
+    MaterialKind = 5,
+    AerialPerspective = 6,
+    BentNormals = 7,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -49,15 +48,14 @@ impl LayerType {
     }
     pub fn from_index(i: usize) -> Self {
         match i {
-            0 => LayerType::Displacements,
-            1 => LayerType::Albedo,
-            2 => LayerType::Roughness,
+            0 => LayerType::Heightmaps,
+            1 => LayerType::Displacements,
+            2 => LayerType::AlbedoRoughness,
             3 => LayerType::Normals,
-            4 => LayerType::Heightmaps,
-            5 => LayerType::GrassCanopy,
-            6 => LayerType::MaterialKind,
-            7 => LayerType::AerialPerspective,
-            8 => LayerType::BentNormals,
+            4 => LayerType::GrassCanopy,
+            5 => LayerType::MaterialKind,
+            6 => LayerType::AerialPerspective,
+            7 => LayerType::BentNormals,
             _ => unreachable!(),
         }
     }
@@ -66,11 +64,10 @@ impl LayerType {
     }
     pub fn name(&self) -> &'static str {
         match *self {
-            LayerType::Displacements => "displacements",
-            LayerType::Albedo => "albedo",
-            LayerType::Roughness => "roughness",
-            LayerType::Normals => "normals",
             LayerType::Heightmaps => "heightmaps",
+            LayerType::Displacements => "displacements",
+            LayerType::AlbedoRoughness => "albedo",
+            LayerType::Normals => "normals",
             LayerType::GrassCanopy => "grass_canopy",
             LayerType::MaterialKind => "material_kind",
             LayerType::AerialPerspective => "aerial_perspective",
@@ -78,7 +75,7 @@ impl LayerType {
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=8).map(Self::from_index)
+        (0..=7).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {

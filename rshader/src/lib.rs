@@ -488,6 +488,8 @@ fn reflect_naga(
                                     StorageFormat::R32Uint => wgpu::TextureFormat::R32Uint,
                                     StorageFormat::Rg32Uint => wgpu::TextureFormat::Rg32Uint,
                                     StorageFormat::Rgba32Uint => wgpu::TextureFormat::Rgba32Uint,
+                                    StorageFormat::R8Unorm => wgpu::TextureFormat::R8Unorm,
+                                    StorageFormat::Rg8Unorm => wgpu::TextureFormat::Rg8Unorm,
                                     StorageFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
                                     _ => unimplemented!("format {:?}", format),
                                 },

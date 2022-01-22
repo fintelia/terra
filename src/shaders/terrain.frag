@@ -14,7 +14,6 @@ layout(set = 0, binding = 2) uniform sampler linear;
 //layout(set = 0, binding = 3) uniform sampler nearest;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
 layout(set = 0, binding = 4) uniform texture2DArray albedo;
-layout(set = 0, binding = 5) uniform texture2DArray roughness;
 layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
 layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
@@ -237,16 +236,10 @@ void main() {
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
-	vec3 albedo_value = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER)).rgb;
+	vec4 albedo_roughness = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER));
 	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
-		vec3 parent_albedo = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0).rgb;
-		albedo_value = mix(parent_albedo, albedo_value, morph);
-	}
-
-	float roughness_value = texture(sampler2DArray(roughness, linear), layer_to_texcoord(ROUGHNESS_LAYER)).r;
-	if (node.layer_slots[PARENT_ROUGHNESS_LAYER] >= 0) {
-		float parent_roughness = textureLod(sampler2DArray(roughness, linear), layer_to_texcoord(PARENT_ROUGHNESS_LAYER), 0).r;
-		roughness_value = mix(parent_roughness, roughness_value, morph);
+		vec4 parent_albedo_roughness = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0);
+		albedo_roughness = mix(parent_albedo_roughness, albedo_roughness, morph);
 	}
 
 	vec4 bn_value = texture(sampler2DArray(bent_normals, linear), layer_to_texcoord(BENT_NORMALS_LAYER));
@@ -260,8 +253,8 @@ void main() {
 	// }
 
 	out_color = vec4(1);
-	out_color.rgb = pbr(albedo_value,
-						roughness_value,
+	out_color.rgb = pbr(albedo_roughness.rgb,
+						albedo_roughness.a,
 						position,
 						bent_normal,
 						globals.camera,

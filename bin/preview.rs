@@ -100,14 +100,15 @@ fn main() {
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
-    let features = if !adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
-        || cfg!(feature = "soft-float64")
+    let mut features = wgpu::Features::TEXTURE_COMPRESSION_BC
+        | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+        | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
+
+    if adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
+        && !cfg!(feature = "soft-float64")
     {
-        wgpu::Features::TEXTURE_COMPRESSION_BC
-    } else {
-        wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::SHADER_FLOAT64
-    };
-    let features = features | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
+        features |= wgpu::Features::SHADER_FLOAT64
+    }
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(

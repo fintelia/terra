@@ -79,8 +79,8 @@ impl MapFileBuilder {
                     min_generated_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
-            LayerType::Albedo.index() => LayerParams {
-                    layer_type: LayerType::Albedo,
+            LayerType::AlbedoRoughness.index() => LayerParams {
+                    layer_type: LayerType::AlbedoRoughness,
                     texture_resolution: 516,
                     texture_border_size: 2,
                     texture_format: TextureFormat::RGBA8,
@@ -91,23 +91,11 @@ impl MapFileBuilder {
                     min_generated_level: VNode::LEVEL_CELL_305M,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
-            LayerType::Roughness.index() => LayerParams {
-                    layer_type: LayerType::Roughness,
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: TextureFormat::BC4,
-                    tiles_generated_per_frame: 16,
-                    grid_registration: false,
-                    dynamic: false,
-                    min_level: 0,
-                    min_generated_level: 1,
-                    max_level: 0,
-                },
             LayerType::Normals.index() => LayerParams {
                     layer_type: LayerType::Normals,
                     texture_resolution: 516,
                     texture_border_size: 2,
-                    texture_format: TextureFormat::BC5,
+                    texture_format: TextureFormat::RG8,
                     tiles_generated_per_frame: 16,
                     grid_registration: false,
                     dynamic: false,
@@ -157,8 +145,7 @@ impl MapFileBuilder {
 
         let mapfile = MapFile::new(layers);
         mapfile.reload_tile_states(LayerType::Heightmaps).unwrap();
-        mapfile.reload_tile_states(LayerType::Albedo).unwrap();
-        mapfile.reload_tile_states(LayerType::Roughness).unwrap();
+        mapfile.reload_tile_states(LayerType::AlbedoRoughness).unwrap();
         
         Self(mapfile)
     }
@@ -589,12 +576,12 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
     blue_marble_directory: impl AsRef<Path>,
     mut progress_callback: F,
 ) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Albedo);
+    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::AlbedoRoughness);
     if missing.is_empty() {
         return Ok(());
     }
 
-    let layer = mapfile.layers()[LayerType::Albedo].clone();
+    let layer = mapfile.layers()[LayerType::AlbedoRoughness].clone();
     assert!(layer.texture_border_size >= 2);
 
     let bm_dimensions = 21600;
@@ -679,47 +666,8 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
             layer.texture_resolution as u32,
             image::ColorType::Rgba8,
         )?;
-        mapfile.write_tile(LayerType::Albedo, n, &data)
+        mapfile.write_tile(LayerType::AlbedoRoughness, n, &data)
     })
-}
-
-pub(crate) async fn generate_roughness<F: FnMut(&str, usize, usize) + Send>(
-    mapfile: &MapFile,
-    mut progress_callback: F,
-) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::Roughness);
-    if missing.is_empty() {
-        return Ok(());
-    }
-
-    let layer = mapfile.layers()[LayerType::Roughness].clone();
-    assert!(layer.texture_border_size >= 2);
-    assert_eq!(layer.texture_resolution % 4, 0);
-
-    let total_missing = missing.len();
-    for (i, n) in missing.into_iter().enumerate() {
-        progress_callback(
-            "Generating roughness... ",
-            i + (total_tiles - total_missing),
-            total_tiles,
-        );
-
-        let mut data = Vec::with_capacity(
-            layer.texture_resolution as usize * layer.texture_resolution as usize / 2,
-        );
-        for _ in 0..(layer.texture_resolution / 4) {
-            for _ in 0..(layer.texture_resolution / 4) {
-                data.extend_from_slice(&[179, 180, 0, 0, 0, 0, 0, 0]);
-            }
-        }
-
-        let mut e = lz4::EncoderBuilder::new().level(9).build(Vec::new())?;
-        e.write_all(&data)?;
-
-        mapfile.write_tile(LayerType::Roughness, n, &e.finish().0)?;
-    }
-
-    Ok(())
 }
 
 pub(crate) async fn generate_materials<F: FnMut(&str, usize, usize) + Send>(

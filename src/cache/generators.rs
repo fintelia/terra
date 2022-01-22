@@ -174,7 +174,6 @@ struct ShaderGen<T, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMas
     root_outputs: LayerMask,
     /// Used instead of peer_inputs for root nodes
     root_peer_inputs: LayerMask,
-    blit_from_bc5_staging: Option<LayerType>,
     name: String,
     f: F,
 }
@@ -326,51 +325,6 @@ impl<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T
                 self.bind_group = Some(bind_group);
             }
         }
-
-        if let Some(layer) = self.blit_from_bc5_staging {
-            let resolution = layers[layer].texture_resolution;
-            let resolution_blocks = (resolution + 3) / 4;
-            let row_pitch = (resolution_blocks * 16 + 255) & !255;
-            assert!(resolution % 4 == 0);
-            encoder.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    texture: &state.bc5_staging.0,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::default(),
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &state.staging_buffer,
-                    layout: wgpu::ImageDataLayout {
-                        bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
-                        rows_per_image: None,
-                        offset: 0,
-                    },
-                },
-                wgpu::Extent3d {
-                    width: resolution_blocks,
-                    height: resolution_blocks,
-                    depth_or_array_layers: 1,
-                },
-            );
-            encoder.copy_buffer_to_texture(
-                wgpu::ImageCopyBuffer {
-                    buffer: &state.staging_buffer,
-                    layout: wgpu::ImageDataLayout {
-                        bytes_per_row: Some(NonZeroU32::new(row_pitch).unwrap()),
-                        rows_per_image: Some(NonZeroU32::new(resolution).unwrap()),
-                        offset: 0,
-                    },
-                },
-                wgpu::ImageCopyTexture {
-                    texture: &state.tile_cache[LayerType::Normals].0,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d { width: resolution, height: resolution, depth_or_array_layers: 1 },
-            );
-        }
     }
 }
 
@@ -383,7 +337,6 @@ struct ShaderGenBuilder {
     outputs: LayerMask,
     root_outputs: Option<LayerMask>,
     root_peer_inputs: Option<LayerMask>,
-    blit_from_bc5_staging: Option<LayerType>,
 }
 impl ShaderGenBuilder {
     fn new(name: String, shader: ShaderSource) -> Self {
@@ -396,7 +349,6 @@ impl ShaderGenBuilder {
             parent_inputs: LayerMask::empty(),
             root_outputs: None,
             root_peer_inputs: None,
-            blit_from_bc5_staging: None,
         }
     }
     fn dimensions(mut self, dimensions: u32) -> Self {
@@ -423,10 +375,6 @@ impl ShaderGenBuilder {
         self.parent_inputs = parent_inputs;
         self
     }
-    fn blit_from_bc5_staging(mut self, layer: LayerType) -> Self {
-        self.blit_from_bc5_staging = Some(layer);
-        self
-    }
     fn build<T: Pod, F: 'static + Send + Fn(VNode, usize, Option<usize>, LayerMask) -> T>(
         self,
         f: F,
@@ -448,7 +396,6 @@ impl ShaderGenBuilder {
                 },
             ),
             root_peer_inputs: self.root_peer_inputs.unwrap_or(self.peer_inputs),
-            blit_from_bc5_staging: self.blit_from_bc5_staging,
             f,
         })
     }
@@ -508,17 +455,15 @@ pub(crate) fn generators(
         .root_outputs(LayerType::Normals.bit_mask())
         .dimensions(normals_resolution)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
-        .blit_from_bc5_staging(LayerType::Normals)
         .build_default(),
         ShaderGenBuilder::new(
             "materials".into(),
             rshader::shader_source!("../shaders", "gen-materials.comp", "declarations.glsl", "hash.glsl"),
         )
-        .outputs(LayerType::Normals.bit_mask() | LayerType::Albedo.bit_mask())
+        .outputs(LayerType::Normals.bit_mask() | LayerType::AlbedoRoughness.bit_mask())
         .dimensions(normals_resolution)
-        .parent_inputs(LayerType::Albedo.bit_mask())
+        .parent_inputs(LayerType::AlbedoRoughness.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
-        .blit_from_bc5_staging(LayerType::Normals)
         .build(
             move |node: VNode,
                   slot: usize,
@@ -529,7 +474,7 @@ pub(crate) fn generators(
                     node.aprox_side_length() / (normals_resolution - normals_border * 2) as f32;
 
                 let albedo_slot =
-                    if output_mask.contains_layer(LayerType::Albedo) { slot as i32 } else { -1 };
+                    if output_mask.contains_layer(LayerType::AlbedoRoughness) { slot as i32 } else { -1 };
 
                 let parent_index = node.parent().unwrap().1;
 
@@ -608,7 +553,7 @@ pub(crate) fn generators(
             dimensions: vec![(16, 16, 1), (16, 1, 1)],
             bindgroup_pipeline: vec![None, None],
             peer_inputs: LayerType::Displacements.bit_mask()
-                | LayerType::Albedo.bit_mask()
+                | LayerType::AlbedoRoughness.bit_mask()
                 | LayerType::Normals.bit_mask(),
             ancestor_dependencies: LayerType::GrassCanopy.bit_mask(),
             outputs: MeshType::Grass.bit_mask(),

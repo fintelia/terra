@@ -35,8 +35,6 @@ pub(crate) struct GpuState {
     pub mesh_indirect: wgpu::Buffer,
     pub mesh_bounding: wgpu::Buffer,
 
-    pub bc4_staging: (wgpu::Texture, wgpu::TextureView),
-    pub bc5_staging: (wgpu::Texture, wgpu::TextureView),
     pub staging_buffer: wgpu::Buffer,
 
     pub globals: wgpu::Buffer,
@@ -99,36 +97,6 @@ impl GpuState {
             //     "ground_albedo",
             //     mapfile.read_texture(device, queue, "ground_albedo")?,
             // ),
-            bc4_staging: with_view(
-                "bc4_staging",
-                device.create_texture(&wgpu::TextureDescriptor {
-                    size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-                    format: wgpu::TextureFormat::Rg32Uint,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    label: Some("texture.staging.bc4"),
-                }),
-            ),
-            bc5_staging: with_view(
-                "bc5_staging",
-                device.create_texture(&wgpu::TextureDescriptor {
-                    size: wgpu::Extent3d { width: 256, height: 256, depth_or_array_layers: 1 },
-                    format: wgpu::TextureFormat::Rgba32Uint,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    label: Some("texture.staging.bc5"),
-                }),
-            ),
             staging_buffer: device.create_buffer(&wgpu::BufferDescriptor {
                 size: 4 * 1024 * 1024,
                 usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
@@ -246,8 +214,6 @@ impl GpuState {
                                 "inscattering" => &self.inscattering.1,
                                 "skyview" => &self.skyview.1,
                                 // "ground_albedo" => &self.ground_albedo.1,
-                                "bc4_staging" => &self.bc4_staging.1,
-                                "bc5_staging" => &self.bc5_staging.1,
                                 _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,
                             },
                         );

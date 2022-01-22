@@ -71,7 +71,6 @@ impl Terrain {
             &mut progress_callback,
         )
         .await?;
-        generate::generate_roughness(&*mapfile, &mut progress_callback).await?;
         generate::generate_materials(
             &*mapfile,
             dataset_directory.join("free_pbr"),
@@ -153,11 +152,7 @@ impl Terrain {
             },
         ];
 
-        let cache = TileCache::new(
-            device,
-            Arc::clone(&mapfile),
-            mesh_layers,
-        );
+        let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
         let quadtree = QuadTree::new();
 
@@ -198,9 +193,7 @@ impl Terrain {
         VNode::roots().iter().copied().all(|root| {
             self.cache.contains_all(
                 root,
-                LayerType::Heightmaps.bit_mask()
-                    | LayerType::Albedo.bit_mask()
-                    | LayerType::Roughness.bit_mask(),
+                LayerType::Heightmaps.bit_mask() | LayerType::AlbedoRoughness.bit_mask(),
             )
         })
     }

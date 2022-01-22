@@ -20,21 +20,18 @@ struct TileRequest {
 pub(crate) enum TileResult {
     Heightmaps(VNode, Arc<Vec<i16>>),
     Albedo(VNode, Vec<u8>),
-    Roughness(VNode, Vec<u8>),
 }
 impl TileResult {
     pub fn layer(&self) -> LayerType {
         match self {
             TileResult::Heightmaps(..) => LayerType::Heightmaps,
-            TileResult::Albedo(..) => LayerType::Albedo,
-            TileResult::Roughness(..) => LayerType::Roughness,
+            TileResult::Albedo(..) => LayerType::AlbedoRoughness,
         }
     }
     pub fn node(&self) -> VNode {
         match self {
             TileResult::Heightmaps(node, ..)
-            | TileResult::Albedo(node, ..)
-            | TileResult::Roughness(node, ..) => *node,
+            | TileResult::Albedo(node, ..) => *node,
         }
     }
 }
@@ -118,18 +115,12 @@ impl TileStreamer {
                                 Ok(TileResult::Heightmaps(request.node, fut.await?))
                             }.boxed());
                         }
-                        LayerType::Albedo => pending.push(async move {
+                        LayerType::AlbedoRoughness => pending.push(async move {
                             let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             let data = tokio::task::spawn_blocking(move || {
                                 Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data)?.to_rgba8().to_vec())
                             }).await??;
                             Ok::<TileResult, Error>(TileResult::Albedo(request.node, data))
-                        }.boxed()),
-                        LayerType::Roughness => pending.push(async move {
-                            let mut data = Vec::new();
-                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
-                            lz4::Decoder::new(Cursor::new(&raw_data))?.read_to_end(&mut data)?;
-                            Ok::<TileResult, Error>(TileResult::Roughness(request.node, data))
                         }.boxed()),
                         _ => unreachable!(),
                     }
