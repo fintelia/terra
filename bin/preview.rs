@@ -161,7 +161,7 @@ fn main() {
             let pb = indicatif::ProgressBar::new(100);
             pb.set_style(
                 indicatif::ProgressStyle::default_bar()
-                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
                     .progress_chars("=> "),
             );
             let mut last_message = None;
@@ -184,7 +184,7 @@ fn main() {
                 ))
                 .unwrap()
         }
-        None => terra::Terrain::new(&device, &queue).unwrap(),
+        None => runtime.block_on(terra::Terrain::new(&device, &queue)).unwrap(),
     };
 
     {

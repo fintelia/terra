@@ -13,7 +13,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
-use types::{VNode, VFace, NODE_OFFSETS};
+use types::{VFace, VNode, NODE_OFFSETS};
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub(crate) struct Sector {
@@ -107,17 +107,16 @@ impl HeightmapCache {
             let tiles = future::join_all(tiles_pending.into_iter()).await;
             for (n, t) in tiles.into_iter().rev() {
                 let tile = Arc::new(match root.take() {
-                    None => tilefmt::uncompress_heightmap_tile(None, &*t?).1,
+                    None => tilefmt::uncompress_heightmap_tile(None, &*t?.unwrap()).1,
                     Some(parent_tile) => {
                         tilefmt::uncompress_heightmap_tile(
                             Some((
-                                NODE_OFFSETS
-                                    [n.parent().unwrap().1 as usize],
+                                NODE_OFFSETS[n.parent().unwrap().1 as usize],
                                 border_size,
                                 resolution,
                                 &*parent_tile,
                             )),
-                            &*t?,
+                            &*t?.unwrap(),
                         )
                         .1
                     }
@@ -131,34 +130,70 @@ impl HeightmapCache {
     }
 }
 
-pub(crate) struct SectorCache {
-    sectors: Cache<Sector, Vec<i16>>,
+pub(crate) struct SectorCache<T, F: 'static> {
+    sectors: Cache<Sector, Vec<T>>,
+    parse: &'static F,
+    directory: PathBuf,
+    filename_prefix: &'static str,
+    filename_extension: &'static str,
 }
-impl SectorCache {
-    pub fn new(capacity: usize) -> Self {
-        Self { sectors: Cache::new(capacity) }
+impl<T, F> SectorCache<T, F>
+where
+    F: Fn(&[u8]) -> Result<Vec<T>, Error> + Send + Sync + 'static,
+    T: 'static + Send + Sync,
+{
+    pub fn new(
+        capacity: usize,
+        directory: PathBuf,
+        filename_prefix: &'static str,
+        filename_extension: &'static str,
+        f: &'static F,
+    ) -> Self {
+        Self {
+            sectors: Cache::new(capacity),
+            directory,
+            filename_prefix,
+            filename_extension,
+            parse: f,
+        }
     }
 
     pub(crate) fn get_sector<'a>(
         &mut self,
-        nasadem_reprojected_directory: &Path,
         s: Sector,
-    ) -> BoxFuture<'a, Result<Arc<Vec<i16>>, Error>> {
+        level: Option<u8>,
+    ) -> BoxFuture<'a, Result<Arc<Vec<T>>, Error>> {
         if let Some(sector) = self.sectors.get(s) {
             return futures::future::ready(Ok(sector)).boxed();
         }
 
-        let path = nasadem_reprojected_directory.join(&format!(
-            "nasadem_S-{}-{}x{}.raw",
-            VFace(s.face),
-            s.x,
-            s.y
-        ));
+        let path = match level {
+            Some(level) => self.directory.join(&format!(
+                "{}{}_S-{}-{:02}x{:02}.{}",
+                self.filename_prefix,
+                VFace(s.face),
+                level,
+                s.x,
+                s.y,
+                self.filename_extension
+            )),
+            None => self.directory.join(&format!(
+                "{}_S-{}-{}x{}.{}",
+                self.filename_prefix,
+                VFace(s.face),
+                s.x,
+                s.y,
+                self.filename_extension
+            )),
+        };
+
+        // tilefmt::uncompress_heightmap_tile(None, &bytes).1
+        let parse = self.parse.clone();
         let sender = self.sectors.sender();
         async move {
-            let bytes = tokio::fs::read(path).await?;
+            let bytes = tokio::fs::read(&path).await.expect(&format!("{:?}", path));
             tokio::task::spawn_blocking(move || {
-                let sector = Arc::new(tilefmt::uncompress_heightmap_tile(None, &bytes).1);
+                let sector = Arc::new(parse(&bytes)?);
                 let _ = sender.send((s, Arc::clone(&sector)));
                 Ok(sector)
             })
@@ -172,7 +207,7 @@ pub(crate) struct HeightmapSectorGen {
     pub root_resolution: usize,
     pub root_border_size: usize,
     pub sector_resolution: usize,
-    pub dems: RasterCache<f32, Vec<f32>>,
+    pub dems: RasterCache<f32>,
     pub global_dem: Arc<GlobalRaster<i16>>,
 }
 impl HeightmapSectorGen {
@@ -221,11 +256,11 @@ impl HeightmapSectorGen {
         let fut = async move {
             let mut heightmap = vec![0i16; resolution * resolution];
 
-            let rasters: fnv::FnvHashMap<(i16, i16), Arc<Raster<_, _>>> =
+            let rasters: fnv::FnvHashMap<(i16, i16), Arc<Raster<_>>> =
                 futures::future::try_join_all(rasters)
                     .await?
                     .into_iter()
-                    .filter_map(|v: ((i16, i16), Option<Arc<Raster<_, _>>>)| Some((v.0, v.1?)))
+                    .filter_map(|v: ((i16, i16), Option<Arc<Raster<_>>>)| Some((v.0, v.1?)))
                     .collect();
 
             heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(

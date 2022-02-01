@@ -6,12 +6,11 @@ use futures::future::BoxFuture;
 use futures::FutureExt;
 use lru_cache::LruCache;
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use std::f64::consts::PI;
-use std::ops::{Deref, Index};
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, Weak},
-};
+use std::ops::Index;
+use std::path::PathBuf;
+use std::sync::{Arc, Weak};
 
 pub trait Scalar: Copy + 'static {
     fn from_f64(_: f64) -> Self;
@@ -45,7 +44,7 @@ pub(crate) struct MMappedRasterHeader {
 
 /// Currently assumes that values are taken at the lower left corner of each cell.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Raster<T: Into<f64> + Copy, C: Deref<Target = [T]> = Vec<T>> {
+pub struct Raster<T> {
     pub width: usize,
     pub height: usize,
     pub bands: usize,
@@ -54,10 +53,10 @@ pub struct Raster<T: Into<f64> + Copy, C: Deref<Target = [T]> = Vec<T>> {
     pub latitude_llcorner: f64,
     pub longitude_llcorner: f64,
 
-    pub values: C,
+    pub values: Vec<T>,
 }
 
-impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
+impl<T: Into<f64> + Copy> Raster<T> {
     /// Returns the vertical spacing between cells, in meters.
     #[allow(unused)]
     pub fn vertical_spacing(&self) -> f64 {
@@ -75,7 +74,7 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
         assert!(band < self.bands);
 
         let x = (longitude - self.longitude_llcorner) / self.cell_size;
-        let y = (self.height - 1) as f64 - (latitude - self.latitude_llcorner) / self.cell_size;
+        let y = (self.latitude_llcorner + self.cell_size * self.height as f64 - latitude) / self.cell_size;
 
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
@@ -97,11 +96,12 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
         Some(h0 + (h1 - h0) * (x - fx as f64))
     }
 
-    pub fn nearest3(&self, latitude: f64, longitude: f64) -> Option<[f64; 3]> {
-        assert!(self.bands >= 3);
+    /// Assume cell registration
+    pub fn nearest(&self, latitude: f64, longitude: f64, band: usize) -> Option<f64> {
+        assert!(self.bands >= band);
 
         let x = (longitude - self.longitude_llcorner) / self.cell_size;
-        let y = self.height as f64 - (latitude - self.latitude_llcorner) / self.cell_size;
+        let y = (self.latitude_llcorner + self.cell_size * self.height as f64 - latitude) / self.cell_size;
 
         let fx = x.floor() as usize;
         let fy = y.floor() as usize;
@@ -110,75 +110,55 @@ impl<T: Into<f64> + Copy, C: Deref<Target = [T]>> Raster<T, C> {
             return None;
         }
 
-        let slice = &self.values[(fx + fy * self.width) * self.bands..][..3];
-        Some([slice[0].into(), slice[1].into(), slice[2].into()])
+        Some(self.values[(fx + fy * self.width) * self.bands + band].into())
     }
 }
 
-#[async_trait::async_trait]
-pub(crate) trait RasterSource: Send + Sync {
-    type Type: Into<f64> + Copy;
-    type Container: Deref<Target = [Self::Type]>;
-    async fn load(
-        &self,
-        latitude: i16,
-        longitude: i16,
-    ) -> Result<Option<Raster<Self::Type, Self::Container>>, Error>;
-    fn bands(&self) -> usize;
+type ParseRasterFunction<T> = dyn Fn(i16, i16, &[u8]) -> Result<Raster<T>, Error> + Send + Sync;
 
-    /// Degrees of latitude and longitude covered by each raster.
-    fn raster_size(&self) -> i16 {
-        1
-    }
+pub(crate) struct RasterCache<T: Send + Sync + 'static> {
+    raster_size_degrees: u16,
+    parse: &'static ParseRasterFunction<T>,
+    filenames: Box<[Option<PathBuf>]>,
+    weak: Box<[Option<Weak<Raster<T>>>]>,
+    strong: LruCache<u16, Arc<Raster<T>>>,
+    sender: Sender<(u16, Arc<Raster<T>>)>,
+    receiver: Receiver<(u16, Arc<Raster<T>>)>,
 }
-
-pub(crate) struct RasterCache<
-    T: Into<f64> + Copy + 'static,
-    C: Deref<Target = [T]> + Send + Sync + 'static,
-> {
-    source: Arc<dyn RasterSource<Type = T, Container = C>>,
-    holes: HashSet<(i16, i16)>,
-
-    weak: HashMap<(i16, i16), Weak<Raster<T, C>>>,
-    strong: LruCache<(i16, i16), Arc<Raster<T, C>>>,
-    sender: Sender<((i16, i16), Option<Arc<Raster<T, C>>>)>,
-    receiver: Receiver<((i16, i16), Option<Arc<Raster<T, C>>>)>,
-}
-impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'static>
-    RasterCache<T, C>
-{
-    pub fn new(source: Arc<dyn RasterSource<Type = T, Container = C>>, capacity: usize) -> Self {
+impl<T: Send + Sync + 'static> RasterCache<T> {
+    pub fn new(
+        filenames: Box<[Option<PathBuf>]>,
+        raster_size_degrees: u16,
+        capacity: usize,
+        parse: &'static ParseRasterFunction<T>,
+    ) -> Self {
         let (sender, receiver) = channel::unbounded();
 
         Self {
-            source,
-            holes: HashSet::new(),
-            weak: HashMap::default(),
+            parse,
+            raster_size_degrees,
+            weak: vec![None; filenames.len()].into_boxed_slice(),
             strong: LruCache::new(capacity),
+            filenames,
             sender,
             receiver,
         }
     }
-    fn insert(&mut self, key: (i16, i16), raster: Option<Arc<Raster<T, C>>>) {
-        match raster {
-            Some(a) => {
-                self.weak.insert(key, Arc::downgrade(&a));
-                self.strong.insert(key, a);
-            }
-            None => {
-                self.holes.insert(key);
-            }
-        }
+
+    fn insert(&mut self, key: u16, raster: Arc<Raster<T>>) {
+        self.weak[key as usize] = Some(Arc::downgrade(&raster));
+        self.strong.insert(key, raster);
     }
-    fn try_get(&mut self, key: (i16, i16)) -> Option<Option<Arc<Raster<T, C>>>> {
-        if self.holes.contains(&key) {
+
+    fn try_get(&mut self, key: u16) -> Option<Option<Arc<Raster<T>>>> {
+        if self.filenames[key as usize].is_none() {
             return Some(None);
         }
 
         let mut found = None;
         while let Ok(t) = self.receiver.try_recv() {
             if t.0 == key {
-                found = t.1.clone();
+                found = Some(t.1.clone());
             }
             self.insert(t.0, t.1);
         }
@@ -188,13 +168,13 @@ impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'stat
 
         match self.strong.get_mut(&key) {
             Some(e) => Some(Some(Arc::clone(e))),
-            None => match self.weak.get(&key).and_then(|w| w.upgrade()) {
+            None => match self.weak[key as usize].as_ref().and_then(|w| w.upgrade()) {
                 Some(t) => {
                     self.strong.insert(key, t.clone());
                     Some(Some(Arc::clone(&t)))
                 }
                 None => {
-                    self.weak.remove(&key);
+                    self.weak[key as usize] = None;
                     None
                 }
             },
@@ -205,47 +185,36 @@ impl<T: Into<f64> + Copy + 'static, C: Deref<Target = [T]> + Send + Sync + 'stat
         &mut self,
         latitude: i16,
         longitude: i16,
-    ) -> BoxFuture<'static, Result<Option<Arc<Raster<T, C>>>, Error>> {
-        let rs = self.source.raster_size();
-        let key = (latitude - (latitude % rs + rs) % rs, longitude - (longitude % rs + rs) % rs);
+    ) -> BoxFuture<'static, Result<Option<Arc<Raster<T>>>, Error>> {
+        let y = u16::try_from(latitude + 90).unwrap() / self.raster_size_degrees;
+        let x = u16::try_from(longitude + 180).unwrap() / self.raster_size_degrees;
+        let key = y * 360 / self.raster_size_degrees as u16 + x;
+
+        let rs = self.raster_size_degrees as i16;
+        let latitude = latitude - (latitude % rs + rs) % rs;
+        let longitude = longitude - (longitude % rs + rs) % rs;
+
+        assert!(key < 18 * 36, "{} {} key={}", x, y, key);
 
         if let Some(raster) = self.try_get(key) {
             return futures::future::ready(Ok(raster)).boxed();
         }
 
-        let source = Arc::clone(&self.source);
-        let sender = self.sender.clone();
-        async move {
-            let raster = source.load(latitude, longitude).await?.map(Arc::new);
-            sender.send((key, raster.clone()))?;
-            Ok(raster)
+        match &self.filenames[key as usize] {
+            Some(ref filename) => {
+                let parse = (&self.parse).clone();
+                let sender = self.sender.clone();
+                let file = tokio::fs::read(filename.clone());
+                let filename = filename.clone();
+                async move {
+                    let raster = Arc::new(parse(latitude, longitude, &file.await?).map_err(|_| anyhow::format_err!("{:?}", filename))?);
+                    sender.send((key, raster.clone()))?;
+                    Ok(Some(raster))
+                }
+                .boxed()
+            }
+            None => futures::future::ready(Ok(None)).boxed(),
         }
-        .boxed()
-    }
-
-    #[allow(unused)]
-    pub async fn interpolate(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-        band: usize,
-    ) -> Result<Option<f64>, Error> {
-        Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16)
-            .await?
-            .and_then(|raster| raster.interpolate(latitude, longitude, band)))
-    }
-
-    #[allow(unused)]
-    pub async fn nearest3(
-        &mut self,
-        latitude: f64,
-        longitude: f64,
-    ) -> Result<Option<[f64; 3]>, Error> {
-        Ok(self
-            .get(latitude.floor() as i16, longitude.floor() as i16)
-            .await?
-            .and_then(|raster| raster.nearest3(latitude, longitude)))
     }
 }
 

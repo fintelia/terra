@@ -541,7 +541,7 @@ impl TileCache {
                 let row_bytes = resolution_blocks * bytes_per_block;
 
                 let data;
-                let mut height_data;
+                let mut owned_data;
                 match tile {
                     TileResult::Heightmaps(node, ref heights) => {
                         if let Some(entry) = self.levels[node.level() as usize].entry_mut(&node) {
@@ -560,11 +560,17 @@ impl TileCache {
                                 }
                             })
                             .collect();
-                        height_data = vec![0; heights.len() * 4];
-                        height_data.copy_from_slice(bytemuck::cast_slice(&heights));
-                        data = &mut height_data;
+                        owned_data = vec![0; heights.len() * 4];
+                        owned_data.copy_from_slice(bytemuck::cast_slice(&heights));
+                        data = &mut owned_data;
                     }
-                    TileResult::Albedo(_, ref mut d) => data = &mut *d,
+                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d) if d.len() == 0 => {
+                        owned_data = vec![0; row_bytes * resolution_blocks];
+                        data = &mut owned_data;
+                    }
+                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d) => {
+                        data = &mut *d
+                    }
                 }
 
                 if cfg!(feature = "small-trace") {

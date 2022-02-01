@@ -4,22 +4,23 @@ use crate::coordinates;
 use crate::generate::heightmap::{HeightmapCache, Sector, SectorCache};
 use crate::mapfile::{MapFile, TextureDescriptor};
 use crate::srgb::SRGB_TO_LINEAR;
-use crate::terrain::dem::DemSource;
-use crate::terrain::raster::GlobalRaster;
 use crate::terrain::raster::RasterCache;
+use crate::terrain::raster::{GlobalRaster, Raster};
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
-use futures::{FutureExt, StreamExt};
+use futures::{Future, FutureExt, StreamExt};
 use image::{codecs::png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::fs;
 use std::io::Cursor;
+use std::pin::Pin;
 use std::{fs::File, path::PathBuf};
 use std::{
     io::{Read, Write},
@@ -48,7 +49,7 @@ pub const BLUE_MARBLE_URLS: [&str; 8] = [
 
 pub(crate) struct MapFileBuilder(MapFile);
 impl MapFileBuilder {
-    pub(crate) fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         let layers: VecMap<LayerParams> = hashmap![
             LayerType::Heightmaps.index() => LayerParams {
                     layer_type: LayerType::Heightmaps,
@@ -134,13 +135,26 @@ impl MapFileBuilder {
                 min_generated_level: VNode::LEVEL_CELL_153M,
                 max_level: VNode::LEVEL_CELL_76M,
             },
+            LayerType::TreeCover.index() => LayerParams {
+                layer_type: LayerType::TreeCover,
+                texture_resolution: 516,
+                texture_border_size: 2,
+                texture_format: TextureFormat::R8,
+                tiles_generated_per_frame: 0,
+                grid_registration: false,
+                dynamic: false,
+                min_level: 0,
+                min_generated_level: VNode::LEVEL_CELL_38M,
+                max_level: VNode::LEVEL_CELL_76M,
+            }
         ]
         .into_iter()
         .collect();
 
         let mapfile = MapFile::new(layers);
-        mapfile.reload_tile_states(LayerType::Heightmaps).unwrap();
-        mapfile.reload_tile_states(LayerType::AlbedoRoughness).unwrap();
+        mapfile.reload_tile_states(LayerType::Heightmaps).await.unwrap();
+        mapfile.reload_tile_states(LayerType::AlbedoRoughness).await.unwrap();
+        mapfile.reload_tile_states(LayerType::TreeCover).await.unwrap();
 
         Self(mapfile)
     }
@@ -168,6 +182,487 @@ impl MapFileBuilder {
         download_cloudcover(&mut self.0, &mut context)?;
 
         Ok(self.0)
+    }
+}
+
+const SECTORS_PER_SIDE: u32 = 65;
+
+fn scan_directory(
+    base: &Path,
+    suffix: impl AsRef<Path>,
+) -> Result<(PathBuf, HashSet<String>), Error> {
+    let directory = base.join(suffix);
+    fs::create_dir_all(&directory)?;
+
+    let mut existing = HashSet::new();
+    for entry in fs::read_dir(&directory)? {
+        if let Ok(s) = entry?.file_name().into_string() {
+            existing.insert(s);
+        }
+    }
+
+    Ok((directory, existing))
+}
+
+pub(crate) fn reproject_dataset<T, C, F, Downsample, FromF64>(
+    base_directory: PathBuf,
+    dataset_name: &'static str,
+    max_level: u8,
+    mut progress_callback: F,
+    grid_registration: bool,
+    mut raster_cache: RasterCache<T>,
+    global_raster: Option<Arc<GlobalRaster<i16>>>,
+    downsample: &'static Downsample,
+    from_f64: &'static FromF64,
+) -> impl Future<Output = Result<(), anyhow::Error>>
+where
+    T: Into<f64> + num_traits::Zero + Ord + Copy + bytemuck::Pod + Send + Sync + 'static,
+    F: FnMut(&str, usize, usize) + Send,
+    Downsample: Fn(T, T, T, T) -> T + Sync + 'static,
+    FromF64: Fn(f64) -> T + Sync + 'static,
+    C: tiff::encoder::colortype::ColorType<Inner = T>,
+    [T]: tiff::encoder::TiffValue,
+{
+    async move {
+        let (dataset_directory, datasets) =
+            scan_directory(&base_directory, format!("datasets/{}", dataset_name))?;
+        let (reprojected_directory, reprojected) =
+            scan_directory(&base_directory, format!("reprojected/{}", dataset_name))?;
+        let (tiles_directory, existing_tiles) = scan_directory(
+            &base_directory,
+            format!("/home/jonathan/.cache/terra/tiles/{}", dataset_name),
+        )?;
+
+        let mut missing_base = Vec::new();
+        let mut missing_downsampled = Vec::new();
+        for level in (VNode::LEVEL_CELL_1KM.min(max_level)..=max_level).rev() {
+            for root_node in VNode::roots() {
+                for y in 0..SECTORS_PER_SIDE {
+                    for x in 0..SECTORS_PER_SIDE {
+                        let filename = format!(
+                            "{}_S-{}-{:02}x{:02}.tiff",
+                            VFace(root_node.face()),
+                            level,
+                            x,
+                            y
+                        );
+                        if !reprojected.contains(&filename) {
+                            if level == max_level {
+                                missing_base.push((root_node, x, y));
+                            } else {
+                                missing_downsampled.push((level, root_node.face(), x, y));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
+
+        const TILE_RESOLUTION: usize = 516;
+        const BORDER_SIZE: usize = 2;
+        const TILE_INNER_RESOLUTION: usize = TILE_RESOLUTION - BORDER_SIZE * 2;
+
+        let base_sector_resolution = if grid_registration {
+            1 + (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
+        } else {
+            (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
+        };
+        let root_border_size = base_sector_resolution / 2;
+
+        base_sector_resolution
+            .checked_mul(base_sector_resolution)
+            .expect("TODO: Handle sector resolution overflow");
+
+        const MAX_CONCURRENT: usize = 1;
+        const MAX_RASTERS: usize = 8;
+
+        let mut missing = missing_base.into_iter().peekable();
+        let mut pending: FuturesUnordered<
+            Pin<Box<dyn std::future::Future<Output = Result<usize, Error>>>>,
+        > = futures::stream::FuturesUnordered::new();
+
+        let total_sectors = (6 * SECTORS_PER_SIDE * SECTORS_PER_SIDE) as usize;
+        let mut sectors_processed = total_sectors - missing.len();
+        let mut loaded_rasters = 0;
+        let mut unstarted: Option<(usize, BoxFuture<_>)> = None;
+
+        loop {
+            progress_callback("reprojecting dataset...", sectors_processed, total_sectors);
+            if unstarted.is_some()
+                && (loaded_rasters + unstarted.as_ref().unwrap().0 <= MAX_RASTERS
+                    || loaded_rasters == 0)
+            {
+                let (num_rasters, future) = unstarted.take().unwrap();
+                loaded_rasters += num_rasters;
+                pending.push(future);
+            } else if unstarted.is_some()
+                || pending.len() == MAX_CONCURRENT
+                || missing.peek().is_none()
+            {
+                match pending.next().await {
+                    Some(result) => {
+                        loaded_rasters -= result?;
+                        sectors_processed += 1;
+                    }
+                    None => break,
+                }
+            } else {
+                let (root, x, y) = missing.next().unwrap();
+
+                let coordinates: Vec<_> = if grid_registration {
+                    (0..(base_sector_resolution * base_sector_resolution))
+                        .into_par_iter()
+                        .map(|i| {
+                            let cspace = root.grid_position_cspace(
+                                (x * (base_sector_resolution - 1) + (i % base_sector_resolution))
+                                    as i32,
+                                (y * (base_sector_resolution - 1) + (i / base_sector_resolution))
+                                    as i32,
+                                root_border_size as u32,
+                                ((base_sector_resolution - 1) * SECTORS_PER_SIDE + 1) as u32,
+                            );
+                            let polar = coordinates::cspace_to_polar(cspace);
+                            (polar.x.to_degrees(), polar.y.to_degrees())
+                        })
+                        .collect()
+                } else {
+                    (0..(base_sector_resolution * base_sector_resolution))
+                        .into_par_iter()
+                        .map(|i| {
+                            let cspace = root.cell_position_cspace(
+                                (x * base_sector_resolution + (i % base_sector_resolution)) as i32,
+                                (y * base_sector_resolution + (i / base_sector_resolution)) as i32,
+                                root_border_size as u32,
+                                base_sector_resolution * SECTORS_PER_SIDE,
+                            );
+                            let polar = coordinates::cspace_to_polar(cspace);
+                            (polar.x.to_degrees(), polar.y.to_degrees())
+                        })
+                        .collect()
+                };
+
+                // Determine which tiles are required for the sector.
+                let mut tiles: Vec<_> = coordinates
+                    .par_iter()
+                    .map(|(lat, long)| {
+                        ((lat / 10.0).floor() as i16 * 10, (long / 10.0).floor() as i16 * 10)
+                    })
+                    .collect();
+                tiles.dedup();
+                tiles.sort();
+                tiles.dedup();
+
+                if tiles.len() > 10 {
+                    println!("Skipping sector: {}x{} (requires {} tiles)", x, y, tiles.len());
+                    continue;
+                }
+                //assert!(tiles.len() < 10, "tiles.len={}: {:?}", tiles.len(), tiles);
+
+                let mut rasters = Vec::new();
+                for tile in tiles {
+                    rasters.push(
+                        raster_cache
+                            .get(tile.0, tile.1)
+                            .map(move |f| -> Result<_, Error> { Ok((tile, f?)) }),
+                    );
+                }
+
+                let reprojected_directory = &reprojected_directory;
+                let global_raster = global_raster.as_ref();
+                let num_rasters = rasters.len();
+                let resolution = base_sector_resolution as usize;
+                let fut = async move {
+                    let mut heightmap = vec![T::zero(); resolution * resolution];
+
+                    let rasters: fnv::FnvHashMap<(i16, i16), Arc<Raster<_>>> =
+                        futures::future::try_join_all(rasters)
+                            .await?
+                            .into_iter()
+                            .filter_map(|v: ((i16, i16), Option<Arc<Raster<_>>>)| Some((v.0, v.1?)))
+                            .collect();
+
+                    heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
+                        |(h, (lat, long))| {
+                            if let Some(r) = rasters.get(&(
+                                (lat / 10.0).floor() as i16 * 10,
+                                (long / 10.0).floor() as i16 * 10,
+                            )) {
+                                match r.nearest(lat, long, 0) {
+                                    Some(v) => *h = from_f64(v),
+                                    None => println!(
+                                        "{} {} / {} {} / {} {}",
+                                        lat,
+                                        long,
+                                        (lat / 10.0).floor() as i16 * 10,
+                                        (long / 10.0).floor() as i16 * 10,
+                                        r.latitude_llcorner,
+                                        r.longitude_llcorner
+                                    ),
+                                }
+                                //*h = r.interpolate(lat, long, 0).unwrap() as u8;
+                            }
+                            // if *h == 0 {
+                            //     if let Some(global_dem) = &global_raster {
+                            //         *h = global_dem.interpolate(lat, long, 0) as i16;
+                            //     }
+                            // }
+                        },
+                    );
+
+                    let reprojected_directory = reprojected_directory.clone();
+                    tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                        let mut output_files = Vec::new();
+
+                        let mut resolution = base_sector_resolution;
+                        let mut downsampled: Vec<T> = heightmap.clone();
+                        for level in (min_level..=max_level).rev() {
+                            let mut bytes = Vec::new();
+
+                            let mut min = downsampled[0];
+                            let mut max = downsampled[0];
+                            for &v in &downsampled {
+                                min = min.min(v);
+                                max = max.max(v);
+                            }
+                            if min == max {
+                                tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                                    .write_image::<C>(1, 1, &[min])?;
+                            } else {
+                                tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                                    .write_image_with_compression::<C, _>(
+                                        resolution as u32,
+                                        resolution as u32,
+                                        tiff::encoder::compression::Lzw,
+                                        &downsampled,
+                                    )?;
+                            }
+
+                            let filename = reprojected_directory.join(&format!(
+                                "{}_S-{}-{:02}x{:02}.tiff",
+                                VFace(root.face()),
+                                level,
+                                x,
+                                y
+                            ));
+                            output_files.push((filename, bytes));
+
+                            if level != min_level {
+                                if grid_registration {
+                                    let half_resolution = (resolution - 1) / 2 + 1;
+                                    let mut half = vec![
+                                        T::zero();
+                                        (half_resolution * half_resolution) as usize
+                                    ];
+                                    for y in 0..half_resolution {
+                                        for x in 0..half_resolution {
+                                            half[(y * half_resolution + x) as usize] =
+                                                downsampled[(y * 2 * resolution + x * 2) as usize];
+                                        }
+                                    }
+                                    downsampled = half;
+                                    resolution = half_resolution;
+                                } else {
+                                    let half_resolution = resolution / 2;
+                                    let mut half = vec![
+                                        T::zero();
+                                        (half_resolution * half_resolution) as usize
+                                    ];
+                                    for y in 0..half_resolution {
+                                        for x in 0..half_resolution {
+                                            let (x2, y2) = (x * 2, y * 2);
+                                            half[(y * half_resolution + x) as usize] = downsample(
+                                                downsampled[(y2 * resolution + x2) as usize],
+                                                downsampled[((y2 + 1) * resolution + x2) as usize],
+                                                downsampled[(y2 * resolution + x2 + 1) as usize],
+                                                downsampled
+                                                    [((y2 + 1) * resolution + x2 + 1) as usize],
+                                            );
+                                        }
+                                    }
+                                    downsampled = half;
+                                    resolution = half_resolution;
+                                }
+                            }
+                        }
+
+                        for (filename, bytes) in output_files.into_iter().rev() {
+                            AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                                .write(|f| f.write_all(&bytes))?;
+                        }
+
+                        Ok(())
+                    })
+                    .await??;
+                    Ok(num_rasters)
+                }
+                .boxed();
+
+                unstarted = Some((num_rasters, fut));
+            }
+        }
+
+        let mut total_tiles = 0;
+        let mut missing_tiles = Vec::new();
+        VNode::breadth_first(|n| {
+            let filename = format!(
+                "{}_{}_{}_{}x{}.tiff",
+                dataset_name,
+                n.level(),
+                VFace(n.face()),
+                n.x(),
+                n.y()
+            );
+
+            total_tiles += 1;
+            if !existing_tiles.contains(&filename) {
+                missing_tiles.push((tiles_directory.join(filename), n));
+            }
+
+            n.level() < max_level
+        });
+        missing_tiles.reverse();
+
+        let mut sector_cache =
+            SectorCache::new(32, reprojected_directory.to_owned(), "", "tiff", &|bytes| -> Result<
+                Vec<T>,
+                _,
+            > {
+                let mut decoder = tiff::decoder::Decoder::new(Cursor::new(bytes))?;
+                Ok(match decoder.read_image()? {
+                    tiff::decoder::DecodingResult::U8(v) => bytemuck::cast_vec(v),
+                    _ => unimplemented!(),
+                })
+            });
+        let mut unordered = FuturesUnordered::new();
+        let mut tiles_processed = total_tiles - missing_tiles.len();
+        while !missing_tiles.is_empty() || !unordered.is_empty() {
+            if unordered.len() < 16 && !missing_tiles.is_empty() {
+                let (filename, node) = missing_tiles.pop().unwrap();
+
+                let mut heights = vec![T::zero(); TILE_RESOLUTION * TILE_RESOLUTION];
+
+                let step = 1 << min_level.saturating_sub(node.level());
+                let sector_level = node.level().max(min_level);
+                let sector_inner_resolution =
+                    (512 << sector_level) / (SECTORS_PER_SIDE - 1) as usize;
+                let sector_resolution = if grid_registration {
+                    1 + sector_inner_resolution
+                } else {
+                    sector_inner_resolution
+                };
+                let root_x = node.x() as usize * TILE_INNER_RESOLUTION * step
+                    + sector_resolution / 2
+                    - BORDER_SIZE * step;
+                let root_y = node.y() as usize * TILE_INNER_RESOLUTION * step
+                    + sector_resolution / 2
+                    - BORDER_SIZE * step;
+
+                let mut sectors = FnvHashMap::default();
+
+                let min_sector_x = (root_x / sector_inner_resolution) as u32;
+                let min_sector_y = (root_y / sector_inner_resolution) as u32;
+                let max_sector_x =
+                    ((root_x + (TILE_RESOLUTION - 1) * step) / sector_inner_resolution) as u32;
+                let max_sector_y =
+                    ((root_y + (TILE_RESOLUTION - 1) * step) / sector_inner_resolution) as u32;
+                for y in min_sector_y..=max_sector_y {
+                    for x in min_sector_x..=max_sector_x {
+                        let s = Sector { face: node.face(), x, y };
+                        if !sectors.contains_key(&s) {
+                            sectors.insert(s, sector_cache.get_sector(s, Some(sector_level)));
+                        }
+                    }
+                }
+
+                // for y in (0..TILE_RESOLUTION).step_by(2) {
+                //     for x in (0..TILE_RESOLUTION).step_by(2) {
+                //         let s = Sector {
+                //             face: node.face(),
+                //             x: ((x * step + root_x) / sector_inner_resolution) as u32,
+                //             y: ((y * step + root_y) / sector_inner_resolution) as u32,
+                //         };
+                //         if !sectors.contains_key(&s) {
+                //             //eprintln!("x={}, y={}, step={}, root_x={}, root_y={}", x, y, step, root_x, root_y);
+                //             sectors.insert(s, sector_cache.get_sector(s, Some(sector_level)));
+                //         }
+                //     }
+                // }
+
+                unordered.push(async move {
+                    let sectors: Vec<(Sector, Result<_, _>)> = futures::future::join_all(
+                        sectors.into_iter().map(|s| async { (s.0, s.1.await) }),
+                    )
+                    .await;
+
+                    let mut sectors_map = FnvHashMap::default();
+                    for s in sectors {
+                        sectors_map.insert(s.0, s.1?);
+                    }
+
+                    let encoded = tokio::task::spawn_blocking(move || {
+                        for y in 0..TILE_RESOLUTION {
+                            for x in 0..TILE_RESOLUTION {
+                                let s = Sector {
+                                    face: node.face(),
+                                    x: ((x * step + root_x) / sector_inner_resolution) as u32,
+                                    y: ((y * step + root_y) / sector_inner_resolution) as u32,
+                                };
+                                let sector = &sectors_map[&s];
+                                if sector.len() == 1 {
+                                    heights[y * TILE_RESOLUTION + x] = sector[0];
+                                } else {
+                                    let sector_x = (x * step + root_x) % sector_inner_resolution;
+                                    let sector_y = (y * step + root_y) % sector_inner_resolution;
+
+                                    heights[y * TILE_RESOLUTION + x] =
+                                        sector[sector_y * sector_resolution + sector_x];
+                                }
+                            }
+                        }
+
+                        let mut bytes = Vec::new();
+                        if heights.iter().any(|&h| h != T::zero()) {
+                            tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                                .write_image_with_compression::<C, _>(
+                                    TILE_RESOLUTION as u32,
+                                    TILE_RESOLUTION as u32,
+                                    tiff::encoder::compression::Lzw,
+                                    &heights,
+                                )?;
+                        // } else {
+                        //     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                        //         .write_image_with_compression::<C, _>(
+                        //             1,
+                        //             1,
+                        //             tiff::encoder::compression::Lzw,
+                        //             &heights[..1],
+                        //         )?;
+                        }
+
+                        Ok::<_, anyhow::Error>((filename, bytes))
+                    })
+                    .await?;
+
+                    Ok::<_, anyhow::Error>(encoded)
+                })
+            } else {
+                let (filename, bytes) = unordered.next().await.unwrap()??;
+
+                AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                    .write(|f| f.write_all(&bytes))?;
+
+                tiles_processed += 1;
+                progress_callback(
+                    &format!("Generating {} tiles...", dataset_name),
+                    tiles_processed,
+                    total_tiles,
+                );
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -237,7 +732,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
             sector_resolution,
             root_resolution,
             root_border_size,
-            dems: RasterCache::new(Arc::new(DemSource::Nasadem(nasadem_directory)), 64),
+            dems: crate::terrain::dem::make_nasadem_raster_cache(&nasadem_directory, 64),
             global_dem: Arc::new(crate::terrain::dem::parse_etopo1(
                 etopo1_file,
                 &mut progress_callback,
@@ -383,7 +878,13 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
         missing_by_face.entry(m.face().into()).or_insert(Vec::new()).push(m);
     }
 
-    let mut sector_cache = SectorCache::new(32);
+    let mut sector_cache = SectorCache::new(
+        32,
+        nasadem_reprojected_directory.to_owned(),
+        "nasadem",
+        "raw",
+        &|bytes| Ok(tilefmt::uncompress_heightmap_tile(None, bytes).1),
+    );
     let mut tile_cache = HeightmapCache::new(resolution, border_size, 128);
     for (face, mut missing) in missing_by_face {
         missing.sort_by_key(|m| m.level());
@@ -465,10 +966,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                             };
                             if !sectors.contains_key(&s) {
                                 //eprintln!("x={}, y={}, step={}, root_x={}, root_y={}", x, y, step, root_x, root_y);
-                                sectors.insert(
-                                    s,
-                                    sector_cache.get_sector(&nasadem_reprojected_directory, s),
-                                );
+                                sectors.insert(s, sector_cache.get_sector(s, None));
                             }
                         }
                     }
@@ -534,11 +1032,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
                             let parent = match parent {
                                 Some(p) => {
                                     parent_heights = p.2;
-                                    Some((
-                                        NODE_OFFSETS[p.0 as usize],
-                                        p.1,
-                                        &**parent_heights,
-                                    ))
+                                    Some((NODE_OFFSETS[p.0 as usize], p.1, &**parent_heights))
                                 }
                                 None => None,
                             };
@@ -644,8 +1138,8 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
                 let cspace = n.cell_position_cspace(
                     (i % layer.texture_resolution) as i32,
                     (i / layer.texture_resolution) as i32,
-                    layer.texture_border_size as u16,
-                    layer.texture_resolution as u16,
+                    layer.texture_border_size,
+                    layer.texture_resolution,
                 );
                 let polar = coordinates::cspace_to_polar(cspace);
                 (polar.x.to_degrees(), polar.y.to_degrees())

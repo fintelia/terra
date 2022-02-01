@@ -17,18 +17,18 @@ pub struct VNode(u64);
 impl VNode {
     // The cell sizes assume each face is covered by a texture with resolution 512x512.
 
-    pub const LEVEL_CELL_20KM: u8 = 0; //  512 x  512 x 6   =  1.5 MB
-    pub const LEVEL_CELL_10KM: u8 = 1; // 1024 x 1024 x 6   =    6 MB
-    pub const LEVEL_CELL_5KM: u8 = 2; // 2048 x 2048 x 6   =   24 MB
-    pub const LEVEL_CELL_2KM: u8 = 3; // 4096 x 4096 x 6   =   96 MB
-    pub const LEVEL_CELL_1KM: u8 = 4; // 8192 x 8192 x 6   =  384 MB
-    pub const LEVEL_CELL_610M: u8 = 5;
-    pub const LEVEL_CELL_305M: u8 = 6;
-    pub const LEVEL_CELL_153M: u8 = 7;
-    pub const LEVEL_CELL_76M: u8 = 8;
-    pub const LEVEL_CELL_38M: u8 = 9;
-    pub const LEVEL_CELL_19M: u8 = 10;
-    pub const LEVEL_CELL_10M: u8 = 11;
+    pub const LEVEL_CELL_20KM: u8 = 0; //  512 x  512 x 6    =  1.5 MB
+    pub const LEVEL_CELL_10KM: u8 = 1; // 1024 x 1024 x 6    =    6 MB
+    pub const LEVEL_CELL_5KM: u8 = 2; //  2048 x 2048 x 6    =   24 MB
+    pub const LEVEL_CELL_2KM: u8 = 3; //  4096 x 4096 x 6    =   96 MB
+    pub const LEVEL_CELL_1KM: u8 = 4; //  8192 x 8192 x 6    =  384 MB
+    pub const LEVEL_CELL_610M: u8 = 5; //  16K x 16K x 6     =  1.5 GB
+    pub const LEVEL_CELL_305M: u8 = 6; //  32K x 32K x 6     =    6 GB
+    pub const LEVEL_CELL_153M: u8 = 7; //  64K x 64K x 6     =   24 GB
+    pub const LEVEL_CELL_76M: u8 = 8; //  128K x 128K x 6    =   96 GB
+    pub const LEVEL_CELL_38M: u8 = 9; //  256K x 256K x 6    =  384 GB
+    pub const LEVEL_CELL_19M: u8 = 10; // 512K x 512K x 6    =  1.5 TB
+    pub const LEVEL_CELL_10M: u8 = 11; //   1M x 1M x 6      =    6 TB
     pub const LEVEL_CELL_5M: u8 = 12;
     pub const LEVEL_CELL_2M: u8 = 13;
     pub const LEVEL_CELL_1M: u8 = 14;
@@ -168,8 +168,8 @@ impl VNode {
         &self,
         x: i32,
         y: i32,
-        skirt: u16,
-        resolution: u16,
+        skirt: u32,
+        resolution: u32,
     ) -> Vector3<f64> {
         let fx = ((x - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;
         let fy = ((y - skirt as i32) as f64 + 0.5) / (resolution - 2 * skirt) as f64;

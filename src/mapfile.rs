@@ -5,7 +5,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, num::NonZeroU32};
@@ -42,7 +42,8 @@ pub(crate) struct MapFile {
     _db: sled::Db,
     textures: sled::Tree,
 
-    tiles_on_disk: Arc<Mutex<VecMap<HashSet<VNode>>>>,
+    remote_tiles: Arc<Mutex<VecMap<HashSet<VNode>>>>,
+    local_tiles: Arc<Mutex<VecMap<HashSet<VNode>>>>,
 }
 impl MapFile {
     pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
@@ -70,7 +71,8 @@ impl MapFile {
             layers,
             textures: db.open_tree("textures").unwrap(),
             _db: db,
-            tiles_on_disk: Default::default(),
+            remote_tiles: Default::default(),
+            local_tiles: Default::default(),
         }
     }
 
@@ -80,7 +82,7 @@ impl MapFile {
         }
 
         let exists = self
-            .tiles_on_disk
+            .local_tiles
             .lock()
             .unwrap()
             .get(layer.index())
@@ -93,11 +95,15 @@ impl MapFile {
             Ok(TileState::MissingBase)
         }
     }
-    pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Vec<u8>, Error> {
+    pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Option<Vec<u8>>, Error> {
         let filename = Self::tile_path(layer, node);
         if !filename.exists() {
+            if !self.remote_tiles.lock().unwrap()[layer].contains(&node) {
+                return Ok(None);
+            }
             match layer {
-                LayerType::AlbedoRoughness | LayerType::Heightmaps => {
+                LayerType::AlbedoRoughness | LayerType::Heightmaps | LayerType::TreeCover => {
+                    // unreachable!("{:?}", filename)
                     let url = Self::tile_url(layer, node);
                     let client = hyper::Client::builder()
                         .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
@@ -106,7 +112,7 @@ impl MapFile {
                         let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
                         // TODO: Fix lifetime issues so we can do this tile write asynchronously.
                         tokio::task::block_in_place(|| self.write_tile(layer, node, &data))?;
-                        return Ok(data);
+                        return Ok(Some(data));
                     } else {
                         panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
                     }
@@ -118,7 +124,7 @@ impl MapFile {
 
         let mut contents = Vec::new();
         tokio::fs::File::open(filename).await?.read_to_end(&mut contents).await?;
-        Ok(contents)
+        Ok(Some(contents))
     }
 
     pub(crate) fn write_tile(
@@ -135,7 +141,7 @@ impl MapFile {
         AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
             .write(|f| f.write_all(data))?;
 
-        self.tiles_on_disk
+        self.local_tiles
             .lock()
             .unwrap()
             .entry(layer.index())
@@ -374,6 +380,7 @@ impl MapFile {
         let (layer, ext) = match layer {
             LayerType::AlbedoRoughness => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
+            LayerType::TreeCover => ("treecover", "tiff"),
             _ => unreachable!(),
         };
         format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
@@ -387,18 +394,32 @@ impl MapFile {
         format!("{}{}", TERRA_TILES_URL, Self::tile_name(layer, node))
     }
 
-    pub(crate) fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
+    pub(crate) async fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
         let (target_layer, target_ext) = match layer {
             LayerType::AlbedoRoughness => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
+            LayerType::TreeCover => ("treecover", "tiff"),
             _ => unreachable!(),
         };
 
+        fn face_index(s: &str) -> Option<u8>{
+            Some(match s {
+                "0E" => 0,
+                "180E" => 1,
+                "90E" => 2,
+                "90W" => 3,
+                "N" => 4,
+                "S" => 5,
+                _ => return None,
+            })
+        }
+
+        let mut all = HashSet::new();
         let mut existing = HashSet::new();
 
+        // Scan local files.
         let directory = TERRA_DIRECTORY.join("tiles").join(target_layer);
         std::fs::create_dir_all(&directory)?;
-
         for file in fs::read_dir(directory)? {
             let filename = file?.file_name();
             let filename = filename.to_string_lossy();
@@ -406,30 +427,58 @@ impl MapFile {
             if let Some((layer, level, face, x, y, ext)) =
                 sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
             {
-                if layer == target_layer && ext == target_ext {
-                    let face = match &*face {
-                        "0E" => 0,
-                        "180E" => 1,
-                        "90E" => 2,
-                        "90W" => 3,
-                        "N" => 4,
-                        "S" => 5,
-                        _ => continue,
-                    };
-
-                    existing.insert((level, face, x, y));
+                let face = face_index(&face);
+                if layer == target_layer && ext == target_ext && face.is_some(){
+                    existing.insert((level, face.unwrap(), x, y));
                 }
             }
         }
 
-        let mut tiles_on_disk = self.tiles_on_disk.lock().unwrap();
-        let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
+        // Download file list if necessary.
+        let file_list_path =
+            TERRA_DIRECTORY.join(&format!("tiles/{}_tile_list.txt.gz", target_layer));
+        if !file_list_path.exists() {
+            let url = format!("{}{}_tile_list.txt.lz4", TERRA_TILES_URL, target_layer);
+            let client =
+                hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+            let resp = client.get(url.parse()?).await?;
+            if resp.status().is_success() {
+                let contents = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
+                tokio::fs::write(&file_list_path, contents).await?;
+            } else {
+                anyhow::bail!("Failed to download '{}'", url);
+            }
+        }
+        // Parse file list to learn all files available from the remote.
+        let mut remote_files = String::new();
+        let encoded = tokio::fs::read(file_list_path).await?;
+        lz4::Decoder::new(std::io::Cursor::new(&encoded))?.read_to_string(&mut remote_files)?;
+        for filename in remote_files.split("\n") {
+            if let Some((layer, level, face, x, y, ext)) =
+                sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
+            {
+                let face = face_index(&face);
+                if layer == target_layer && ext == target_ext && face.is_some(){
+                    all.insert((level, face.unwrap(), x, y));
+                }
+            }
+        }
+
+        let mut local_tiles = self.local_tiles.lock().unwrap();
+        let mut remote_tiles = self.remote_tiles.lock().unwrap();
+
+        let local_tiles = local_tiles.entry(layer.index()).or_insert_with(Default::default);
+        let remote_tiles = remote_tiles.entry(layer.index()).or_insert_with(Default::default);
 
         VNode::breadth_first(|n| {
             if existing.contains(&(n.level(), n.face(), n.x(), n.y())) {
-                tiles_on_disk.insert(n);
+                local_tiles.insert(n);
             } else {
-                tiles_on_disk.remove(&n);
+                local_tiles.remove(&n);
+            }
+
+            if all.contains(&(n.level(), n.face(), n.x(), n.y())) {
+                remote_tiles.insert(n);
             }
 
             n.level() + 1 < self.layers[layer.index()].min_generated_level
@@ -440,7 +489,7 @@ impl MapFile {
 
     /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
     pub(crate) fn get_missing_base(&self, layer: LayerType) -> (Vec<VNode>, usize) {
-        let mut tiles_on_disk = self.tiles_on_disk.lock().unwrap();
+        let mut tiles_on_disk = self.local_tiles.lock().unwrap();
         let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
 
         let mut total = 0;

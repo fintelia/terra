@@ -78,6 +78,19 @@ void main() {
 		}
 	}
 
+	// if (is_water)
+	// 	albedo_roughness = vec4(0, .2, 5, 0.4);
+	// else if (smoothstep(2000, 3000, h00) > 1- normal.y)
+	// 	albedo_roughness = vec4(.2, .2, .2, 0.4);
+	// else if (h00 < 2)
+	// 	albedo_roughness = vec4(.2, .2, .15, .8);
+	// else if (normal.y < 0.9)
+	// 	albedo_roughness = vec4(vec3(0.02), 0.8);
+	// else if (h00 > 100 && normal.y < 0.99)
+	// 	albedo_roughness = vec4(0, 0.1, .05, 0.8);
+	// else
+	// 	albedo_roughness = vec4(0, 0.06, .015, 0.8);
+
 	if (is_water) {
 		albedo_roughness.a = 0.1;
 		float negative_depth = min(h00 + h10 + h01 + h11, 0);

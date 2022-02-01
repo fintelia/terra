@@ -19,18 +19,21 @@ struct TileRequest {
 pub(crate) enum TileResult {
     Heightmaps(VNode, Arc<Vec<i16>>),
     Albedo(VNode, Vec<u8>),
+    TreeCover(VNode, Vec<u8>),
 }
 impl TileResult {
     pub fn layer(&self) -> LayerType {
         match self {
             TileResult::Heightmaps(..) => LayerType::Heightmaps,
             TileResult::Albedo(..) => LayerType::AlbedoRoughness,
+            TileResult::TreeCover(..) => LayerType::TreeCover,
         }
     }
     pub fn node(&self) -> VNode {
         match self {
             TileResult::Heightmaps(node, ..)
-            | TileResult::Albedo(node, ..) => *node,
+            | TileResult::Albedo(node, ..)
+            | TileResult::TreeCover(node, ..) => *node,
         }
     }
 }
@@ -117,9 +120,19 @@ impl TileStreamer {
                         LayerType::AlbedoRoughness => pending.push(async move {
                             let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             let data = tokio::task::spawn_blocking(move || {
-                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data)?.to_rgba8().to_vec())
+                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_rgba8().to_vec())
                             }).await??;
                             Ok::<TileResult, Error>(TileResult::Albedo(request.node, data))
+                        }.boxed()),
+                        LayerType::TreeCover => pending.push(async move{
+                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
+                            if raw_data.is_none() {
+                                return Ok(TileResult::Albedo(request.node, Vec::new()));
+                            }
+                            let data = tokio::task::spawn_blocking(move || {
+                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_luma8().to_vec())
+                            }).await??;
+                            Ok::<TileResult, Error>(TileResult::TreeCover(request.node, data))
                         }.boxed()),
                         _ => unreachable!(),
                     }

@@ -51,9 +51,23 @@ impl Terrain {
         dataset_directory: P,
         mut progress_callback: F,
     ) -> Result<Self, Error> {
-        let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
+        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
 
         let dataset_directory = dataset_directory.as_ref();
+
+        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _>(
+            dataset_directory.to_owned(),
+            "treecover",
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            false,
+            terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 6),
+            None,
+            &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
+            &|t| (t * (255.0 / 100.0)) as u8,
+        )
+        .await?;
+
         generate::generate_heightmaps(
             &*mapfile,
             dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
@@ -79,8 +93,8 @@ impl Terrain {
     }
 
     /// Create a new Terrain object.
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
-        let mapfile = Arc::new(futures::executor::block_on(MapFileBuilder::new().build())?);
+    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
+        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
         Self::new_impl(device, queue, mapfile)
     }
 

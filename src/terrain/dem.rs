@@ -1,12 +1,9 @@
-use crate::terrain::raster::{GlobalRaster, Raster, RasterSource};
+use crate::terrain::raster::{GlobalRaster, Raster, RasterCache};
 use anyhow::{ensure, Error};
 use lazy_static::lazy_static;
+use std::io::{Cursor, Read};
 use std::str::FromStr;
 use std::{collections::HashSet, path::Path};
-use std::{
-    io::{Cursor, Read},
-    path::PathBuf,
-};
 use thiserror::Error;
 use zip::ZipArchive;
 
@@ -22,112 +19,195 @@ lazy_static! {
 lazy_static! {
     static ref NASADEM_FILES: HashSet<&'static str> =
         include_str!("../../file_list_nasadem.txt").split('\n').collect();
+    static ref TREECOVER_FILES: HashSet<&'static str> =
+        include_str!("../../file_list_treecover.txt").split('\n').collect();
 }
 
-/// Which data source to use for digital elevation models.
-#[derive(Clone)]
-pub enum DemSource {
-    /// Use DEMs Shuttle Radar Topography Mission (SRTM) 3 Arc-Second Global data source. Data is
-    /// available globally between 60° north and 56° south latitude.
-    #[allow(unused)]
-    Srtm90m(PathBuf),
-    /// Use NASADEM
-    #[allow(unused)]
-    Nasadem(PathBuf),
+// /// Which data source to use for digital elevation models.
+// #[derive(Clone)]
+// pub enum DemSource {
+//     /// Use DEMs Shuttle Radar Topography Mission (SRTM) 3 Arc-Second Global data source. Data is
+//     /// available globally between 60° north and 56° south latitude.
+//     #[allow(unused)]
+//     Srtm90m(PathBuf),
+//     /// Use NASADEM
+//     #[allow(unused)]
+//     Nasadem(PathBuf),
+// }
+// impl DemSource {
+//     #[allow(unused)]
+//     pub(crate) fn url_str(&self) -> &str {
+//         match *self {
+//             DemSource::Srtm90m(_) => {
+//                 "https://opentopography.s3.sdsc.edu/raster/SRTM_GL3/SRTM_GL3_srtm/"
+//             }
+//             DemSource::Nasadem(_) => {
+//                 "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
+//             }
+//         }
+//     }
+
+//     /// Returns the approximate resolution of data from this source in meters.
+//     #[allow(unused)]
+//     pub(crate) fn resolution(&self) -> u32 {
+//         match *self {
+//             DemSource::Srtm90m(_) => 90,
+//             DemSource::Nasadem(_) => 30,
+//         }
+//     }
+//     /// Returns the size of cells from this data source in arcseconds.
+//     #[allow(unused)]
+//     pub(crate) fn cell_size(&self) -> f32 {
+//         match *self {
+//             DemSource::Srtm90m(_) => 3.0,
+//             DemSource::Nasadem(_) => 1.0,
+//         }
+//     }
+
+//     fn tile_name(&self, latitude: i16, longitude: i16) -> String {
+//         let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+//         let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+//         match *self {
+//             DemSource::Srtm90m(_) => {
+//                 format!("{}{:02}_{}{:03}.hgt.sz", n_or_s, latitude.abs(), e_or_w, longitude.abs())
+//             }
+//             DemSource::Nasadem(_) => {
+//                 format!(
+//                     "NASADEM_HGT_{}{:02}{}{:03}.zip",
+//                     n_or_s,
+//                     latitude.abs(),
+//                     e_or_w,
+//                     longitude.abs()
+//                 )
+//             }
+//         }
+//     }
+
+//     pub(crate) fn tile_should_exist(&self, latitude: i16, longitude: i16) -> bool {
+//         match *self {
+//             DemSource::Srtm90m(_) => SRTM3_FILES.contains(&*self.tile_name(latitude, longitude)),
+//             DemSource::Nasadem(_) => NASADEM_FILES.contains(&*self.tile_name(latitude, longitude)),
+//         }
+//     }
+//     pub(crate) fn filename(&self, latitude: i16, longitude: i16) -> PathBuf {
+//         match self {
+//             DemSource::Srtm90m(p) | DemSource::Nasadem(p) => {
+//                 p.join(self.tile_name(latitude, longitude))
+//             }
+//         }
+//     }
+// }
+
+pub(crate) fn make_nasadem_raster_cache(
+    base_directory: &Path,
+    capacity: usize,
+) -> RasterCache<f32> {
+    let mut filenames = Vec::new();
+    for latitude in -90..=89i16 {
+        for longitude in -180..=179i16 {
+            let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+            let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+            let filename = format!(
+                "NASADEM_HGT_{}{:02}{}{:03}.zip",
+                n_or_s,
+                latitude.abs(),
+                e_or_w,
+                longitude.abs()
+            );
+            if NASADEM_FILES.contains(&*filename) {
+                filenames.push(Some(base_directory.join(filename)));
+            } else {
+                filenames.push(None);
+            }
+        }
+    }
+
+    RasterCache::new(filenames.into_boxed_slice(), 1, capacity, &parse_nasadem)
 }
-impl DemSource {
-    #[allow(unused)]
-    pub(crate) fn url_str(&self) -> &str {
-        match *self {
-            DemSource::Srtm90m(_) => {
-                "https://opentopography.s3.sdsc.edu/raster/SRTM_GL3/SRTM_GL3_srtm/"
-            }
-            DemSource::Nasadem(_) => {
-                "https://e4ftl01.cr.usgs.gov/MEASURES/NASADEM_HGT.001/2000.02.11/NASADEM_HGT_"
-            }
-        }
-    }
 
-    /// Returns the approximate resolution of data from this source in meters.
-    #[allow(unused)]
-    pub(crate) fn resolution(&self) -> u32 {
-        match *self {
-            DemSource::Srtm90m(_) => 90,
-            DemSource::Nasadem(_) => 30,
+pub(crate) fn make_treecover_raster_cache(
+    base_directory: &Path,
+    capacity: usize,
+) -> RasterCache<u8> {
+    let mut filenames = Vec::new();
+    for latitude in (-80..=90i16).step_by(10) {
+        for longitude in (-180..=179i16).step_by(10) {
+            let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
+            let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
+            let filename = format!(
+                "Hansen_GFC-2020-v1.8_treecover2000_{:02}{}_{:03}{}.tif",
+                latitude.abs(),
+                n_or_s,
+                longitude.abs(),
+                e_or_w,
+            );
+            if TREECOVER_FILES.contains(&*filename) {
+                filenames.push(Some(base_directory.join(filename)));
+            } else {
+                filenames.push(None);
+            }
         }
     }
-    /// Returns the size of cells from this data source in arcseconds.
-    #[allow(unused)]
-    pub(crate) fn cell_size(&self) -> f32 {
-        match *self {
-            DemSource::Srtm90m(_) => 3.0,
-            DemSource::Nasadem(_) => 1.0,
-        }
-    }
+    assert_eq!(filenames.len(), 18 * 36);
 
-    fn tile_name(&self, latitude: i16, longitude: i16) -> String {
-        let n_or_s = if latitude >= 0 { 'n' } else { 's' };
-        let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
-        match *self {
-            DemSource::Srtm90m(_) => {
-                format!("{}{:02}_{}{:03}.hgt.sz", n_or_s, latitude.abs(), e_or_w, longitude.abs())
-            }
-            DemSource::Nasadem(_) => {
-                format!(
-                    "NASADEM_HGT_{}{:02}{}{:03}.zip",
-                    n_or_s,
-                    latitude.abs(),
-                    e_or_w,
-                    longitude.abs()
-                )
-            }
-        }
-    }
+    RasterCache::new(filenames.into_boxed_slice(), 10, capacity, &|lat, long, data| {
+        let mut decoder = tiff::decoder::Decoder::new(Cursor::new(data))?
+            .with_limits(tiff::decoder::Limits::unlimited());
+        let (width, height) = decoder.dimensions()?;
 
-    pub(crate) fn tile_should_exist(&self, latitude: i16, longitude: i16) -> bool {
-        match *self {
-            DemSource::Srtm90m(_) => SRTM3_FILES.contains(&*self.tile_name(latitude, longitude)),
-            DemSource::Nasadem(_) => NASADEM_FILES.contains(&*self.tile_name(latitude, longitude)),
-        }
-    }
-    pub(crate) fn filename(&self, latitude: i16, longitude: i16) -> PathBuf {
-        match self {
-            DemSource::Srtm90m(p) | DemSource::Nasadem(p) => {
-                p.join(self.tile_name(latitude, longitude))
+        let values = match decoder.read_image() {
+            Ok(tiff::decoder::DecodingResult::U8(data)) => data,
+            e => {
+                println!("Bad treecover file lat={} long={} ({:?})", lat, long, e);
+                anyhow::bail!("bad treecover file");
+                vec![0; width as usize * height as usize]
             }
-        }
-    }
+        };
+
+        Ok(Raster {
+            width: width as usize,
+            height: height as usize,
+            bands: 1,
+            cell_size: 0.00025,
+            latitude_llcorner: f64::from(lat),
+            longitude_llcorner: f64::from(long),
+            values,
+        })
+    })
 }
 
-#[async_trait::async_trait]
-impl RasterSource for DemSource {
-    type Type = f32;
-    type Container = Vec<f32>;
-    async fn load(&self, latitude: i16, longitude: i16) -> Result<Option<Raster<f32>>, Error> {
-        if !self.tile_should_exist(latitude, longitude) {
-            return Ok(None);
-        }
+// #[async_trait::async_trait]
+// impl RasterSource for DemSource {
+//     type Type = f32;
+//     type Container = Vec<f32>;
+//     async fn load(&self, latitude: i16, longitude: i16) -> Result<Option<Raster<f32>>, Error> {
+//         if !self.tile_should_exist(latitude, longitude) {
+//             return Ok(None);
+//         }
 
-        match self {
-            DemSource::Srtm90m(_) => {
-                let filename = self.filename(latitude, longitude);
-                let data = tokio::fs::read(filename).await?;
-                let mut uncompressed = Vec::new();
-                snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed)?;
-                parse_srtm3_hgt(latitude, longitude, uncompressed).map(Some)
-            }
-            DemSource::Nasadem(_) => {
-                let filename = self.filename(latitude, longitude);
-                let data = tokio::fs::read(filename).await?;
+//         match self {
+//             DemSource::Srtm90m(_) => {
+//                 let filename = self.filename(latitude, longitude);
+//                 let data = tokio::fs::read(filename).await?;
+//                 let mut uncompressed = Vec::new();
+//                 snap::read::FrameDecoder::new(Cursor::new(data)).read_to_end(&mut uncompressed)?;
+//                 parse_srtm3_hgt(latitude, longitude, uncompressed).map(Some)
+//             }
+//             DemSource::Nasadem(_) => {
+//                 let filename = self.filename(latitude, longitude);
+//                 let data = tokio::fs::read(filename).await?;
 
-                tokio::task::spawn_blocking(move || parse_nasadem(latitude, longitude, data).map(Some)).await?
-            }
-        }
-    }
-    fn bands(&self) -> usize {
-        1
-    }
-}
+//                 tokio::task::spawn_blocking(move || {
+//                     parse_nasadem(latitude, longitude, data).map(Some)
+//                 })
+//                 .await?
+//             }
+//         }
+//     }
+//     fn bands(&self) -> usize {
+//         1
+//     }
+// }
 
 /// Load a zip file in the format for the USGS's National Elevation Dataset.
 #[allow(unused)]
@@ -252,7 +332,7 @@ fn parse_srtm3_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster
 }
 
 /// Load a ZIP file containing a HGT file in the format for the NASA's nasadem 30m dataset.
-fn parse_nasadem(latitude: i16, longitude: i16, data: Vec<u8>) -> Result<Raster<f32>, Error> {
+fn parse_nasadem(latitude: i16, longitude: i16, data: &[u8]) -> Result<Raster<f32>, Error> {
     let resolution = 3601;
     let cell_size = 1.0 / 3600.0;
 

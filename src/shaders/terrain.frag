@@ -19,6 +19,7 @@ layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
 layout(set = 0, binding = 10) uniform texture2DArray bent_normals;
+layout(set = 0, binding = 11) uniform texture2DArray treecover;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -101,6 +102,11 @@ vec3 debug_overlay(vec3 color) {
 	// }
 
 	// if(abs(length(position.xz-globals.camera.xz) - 32*1024) < 100)
+	// 	color = vec3(1);
+
+	// vec3 r = normalize(position.xyz + globals.camera.xyz);
+	// float latitude = acos(r.z) / 3.141592 * 180;
+	// if (fract(latitude/10+.7) < 0.01)
 	// 	color = vec3(1);
 
 	// if(fract(length(position)/1024) < 0.05)
@@ -251,6 +257,9 @@ void main() {
 	// 		albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.15, canopy.a);
 	// 	}
 	// }
+
+	// float tc = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
+	// albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.03,0.27,0.0), min(tc, 1));
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,
