@@ -365,7 +365,6 @@ impl TileCache {
                     &mut encoder,
                     gpu_state,
                     &self.layers,
-                    n,
                     slot,
                     parent_slot,
                     &mut uniform_data,

@@ -17,7 +17,6 @@ use itertools::Itertools;
 use maplit::hashmap;
 use rayon::prelude::*;
 use std::collections::HashSet;
-use std::convert::TryFrom;
 use std::fs;
 use std::io::Cursor;
 use std::pin::Pin;
@@ -223,7 +222,7 @@ pub(crate) fn reproject_dataset<T, C, F, Downsample, FromF64>(
     mut progress_callback: F,
     grid_registration: bool,
     mut raster_cache: RasterCache<T>,
-    global_raster: Option<Arc<GlobalRaster<i16>>>,
+    _global_raster: Option<Arc<GlobalRaster<i16>>>,
     downsample: &'static Downsample,
     from_f64: &'static FromF64,
 ) -> impl Future<Output = Result<(), anyhow::Error>>
@@ -236,8 +235,8 @@ where
     [T]: tiff::encoder::TiffValue,
 {
     async move {
-        let (dataset_directory, datasets) =
-            scan_directory(&base_directory, format!("datasets/{}", dataset_name))?;
+        // let (dataset_directory, datasets) =
+        //     scan_directory(&base_directory, format!("datasets/{}", dataset_name))?;
         let (reprojected_directory, reprojected) =
             scan_directory(&base_directory, format!("reprojected/{}", dataset_name))?;
         let (tiles_directory, existing_tiles) = scan_directory(
@@ -382,7 +381,7 @@ where
                 }
 
                 let reprojected_directory = &reprojected_directory;
-                let global_raster = global_raster.as_ref();
+                // let global_raster = global_raster.as_ref();
                 let num_rasters = rasters.len();
                 let resolution = base_sector_resolution as usize;
                 let fut = async move {

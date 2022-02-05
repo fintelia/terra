@@ -34,7 +34,6 @@ pub(crate) trait GenerateTile: Send {
         encoder: &mut wgpu::CommandEncoder,
         state: &GpuState,
         layers: &VecMap<LayerParams>,
-        node: VNode,
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -85,7 +84,6 @@ impl GenerateTile for MeshGen {
         encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
         _layers: &VecMap<LayerParams>,
-        _node: VNode,
         slot: usize,
         _parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -193,7 +191,6 @@ impl GenerateTile for ShaderGen {
         encoder: &mut wgpu::CommandEncoder,
         state: &GpuState,
         layers: &VecMap<LayerParams>,
-        node: VNode,
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -361,10 +358,8 @@ pub(crate) fn generators(
     soft_float64: bool,
 ) -> Vec<Box<dyn GenerateTile>> {
     let heightmaps_resolution = layers[LayerType::Heightmaps].texture_resolution;
-    let heightmaps_border = layers[LayerType::Heightmaps].texture_border_size;
     let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
     let normals_resolution = layers[LayerType::Normals].texture_resolution;
-    let normals_border = layers[LayerType::Normals].texture_border_size;
     let grass_canopy_resolution = layers[LayerType::GrassCanopy].texture_resolution;
 
     vec![

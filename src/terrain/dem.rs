@@ -160,7 +160,6 @@ pub(crate) fn make_treecover_raster_cache(
             e => {
                 println!("Bad treecover file lat={} long={} ({:?})", lat, long, e);
                 anyhow::bail!("bad treecover file");
-                vec![0; width as usize * height as usize]
             }
         };
 
@@ -298,6 +297,7 @@ fn parse_ned_zip(data: Vec<u8>) -> Result<Raster<f32>, Error> {
 }
 
 /// Load a HGT file in the format for the NASA's STRM 90m dataset.
+#[allow(unused)]
 fn parse_srtm3_hgt(latitude: i16, longitude: i16, hgt: Vec<u8>) -> Result<Raster<f32>, Error> {
     let resolution = 1201;
     let cell_size = 1.0 / 1200.0;

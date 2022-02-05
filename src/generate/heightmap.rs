@@ -10,7 +10,6 @@ use lru_cache::LruCache;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use types::{VFace, VNode, NODE_OFFSETS};
