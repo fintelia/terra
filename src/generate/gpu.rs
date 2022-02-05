@@ -3,24 +3,6 @@ use maplit::hashmap;
 use crate::GpuState;
 use std::{collections::HashMap, mem};
 
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub(crate) struct GenMaterialsUniforms {
-    pub heightmaps_origin: [i32; 2],
-    pub parent_origin: [u32; 2],
-    pub heightmaps_slot: i32,
-    pub normals_slot: i32,
-    pub albedo_slot: i32,
-    pub parent_slot: i32,
-    pub spacing: f32,
-    pub level: u32,
-    pub position: [i32; 2],
-    pub level_resolution: u32,
-    pub _padding: [u32; 3],
-}
-unsafe impl bytemuck::Zeroable for GenMaterialsUniforms {}
-unsafe impl bytemuck::Pod for GenMaterialsUniforms {}
-
 pub(crate) struct ComputeShader<U> {
     shader: rshader::ShaderSet,
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,

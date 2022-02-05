@@ -84,7 +84,7 @@ impl MapFileBuilder {
                     grid_registration: false,
                     dynamic: false,
                     min_level: 0,
-                    min_generated_level: VNode::LEVEL_CELL_305M,
+                    min_generated_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
                 },
             LayerType::Normals.index() => LayerParams {
@@ -146,14 +146,26 @@ impl MapFileBuilder {
                 min_level: 0,
                 min_generated_level: VNode::LEVEL_CELL_38M,
                 max_level: VNode::LEVEL_CELL_76M,
-            }
+            },
+            LayerType::BaseAlbedo.index() => LayerParams {
+                layer_type: LayerType::BaseAlbedo,
+                texture_resolution: 516,
+                texture_border_size: 2,
+                texture_format: TextureFormat::RGBA8,
+                tiles_generated_per_frame: 16,
+                grid_registration: false,
+                dynamic: false,
+                min_level: 0,
+                min_generated_level: VNode::LEVEL_CELL_305M,
+                max_level: VNode::LEVEL_CELL_610M,
+            },
         ]
         .into_iter()
         .collect();
 
         let mapfile = MapFile::new(layers);
         mapfile.reload_tile_states(LayerType::Heightmaps).await.unwrap();
-        mapfile.reload_tile_states(LayerType::AlbedoRoughness).await.unwrap();
+        mapfile.reload_tile_states(LayerType::BaseAlbedo).await.unwrap();
         mapfile.reload_tile_states(LayerType::TreeCover).await.unwrap();
 
         Self(mapfile)
@@ -1073,12 +1085,12 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
     blue_marble_directory: impl AsRef<Path>,
     mut progress_callback: F,
 ) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::AlbedoRoughness);
+    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::BaseAlbedo);
     if missing.is_empty() {
         return Ok(());
     }
 
-    let layer = mapfile.layers()[LayerType::AlbedoRoughness].clone();
+    let layer = mapfile.layers()[LayerType::BaseAlbedo].clone();
     assert!(layer.texture_border_size >= 2);
 
     let bm_dimensions = 21600;
@@ -1163,7 +1175,7 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
             layer.texture_resolution as u32,
             image::ColorType::Rgba8,
         )?;
-        mapfile.write_tile(LayerType::AlbedoRoughness, n, &data)
+        mapfile.write_tile(LayerType::BaseAlbedo, n, &data)
     })
 }
 

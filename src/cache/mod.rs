@@ -35,6 +35,7 @@ pub(crate) enum LayerType {
     AerialPerspective = 6,
     BentNormals = 7,
     TreeCover = 8,
+    BaseAlbedo = 9,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -51,6 +52,7 @@ impl LayerType {
             6 => LayerType::AerialPerspective,
             7 => LayerType::BentNormals,
             8 => LayerType::TreeCover,
+            9 => LayerType::BaseAlbedo,
             _ => unreachable!(),
         }
     }
@@ -68,10 +70,11 @@ impl LayerType {
             LayerType::AerialPerspective => "aerial_perspective",
             LayerType::BentNormals => "bent_normals",
             LayerType::TreeCover => "treecover",
+            LayerType::BaseAlbedo => "base_albedo",
         }
     }
     fn iter() -> impl Iterator<Item = Self> {
-        (0..=8).map(Self::from_index)
+        (0..=9).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {

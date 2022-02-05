@@ -311,17 +311,17 @@ impl TileCache {
             let mut generated_layers = LayerMask::empty();
             for generator_index in 0..self.generators.len() {
                 let generator = &self.generators[generator_index];
-                let outputs = generator.outputs(n.level());
-                let peer_inputs = generator.peer_inputs(n.level());
-                let parent_inputs = generator.parent_inputs(n.level());
-                let ancestor_dependencies = generator.ancestor_dependencies(n.level());
+                let outputs = generator.outputs();
+                let peer_inputs = generator.peer_inputs();
+                let parent_inputs = generator.parent_inputs();
+                let ancestor_dependencies = generator.ancestor_inputs();
 
                 let need_output =
                     outputs & !(entry.valid | generated_layers) & level_mask != LayerMask::empty();
                 let has_peer_inputs =
                     peer_inputs & !(entry.valid | generated_layers) == LayerMask::empty();
                 let root_input_missing =
-                    n.level() == 0 && generator.parent_inputs(0) != LayerMask::empty();
+                    n.level() == 0 && generator.parent_inputs() != LayerMask::empty();
                 let parent_input_missing = n.level() > 0
                     && (parent_entry.is_none()
                         || parent_inputs & !parent_entry.as_ref().unwrap().valid
@@ -359,7 +359,7 @@ impl TileCache {
                 }
 
                 let output_mask =
-                    !(entry.valid | generated_layers) & level_mask & generator.outputs(n.level());
+                    !(entry.valid | generated_layers) & level_mask & generator.outputs();
                 self.generators[generator_index].generate(
                     device,
                     &mut encoder,
@@ -368,7 +368,6 @@ impl TileCache {
                     n,
                     slot,
                     parent_slot,
-                    output_mask,
                     &mut uniform_data,
                 );
 
@@ -564,7 +563,9 @@ impl TileCache {
                         owned_data.copy_from_slice(bytemuck::cast_slice(&heights));
                         data = &mut owned_data;
                     }
-                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d) if d.len() == 0 => {
+                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d)
+                        if d.len() == 0 =>
+                    {
                         owned_data = vec![0; row_bytes * resolution_blocks];
                         data = &mut owned_data;
                     }

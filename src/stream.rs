@@ -25,7 +25,7 @@ impl TileResult {
     pub fn layer(&self) -> LayerType {
         match self {
             TileResult::Heightmaps(..) => LayerType::Heightmaps,
-            TileResult::Albedo(..) => LayerType::AlbedoRoughness,
+            TileResult::Albedo(..) => LayerType::BaseAlbedo,
             TileResult::TreeCover(..) => LayerType::TreeCover,
         }
     }
@@ -117,7 +117,8 @@ impl TileStreamer {
                                 Ok(TileResult::Heightmaps(request.node, fut.await?))
                             }.boxed());
                         }
-                        LayerType::AlbedoRoughness => pending.push(async move {
+                        LayerType::BaseAlbedo => pending.push(async move {
+                            assert!(request.node.level() <= 5);
                             let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             let data = tokio::task::spawn_blocking(move || {
                                 Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_rgba8().to_vec())
@@ -127,7 +128,7 @@ impl TileStreamer {
                         LayerType::TreeCover => pending.push(async move{
                             let raw_data = mapfile.read_tile(request.layer, request.node).await?;
                             if raw_data.is_none() {
-                                return Ok(TileResult::Albedo(request.node, Vec::new()));
+                                return Ok(TileResult::TreeCover(request.node, Vec::new()));
                             }
                             let data = tokio::task::spawn_blocking(move || {
                                 Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_luma8().to_vec())
