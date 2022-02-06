@@ -62,16 +62,29 @@ impl Terrain {
 
         generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _>(
             dataset_directory.to_owned(),
-            "treecover",
+            "watermask",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
             false,
-            terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 6),
+            terrain::dem::make_nasadem_watermask_raster_cache(&dataset_directory.join("nasadem"), 256),
             None,
             &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
-            &|t| (t * (255.0 / 100.0)) as u8,
+            &|t| (255.0 - t) as u8,
         )
         .await?;
+
+        // generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _>(
+        //     dataset_directory.to_owned(),
+        //     "treecover",
+        //     VNode::LEVEL_CELL_76M,
+        //     &mut progress_callback,
+        //     false,
+        //     terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 6),
+        //     None,
+        //     &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
+        //     &|t| (t * (255.0 / 100.0)) as u8,
+        // )
+        // .await?;
 
         generate::generate_heightmaps(
             &*mapfile,

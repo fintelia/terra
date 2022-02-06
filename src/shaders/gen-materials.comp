@@ -18,8 +18,9 @@ layout(binding = 6) uniform utexture2DArray heightmaps;
 layout(binding = 7) uniform texture2DArray base_albedo;
 layout(binding = 8) uniform texture2DArray treecover;
 layout(binding = 9) uniform texture2DArray tree_attributes;
+layout(binding = 10) uniform texture2DArray water_mask;
 
-layout(set = 0, binding = 10, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 11, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
@@ -79,6 +80,10 @@ void main() {
 	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
 	albedo_roughness.rgb = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
 
+	vec2 wtexcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
+	vec3 wtexcoord3 = vec3(node.layer_origins[10] + wtexcoord * node.layer_ratios[10], node.layer_slots[10]);
+	float water = texture(sampler2DArray(water_mask, linear), wtexcoord3).r;
+
 	// if (ubo.parent_slot >= 0) {
 	// 	vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
 	// 	ivec2 offset = clamp(ivec2(round(nv)), ivec2(-1), ivec2(1));
@@ -107,11 +112,11 @@ void main() {
 	// else
 	// 	albedo_roughness = vec4(0, 0.06, .015, 0.8);
 
-	// if (is_water) {
-	// 	albedo_roughness.a = 0.4;
-	// 	float negative_depth = min(h00 + h10 + h01 + h11, 0);
-	// 	albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
-	// }
+	if (water < 0.5) {
+		albedo_roughness.a = 0.3;
+		float negative_depth = min(h00 + h10 + h01 + h11, -10);
+		albedo_roughness.rgb = mix(vec3(0,.01,.06), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
+	}
 
 	if (node.level < 15) {
 		float treecover_value = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;

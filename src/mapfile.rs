@@ -368,6 +368,7 @@ impl MapFile {
             LayerType::BaseAlbedo => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
             LayerType::TreeCover => ("treecover", "tiff"),
+            LayerType::WaterMask => ("watermask", "tiff"),
             _ => unreachable!(),
         }
     }
@@ -430,7 +431,7 @@ impl MapFile {
 
         // Download file list if necessary.
         let file_list_path =
-            TERRA_DIRECTORY.join(&format!("tiles/{}_tile_list.txt.gz", target_layer));
+            TERRA_DIRECTORY.join(&format!("tiles/{}_tile_list.txt.lz4", target_layer));
         if !file_list_path.exists() {
             let url = format!("{}{}_tile_list.txt.lz4", TERRA_TILES_URL, target_layer);
             let client =

@@ -125,6 +125,33 @@ pub(crate) fn make_nasadem_raster_cache(
     RasterCache::new(filenames.into_boxed_slice(), 1, capacity, &parse_nasadem)
 }
 
+pub(crate) fn make_nasadem_watermask_raster_cache(
+    base_directory: &Path,
+    capacity: usize,
+) -> RasterCache<u8> {
+    let mut filenames = Vec::new();
+    for latitude in -90..=89i16 {
+        for longitude in -180..=179i16 {
+            let n_or_s = if latitude >= 0 { 'n' } else { 's' };
+            let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
+            let filename = format!(
+                "NASADEM_HGT_{}{:02}{}{:03}.zip",
+                n_or_s,
+                latitude.abs(),
+                e_or_w,
+                longitude.abs()
+            );
+            if NASADEM_FILES.contains(&*filename) {
+                filenames.push(Some(base_directory.join(filename)));
+            } else {
+                filenames.push(None);
+            }
+        }
+    }
+
+    RasterCache::new(filenames.into_boxed_slice(), 1, capacity, &parse_nasadem_watermask)
+}
+
 pub(crate) fn make_treecover_raster_cache(
     base_directory: &Path,
     capacity: usize,
@@ -372,6 +399,32 @@ fn parse_nasadem(latitude: i16, longitude: i16, data: &[u8]) -> Result<Raster<f3
         longitude_llcorner: longitude as f64,
         cell_size,
         values: elevations,
+    })
+}
+
+/// Load a ZIP file containing a SWB file in the format for the NASA's nasadem 30m dataset.
+fn parse_nasadem_watermask(latitude: i16, longitude: i16, data: &[u8]) -> Result<Raster<u8>, Error> {
+    let resolution = 3601;
+    let cell_size = 1.0 / 3600.0;
+
+    let mut zip = ZipArchive::new(Cursor::new(data))?;
+    ensure!(zip.len() == 3, "Unexpected zip file contents");
+
+    let filename = zip.file_names().find(|name| name.ends_with(".swb")).map(str::to_owned);
+    ensure!(filename.is_some(), "Zip doesn't contain .swb");
+    let mut file = zip.by_name(&filename.unwrap())?;
+
+    let mut values = vec![0; resolution * resolution];
+    file.read_exact(&mut values)?;
+
+    Ok(Raster {
+        width: resolution,
+        height: resolution,
+        bands: 1,
+        latitude_llcorner: latitude as f64,
+        longitude_llcorner: longitude as f64,
+        cell_size,
+        values: values,
     })
 }
 

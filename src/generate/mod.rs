@@ -160,7 +160,18 @@ impl MapFileBuilder {
                         min_generated_level: VNode::LEVEL_CELL_10M,
                         max_level: VNode::LEVEL_CELL_10M,
                         layer_type,
-                    }
+                    },
+                    LayerType::WaterMask => LayerParams {
+                        layer_type: LayerType::WaterMask,
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::R8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: VNode::LEVEL_CELL_38M,
+                        max_level: VNode::LEVEL_CELL_76M,
+                    },
                 };
                 (layer_type.index(), params)
             })
@@ -303,6 +314,9 @@ where
         let mut loaded_rasters = 0;
         let mut unstarted: Option<(usize, BoxFuture<_>)> = None;
 
+        let raster_size = raster_cache.raster_size_degrees() as i16;
+        let inv_raster_size = 1.0 / raster_size as f64;
+
         loop {
             progress_callback("reprojecting dataset...", sectors_processed, total_sectors);
             if unstarted.is_some()
@@ -362,14 +376,14 @@ where
                 let mut tiles: Vec<_> = coordinates
                     .par_iter()
                     .map(|(lat, long)| {
-                        ((lat / 10.0).floor() as i16 * 10, (long / 10.0).floor() as i16 * 10)
+                        ((lat * inv_raster_size).floor() as i16 * raster_size, (long * inv_raster_size).floor() as i16 * raster_size)
                     })
                     .collect();
                 tiles.dedup();
                 tiles.sort();
                 tiles.dedup();
 
-                if tiles.len() > 10 {
+                if tiles.len() > 360 || raster_size >= 3 && tiles.len() > 10  {
                     println!("Skipping sector: {}x{} (requires {} tiles)", x, y, tiles.len());
                     continue;
                 }
@@ -401,8 +415,8 @@ where
                     heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
                         |(h, (lat, long))| {
                             if let Some(r) = rasters.get(&(
-                                (lat / 10.0).floor() as i16 * 10,
-                                (long / 10.0).floor() as i16 * 10,
+                                (lat * inv_raster_size).floor() as i16 * raster_size,
+                                (long* inv_raster_size).floor() as i16 * raster_size,
                             )) {
                                 match r.nearest(lat, long, 0) {
                                     Some(v) => *h = from_f64(v),
@@ -410,8 +424,8 @@ where
                                         "{} {} / {} {} / {} {}",
                                         lat,
                                         long,
-                                        (lat / 10.0).floor() as i16 * 10,
-                                        (long / 10.0).floor() as i16 * 10,
+                                        (lat * inv_raster_size).floor() as i16 * raster_size,
+                                        (long* inv_raster_size).floor() as i16 * raster_size,
                                         r.latitude_llcorner,
                                         r.longitude_llcorner
                                     ),

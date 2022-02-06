@@ -194,8 +194,6 @@ impl<T: Send + Sync + 'static> RasterCache<T> {
         let latitude = latitude - (latitude % rs + rs) % rs;
         let longitude = longitude - (longitude % rs + rs) % rs;
 
-        assert!(key < 18 * 36, "{} {} key={}", x, y, key);
-
         if let Some(raster) = self.try_get(key) {
             return futures::future::ready(Ok(raster)).boxed();
         }
@@ -215,6 +213,10 @@ impl<T: Send + Sync + 'static> RasterCache<T> {
             }
             None => futures::future::ready(Ok(None)).boxed(),
         }
+    }
+
+    pub fn raster_size_degrees(&self) -> u16 {
+        self.raster_size_degrees
     }
 }
 

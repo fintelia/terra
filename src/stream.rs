@@ -121,6 +121,7 @@ impl TileStreamer {
                                         Ok::<Vec<u8>, Error>(match request.layer {
                                             LayerType::BaseAlbedo => img.to_rgba8().to_vec(),
                                             LayerType::TreeCover => img.to_luma8().to_vec(),
+                                            LayerType::WaterMask => img.to_luma8().to_vec(),
                                             _ => unreachable!(),
                                         })
                                     }).await??

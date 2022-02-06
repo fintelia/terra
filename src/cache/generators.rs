@@ -396,7 +396,7 @@ pub(crate) fn generators(
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::AlbedoRoughness.bit_mask())
         .dimensions(normals_resolution)
-        .ancestor_inputs(LayerType::BaseAlbedo.bit_mask() | LayerType::TreeCover.bit_mask() | LayerType::TreeAttributes.bit_mask())
+        .ancestor_inputs(LayerType::BaseAlbedo.bit_mask() | LayerType::TreeCover.bit_mask() | LayerType::TreeAttributes.bit_mask() | LayerType::WaterMask.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(),
         ShaderGenBuilder::new(
