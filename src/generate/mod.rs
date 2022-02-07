@@ -14,7 +14,6 @@ use futures::stream::FuturesUnordered;
 use futures::{Future, FutureExt, StreamExt};
 use image::{codecs::png::PngDecoder, ColorType, ImageDecoder};
 use itertools::Itertools;
-use maplit::hashmap;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs;
@@ -49,109 +48,123 @@ pub const BLUE_MARBLE_URLS: [&str; 8] = [
 pub(crate) struct MapFileBuilder(MapFile);
 impl MapFileBuilder {
     pub(crate) async fn new() -> Self {
-        let layers: VecMap<LayerParams> = hashmap![
-            LayerType::Heightmaps.index() => LayerParams {
-                layer_type: LayerType::Heightmaps,
-                texture_resolution: 521,
-                texture_border_size: 4,
-                texture_format: TextureFormat::R32,
-                grid_registration: true,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: VNode::LEVEL_CELL_38M,
-                max_level: VNode::LEVEL_CELL_5MM,
-            },
-            LayerType::Displacements.index() => LayerParams {
-                layer_type: LayerType::Displacements,
-                texture_resolution: 65,
-                texture_border_size: 0,
-                texture_format: TextureFormat::RGBA32F,
-                grid_registration: true,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: 0,
-                max_level: VNode::LEVEL_CELL_5MM,
-            },
-            LayerType::AlbedoRoughness.index() => LayerParams {
-                layer_type: LayerType::AlbedoRoughness,
-                texture_resolution: 516,
-                texture_border_size: 2,
-                texture_format: TextureFormat::RGBA8,
-                grid_registration: false,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: 0,
-                max_level: VNode::LEVEL_CELL_5MM,
-            },
-            LayerType::Normals.index() => LayerParams {
-                layer_type: LayerType::Normals,
-                texture_resolution: 516,
-                texture_border_size: 2,
-                texture_format: TextureFormat::RG8,
-                grid_registration: false,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: 0,
-                max_level: VNode::LEVEL_CELL_5MM,
-            },
-            LayerType::GrassCanopy.index() => LayerParams {
-                layer_type: LayerType::GrassCanopy,
-                texture_resolution: 516,
-                texture_border_size: 2,
-                texture_format: TextureFormat::RGBA8,
-                grid_registration: false,
-                dynamic: false,
-                min_level: VNode::LEVEL_CELL_1M,
-                min_generated_level: VNode::LEVEL_CELL_1M,
-                max_level: VNode::LEVEL_CELL_1M,
-            },
-            LayerType::AerialPerspective.index() => LayerParams {
-                layer_type: LayerType::AerialPerspective,
-                texture_resolution: 17,
-                texture_border_size: 0,
-                texture_format: TextureFormat::RGBA16F,
-                grid_registration: true,
-                dynamic: true,
-                min_level: 0,
-                min_generated_level: 0,
-                max_level: VNode::LEVEL_SIDE_610M,
-            },
-            LayerType::BentNormals.index() => LayerParams {
-                layer_type: LayerType::BentNormals,
-                texture_resolution: 513,
-                texture_border_size: 0,
-                texture_format: TextureFormat::RGBA8,
-                grid_registration: true,
-                dynamic: false,
-                min_level: VNode::LEVEL_CELL_153M,
-                min_generated_level: VNode::LEVEL_CELL_153M,
-                max_level: VNode::LEVEL_CELL_76M,
-            },
-            LayerType::TreeCover.index() => LayerParams {
-                layer_type: LayerType::TreeCover,
-                texture_resolution: 516,
-                texture_border_size: 2,
-                texture_format: TextureFormat::R8,
-                grid_registration: false,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: VNode::LEVEL_CELL_38M,
-                max_level: VNode::LEVEL_CELL_76M,
-            },
-            LayerType::BaseAlbedo.index() => LayerParams {
-                layer_type: LayerType::BaseAlbedo,
-                texture_resolution: 516,
-                texture_border_size: 2,
-                texture_format: TextureFormat::RGBA8,
-                grid_registration: false,
-                dynamic: false,
-                min_level: 0,
-                min_generated_level: VNode::LEVEL_CELL_305M,
-                max_level: VNode::LEVEL_CELL_610M,
-            },
-        ]
-        .into_iter()
-        .collect();
+        let layers: VecMap<LayerParams> = LayerType::iter()
+            .map(|layer_type| {
+                let params = match layer_type {
+                    LayerType::Heightmaps => LayerParams {
+                        texture_resolution: 521,
+                        texture_border_size: 4,
+                        texture_format: TextureFormat::R32,
+                        grid_registration: true,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: VNode::LEVEL_CELL_38M,
+                        max_level: VNode::LEVEL_CELL_5MM,
+                        layer_type,
+                    },
+                    LayerType::Displacements => LayerParams {
+                        texture_resolution: 65,
+                        texture_border_size: 0,
+                        texture_format: TextureFormat::RGBA32F,
+                        grid_registration: true,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: 0,
+                        max_level: VNode::LEVEL_CELL_5MM,
+                        layer_type,
+                    },
+                    LayerType::AlbedoRoughness => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::RGBA8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: 0,
+                        max_level: VNode::LEVEL_CELL_5MM,
+                        layer_type,
+                    },
+                    LayerType::Normals => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::RG8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: 0,
+                        max_level: VNode::LEVEL_CELL_5MM,
+                        layer_type,
+                    },
+                    LayerType::GrassCanopy => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::RGBA8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: VNode::LEVEL_CELL_1M,
+                        min_generated_level: VNode::LEVEL_CELL_1M,
+                        max_level: VNode::LEVEL_CELL_1M,
+                        layer_type,
+                    },
+                    LayerType::AerialPerspective => LayerParams {
+                        texture_resolution: 17,
+                        texture_border_size: 0,
+                        texture_format: TextureFormat::RGBA16F,
+                        grid_registration: true,
+                        dynamic: true,
+                        min_level: 0,
+                        min_generated_level: 0,
+                        max_level: VNode::LEVEL_SIDE_610M,
+                        layer_type,
+                    },
+                    LayerType::BentNormals => LayerParams {
+                        texture_resolution: 513,
+                        texture_border_size: 0,
+                        texture_format: TextureFormat::RGBA8,
+                        grid_registration: true,
+                        dynamic: false,
+                        min_level: VNode::LEVEL_CELL_153M,
+                        min_generated_level: VNode::LEVEL_CELL_153M,
+                        max_level: VNode::LEVEL_CELL_76M,
+                        layer_type,
+                    },
+                    LayerType::TreeCover => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::R8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: VNode::LEVEL_CELL_38M,
+                        max_level: VNode::LEVEL_CELL_76M,
+                        layer_type,
+                    },
+                    LayerType::BaseAlbedo => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::RGBA8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: 0,
+                        min_generated_level: VNode::LEVEL_CELL_305M,
+                        max_level: VNode::LEVEL_CELL_610M,
+                        layer_type,
+                    },
+                    LayerType::MaterialKind => LayerParams {
+                        texture_resolution: 516,
+                        texture_border_size: 2,
+                        texture_format: TextureFormat::R8,
+                        grid_registration: false,
+                        dynamic: false,
+                        min_level: VNode::LEVEL_CELL_10M,
+                        min_generated_level: VNode::LEVEL_CELL_10M,
+                        max_level: VNode::LEVEL_CELL_10M,
+                        layer_type,
+                    }
+                };
+                (layer_type.index(), params)
+            })
+            .collect();
 
         let mapfile = MapFile::new(layers);
         for layer in LayerType::iter().filter(LayerType::streamed) {
@@ -633,14 +646,14 @@ where
                                     tiff::encoder::compression::Lzw,
                                     &heights,
                                 )?;
-                        // } else {
-                        //     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                        //         .write_image_with_compression::<C, _>(
-                        //             1,
-                        //             1,
-                        //             tiff::encoder::compression::Lzw,
-                        //             &heights[..1],
-                        //         )?;
+                            // } else {
+                            //     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                            //         .write_image_with_compression::<C, _>(
+                            //             1,
+                            //             1,
+                            //             tiff::encoder::compression::Lzw,
+                            //             &heights[..1],
+                            //         )?;
                         }
 
                         Ok::<_, anyhow::Error>((filename, bytes))
