@@ -332,7 +332,7 @@ impl ShaderGenBuilder {
         self.parent_inputs = parent_inputs;
         self
     }
-    fn ancestor_dependencies(mut self, ancestor_dependencies: LayerMask) -> Self {
+    fn ancestor_inputs(mut self, ancestor_dependencies: LayerMask) -> Self {
         self.ancestor_dependencies = ancestor_dependencies;
         self
     }
@@ -361,6 +361,7 @@ pub(crate) fn generators(
     let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
     let normals_resolution = layers[LayerType::Normals].texture_resolution;
     let grass_canopy_resolution = layers[LayerType::GrassCanopy].texture_resolution;
+    let tree_attributes_resolution = layers[LayerType::GrassCanopy].texture_resolution;
 
     vec![
         ShaderGenBuilder::new(
@@ -395,7 +396,7 @@ pub(crate) fn generators(
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::AlbedoRoughness.bit_mask())
         .dimensions(normals_resolution)
-        .ancestor_dependencies(LayerType::BaseAlbedo.bit_mask())
+        .ancestor_inputs(LayerType::BaseAlbedo.bit_mask())
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(),
         ShaderGenBuilder::new(
@@ -413,6 +414,14 @@ pub(crate) fn generators(
         .outputs(LayerType::BentNormals.bit_mask())
         .dimensions(513)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
+        .build(),
+        ShaderGenBuilder::new(
+            "tree-attributes".into(),
+            rshader::shader_source!("../shaders", "gen-tree-attributes.comp", "declarations.glsl", "hash.glsl"),
+        )
+        .outputs(LayerType::TreeAttributes.bit_mask())
+        .dimensions(tree_attributes_resolution)
+        .ancestor_inputs(LayerType::TreeCover.bit_mask())
         .build(),
         Box::new(MeshGen {
             shaders: vec![

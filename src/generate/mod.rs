@@ -150,10 +150,10 @@ impl MapFileBuilder {
                         max_level: VNode::LEVEL_CELL_610M,
                         layer_type,
                     },
-                    LayerType::MaterialKind => LayerParams {
+                    LayerType::TreeAttributes => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::R8,
+                        texture_format: TextureFormat::RGBA8,
                         grid_registration: false,
                         dynamic: false,
                         min_level: VNode::LEVEL_CELL_10M,

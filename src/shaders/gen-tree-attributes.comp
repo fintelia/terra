@@ -1,0 +1,35 @@
+#version 450 core
+#include "declarations.glsl"
+#include "hash.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0, std430) /*readonly*/ buffer NodeSlots {
+	Node nodes[];
+};
+layout(binding = 1) uniform UniformBlock {
+	int slot;
+} ubo;
+
+layout(binding = 2) uniform texture2DArray treecover;
+layout(binding = 3) uniform sampler linear;
+
+layout(rgba8, binding = 4) writeonly uniform image2DArray tree_attributes;
+
+void main() {
+	Node node = nodes[ubo.slot];
+
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512) * 64.0;
+	vec3 texcoord3 = vec3(node.layer_origins[TREECOVER_LAYER] + texcoord * node.layer_steps[TREECOVER_LAYER], node.layer_slots[TREECOVER_LAYER]);
+	float coverage = texture(sampler2DArray(treecover, linear), texcoord3).r;
+
+    vec4 output_value = vec4(0);
+    if (random(gl_GlobalInvocationID.xy) < coverage) {
+        float x = random(uvec3(gl_GlobalInvocationID.xy, 1));
+        float y = random(uvec3(gl_GlobalInvocationID.xy, 2));
+        float seed = random(uvec3(gl_GlobalInvocationID.xy, 3));
+        output_value = vec4(x, y, seed, 1 / 255.0);
+    }
+
+	imageStore(tree_attributes, ivec3(gl_GlobalInvocationID.xy, ubo.slot - TREE_ATTRIBUTES_BASE_SLOT), output_value);
+}

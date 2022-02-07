@@ -31,7 +31,7 @@ pub(crate) enum LayerType {
     AlbedoRoughness = 2,
     Normals = 3,
     GrassCanopy = 4,
-    MaterialKind = 5,
+    TreeAttributes = 5,
     AerialPerspective = 6,
     BentNormals = 7,
     TreeCover = 8,
@@ -48,7 +48,7 @@ impl LayerType {
             2 => LayerType::AlbedoRoughness,
             3 => LayerType::Normals,
             4 => LayerType::GrassCanopy,
-            5 => LayerType::MaterialKind,
+            5 => LayerType::TreeAttributes,
             6 => LayerType::AerialPerspective,
             7 => LayerType::BentNormals,
             8 => LayerType::TreeCover,
@@ -66,7 +66,7 @@ impl LayerType {
             LayerType::AlbedoRoughness => "albedo",
             LayerType::Normals => "normals",
             LayerType::GrassCanopy => "grass_canopy",
-            LayerType::MaterialKind => "material_kind",
+            LayerType::TreeAttributes => "tree_attributes",
             LayerType::AerialPerspective => "aerial_perspective",
             LayerType::BentNormals => "bent_normals",
             LayerType::TreeCover => "treecover",
@@ -80,7 +80,7 @@ impl LayerType {
             | LayerType::AlbedoRoughness
             | LayerType::Normals
             | LayerType::GrassCanopy
-            | LayerType::MaterialKind
+            | LayerType::TreeAttributes
             | LayerType::AerialPerspective
             | LayerType::BentNormals => false,
         }
