@@ -218,6 +218,7 @@ impl GpuState {
                             "mesh_indirect" => &self.mesh_indirect,
                             "mesh_bounding" => &self.mesh_bounding,
                             "grass_storage" => &self.mesh_storage[MeshType::Grass],
+                            "tree_billboards_storage" => &self.mesh_storage[MeshType::TreeBillboards],
                             "globals" => &self.globals,
                             "frame_nodes" => &self.frame_nodes,
                             "nodes" => &self.nodes,

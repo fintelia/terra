@@ -312,7 +312,7 @@ impl TileCache {
                 let outputs = generator.outputs();
                 let peer_inputs = generator.peer_inputs();
                 let parent_inputs = generator.parent_inputs();
-                let ancestor_dependencies = generator.ancestor_inputs();
+                let ancestor_inputs = generator.ancestor_inputs();
 
                 let need_output =
                     outputs & !(entry.valid | generated_layers) & level_mask != LayerMask::empty();
@@ -337,10 +337,10 @@ impl TileCache {
                 }
 
                 let has_all_ancestor_dependencies = LayerType::iter()
-                    .filter(|layer| ancestor_dependencies.contains_layer(*layer))
+                    .filter(|layer| ancestor_inputs.contains_layer(*layer))
                     .all(|layer| {
                         if entry.node.level() < self.layers[layer].min_level {
-                            false
+                            true
                         } else if entry.node.level() <= self.layers[layer].max_level {
                             self.contains(entry.node, layer)
                         } else {

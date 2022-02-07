@@ -19,7 +19,6 @@ layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
 layout(set = 0, binding = 9) uniform sampler nearest;
 layout(set = 0, binding = 10) uniform texture2DArray bent_normals;
-layout(set = 0, binding = 11) uniform texture2DArray treecover;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -232,7 +231,6 @@ vec3 layer_to_texcoord(uint layer) {
 
 void main() {
 	Node node = nodes[instance];
-	//NodeState node = nodes[instance];
 
 	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
@@ -257,9 +255,6 @@ void main() {
 	// 		albedo_value.rgb = mix(albedo_value.rgb, albedo_value.rgb + (canopy.rgb - 0.5) * 0.15, canopy.a);
 	// 	}
 	// }
-
-	// float tc = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
-	// albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.03,0.27,0.0), min(tc, 1));
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,

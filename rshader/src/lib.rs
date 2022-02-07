@@ -77,12 +77,12 @@ impl ShaderSource {
                 (name, file, headers, Some(defines))
             }
             ShaderSource::FilesWGSL { name, path, header_paths } => {
-                let file = std::fs::read_to_string(path)?;
-                let mut headers = HashMap::new();
-                for (&name, path) in header_paths.iter() {
-                    headers.insert(name, std::fs::read_to_string(path)?);
+                let mut file = String::new();
+                for (_name, path) in header_paths.iter() {
+                    file.push_str(&std::fs::read_to_string(path)?);
                 }
-                (name, file, headers, None)
+                file.push_str(&std::fs::read_to_string(path)?);
+                (name, file, HashMap::new(), None)
             }
         };
 

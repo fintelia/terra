@@ -8,17 +8,18 @@ layout(binding = 0) uniform UniformBlock {
 	int slot;
 } ubo;
 
-layout(binding = 1) uniform utexture2DArray heightmaps;
-layout(binding = 2) uniform texture2DArray base_albedo;
+layout(rg8, binding = 1) writeonly uniform image2DArray normals;
+layout(rgba8, binding = 2) writeonly uniform image2DArray albedo;
 
-layout(rg8, binding = 3) writeonly uniform image2DArray normals;
-layout(rgba8, binding = 4) writeonly uniform image2DArray albedo;
+layout(binding = 3) uniform sampler linear;
+layout(binding = 4) uniform sampler linear_wrap;
+layout(binding = 5) uniform texture2D noise;
+layout(binding = 6) uniform utexture2DArray heightmaps;
+layout(binding = 7) uniform texture2DArray base_albedo;
+layout(binding = 8) uniform texture2DArray treecover;
+layout(binding = 9) uniform texture2DArray tree_attributes;
 
-layout(set = 0, binding = 5) uniform texture2D noise;
-layout(set = 0, binding = 6) uniform sampler linear_wrap;
-layout(set = 0, binding = 7) uniform sampler linear;
-
-layout(set = 0, binding = 8, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 10, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
@@ -29,6 +30,12 @@ const uint BASE_ALBEDO_INNER_RESOLUTION = 512;
 
 const uint HEIGHTMAP_BORDER = 4;
 const uint NORMALS_BORDER = 2;
+
+vec3 layer_to_texcoord(uint layer) {
+	Node node = nodes[ubo.slot];
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512) * 64.0;
+	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+}
 
 void main() {
 	Node node = nodes[ubo.slot];
@@ -105,6 +112,16 @@ void main() {
 	// 	float negative_depth = min(h00 + h10 + h01 + h11, 0);
 	// 	albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
 	// }
+
+	if (node.level < 15) {
+		float treecover_value = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
+		if (node.layer_slots[TREE_ATTRIBUTES_LAYER] >= 0) {
+			vec4 tree_attr = texture(sampler2DArray(tree_attributes, linear), layer_to_texcoord(TREE_ATTRIBUTES_LAYER));
+			albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.33,0.57,0.0)*.13, tree_attr.a > 0 ? 1 : 0);
+		} else {
+			albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.33,0.57,0.0)*.13, min(treecover_value*4, 1));
+		}
+	}
 
 	imageStore(normals, out_pos, vec4(normal.xz*0.5+0.5, 0.0, 0.0));
 	imageStore(albedo, out_pos, albedo_roughness);
