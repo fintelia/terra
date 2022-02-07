@@ -15,7 +15,7 @@ use std::ops::{Index, IndexMut};
 use std::{cmp::Eq, sync::Arc};
 use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
-use types::{InfiniteFrustum, VNode, Priority, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
+use types::{InfiniteFrustum, Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 
 use self::tile::Entry;
@@ -73,7 +73,19 @@ impl LayerType {
             LayerType::BaseAlbedo => "base_albedo",
         }
     }
-    fn iter() -> impl Iterator<Item = Self> {
+    pub fn streamed(&self) -> bool {
+        match *self {
+            LayerType::Heightmaps | LayerType::BaseAlbedo | LayerType::TreeCover => true,
+            LayerType::Displacements
+            | LayerType::AlbedoRoughness
+            | LayerType::Normals
+            | LayerType::GrassCanopy
+            | LayerType::MaterialKind
+            | LayerType::AerialPerspective
+            | LayerType::BentNormals => false,
+        }
+    }
+    pub fn iter() -> impl Iterator<Item = Self> {
         (0..=9).map(Self::from_index)
     }
 }
@@ -592,11 +604,8 @@ impl TileCache {
                     if ancestor_index < level_index {
                         let parent = ancestor.parent().unwrap();
                         ancestor = parent.0;
-                        base_offset = (NODE_OFFSETS[parent.1 as usize]
-                            .cast()
-                            .unwrap()
-                            + base_offset)
-                            * 0.5;
+                        base_offset =
+                            (NODE_OFFSETS[parent.1 as usize].cast().unwrap() + base_offset) * 0.5;
                     }
                 }
             }

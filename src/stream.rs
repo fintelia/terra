@@ -18,22 +18,18 @@ struct TileRequest {
 #[derive(Debug)]
 pub(crate) enum TileResult {
     Heightmaps(VNode, Arc<Vec<i16>>),
-    Albedo(VNode, Vec<u8>),
-    TreeCover(VNode, Vec<u8>),
+    Generic(VNode, LayerType, Vec<u8>),
 }
 impl TileResult {
     pub fn layer(&self) -> LayerType {
         match self {
             TileResult::Heightmaps(..) => LayerType::Heightmaps,
-            TileResult::Albedo(..) => LayerType::BaseAlbedo,
-            TileResult::TreeCover(..) => LayerType::TreeCover,
+            TileResult::Generic(_, ty, _) => *ty,
         }
     }
     pub fn node(&self) -> VNode {
         match self {
-            TileResult::Heightmaps(node, ..)
-            | TileResult::Albedo(node, ..)
-            | TileResult::TreeCover(node, ..) => *node,
+            TileResult::Heightmaps(node, ..) | TileResult::Generic(node, ..) => *node,
         }
     }
 }
@@ -109,34 +105,31 @@ impl TileStreamer {
         loop {
             futures::select! {
                 request = requests.recv().fuse() => if let Some(request) = request {
-                    match request.layer {
+
+                    pending.push(match request.layer {
                         LayerType::Heightmaps => {
                             let fut = heightmap_tiles.get_tile(mapfile, request.node);
-
-                            pending.push(async move {
+                            async move {
                                 Ok(TileResult::Heightmaps(request.node, fut.await?))
-                            }.boxed());
+                            }.boxed()
                         }
-                        LayerType::BaseAlbedo => pending.push(async move {
-                            assert!(request.node.level() <= 5);
-                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
-                            let data = tokio::task::spawn_blocking(move || {
-                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_rgba8().to_vec())
-                            }).await??;
-                            Ok::<TileResult, Error>(TileResult::Albedo(request.node, data))
-                        }.boxed()),
-                        LayerType::TreeCover => pending.push(async move{
-                            let raw_data = mapfile.read_tile(request.layer, request.node).await?;
-                            if raw_data.is_none() {
-                                return Ok(TileResult::TreeCover(request.node, Vec::new()));
-                            }
-                            let data = tokio::task::spawn_blocking(move || {
-                                Ok::<Vec<u8>, Error>(image::load_from_memory(&raw_data.unwrap())?.to_luma8().to_vec())
-                            }).await??;
-                            Ok::<TileResult, Error>(TileResult::TreeCover(request.node, data))
-                        }.boxed()),
-                        _ => unreachable!(),
-                    }
+                        _ => async move {
+                            let data = match mapfile.read_tile(request.layer, request.node).await? {
+                                Some(raw_data) => {
+                                    tokio::task::spawn_blocking(move || {
+                                        let img = image::load_from_memory(&raw_data)?;
+                                        Ok::<Vec<u8>, Error>(match request.layer {
+                                            LayerType::BaseAlbedo => img.to_rgba8().to_vec(),
+                                            LayerType::TreeCover => img.to_luma8().to_vec(),
+                                            _ => unreachable!(),
+                                        })
+                                    }).await??
+                                }
+                                None => Vec::new(),
+                            };
+                            Ok::<TileResult, Error>(TileResult::Generic(request.node, request.layer, data))
+                        }.boxed()
+                    });
                 },
                 tile_result = pending.select_next_some() => {
                     results.send(tile_result?)?;

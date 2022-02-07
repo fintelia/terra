@@ -154,8 +154,6 @@ pub(crate) struct LayerParams {
     pub texture_border_size: u32,
     /// Format used by this layer.
     pub texture_format: TextureFormat,
-    /// Maximum number of tiles for this layer to generate in a single frame.
-    pub tiles_generated_per_frame: usize,
 
     pub grid_registration: bool,
     pub dynamic: bool,
@@ -562,15 +560,11 @@ impl TileCache {
                         owned_data.copy_from_slice(bytemuck::cast_slice(&heights));
                         data = &mut owned_data;
                     }
-                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d)
-                        if d.len() == 0 =>
-                    {
+                    TileResult::Generic(_, _, ref mut d) if d.len() == 0 => {
                         owned_data = vec![0; row_bytes * resolution_blocks];
                         data = &mut owned_data;
                     }
-                    TileResult::Albedo(_, ref mut d) | TileResult::TreeCover(_, ref mut d) => {
-                        data = &mut *d
-                    }
+                    TileResult::Generic(_, _, ref mut d) => data = &mut *d,
                 }
 
                 if cfg!(feature = "small-trace") {

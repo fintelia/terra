@@ -96,30 +96,26 @@ impl MapFile {
         }
     }
     pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Option<Vec<u8>>, Error> {
+        assert!(layer.streamed());
+
         let filename = Self::tile_path(layer, node);
         if !filename.exists() {
             if !self.remote_tiles.lock().unwrap()[layer].contains(&node) {
                 return Ok(None);
             }
-            match layer {
-                LayerType::BaseAlbedo | LayerType::Heightmaps | LayerType::TreeCover => {
-                    // unreachable!("{:?}", filename)
-                    let url = Self::tile_url(layer, node);
-                    let client = hyper::Client::builder()
-                        .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
-                    let resp = client.get(url.parse()?).await?;
-                    if resp.status().is_success() {
-                        let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
-                        // TODO: Fix lifetime issues so we can do this tile write asynchronously.
-                        tokio::task::block_in_place(|| self.write_tile(layer, node, &data))?;
-                        return Ok(Some(data));
-                    } else {
-                        panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
-                    }
-                }
-                _ => {}
+            // unreachable!("{:?}", filename)
+            let url = Self::tile_url(layer, node);
+            let client = hyper::Client::builder()
+                .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+            let resp = client.get(url.parse()?).await?;
+            if resp.status().is_success() {
+                let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
+                // TODO: Fix lifetime issues so we can do this tile write asynchronously.
+                tokio::task::block_in_place(|| self.write_tile(layer, node, &data))?;
+                return Ok(Some(data));
+            } else {
+                panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
             }
-            anyhow::bail!("Tile missing: '{:?}'", filename);
         }
 
         let mut contents = Vec::new();
@@ -367,6 +363,14 @@ impl MapFile {
         &self.layers
     }
 
+    fn layer_name_ext_strs(layer: LayerType) -> (&'static str, &'static str) {
+         match layer {
+            LayerType::BaseAlbedo => ("albedo", "png"),
+            LayerType::Heightmaps => ("heightmaps", "raw"),
+            LayerType::TreeCover => ("treecover", "tiff"),
+            _ => unreachable!(),
+        }
+    }
     fn tile_name(layer: LayerType, node: VNode) -> String {
         let face = match node.face() {
             0 => "0E",
@@ -377,12 +381,7 @@ impl MapFile {
             5 => "S",
             _ => unreachable!(),
         };
-        let (layer, ext) = match layer {
-            LayerType::BaseAlbedo => ("albedo", "png"),
-            LayerType::Heightmaps => ("heightmaps", "raw"),
-            LayerType::TreeCover => ("treecover", "tiff"),
-            _ => unreachable!(),
-        };
+        let (layer, ext) = Self::layer_name_ext_strs(layer);
         format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
     }
 
@@ -395,12 +394,7 @@ impl MapFile {
     }
 
     pub(crate) async fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
-        let (target_layer, target_ext) = match layer {
-            LayerType::BaseAlbedo => ("albedo", "png"),
-            LayerType::Heightmaps => ("heightmaps", "raw"),
-            LayerType::TreeCover => ("treecover", "tiff"),
-            _ => unreachable!(),
-        };
+        let (target_layer, target_ext) = Self::layer_name_ext_strs(layer);
 
         fn face_index(s: &str) -> Option<u8>{
             Some(match s {
