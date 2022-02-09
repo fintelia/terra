@@ -1,9 +1,13 @@
 use std::{borrow::Cow, collections::HashMap};
 
-use crate::{cache::{LAYERS_BY_NAME, MeshType, TileCache}, mapfile::MapFile};
+use crate::{
+    billboards::Models,
+    cache::{MeshType, TileCache, LAYERS_BY_NAME},
+    mapfile::MapFile,
+};
+use types::MAX_QUADTREE_LEVEL;
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
-use types::MAX_QUADTREE_LEVEL;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -36,6 +40,9 @@ pub(crate) struct GpuState {
     pub mesh_indirect: wgpu::Buffer,
     pub mesh_bounding: wgpu::Buffer,
 
+    pub model_storage: wgpu::Buffer,
+    pub model_indices: wgpu::Buffer,
+
     pub globals: wgpu::Buffer,
     pub generate_uniforms: wgpu::Buffer,
 
@@ -49,8 +56,14 @@ pub(crate) struct GpuState {
     inscattering: (wgpu::Texture, wgpu::TextureView),
     skyview: (wgpu::Texture, wgpu::TextureView),
 
-    //ground_albedo: (wgpu::Texture, wgpu::TextureView),
+    pub billboards_albedo: (wgpu::Texture, wgpu::TextureView),
+    pub billboards_normals: (wgpu::Texture, wgpu::TextureView),
+    pub billboards_depth: (wgpu::Texture, wgpu::TextureView),
+    pub topdown_albedo: (wgpu::Texture, wgpu::TextureView),
+    pub topdown_normals: (wgpu::Texture, wgpu::TextureView),
+    pub topdown_depth: (wgpu::Texture, wgpu::TextureView),
 
+    //ground_albedo: (wgpu::Texture, wgpu::TextureView),
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
     linear_wrap: wgpu::Sampler,
@@ -61,6 +74,7 @@ impl GpuState {
         queue: &wgpu::Queue,
         mapfile: &MapFile,
         cache: &TileCache,
+        models: &Models,
     ) -> Result<Self, anyhow::Error> {
         let with_view = |name: &'static str, t: wgpu::Texture| {
             let view = t.create_view(&wgpu::TextureViewDescriptor {
@@ -69,6 +83,8 @@ impl GpuState {
             });
             (t, view)
         };
+
+        let (model_storage, model_indices) = models.make_buffers(device);
 
         Ok(GpuState {
             noise: with_view("noise", mapfile.read_texture(device, queue, "noise")?),
@@ -82,16 +98,25 @@ impl GpuState {
                 "inscattering",
                 mapfile.read_texture(device, queue, "inscattering")?,
             ),
-            skyview: with_view("skyview", device.create_texture(&wgpu::TextureDescriptor {
-                size: wgpu::Extent3d { width: 128, height: 128, depth_or_array_layers: 1 },
-                format: wgpu::TextureFormat::Rgba16Float,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                usage: wgpu::TextureUsages::STORAGE_BINDING
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                label: Some("texture.skyview"),
-            })),
+            skyview: with_view(
+                "skyview",
+                device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d { width: 128, height: 128, depth_or_array_layers: 1 },
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    label: Some("texture.skyview"),
+                }),
+            ),
+            billboards_albedo: with_view("billboards.albedo", models.make_billboards_albedo(device)),
+            billboards_normals: with_view("billboards.normals", models.make_billboards_normals(device)),
+            billboards_depth: with_view("billboards.depth", models.make_billboards_depth(device)),
+            topdown_albedo: with_view("topdown.albedo", models.make_topdown_albedo(device)),
+            topdown_normals: with_view("topdown.normals", models.make_topdown_normals(device)),
+            topdown_depth: with_view("topdown.depth", models.make_topdown_depth(device)),
             // ground_albedo: with_view(
             //     "ground_albedo",
             //     mapfile.read_texture(device, queue, "ground_albedo")?,
@@ -116,6 +141,8 @@ impl GpuState {
                     | wgpu::BufferUsages::COPY_DST,
                 label: Some("buffer.mesh_bounding"),
             }),
+            model_storage,
+            model_indices,
             globals: device.create_buffer(&wgpu::BufferDescriptor {
                 size: std::mem::size_of::<GlobalUniformBlock>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
@@ -206,6 +233,9 @@ impl GpuState {
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
                                 "skyview" => &self.skyview.1,
+                                "billboards_albedo" => &self.billboards_albedo.1,
+                                "billboards_normals" => &self.billboards_normals.1,
+                                "billboards_depth" => &self.billboards_depth.1,
                                 // "ground_albedo" => &self.ground_albedo.1,
                                 _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,
                             },
@@ -217,8 +247,11 @@ impl GpuState {
                         let buffer = match name {
                             "mesh_indirect" => &self.mesh_indirect,
                             "mesh_bounding" => &self.mesh_bounding,
+                            "model_storage" => &self.model_storage,
                             "grass_storage" => &self.mesh_storage[MeshType::Grass],
-                            "tree_billboards_storage" => &self.mesh_storage[MeshType::TreeBillboards],
+                            "tree_billboards_storage" => {
+                                &self.mesh_storage[MeshType::TreeBillboards]
+                            }
                             "globals" => &self.globals,
                             "frame_nodes" => &self.frame_nodes,
                             "nodes" => &self.nodes,
@@ -242,7 +275,7 @@ impl GpuState {
             bindings.push(wgpu::BindGroupEntry {
                 binding: layout.binding,
                 resource: match layout.ty {
-                    wgpu::BindingType::Sampler (ref mut binding_type) => {
+                    wgpu::BindingType::Sampler(ref mut binding_type) => {
                         wgpu::BindingResource::Sampler(match name {
                             "nearest" => {
                                 *binding_type = wgpu::SamplerBindingType::NonFiltering;

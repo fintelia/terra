@@ -100,8 +100,10 @@ fn main() {
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
+    assert!(adapter.features().contains(wgpu::Features::PUSH_CONSTANTS));
     let mut features = wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
+        | wgpu::Features::PUSH_CONSTANTS
         | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     if adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
@@ -117,6 +119,7 @@ fn main() {
                 limits: wgpu::Limits {
                     max_texture_array_layers: 1024,
                     max_compute_invocations_per_workgroup: 512,
+                    max_push_constant_size: 128,
                     ..wgpu::Limits::default()
                 },
                 label: None,

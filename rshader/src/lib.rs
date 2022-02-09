@@ -421,7 +421,7 @@ fn reflect_naga(
 
         let _module_info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::FLOAT64, /*naga::valid::Capabilities::empty()*/
+            naga::valid::Capabilities::FLOAT64 | naga::valid::Capabilities::PUSH_CONSTANT, /*naga::valid::Capabilities::empty()*/
         )
         .validate(&module)?;
 

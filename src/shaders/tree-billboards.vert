@@ -29,6 +29,7 @@ layout(location = 1) out vec3 color;
 layout(location = 2) out vec2 texcoord;
 layout(location = 3) out vec3 normal;
 layout(location = 4) out uint slot;
+layout(location = 5) out vec3 horizontal;
 
 const vec3 tangents[6] = vec3[6](
 	vec3(0,1,0),
@@ -55,18 +56,23 @@ void main() {
 	float morph = 1 - smoothstep(0.7, .99, length(position) / node.min_distance);
 
     vec2 uv = vec2(0);
-    if (index == 0) uv = vec2(-4, -.10);
-    else if (index == 1) uv = vec2(4, -.10);
-    else if (index == 2) uv = vec2(-1, 1);
+    if (index == 0) uv = vec2(0, 0);
+    else if (index == 1) uv = vec2(1, 0);
+    else if (index == 2) uv = vec2(0, 1);
     else if (index == 3) uv = vec2(1, 1);
+
+    // if (index == 0) uv = vec2(-4, -.10);
+    // else if (index == 1) uv = vec2(4, -.10);
+    // else if (index == 2) uv = vec2(-1, 1);
+    // else if (index == 3) uv = vec2(1, 1);
 
     vec3 horizontal = normalize(cross(position, up));
 
-    position += (up * 10 * uv.y + horizontal * uv.x) * morph;
+    position += (up * 20 * (1-uv.y) + horizontal * (uv.x-0.5)*20) * morph;
 
     color = vec3(0.33,0.57,0.0)*.13;
     texcoord = uv;
-    normal = up;
+    normal = cross(horizontal, up);
 
     gl_Position = globals.view_proj * vec4(position, 1.0);
 }

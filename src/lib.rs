@@ -8,6 +8,7 @@ extern crate test;
 extern crate lazy_static;
 
 mod asset;
+mod billboards;
 mod cache;
 mod coordinates;
 mod generate;
@@ -22,6 +23,7 @@ use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use anyhow::Error;
+use billboards::Models;
 use cache::TileCache;
 use cgmath::SquareMatrix;
 use generate::ComputeShader;
@@ -43,6 +45,7 @@ pub struct Terrain {
     mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
+    _models: Models,
 }
 impl Terrain {
     pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
@@ -186,7 +189,11 @@ impl Terrain {
                         })
                     },
                     render: rshader::ShaderSet::simple(
-                        rshader::shader_source!("shaders", "tree-billboards.vert", "declarations.glsl"),
+                        rshader::shader_source!(
+                            "shaders",
+                            "tree-billboards.vert",
+                            "declarations.glsl"
+                        ),
                         rshader::shader_source!(
                             "shaders",
                             "tree-billboards.frag",
@@ -199,9 +206,12 @@ impl Terrain {
             })
             .collect();
 
+        let models = Models::new();
         let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
-        let gpu_state = GpuState::new(device, queue, &mapfile, &cache)?;
+        let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models)?;
         let quadtree = QuadTree::new();
+
+        models.render_billboards(device, queue, &gpu_state);
 
         let sky_shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "sky.vert", "declarations.glsl"),
@@ -233,6 +243,7 @@ impl Terrain {
             mapfile,
             cache,
             generate_skyview,
+            _models: models,
         })
     }
 

@@ -51,6 +51,7 @@ num = "0.3.1"
 num-traits = "0.2.14"
 open-location-code = "0.1.0"
 petgraph = "0.5.1"
+proctree-rs = { git = "https://github.com/fintelia/proctree-rs", rev = "e8753307c9a71605b7b18563765f2b570cc3cd41" }
 rand = "0.8.0"
 rand_distr = "0.4.0"
 rayon = "1.5.0"
