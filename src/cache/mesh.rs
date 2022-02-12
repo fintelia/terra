@@ -163,6 +163,6 @@ mod tests {
 
     #[test]
     fn test_node_state_size() {
-        assert_eq!(mem::size_of::<MeshNodeState>(), 256);
+        assert_eq!(mem::size_of::<MeshNodeState>(), 64);
     }
 }

@@ -15,6 +15,7 @@ mod generate;
 mod gpu_state;
 mod mapfile;
 mod sky;
+mod speedtree_xml;
 mod srgb;
 mod stream;
 mod terrain;
