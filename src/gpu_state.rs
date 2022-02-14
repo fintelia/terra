@@ -56,6 +56,8 @@ pub(crate) struct GpuState {
     inscattering: (wgpu::Texture, wgpu::TextureView),
     skyview: (wgpu::Texture, wgpu::TextureView),
 
+    pub models_albedo: (wgpu::Texture, wgpu::TextureView),
+
     pub billboards_albedo: (wgpu::Texture, wgpu::TextureView),
     pub billboards_normals: (wgpu::Texture, wgpu::TextureView),
     pub billboards_depth: (wgpu::Texture, wgpu::TextureView),
@@ -111,6 +113,7 @@ impl GpuState {
                     label: Some("texture.skyview"),
                 }),
             ),
+            models_albedo: with_view("models.albedo", models.make_models_albedo(device, queue)),
             billboards_albedo: with_view("billboards.albedo", models.make_billboards_albedo(device)),
             billboards_normals: with_view("billboards.normals", models.make_billboards_normals(device)),
             billboards_depth: with_view("billboards.depth", models.make_billboards_depth(device)),
@@ -233,6 +236,7 @@ impl GpuState {
                                 "transmittance" => &self.transmittance.1,
                                 "inscattering" => &self.inscattering.1,
                                 "skyview" => &self.skyview.1,
+                                "models_albedo" => &self.models_albedo.1,
                                 "billboards_albedo" => &self.billboards_albedo.1,
                                 "billboards_normals" => &self.billboards_normals.1,
                                 "billboards_depth" => &self.billboards_depth.1,
