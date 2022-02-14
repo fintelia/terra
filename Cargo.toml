@@ -52,7 +52,6 @@ num-traits = "0.2.14"
 open-location-code = "0.1.0"
 petgraph = "0.5.1"
 planetcam = { path = "planetcam" }
-proctree-rs = { git = "https://github.com/fintelia/proctree-rs", rev = "e8753307c9a71605b7b18563765f2b570cc3cd41" }
 quick-xml = { version = "0.22.0", features = ["serialize"] }
 rand = "0.8.0"
 rand_distr = "0.4.0"

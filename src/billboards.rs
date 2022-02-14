@@ -2,86 +2,108 @@ use std::{collections::HashMap, num::NonZeroU32};
 
 use wgpu::util::DeviceExt;
 
-use crate::gpu_state::GpuState;
+use crate::{gpu_state::GpuState, speedtree_xml::{SpeedTreeModel, parse_xml}};
 
 const RESOLUTION: u32 = 1024;
 const FRAMES_PER_SIDE: u32 = 6;
 
-#[derive(Copy, Clone, Debug, Default)]
-#[repr(C)]
-struct Vertex {
-    position: [f32; 3],
-    texcoord_u: f32,
-    normal: [f32; 3],
-    texcoord_v: f32,
-}
-unsafe impl bytemuck::Pod for Vertex {}
-unsafe impl bytemuck::Zeroable for Vertex {}
+// #[derive(Copy, Clone, Debug, Default)]
+// #[repr(C)]
+// struct Vertex {
+//     position: [f32; 3],
+//     texcoord_u: f32,
+//     normal: [f32; 3],
+//     texcoord_v: f32,
+// }
+// unsafe impl bytemuck::Pod for Vertex {}
+// unsafe impl bytemuck::Zeroable for Vertex {}
 
 pub(crate) struct Models {
-    vertices: Vec<Vertex>,
-    indices: Vec<u32>,
+    tree: SpeedTreeModel,
 }
 impl Models {
     pub fn new() -> Self {
-        let model = proctree_rs::generate_tree(0);
+        let tree = parse_xml(include_str!("../assets/Tree/Oak_English_Sapling.xml")).unwrap();
 
-        let mut vertices =
-            Vec::with_capacity(model.vertices.len() / 3 + model.twig_vertices.len() / 3);
-        let mut indices = Vec::with_capacity(model.faces.len() + model.twig_faces.len());
+        Self {
+            tree,
+        }
+        // let model = unimplemented!();//proctree_rs::generate_tree(0);
 
-        for i in 0..(model.vertices.len() / 3) {
-            vertices.push(Vertex {
-                position: [
-                    model.vertices[i * 3],
-                    model.vertices[i * 3 + 1],
-                    model.vertices[i * 3 + 2],
-                ],
-                normal: [model.normals[i * 3], model.normals[i * 3 + 1], model.normals[i * 3 + 2]],
-                texcoord_u: model.texcoords[i * 2],
-                texcoord_v: model.texcoords[i * 2 + 1] * 0.5,
-            })
-        }
-        let twig_index_offset = vertices.len() as u32;
-        for i in 0..(model.twig_vertices.len() / 3) {
-            vertices.push(Vertex {
-                position: [
-                    model.twig_vertices[i * 3],
-                    model.twig_vertices[i * 3 + 1],
-                    model.twig_vertices[i * 3 + 2],
-                ],
-                normal: [
-                    model.twig_normals[i * 3],
-                    model.twig_normals[i * 3 + 1],
-                    model.twig_normals[i * 3 + 2],
-                ],
-                texcoord_u: model.twig_texcoords[i * 2],
-                texcoord_v: model.twig_texcoords[i * 2 + 1] * 0.5 + 0.5,
-            })
-        }
-        for i in 0..model.faces.len() {
-            indices.push(model.faces[i] as u32);
-        }
-        for i in 0..model.twig_faces.len() {
-            indices.push(model.twig_faces[i] as u32 + twig_index_offset);
-        }
+        // let mut vertices =
+        //     Vec::with_capacity(model.vertices.len() / 3 + model.twig_vertices.len() / 3);
+        // let mut indices = Vec::with_capacity(model.faces.len() + model.twig_faces.len());
 
-        Self { vertices, indices }
+        // for i in 0..(model.vertices.len() / 3) {
+        //     vertices.push(Vertex {
+        //         position: [
+        //             model.vertices[i * 3],
+        //             model.vertices[i * 3 + 1],
+        //             model.vertices[i * 3 + 2],
+        //         ],
+        //         normal: [model.normals[i * 3], model.normals[i * 3 + 1], model.normals[i * 3 + 2]],
+        //         texcoord_u: model.texcoords[i * 2],
+        //         texcoord_v: model.texcoords[i * 2 + 1] * 0.5,
+        //     })
+        // }
+        // let twig_index_offset = vertices.len() as u32;
+        // for i in 0..(model.twig_vertices.len() / 3) {
+        //     vertices.push(Vertex {
+        //         position: [
+        //             model.twig_vertices[i * 3],
+        //             model.twig_vertices[i * 3 + 1],
+        //             model.twig_vertices[i * 3 + 2],
+        //         ],
+        //         normal: [
+        //             model.twig_normals[i * 3],
+        //             model.twig_normals[i * 3 + 1],
+        //             model.twig_normals[i * 3 + 2],
+        //         ],
+        //         texcoord_u: model.twig_texcoords[i * 2],
+        //         texcoord_v: model.twig_texcoords[i * 2 + 1] * 0.5 + 0.5,
+        //     })
+        // }
+        // for i in 0..model.faces.len() {
+        //     indices.push(model.faces[i] as u32);
+        // }
+        // for i in 0..model.twig_faces.len() {
+        //     indices.push(model.twig_faces[i] as u32 + twig_index_offset);
+        // }
+
+        // Self { vertices, indices }
     }
 
     pub fn make_buffers(&self, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("buffer.tree.vertex"),
-            contents: bytemuck::cast_slice(&self.vertices),
+            contents: bytemuck::cast_slice(&self.tree.vertices),
             usage: wgpu::BufferUsages::STORAGE,
         });
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("buffer.tree.index"),
-            contents: bytemuck::cast_slice(&self.indices),
+            contents: bytemuck::cast_slice(&self.tree.indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
         (vertex_buffer, index_buffer)
+    }
+
+    pub fn make_models_albedo(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        let img = image::load_from_memory(include_bytes!("../assets/Tree/Oak_English_Sapling_Color.png")).unwrap();
+        let albedo = img.into_rgba8();
+        device.create_texture_with_data(queue, &wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 4096,
+                height: 4096,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        }, &*albedo)
     }
 
     fn default_billboard_desc() -> wgpu::TextureDescriptor<'static> {
@@ -319,7 +341,7 @@ impl Models {
                                 2.0 * y as f32 / FRAMES_PER_SIDE as f32 - 1.0,
                             ]),
                         );
-                        rpass.draw_indexed(0..self.indices.len() as u32, 0, 0..1);
+                        rpass.draw_indexed(self.tree.lods.last().unwrap().clone(), 0, 0..1);
                     }
                 }
             }
@@ -387,7 +409,7 @@ impl Models {
                     0,
                     bytemuck::cast_slice(&[0.0f32, 0.0f32]),
                 );
-                rpass.draw_indexed(0..self.indices.len() as u32, 0, 0..1);
+                rpass.draw_indexed(self.tree.lods.last().unwrap().clone(), 0, 0..1);
             }
         }
 
