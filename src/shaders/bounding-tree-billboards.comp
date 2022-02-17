@@ -84,6 +84,6 @@ void main() {
             max_radius2[0] = max(max_radius2[0], max_radius2[gl_LocalInvocationID.x]);
         }
         mesh_bounding.bounds[mesh_slot].center = center;
-        mesh_bounding.bounds[mesh_slot].radius = sqrt(max_radius2[0]) + 15.0;
+        mesh_bounding.bounds[mesh_slot].radius = sqrt(max_radius2[0]) + 40.0;
     }
 }

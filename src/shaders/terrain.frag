@@ -54,20 +54,6 @@ vec3 debug_overlay(vec3 color) {
 	// if(distance(pc, cc) < min_distance && distance(pc, cc) > min_distance*0.9)
 	// 	color.rgb = mix(color.rgb, vec3(1,0,0), 0.3);
 
-	// vec3 level_color = vec3(0);
-	// if(level_resolution <= 256) level_color = vec3(1,0,0);
-	// else if(level_resolution <= 512) level_color = vec3(1,1,0);
-	// else if(level_resolution <= 1024) level_color = vec3(0,1,0);
-	// else if(level_resolution <= 2048) level_color = vec3(0,1,1);
-	// else if(level_resolution <= 4096) level_color = vec3(0,0,1);
-	// else if(level_resolution <= 8192) level_color = vec3(1,1,1);
-
-	// vec2 ip = vec2(1) - abs(vec2(1) - 2*tc);
-	// if(ip.x < 0.05 || ip.y < 0.05)
-	// 	color.rgb = mix(color.rgb, level_color, 0.4);
-	// else if (i_position.x / resolution > 0.97 || i_position.y / resolution > 0.97)
-	// 	color.rgb = mix(color.rgb, level_color, 0.2);
-
 	// ml = mipmap_level(normals_texcoord.xy*vec2(textureSize(normals,0).xy));
 	// vec3 overlay_color = vec3(0);
 	// if (ml < 0.0 /*&& side_length <= 16.0*/)
@@ -93,8 +79,6 @@ vec3 debug_overlay(vec3 color) {
 	// if((fract(0.5*tc.x*ts.x/8) < 0.5) != (fract(0.5*tc.y*ts.y/8) < 0.5))
 	// 	color = mix(color, vec3(0,0,0), 0.2);
 
-	// if(length(position.xz) > 30000.0)
-	// 	color = mix(color, vec3(0), 0.3);
 	// if(length(position.xz) < 10000) {
 	// 	if((fract(0.5*position.x/1000) < 0.5) != (fract(0.5*position.z/1000) < 0.5))
 	// 		color = mix(color, vec3(0,0,0), 0.3);
@@ -159,7 +143,6 @@ vec3 debug_overlay(vec3 color) {
 	// if(node.face == 4) color = mix(color, vec3(1,1,1), 0.1);
 	// if(node.face == 5) color = mix(color, vec3(0,0,0), 0.1);
 
-	// Node node = nodes[instance];
 	// if(node.level == 0)color = mix(color, vec3(1,0,0), .3); // 20km
 	// if(node.level == 1)color = mix(color, vec3(0,1,0), .3); // 10km
 	// if(node.level == 2)color = mix(color, vec3(0,0,1), .3); //  5km
@@ -214,6 +197,9 @@ vec3 debug_overlay(vec3 color) {
 	// if (node.resolution == 32)
 	// 	color *= 0.5;
 	// color = mix(color, vec3(0,0,0), (1-morph)*.4);
+
+	// if(abs(length(position.xz)-32) < 2)
+	// 	color = mix(color, vec3(0), 1);
 
  	return color;
 }

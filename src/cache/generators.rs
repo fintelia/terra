@@ -501,7 +501,7 @@ pub(crate) fn generators(
                     "declarations.glsl"
                 )).unwrap(),
             ],
-            dimensions: vec![(8, 8, 1), (4, 1, 1)],
+            dimensions: vec![(16, 16, 1), (16, 1, 1)],
             bindgroup_pipeline: vec![None, None],
             peer_inputs: LayerType::Displacements.bit_mask(),
             ancestor_inputs: LayerType::TreeAttributes.bit_mask(),
@@ -513,7 +513,7 @@ pub(crate) fn generators(
             clear_indirect_buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 usage: wgpu::BufferUsages::COPY_SRC,
                 label: Some("buffer.tree_billboards.clear_indirect"),
-                contents: &vec![0; mem::size_of::<DrawIndexedIndirect>() * 4],
+                contents: &vec![0; mem::size_of::<DrawIndexedIndirect>() * 16],
             })
         }),
     ]

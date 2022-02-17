@@ -189,7 +189,8 @@ impl ShaderSetInner {
     }
 
     pub fn compute_only(source: wgpu::ShaderSource<'static>) -> Result<Self, anyhow::Error> {
-        let (input_attributes, desc_names, layout_descriptor, workgroup_size) = reflect_naga(&[&source])?;
+        let (input_attributes, desc_names, layout_descriptor, workgroup_size) =
+            reflect_naga(&[&source])?;
 
         assert!(input_attributes.is_empty());
         Ok(Self {

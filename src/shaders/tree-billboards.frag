@@ -16,13 +16,16 @@ layout(set = 0, binding = 3) uniform sampler linear;
 
 layout(binding = 4) uniform texture2DArray billboards_albedo;
 layout(binding = 5) uniform texture2DArray billboards_normals;
+layout(binding = 6) uniform texture2DArray billboards_ao;
+layout(binding = 7) uniform texture2DArray billboards_depth;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 layout(location = 2) in vec2 texcoord;
 layout(location = 3) in vec3 normal;
 layout(location = 4) flat in uint slot;
-layout(location = 5) in vec3 horizontal;
+layout(location = 5) in vec3 right;
+layout(location = 6) in vec3 up;
 
 layout(location = 0) out vec4 out_color;
 
@@ -36,17 +39,31 @@ vec3 layer_to_texcoord(uint layer, vec2 coordinates) {
 	return vec3(node.layer_origins[layer] + coordinates * node.layer_ratios[layer], node.layer_slots[layer]);
 }
 
-void main() {
-	vec4 albedo = texture(sampler2DArray(billboards_albedo, linear), vec3(texcoord/6.0+1./6, 0));
-	vec2 tx_normal = texture(sampler2DArray(billboards_normals, linear), vec3(texcoord/6.0+1./6, 0)).xy;
+float mip_map_level(in vec2 texture_coordinate)
+{
+    vec2  dx_vtc        = dFdx(texture_coordinate);
+    vec2  dy_vtc        = dFdy(texture_coordinate);
+    float delta_max_sqr = max(dot(dx_vtc, dx_vtc), dot(dy_vtc, dy_vtc));
+    return 0.5 * log2(delta_max_sqr);
+}
 
-	vec3 true_normal = normalize(tx_normal.y * horizontal - tx_normal.x * vec3(0,1,0) - normal * sqrt(1-dot(tx_normal, tx_normal)));
+void main() {
+	vec4 albedo = texture(sampler2DArray(billboards_albedo, linear), vec3(texcoord/6.0, 0));
+	vec2 tx_normal = texture(sampler2DArray(billboards_normals, linear), vec3(texcoord/6.0, 0)).xy;
+
+	albedo.rgb += (color-0.5) * 0.05;
+
+	float tx_normal_z = sqrt(max(0, 1-dot(tx_normal, tx_normal)));
+	vec3 true_normal = normalize(tx_normal.x * right - tx_normal.y * up + tx_normal_z * normal);
+	//normalize(position+globals.camera);//
+	// true_normal.y += 1;
+	// true_normal = normalize(true_normal);
 
 	out_color = vec4(1);
-	out_color.rgb = pbr(albedo.rgb,
+	out_color.rgb = pbr(albedo.rgb,//vec3(0.33,0.57,0.0)*.13,//
 						0.5,
 						position,
-						vec3(0,1,0),//true_normal,
+						true_normal,
 						globals.camera,
 						normalize(vec3(0.4, .7, 0.2)),
 						vec3(100000.0));
@@ -55,11 +72,30 @@ void main() {
 	// out_color.rgb *= ap.a * 16.0;
 	// out_color.rgb += ap.rgb * 16.0;
 
-	if (albedo.a < 1)
-		discard;
+	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0)).x;
+	out_color.rgb += ao * albedo.rgb * 3000 * max(dot(true_normal, up), 0);
 
+	if (albedo.a < .5)
+		discard;
 
    	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
 	out_color = tonemap(out_color, exposure, 2.2);
+
+	// out_color.rgb = vec3(dot(globals.sun_direction,true_normal));
+
+
+	//out_color.rgb = vec3((tx_normal.x)*0.5 + 0.5);
+
+	// out_color.rgb = vec3(1)*0.5 + 0.5;
+
+	// if (dot(normal, up) < 0.001)
+	//   	out_color.rgb = vec3(1,0,0);
+
+
+	// float level = mip_map_level(texcoord*1024.0);
+	// if (level < -1)  out_color.rgb = vec3(.4,0,0);
+	// else if (level < 0)  out_color.rgb = vec3(1,0,0);
+	// else if (level < 1)  out_color.rgb = vec3(0,1,0);
+	// else if (level < 5)  out_color.rgb = vec3(0,0,1);
 }

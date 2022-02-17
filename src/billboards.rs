@@ -4,7 +4,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{gpu_state::GpuState, speedtree_xml::{SpeedTreeModel, parse_xml}};
 
-const RESOLUTION: u32 = 1024;
+const RESOLUTION: u32 = 128;
 const FRAMES_PER_SIDE: u32 = 6;
 
 // #[derive(Copy, Clone, Debug, Default)]
@@ -20,57 +20,21 @@ const FRAMES_PER_SIDE: u32 = 6;
 
 pub(crate) struct Models {
     tree: SpeedTreeModel,
+    shader: rshader::ShaderSet,
 }
 impl Models {
     pub fn new() -> Self {
         let tree = parse_xml(include_str!("../assets/Tree/Oak_English_Sapling.xml")).unwrap();
+        let shader = rshader::ShaderSet::simple(
+            rshader::shader_source!("shaders", "model.vert", "declarations.glsl"),
+            rshader::shader_source!("shaders", "model.frag", "declarations.glsl"),
+        )
+        .unwrap();
 
         Self {
             tree,
+            shader,
         }
-        // let model = unimplemented!();//proctree_rs::generate_tree(0);
-
-        // let mut vertices =
-        //     Vec::with_capacity(model.vertices.len() / 3 + model.twig_vertices.len() / 3);
-        // let mut indices = Vec::with_capacity(model.faces.len() + model.twig_faces.len());
-
-        // for i in 0..(model.vertices.len() / 3) {
-        //     vertices.push(Vertex {
-        //         position: [
-        //             model.vertices[i * 3],
-        //             model.vertices[i * 3 + 1],
-        //             model.vertices[i * 3 + 2],
-        //         ],
-        //         normal: [model.normals[i * 3], model.normals[i * 3 + 1], model.normals[i * 3 + 2]],
-        //         texcoord_u: model.texcoords[i * 2],
-        //         texcoord_v: model.texcoords[i * 2 + 1] * 0.5,
-        //     })
-        // }
-        // let twig_index_offset = vertices.len() as u32;
-        // for i in 0..(model.twig_vertices.len() / 3) {
-        //     vertices.push(Vertex {
-        //         position: [
-        //             model.twig_vertices[i * 3],
-        //             model.twig_vertices[i * 3 + 1],
-        //             model.twig_vertices[i * 3 + 2],
-        //         ],
-        //         normal: [
-        //             model.twig_normals[i * 3],
-        //             model.twig_normals[i * 3 + 1],
-        //             model.twig_normals[i * 3 + 2],
-        //         ],
-        //         texcoord_u: model.twig_texcoords[i * 2],
-        //         texcoord_v: model.twig_texcoords[i * 2 + 1] * 0.5 + 0.5,
-        //     })
-        // }
-        // for i in 0..model.faces.len() {
-        //     indices.push(model.faces[i] as u32);
-        // }
-        // for i in 0..model.twig_faces.len() {
-        //     indices.push(model.twig_faces[i] as u32 + twig_index_offset);
-        // }
-
-        // Self { vertices, indices }
     }
 
     pub fn make_buffers(&self, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
@@ -101,7 +65,7 @@ impl Models {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING,
         }, &*albedo)
     }
@@ -131,7 +95,14 @@ impl Models {
     pub fn make_billboards_normals(&self, device: &wgpu::Device) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture.billboards.normals"),
-            format: wgpu::TextureFormat::Rg8Snorm,
+            format: wgpu::TextureFormat::Rgba8Snorm,
+            ..Self::default_billboard_desc()
+        })
+    }
+    pub fn make_billboards_ao(&self, device: &wgpu::Device) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("texture.billboards.ao"),
+            format: wgpu::TextureFormat::R8Unorm,
             ..Self::default_billboard_desc()
         })
     }
@@ -163,7 +134,14 @@ impl Models {
     pub fn make_topdown_normals(&self, device: &wgpu::Device) -> wgpu::Texture {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture.topdown.normals"),
-            format: wgpu::TextureFormat::Rg8Snorm,
+            format: wgpu::TextureFormat::Rgba8Snorm,
+            ..Self::default_topdown_desc()
+        })
+    }
+    pub fn make_topdown_ao(&self, device: &wgpu::Device) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("texture.topdown.ao"),
+            format: wgpu::TextureFormat::R8Unorm,
             ..Self::default_topdown_desc()
         })
     }
@@ -175,21 +153,19 @@ impl Models {
         })
     }
 
+    pub fn refresh(&mut self) -> bool {
+        self.shader.refresh()
+    }
+
     pub fn render_billboards(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
     ) {
-        let shader = rshader::ShaderSet::simple(
-            rshader::shader_source!("shaders", "model.vert", "declarations.glsl"),
-            rshader::shader_source!("shaders", "model.frag", "declarations.glsl"),
-        )
-        .unwrap();
-
         let (bind_group, bind_group_layout) = gpu_state.bind_group_for_shader(
             device,
-            &shader,
+            &self.shader,
             HashMap::new(),
             HashMap::new(),
             "model",
@@ -208,7 +184,7 @@ impl Models {
             vertex: wgpu::VertexState {
                 module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                     label: Some("shader.billboard-texture.vertex"),
-                    source: shader.vertex(),
+                    source: self.shader.vertex(),
                 }),
                 entry_point: "main",
                 buffers: &[],
@@ -216,7 +192,7 @@ impl Models {
             fragment: Some(wgpu::FragmentState {
                 module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
                     label: Some("shader.billboard-texture.fragment"),
-                    source: shader.fragment(),
+                    source: self.shader.fragment(),
                 }),
                 entry_point: "main",
                 targets: &[
@@ -229,7 +205,7 @@ impl Models {
                         write_mask: wgpu::ColorWrites::ALL,
                     },
                     wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rg8Snorm,
+                        format: wgpu::TextureFormat::Rgba8Snorm,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent::REPLACE,
                             alpha: wgpu::BlendComponent::REPLACE,
@@ -244,10 +220,19 @@ impl Models {
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
                     },
+                    wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::R8Unorm,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent::REPLACE,
+                            alpha: wgpu::BlendComponent::REPLACE,
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    },
                 ],
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
@@ -275,6 +260,7 @@ impl Models {
             };
             let albedo_view = gpu_state.billboards_albedo.0.create_view(&view_desc);
             let normals_view = gpu_state.billboards_normals.0.create_view(&view_desc);
+            let ao_view = gpu_state.billboards_ao.0.create_view(&view_desc);
             let linear_depth_view = gpu_state.billboards_depth.0.create_view(&view_desc);
             let depth = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("billboard.depthbuffer"),
@@ -307,6 +293,11 @@ impl Models {
                         },
                         wgpu::RenderPassColorAttachment {
                             view: &linear_depth_view,
+                            resolve_target: None,
+                            ops: Default::default(),
+                        },
+                        wgpu::RenderPassColorAttachment {
+                            view: &ao_view,
                             resolve_target: None,
                             ops: Default::default(),
                         },
@@ -357,6 +348,7 @@ impl Models {
             let albedo_view = gpu_state.topdown_albedo.0.create_view(&view_desc);
             let normals_view = gpu_state.topdown_normals.0.create_view(&view_desc);
             let linear_depth_view = gpu_state.topdown_depth.0.create_view(&view_desc);
+            let ao_view = gpu_state.topdown_ao.0.create_view(&view_desc);
             let depth = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("topdown.depthbuffer"),
                 size: wgpu::Extent3d {
@@ -388,6 +380,11 @@ impl Models {
                         },
                         wgpu::RenderPassColorAttachment {
                             view: &linear_depth_view,
+                            resolve_target: None,
+                            ops: Default::default(),
+                        },
+                        wgpu::RenderPassColorAttachment {
+                            view: &ao_view,
                             resolve_target: None,
                             ops: Default::default(),
                         },

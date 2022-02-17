@@ -99,6 +99,7 @@ struct Vertices {
 #[serde(rename_all = "PascalCase")]
 struct Triangles {
     count: u32,
+    #[allow(unused)]
     material: u32,
     point_indices: List<u32>,
     vertex_indices: List<u32>,
@@ -159,8 +160,6 @@ pub(crate) fn parse_xml(contents: &str) -> Result<SpeedTreeModel, anyhow::Error>
             let vertices = object.vertices.as_ref().unwrap();
             let triangles = object.triangles.as_ref().unwrap();
 
-            println!("{} {}", parent_id, object.name);
-            println!("{:?}\n{:?}", &triangles.point_indices.0[..10], &triangles.vertex_indices.0[..10]);
             let (output_vertices, output_indices) =
                 merged_objects.entry(parent_id).or_insert((Vec::new(), Vec::new()));
 
@@ -179,17 +178,17 @@ pub(crate) fn parse_xml(contents: &str) -> Result<SpeedTreeModel, anyhow::Error>
                 ids_to_index.insert((pid, vid), index);
                 output_indices.push(index);
                 output_vertices.push(Vertex {
-                    position: [points.x[pid], points.y[pid], points.z[pid]],
-                    lod_position: [points.lod_x[pid], points.lod_y[pid], points.lod_z[pid]],
+                    position: [points.x[pid], points.z[pid], points.y[pid]],
+                    lod_position: [points.lod_x[pid], points.lod_z[pid], points.lod_y[pid]],
                     normal: [
                         vertices.normal_x[vid],
-                        vertices.normal_y[vid],
                         vertices.normal_z[vid],
+                        vertices.normal_y[vid],
                     ],
                     binormal: [
                         vertices.binormal_x[vid],
-                        vertices.binormal_y[vid],
                         vertices.binormal_z[vid],
+                        vertices.binormal_y[vid],
                     ],
                     texcoord_u: vertices.texcoord_u[vid],
                     texcoord_v: vertices.texcoord_v[vid],
@@ -207,14 +206,16 @@ pub(crate) fn parse_xml(contents: &str) -> Result<SpeedTreeModel, anyhow::Error>
     let mut lods = Vec::new();
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
-    for name in ["LOD0"/* , "LOD1", "LOD2", "LOD3"*/] {
+    for name in ["LOD0", "LOD1", "LOD2", "LOD3"] {
         if let Some(id) = object_names.get(name) {
             let mut merged = merged_objects.remove(id).unwrap();
 
+            let base_vertex = vertices.len() as u32;
             let start = indices.len() as u32;
             let end = (indices.len() + merged.1.len()) as u32;
+
             for index in merged.1 {
-                indices.push(index + start);
+                indices.push(index + base_vertex);
             }
             vertices.append(&mut merged.0);
             lods.push(start..end);

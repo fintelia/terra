@@ -63,7 +63,7 @@ fn main(
 
     // let texcoord = vec2<f32>(global_id.xy) / 128.0;
     let normal = extract_normal(read_texture(NORMALS_LAYER, global_id).xy);
-    let albedo_value = read_texture(ALBEDO_LAYER, global_id).xyz;
+    let albedo_value = vec3<f32>(0.1, 0.2, 0.1);//read_texture(ALBEDO_LAYER, global_id).xyz;
     let canopy = read_texture(GRASS_CANOPY_LAYER, global_id);
 
     if (normal.y < 0.95) {

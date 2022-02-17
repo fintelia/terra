@@ -28,15 +28,15 @@ fn main(
     let node = nodes.entries[ubo.slot];
 
     let index = global_id.xy % vec2<u32>(32u);
-    let entry = 2u * (global_id.y / 32u) + (global_id.x / 32u);
+    let entry = 4u * (global_id.y / 32u) + (global_id.x / 32u);
 
     let rnd1 = random3(vec3<f32>(vec2<f32>(index), 1.0));
     let rnd2 = random3(vec3<f32>(vec2<f32>(index), 2.0));
-    // let rnd3 = random3(vec3<f32>(vec2<f32>(index), 3.0));
-    // let rnd4 = random3(vec3<f32>(vec2<f32>(index), 4.0));
-    // let rnd5 = random3(vec3<f32>(vec2<f32>(index), 5.0));
+    let rnd3 = random3(vec3<f32>(vec2<f32>(index), 3.0));
+    let rnd4 = random3(vec3<f32>(vec2<f32>(index), 4.0));
+    let rnd5 = random3(vec3<f32>(vec2<f32>(index), 5.0));
 
-    let texcoord = vec2<f32>(global_id.xy) / 64.0;
+    let texcoord = vec2<f32>(global_id.xy) / 128.0;
     let texcoord = node.layer_origins[TREE_ATTRIBUTES_LAYER] + texcoord * node.layer_ratios[TREE_ATTRIBUTES_LAYER];
     let array_index = node.layer_slots[TREE_ATTRIBUTES_LAYER];
     let tree_attr = textureSampleLevel(tree_attributes, nearest, texcoord, array_index, 0.0);
@@ -46,7 +46,7 @@ fn main(
     }
 
     // Sample displacements texture at random offset (rnd1, rnd).
-    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 64.0;
+    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
     let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_ratios[DISPLACEMENTS_LAYER];
     let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
     let dimensions = textureDimensions(displacements);
@@ -60,7 +60,7 @@ fn main(
 
     let i = atomicAdd(&mesh_indirect.entries[ubo.mesh_base_entry + entry].vertex_count, 6) / 6;
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].position = position.xyz;
-    tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].albedo = vec3<f32>(0.0);
+    tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].albedo = vec3<f32>(rnd3, rnd4, rnd5);
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].angle = 0.0;
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].height = 10.0;
 }
