@@ -40,9 +40,12 @@ void main() {
     vec3 s = normalize(cross(f, up));
     vec3 u = cross(s, f);
 
-    vec3 eye = vec3(0, 10, 0) - f * 5;
+    vec3 eye = vec3(0, 10, 0) - f * 10;
 
-    mat4 proj = mat4(0.1,0,0,0, 0,0.1,0,0, 0,0,-0.1,0, 0,0,0,1);
+    mat4 proj = mat4(0.1,   0,    0,  0,
+                       0, 0.1,    0,  0,
+                       0,   0,  -0.05,  0,
+                       0,   0,    0,  1);
     view = mat4(
         s.x, u.x, -f.x, 0,
         s.y, u.y, -f.y, 0,
@@ -50,10 +53,11 @@ void main() {
         -dot(eye, s), -dot(eye, u), dot(eye, f), 1
     );
 
-    position = proj * view * vec4(vertex.position.xzy, 1);
+    position = proj * view * vec4(vertex.position, 1);
+    //position = vec4(vertex.position * 0.05, 1);
 
-    texcoord = vec2(vertex.texcoord_u, vertex.texcoord_v);
-    normal = vertex.normal;
+    texcoord = vec2(vertex.texcoord_u, 1-vertex.texcoord_v);
+    normal = normalize((view * vec4(vertex.normal,0)).xyz);
     ao = vertex.ao;
 
     // position.z = 0.5;

@@ -18,8 +18,10 @@ layout(binding = 6) uniform utexture2DArray heightmaps;
 layout(binding = 7) uniform texture2DArray base_albedo;
 layout(binding = 8) uniform texture2DArray treecover;
 layout(binding = 9) uniform texture2DArray tree_attributes;
+layout(binding = 10) uniform texture2D topdown_albedo;
+layout(binding = 11) uniform texture2D topdown_normals;
 
-layout(set = 0, binding = 10, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 12, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
@@ -113,11 +115,21 @@ void main() {
 	// 	albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
 	// }
 
-	if (node.level < 15) {
+	if (node.level < 13) {
 		float treecover_value = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
 		if (node.layer_slots[TREE_ATTRIBUTES_LAYER] >= 0) {
-			vec4 tree_attr = texture(sampler2DArray(tree_attributes, linear), layer_to_texcoord(TREE_ATTRIBUTES_LAYER));
-			albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.33,0.57,0.0)*.13, tree_attr.a > 0 ? 1 : 0);
+			vec3 tcoord = layer_to_texcoord(TREE_ATTRIBUTES_LAYER);
+			vec4 tree_attr = texture(sampler2DArray(tree_attributes, linear), tcoord);
+
+			// vec4 tree_albedo = texture(sampler2D(topdown_albedo, linear), (fract(tcoord.xy*128+0.5)-0.5)*.3 + 0.5);
+			// vec2 tree_normal_xz = texture(sampler2D(topdown_normals, linear), (fract(tcoord.xy*128+0.5)-0.5)*0.3 + 0.5).rg;
+			// vec3 tree_normal = vec3(tree_normal_xz, sqrt(1 - dot(tree_normal_xz,tree_normal_xz))).xzy;
+
+			// float tree_amount = tree_attr.a > 0 ? tree_albedo.a : 0;
+			// albedo_roughness.rgb = mix(albedo_roughness.rgb, tree_albedo.rgb/*vec3(0.33,0.57,0.0)*.13*/, tree_amount);
+			// normal = normalize(mix(normal, tree_normal, tree_amount));
+
+			albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.13,0.37,0.0)*.1, tree_attr.a > 0 ? 1 : 0);
 		} else {
 			albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.33,0.57,0.0)*.13, min(treecover_value*4, 1));
 		}

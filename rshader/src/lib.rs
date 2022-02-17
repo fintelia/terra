@@ -189,7 +189,8 @@ impl ShaderSetInner {
     }
 
     pub fn compute_only(source: wgpu::ShaderSource<'static>) -> Result<Self, anyhow::Error> {
-        let (input_attributes, desc_names, layout_descriptor, workgroup_size) = reflect_naga(&[&source])?;
+        let (input_attributes, desc_names, layout_descriptor, workgroup_size) =
+            reflect_naga(&[&source])?;
 
         assert!(input_attributes.is_empty());
         Ok(Self {
@@ -319,18 +320,21 @@ impl ShaderSet {
         match self.inner.vertex.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn fragment(&self) -> wgpu::ShaderSource {
         match self.inner.fragment.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn compute(&self) -> wgpu::ShaderSource {
         match self.inner.compute.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn workgroup_size(&self) -> [u32; 3] {
@@ -417,6 +421,7 @@ fn reflect_naga(
                 },
             )?,
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
+            _ => unreachable!(),
         };
 
         let _module_info = naga::valid::Validator::new(

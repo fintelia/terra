@@ -29,7 +29,8 @@ layout(location = 1) out vec3 color;
 layout(location = 2) out vec2 texcoord;
 layout(location = 3) out vec3 normal;
 layout(location = 4) out uint slot;
-layout(location = 5) out vec3 horizontal;
+layout(location = 5) out vec3 right;
+layout(location = 6) out vec3 up;
 
 const vec3 tangents[6] = vec3[6](
 	vec3(0,1,0),
@@ -43,13 +44,13 @@ const vec3 tangents[6] = vec3[6](
 void main() {
     uint entry_index = gl_VertexIndex / 4;
     uint index = gl_VertexIndex % 4;
-    slot = gl_InstanceIndex / 4;
+    slot = gl_InstanceIndex / 16;
 
     Node node = nodes[slot];
-    Entry entry = tree_billboards_storage.entries[(slot - TREE_BILLBOARDS_BASE_SLOT) * 4 + gl_InstanceIndex % 4][entry_index];
+    Entry entry = tree_billboards_storage.entries[(slot - TREE_BILLBOARDS_BASE_SLOT) * 16 + gl_InstanceIndex % 16][entry_index];
     position = entry.position - node.relative_position;
 
-    vec3 up = normalize(position + globals.camera);
+    up = normalize(position + globals.camera);
 	vec3 bitangent = normalize(cross(up, tangents[node.face]));
 	vec3 tangent = normalize(cross(up, bitangent));
 
@@ -66,13 +67,13 @@ void main() {
     // else if (index == 2) uv = vec2(-1, 1);
     // else if (index == 3) uv = vec2(1, 1);
 
-    vec3 horizontal = normalize(cross(position, up));
+    right = normalize(cross(position, up));
 
-    position += (up * 20 * (1-uv.y) + horizontal * (uv.x-0.5)*20) * morph;
+    position += (up * 30 * (1-uv.y) + right * (uv.x-0.5)*30) * sqrt(sqrt(morph));
 
-    color = vec3(0.33,0.57,0.0)*.13;
+    color = entry.albedo;//vec3(0.33,0.57,0.0)*.13;
     texcoord = uv;
-    normal = cross(horizontal, up);
+    normal = normalize(cross(right, up));
 
     gl_Position = globals.view_proj * vec4(position, 1.0);
 }

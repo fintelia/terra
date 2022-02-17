@@ -168,10 +168,10 @@ impl Terrain {
                 },
                 MeshType::TreeBillboards => MeshCacheDesc {
                     ty,
-                    max_bytes_per_node: 64 * 64 * 64,
-                    entries_per_node: 4,
-                    min_level: VNode::LEVEL_SIDE_610M,
-                    max_level: VNode::LEVEL_SIDE_610M,
+                    max_bytes_per_node: 128 * 128 * 64,
+                    entries_per_node: 16,
+                    min_level: VNode::LEVEL_SIDE_1KM,
+                    max_level: VNode::LEVEL_SIDE_1KM,
                     cull_mode: None,
                     render_overlapping_levels: true,
                     index_format: wgpu::IndexFormat::Uint16,
@@ -301,6 +301,10 @@ impl Terrain {
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
+        if self._models.refresh() {
+            self._models.render_billboards(device, queue, &self.gpu_state);
+        }
+
         if self.sky_shader.refresh() {
             self.sky_bindgroup_pipeline = None;
         }

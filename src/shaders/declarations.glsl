@@ -85,4 +85,4 @@ const uint PARENT_TREECOVER_LAYER = 8;
 const uint TREE_ATTRIBUTES_BASE_SLOT = 30 + (11 - 2) * 32;
 
 const uint GRASS_BASE_SLOT = 30 + (19 - 2) * 32;
-const uint TREE_BILLBOARDS_BASE_SLOT = 30 + (14 - 2) * 32;
+const uint TREE_BILLBOARDS_BASE_SLOT = 30 + (13 - 2) * 32;
