@@ -1,9 +1,10 @@
-use cgmath::EuclideanSpace;
 use gilrs::{Axis, Button, Gilrs};
-use std::{f64::consts::PI, path::PathBuf};
+use planetcam::DualPlanetCam;
+use std::path::PathBuf;
 use structopt::StructOpt;
 use winit::{
-    event,
+    dpi::PhysicalPosition,
+    event::{self, ElementState, MouseButton},
     event_loop::{ControlFlow, EventLoop},
 };
 
@@ -153,11 +154,18 @@ fn main() {
     let plus_center =
         open_location_code::decode(&opt.plus).expect("Failed to parse plus code").center;
 
-    let planet_radius = 6371000.0;
-    let mut angle = opt.heading.to_radians();
-    let mut lat = plus_center.y().to_radians();
-    let mut long = plus_center.x().to_radians();
-    let mut altitude = opt.elevation;
+    let mut camera =
+        DualPlanetCam::new(plus_center.y(), plus_center.x(), opt.heading, -10.0, opt.elevation);
+
+    let mut mouse_state = false;
+    let mut last_mouse_position: Option<PhysicalPosition<f64>> = None;
+
+    let mut up_key = false;
+    let mut down_key = false;
+    let mut right_key = false;
+    let mut left_key = false;
+    let mut space_key = false;
+    let mut z_key = false;
 
     let mut terrain = match opt.generate {
         Some(dataset_directory) => {
@@ -191,13 +199,11 @@ fn main() {
     };
 
     {
-        let r = altitude + planet_radius;
-        let eye = cgmath::Point3::new(
-            r * lat.cos() * long.cos(),
-            r * lat.cos() * long.sin(),
-            r * lat.sin(),
-        );
-        while terrain.poll_loading_status(&device, &queue, eye.into()) {
+        while terrain.poll_loading_status(
+            &device,
+            &queue,
+            camera.anchored_position_view(0.0).0.into(),
+        ) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
@@ -209,38 +215,39 @@ fn main() {
                 event::WindowEvent::CloseRequested => {
                     *control_flow = ControlFlow::Exit;
                 }
+                event::WindowEvent::MouseInput { button: MouseButton::Left, state, .. } => {
+                    mouse_state = state == ElementState::Pressed;
+                    if !mouse_state {
+                        last_mouse_position = None;
+                    }
+                }
+                event::WindowEvent::CursorMoved { position, .. } => {
+                    if let Some(last_position) = last_mouse_position {
+                        camera.increase_bearing((position.x - last_position.x) * -0.2);
+                        camera.increase_pitch((position.y - last_position.y) * 0.1);
+                    }
+                    if mouse_state {
+                        last_mouse_position = Some(position);
+                    }
+                }
                 event::WindowEvent::KeyboardInput {
-                    input:
-                        event::KeyboardInput {
-                            virtual_keycode: Some(keycode),
-                            state: event::ElementState::Pressed,
-                            ..
-                        },
+                    input: event::KeyboardInput { virtual_keycode: Some(keycode), state, .. },
                     ..
-                } => match keycode {
-                    event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
-                    event::VirtualKeyCode::Space => altitude += 0.1 * altitude,
-                    event::VirtualKeyCode::Z | event::VirtualKeyCode::Semicolon => {
-                        altitude -= 0.1 * altitude
+                } => {
+                    let pressed = state == event::ElementState::Pressed;
+                    match keycode {
+                        event::VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
+                        event::VirtualKeyCode::Left => left_key = pressed,
+                        event::VirtualKeyCode::Right => right_key = pressed,
+                        event::VirtualKeyCode::Up => up_key = pressed,
+                        event::VirtualKeyCode::Down => down_key = pressed,
+                        event::VirtualKeyCode::Space => space_key = pressed,
+                        event::VirtualKeyCode::Z | event::VirtualKeyCode::Semicolon => {
+                            z_key = pressed
+                        }
+                        _ => {}
                     }
-                    event::VirtualKeyCode::Left => {
-                        lat += -angle.sin() * -(0.0000001 * altitude).min(0.01);
-                        long += angle.cos() * -(0.0000001 * altitude).min(0.01);
-                    }
-                    event::VirtualKeyCode::Right => {
-                        lat += -angle.sin() * (0.0000001 * altitude).min(0.01);
-                        long += angle.cos() * (0.0000001 * altitude).min(0.01);
-                    }
-                    event::VirtualKeyCode::Up => {
-                        lat += angle.cos() * (0.0000001 * altitude).min(0.01);
-                        long += -angle.sin() * (0.0000001 * altitude).min(0.01);
-                    }
-                    event::VirtualKeyCode::Down => {
-                        lat += angle.cos() * -(0.0000001 * altitude).min(0.01);
-                        long += -angle.sin() * -(0.0000001 * altitude).min(0.01);
-                    }
-                    _ => {}
-                },
+                }
                 event::WindowEvent::Resized(new_size) => {
                     size = new_size;
 
@@ -269,68 +276,42 @@ fn main() {
                 #[cfg(feature = "smaa")]
                 let frame = smaa_target.start_frame(&device, &queue, &frame_texture_view);
 
+                // Compute motion from keyboard.
+                let mut up_amount = space_key as i32 as f64 - z_key as i32 as f64;
+                let mut right_amount = right_key as i32 as f64 - left_key as i32 as f64;
+                let mut forward_amount = up_key as i32 as f64 - down_key as i32 as f64;
+
+                // Incorporate gamepad input.
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    lat += angle.cos()
-                        * gamepad.value(Axis::LeftStickY) as f64
-                        * (0.0000001 * altitude).min(0.01)
-                        - angle.sin()
-                            * gamepad.value(Axis::LeftStickX) as f64
-                            * (0.0000001 * altitude).min(0.01);
-
-                    long += -angle.sin()
-                        * gamepad.value(Axis::LeftStickY) as f64
-                        * (0.0000001 * altitude).min(0.01)
-                        + angle.cos()
-                            * gamepad.value(Axis::LeftStickX) as f64
-                            * (0.0000001 * altitude).min(0.01);
-
-                    angle -= gamepad.value(Axis::RightZ) as f64 * 0.01;
-
+                    forward_amount += gamepad.value(Axis::LeftStickY) as f64;
+                    right_amount += gamepad.value(Axis::LeftStickX) as f64;
                     if gamepad.is_pressed(Button::DPadUp) {
-                        altitude += 0.01 * altitude;
+                        up_amount += 1.0;
                     }
                     if gamepad.is_pressed(Button::DPadDown) {
-                        altitude -= 0.01 * altitude;
+                        up_amount += -1.0;
                     }
+                    camera.increase_bearing(2.0 * gamepad.value(Axis::RightZ) as f64);
+                    camera.increase_bearing(2.0 * gamepad.value(Axis::RightStickX) as f64);
+                    camera.increase_pitch(2.0 * gamepad.value(Axis::RightStickY) as f64);
                 }
 
-                lat = lat.max(-PI).min(PI);
-                if long < -PI {
-                    long += PI * 2.0;
-                }
-                if long > PI {
-                    long -= PI * 2.0;
-                }
+                // Use control inputs to update camera location.
+                let vertical_speed = 0.05 * camera.height();
+                let horizontal_speed = 0.2 * camera.height().min(50000.0);
+                camera.move_up(up_amount * vertical_speed);
+                camera.move_forward(forward_amount * horizontal_speed);
+                camera.move_right(right_amount * horizontal_speed);
 
-                let surface_height = terrain.get_height(lat, long) as f64;
-                let r = altitude + planet_radius + surface_height + 2.0;
-                let eye = cgmath::Point3::new(
-                    r * lat.cos() * long.cos(),
-                    r * lat.cos() * long.sin(),
-                    r * lat.sin(),
-                );
-
-                let dt = (planet_radius / (planet_radius + altitude)).acos() * 0.3;
-                let latc = lat + angle.cos() * dt;
-                let longc = long - angle.sin() * dt;
-
-                let center = cgmath::Point3::new(
-                    planet_radius * latc.cos() * longc.cos() - eye.x,
-                    planet_radius * latc.cos() * longc.sin() - eye.y,
-                    planet_radius * latc.sin() - eye.z,
-                );
-                let up = cgmath::Vector3::new(eye.x as f32, eye.y as f32, eye.z as f32);
-
-                let view = cgmath::Matrix4::look_at_rh(
-                    cgmath::Point3::origin(),
-                    cgmath::Point3::new(center.x as f32, center.y as f32, center.z as f32),
-                    up,
-                );
-
+                // Compute position and camera matrices.
+                let (lat, long) = camera.latitude_longitude();
+                let surface_height = terrain.get_height(lat.to_radians(), long.to_radians()) as f64;
+                let (position, view) = camera.free_position_view(surface_height + 2.0);
                 let proj = compute_projection_matrix(size.width as f32, size.height as f32);
+                let view: cgmath::Matrix4<f32> = cgmath::Matrix3::from(view).into();
                 let view_proj = proj * view;
                 let view_proj = mint::ColumnMatrix4 {
                     x: view_proj.x.into(),
@@ -346,7 +327,7 @@ fn main() {
                     &depth_buffer,
                     (size.width, size.height),
                     view_proj,
-                    eye.into(),
+                    position.into(),
                 );
 
                 drop(frame);

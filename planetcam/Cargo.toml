@@ -1,0 +1,11 @@
+[package]
+name = "planetcam"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cgmath = "0.18.0"
+geo = "0.18.0"
+mint = "0.5.9"
