@@ -71,15 +71,15 @@ impl PlanetCam {
         let up = cgmath::Vector3::new(lat.cos() * long.cos(), lat.cos() * long.sin(), lat.sin());
         let position = up * r;
 
-        let adjusted_pitch = (self.pitch.to_radians() - f64::acos(6371000.0 / r)).clamp(-0.49 * PI, 0.49 * PI);
+        let adjusted_pitch = (self.pitch.to_radians() - f64::acos(6371000.0 / r)).clamp(-0.499 * PI, 0.499 * PI);
 
         let start = geo::Point::new(self.longitude, self.latitude);
         let center = start.haversine_destination(self.bearing, 1.0);
         let latc = center.lat().to_radians();
         let longc = center.lng().to_radians();
-        let forward = (r + adjusted_pitch.tan())
+        let forward = (1.0 + adjusted_pitch.tan() / 6371000.0)
             * cgmath::Vector3::new(latc.cos() * longc.cos(), latc.cos() * longc.sin(), latc.sin())
-            - position;
+            - up;
 
         let matrix = cgmath::Matrix3::look_to_rh(forward, up);
         (position.into(), matrix.cast().unwrap().into())

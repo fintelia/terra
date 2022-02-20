@@ -1,6 +1,6 @@
 use gilrs::{Axis, Button, Gilrs};
 use planetcam::DualPlanetCam;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Instant};
 use structopt::StructOpt;
 use winit::{
     dpi::PhysicalPosition,
@@ -207,6 +207,7 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
+    let mut last_time = None;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -276,35 +277,39 @@ fn main() {
                 #[cfg(feature = "smaa")]
                 let frame = smaa_target.start_frame(&device, &queue, &frame_texture_view);
 
+                let time = Instant::now();
+                let dt = (time - last_time.unwrap_or(time)).as_secs_f64();
+                last_time = Some(time);
+
                 // Compute motion from keyboard.
-                let mut up_amount = space_key as i32 as f64 - z_key as i32 as f64;
-                let mut right_amount = right_key as i32 as f64 - left_key as i32 as f64;
-                let mut forward_amount = up_key as i32 as f64 - down_key as i32 as f64;
+                let mut up_factor = space_key as i32 as f64 - z_key as i32 as f64;
+                let mut right_factor = right_key as i32 as f64 - left_key as i32 as f64;
+                let mut forward_factor = up_key as i32 as f64 - down_key as i32 as f64;
 
                 // Incorporate gamepad input.
                 while let Some(gilrs::Event { id, event: _event, time: _ }) = gilrs.next_event() {
                     current_gamepad = Some(id);
                 }
                 if let Some(gamepad) = current_gamepad.map(|id| gilrs.gamepad(id)) {
-                    forward_amount += gamepad.value(Axis::LeftStickY) as f64;
-                    right_amount += gamepad.value(Axis::LeftStickX) as f64;
+                    forward_factor += gamepad.value(Axis::LeftStickY) as f64;
+                    right_factor += gamepad.value(Axis::LeftStickX) as f64;
                     if gamepad.is_pressed(Button::DPadUp) {
-                        up_amount += 1.0;
+                        up_factor += 1.0;
                     }
                     if gamepad.is_pressed(Button::DPadDown) {
-                        up_amount += -1.0;
+                        up_factor += -1.0;
                     }
-                    camera.increase_bearing(2.0 * gamepad.value(Axis::RightZ) as f64);
-                    camera.increase_bearing(2.0 * gamepad.value(Axis::RightStickX) as f64);
-                    camera.increase_pitch(2.0 * gamepad.value(Axis::RightStickY) as f64);
+                    camera.increase_bearing(120.0 * gamepad.value(Axis::RightZ) as f64 * dt);
+                    camera.increase_bearing(120.0 * gamepad.value(Axis::RightStickX) as f64 * dt);
+                    camera.increase_pitch(120.0 * gamepad.value(Axis::RightStickY) as f64 * dt);
                 }
 
                 // Use control inputs to update camera location.
-                let vertical_speed = 0.05 * camera.height();
-                let horizontal_speed = 0.2 * camera.height().min(50000.0);
-                camera.move_up(up_amount * vertical_speed);
-                camera.move_forward(forward_amount * horizontal_speed);
-                camera.move_right(right_amount * horizontal_speed);
+                let vertical_speed = 3.0 * camera.height();
+                let horizontal_speed = 12.0 * camera.height().clamp(2.0, 100000.0);
+                camera.move_up(up_factor * vertical_speed * dt);
+                camera.move_forward(forward_factor * horizontal_speed * dt);
+                camera.move_right(right_factor * horizontal_speed * dt);
 
                 // Compute position and camera matrices.
                 let (lat, long) = camera.latitude_longitude();
