@@ -7,7 +7,7 @@ description = "A simply library for reloading shaders at runtime"
 repository = "https://github.com/fintelia/terra"
 homepage = "https://github.com/fintelia/terra"
 categories = ["game-engines", "rendering"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 anyhow = "1.0.33"

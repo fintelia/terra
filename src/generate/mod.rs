@@ -607,7 +607,7 @@ where
 
                 unordered.push(async move {
                     let sectors: Vec<(Sector, Result<_, _>)> = futures::future::join_all(
-                        sectors.into_iter().map(|s| async { (s.0, s.1.await) }),
+                        sectors.into_iter().map(|s| async move { (s.0, s.1.await) }),
                     )
                     .await;
 
@@ -988,7 +988,7 @@ pub(crate) async fn generate_heightmaps<F: FnMut(&str, usize, usize) + Send>(
 
                     async move {
                         let sectors: Vec<(Sector, Result<_, _>)> = futures::future::join_all(
-                            sectors.into_iter().map(|s| async { (s.0, s.1.await) }),
+                            sectors.into_iter().map(|s| async move { (s.0, s.1.await) }),
                         )
                         .await;
 
