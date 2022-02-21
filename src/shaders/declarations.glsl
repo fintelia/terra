@@ -27,7 +27,7 @@ struct Node {
     xdouble padding0;
 
 	vec2 layer_origins[48];
-	float layer_steps[48];
+	float layer_ratios[48];
 	int layer_slots[48];
 
 	vec3 relative_position;

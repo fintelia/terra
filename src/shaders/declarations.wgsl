@@ -3,7 +3,7 @@ struct Node {
     node_center: array<vec2<u32>, 4>;
 
     layer_origins: array<vec2<f32>, 48>;
-    layer_steps: array<f32, 48>;
+    layer_ratios: array<f32, 48>;
     layer_slots: array<i32, 48>;
 	relative_position: vec3<f32>;
 	min_distance: f32;

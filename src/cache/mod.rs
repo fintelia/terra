@@ -503,7 +503,7 @@ impl TileCache {
                 node_center: [0.0; 3],
                 layer_origins: [[0.0; 2]; 48],
                 layer_slots: [-1; 48],
-                layer_steps: [0.0; 48],
+                layer_ratios: [0.0; 48],
                 relative_position: [0.0; 3],
                 min_distance: 0.0,
                 mesh_valid_mask: [0; 4],
@@ -584,7 +584,6 @@ impl TileCache {
                             } else {
                                 (texture_resolution - 2.0 * texture_border) / texture_resolution
                             };
-                            let texture_step = texture_ratio / 64.0;
                             let texture_origin = if self.layers[layer].grid_registration {
                                 (texture_border + 0.5) / texture_resolution
                             } else {
@@ -598,8 +597,8 @@ impl TileCache {
                             data[index].layer_slots[layer_slot] = (self.get_slot(ancestor).unwrap()
                                 - Self::base_slot(self.layers[layer].min_level))
                                 as i32;
-                            data[index].layer_steps[layer_slot] =
-                                f32::powi(0.5, ancestor_index as i32) * texture_step;
+                            data[index].layer_ratios[layer_slot] =
+                                f32::powi(0.5, ancestor_index as i32) * texture_ratio;
                         }
                     }
 

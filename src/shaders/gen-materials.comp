@@ -33,8 +33,8 @@ const uint NORMALS_BORDER = 2;
 
 vec3 layer_to_texcoord(uint layer) {
 	Node node = nodes[ubo.slot];
-	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512) * 64.0;
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
+	return vec3(node.layer_origins[layer] + texcoord * node.layer_ratios[layer], node.layer_slots[layer]);
 }
 
 void main() {
@@ -75,8 +75,8 @@ void main() {
 
 	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
 
-	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512) * 64.0;
-	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_steps[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
+	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
 	albedo_roughness.rgb = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
 
 	// if (ubo.parent_slot >= 0) {

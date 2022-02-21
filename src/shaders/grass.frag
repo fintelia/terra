@@ -40,10 +40,6 @@ vec3 extract_normal(vec2 n) {
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
 }
-// vec3 layer_to_texcoord(uint layer) {
-// 	Node node = nodes[instance];
-// 	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
-// }
 
 void main() {
     out_color = vec4(color, 1);

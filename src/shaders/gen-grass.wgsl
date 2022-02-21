@@ -23,8 +23,8 @@ struct Entries {
 
 fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
 	var node = nodes.entries[ubo.slot];
-    let texcoord = vec2<f32>(global_id.xy) / 128.0 * 64.0;
-    let texcoord = node.layer_origins[layer] + texcoord * node.layer_steps[layer];
+    let texcoord = vec2<f32>(global_id.xy) / 128.0;
+    let texcoord = node.layer_origins[layer] + texcoord * node.layer_ratios[layer];
     let array_index = node.layer_slots[layer];
 
     let l = layer % NUM_LAYERS;
@@ -60,7 +60,7 @@ fn main(
     let rnd4 = random3(vec3<f32>(vec2<f32>(index), 4.0));
     let rnd5 = random3(vec3<f32>(vec2<f32>(index), 5.0));
 
-    let texcoord = vec2<f32>(global_id.xy) / 128.0 * 64.0;
+    // let texcoord = vec2<f32>(global_id.xy) / 128.0;
     let normal = extract_normal(read_texture(NORMALS_LAYER, global_id).xy);
     let albedo_value = read_texture(ALBEDO_LAYER, global_id).xyz;
     let canopy = read_texture(GRASS_CANOPY_LAYER, global_id);
@@ -70,8 +70,8 @@ fn main(
     }
 
     // Sample displacements texture at random offset (rnd1, rnd).
-    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0 * 64.0;
-    let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_steps[DISPLACEMENTS_LAYER];
+    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
+    let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_ratios[DISPLACEMENTS_LAYER];
     let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
     let dimensions = textureDimensions(displacements);
     let f = fract(texcoord.xy * vec2<f32>(dimensions));

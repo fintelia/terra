@@ -120,7 +120,7 @@ pub(crate) struct NodeSlot {
     pub(super) padding0: f64,
 
     pub(super) layer_origins: [[f32; 2]; 48],
-    pub(super) layer_steps: [f32; 48],
+    pub(super) layer_ratios: [f32; 48],
     pub(super) layer_slots: [i32; 48],
 
     pub(super) relative_position: [f32; 3],

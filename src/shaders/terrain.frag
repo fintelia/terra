@@ -226,7 +226,7 @@ vec3 extract_normal(vec2 n) {
 
 vec3 layer_to_texcoord(uint layer) {
 	Node node = nodes[instance];
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+	return vec3(node.layer_origins[layer] + texcoord * node.layer_ratios[layer], node.layer_slots[layer]);
 }
 
 void main() {

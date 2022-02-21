@@ -31,9 +31,9 @@ vec3 extract_normal(vec2 n) {
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
 }
-vec3 layer_to_texcoord(uint layer) {
+vec3 layer_to_texcoord(uint layer, vec2 coordinates) {
 	Node node = nodes[slot];
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_steps[layer], node.layer_slots[layer]);
+	return vec3(node.layer_origins[layer] + coordinates * node.layer_ratios[layer], node.layer_slots[layer]);
 }
 
 void main() {
@@ -51,9 +51,9 @@ void main() {
 						normalize(vec3(0.4, .7, 0.2)),
 						vec3(100000.0));
 
-	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
-	out_color.rgb *= ap.a * 16.0;
-	out_color.rgb += ap.rgb * 16.0;
+	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
+	// out_color.rgb *= ap.a * 16.0;
+	// out_color.rgb += ap.rgb * 16.0;
 
 	if (albedo.a < 1)
 		discard;

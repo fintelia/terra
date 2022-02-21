@@ -19,8 +19,8 @@ layout(rgba8, binding = 4) writeonly uniform image2DArray tree_attributes;
 void main() {
 	Node node = nodes[ubo.slot];
 
-	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512) * 64.0;
-	vec3 texcoord3 = vec3(node.layer_origins[TREECOVER_LAYER] + texcoord * node.layer_steps[TREECOVER_LAYER], node.layer_slots[TREECOVER_LAYER]);
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
+	vec3 texcoord3 = vec3(node.layer_origins[TREECOVER_LAYER] + texcoord * node.layer_ratios[TREECOVER_LAYER], node.layer_slots[TREECOVER_LAYER]);
 	float coverage = texture(sampler2DArray(treecover, linear), texcoord3).r;
 
     vec4 output_value = vec4(0);
