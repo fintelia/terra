@@ -27,8 +27,12 @@ pub(crate) struct GlobalUniformBlock {
     pub view_proj: mint::ColumnMatrix4<f32>,
     pub view_proj_inverse: mint::ColumnMatrix4<f32>,
     pub frustum_planes: [[f32; 4]; 5],
-    pub camera: [f32; 4],
-    pub sun_direction: [f32; 4],
+    pub camera: [f32; 3],
+    pub screen_width: f32,
+    pub sun_direction: [f32; 3],
+    pub screen_height: f32,
+    pub sidereal_time: f32,
+    pub _padding: [f32; 3],
 }
 unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
@@ -45,6 +49,7 @@ pub(crate) struct GpuState {
 
     pub globals: wgpu::Buffer,
     pub generate_uniforms: wgpu::Buffer,
+    pub starfield: wgpu::Buffer,
 
     pub nodes: wgpu::Buffer,
     pub frame_nodes: wgpu::Buffer,
@@ -143,6 +148,7 @@ impl GpuState {
             }),
             model_storage,
             model_indices,
+            starfield: crate::sky::create_starfield(device),
             globals: device.create_buffer(&wgpu::BufferDescriptor {
                 size: std::mem::size_of::<GlobalUniformBlock>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
@@ -255,6 +261,7 @@ impl GpuState {
                             "globals" => &self.globals,
                             "frame_nodes" => &self.frame_nodes,
                             "nodes" => &self.nodes,
+                            "starfield" => &self.starfield,
                             _ => unreachable!("unrecognized storage buffer: {}", name),
                         };
                         let resource = wgpu::BindingResource::Buffer(wgpu::BufferBinding {

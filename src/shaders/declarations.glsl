@@ -9,7 +9,10 @@ struct Globals {
 	mat4 view_proj_inverse;
 	vec4 frustum_planes[5];
 	vec3 camera;
+	float screen_width;
 	vec3 sun_direction;
+	float screen_height;
+	float sidereal_time;
 };
 
 struct Indirect {

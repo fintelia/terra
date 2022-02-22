@@ -40,6 +40,8 @@ pub use crate::generate::BLUE_MARBLE_URLS;
 pub struct Terrain {
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
+    stars_shader: rshader::ShaderSet,
+    stars_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     gpu_state: GpuState,
     quadtree: QuadTree,
     mapfile: Arc<MapFile>,
@@ -225,6 +227,17 @@ impl Terrain {
         )
         .unwrap();
 
+        let stars_shader = rshader::ShaderSet::simple(
+            rshader::shader_source!("shaders", "stars.vert", "declarations.glsl"),
+            rshader::shader_source!(
+                "shaders",
+                "stars.frag",
+                "declarations.glsl",
+                "pbr.glsl",
+                "atmosphere.glsl"
+            ),
+        ).unwrap();
+
         let generate_skyview = ComputeShader::new(
             rshader::shader_source!(
                 "shaders",
@@ -238,6 +251,8 @@ impl Terrain {
         Ok(Self {
             sky_shader,
             sky_bindgroup_pipeline: None,
+            stars_shader,
+            stars_bindgroup_pipeline: None,
             gpu_state,
             quadtree,
             mapfile,
@@ -296,7 +311,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
-        _frame_size: (u32, u32),
+        frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
@@ -359,6 +374,62 @@ impl Terrain {
             ));
         }
 
+        if self.stars_shader.refresh() {
+            self.stars_bindgroup_pipeline = None;
+        }
+        if self.stars_bindgroup_pipeline.is_none() {
+            let (bind_group, bind_group_layout) = self.gpu_state.bind_group_for_shader(
+                device,
+                &self.stars_shader,
+                HashMap::new(),
+                HashMap::new(),
+                "stars",
+            );
+            let render_pipeline_layout =
+                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    bind_group_layouts: [&bind_group_layout][..].into(),
+                    push_constant_ranges: &[],
+                    label: Some("pipeline.stars.layout"),
+                });
+            self.stars_bindgroup_pipeline = Some((
+                bind_group,
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    layout: Some(&render_pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("shader.stars.vertex"),
+                            source: self.stars_shader.vertex(),
+                        }),
+                        entry_point: "main",
+                        buffers: &[],
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            label: Some("shader.stars.fragment"),
+                            source: self.stars_shader.fragment(),
+                        }),
+                        entry_point: "main",
+                        targets: &[wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }],
+                    }),
+                    primitive: Default::default(),
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: wgpu::TextureFormat::Depth32Float,
+                        depth_compare: wgpu::CompareFunction::GreaterEqual,
+                        depth_write_enabled: false,
+                        bias: Default::default(),
+                        stencil: Default::default(),
+                    }),
+                    multisample: Default::default(),
+                    multiview: None,
+                    label: Some("pipeline.stars"),
+                }),
+            ));
+        }
+
         let frustum = {
             let view_proj: cgmath::Matrix4<f64> =
                 cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap();
@@ -383,8 +454,12 @@ impl Terrain {
                     relative_frustum.planes[3].cast().unwrap().into(),
                     relative_frustum.planes[4].cast().unwrap().into(),
                 ],
-                camera: [camera.x as f32, camera.y as f32, camera.z as f32, 0.0],
-                sun_direction: [0.4, 0.7, 0.2, 0.0],
+                camera: [camera.x as f32, camera.y as f32, camera.z as f32],
+                screen_width: frame_size.0 as f32,
+                sun_direction: [0.4, 0.7, 0.2],
+                screen_height: frame_size.1 as f32,
+                sidereal_time: 0.0,
+                _padding: [0.0; 3],
             }),
         );
 
@@ -448,6 +523,10 @@ impl Terrain {
             rpass.set_pipeline(&self.sky_bindgroup_pipeline.as_ref().unwrap().1);
             rpass.set_bind_group(0, &self.sky_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             rpass.draw(0..3, 0..1);
+
+            rpass.set_pipeline(&self.stars_bindgroup_pipeline.as_ref().unwrap().1);
+            rpass.set_bind_group(0, &self.stars_bindgroup_pipeline.as_ref().unwrap().0, &[]);
+            rpass.draw(0..9096 * 6, 0..1);
         }
 
         queue.submit(Some(encoder.finish()));
