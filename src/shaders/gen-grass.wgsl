@@ -11,15 +11,15 @@ struct Entries {
     entries: array<array<Entry, 1024>>;
 };
 
-[[group(0), binding(0)]] var<uniform> ubo: GenMeshUniforms;
-[[group(0), binding(1)]] var<storage, read_write> grass_storage: Entries;
-[[group(0), binding(3)]] var<storage, read_write> mesh_indirect: Indirects;
-[[group(0), binding(4)]] var<storage, read> nodes: Nodes;
-[[group(0), binding(5)]] var linear: sampler;
-[[group(0), binding(6)]] var displacements: texture_2d_array<f32>;
-[[group(0), binding(7)]] var normals: texture_2d_array<f32>;
-[[group(0), binding(8)]] var albedo: texture_2d_array<f32>;
-[[group(0), binding(9)]] var grass_canopy: texture_2d_array<f32>;
+@group(0) @binding(0) var<uniform> ubo: GenMeshUniforms;
+@group(0) @binding(1) var<storage, read_write> grass_storage: Entries;
+@group(0) @binding(3) var<storage, read_write> mesh_indirect: Indirects;
+@group(0) @binding(4) var<storage, read> nodes: Nodes;
+@group(0) @binding(5) var linear: sampler;
+@group(0) @binding(6) var displacements: texture_2d_array<f32>;
+@group(0) @binding(7) var normals: texture_2d_array<f32>;
+@group(0) @binding(8) var albedo: texture_2d_array<f32>;
+@group(0) @binding(9) var grass_canopy: texture_2d_array<f32>;
 
 fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
 	var node = nodes.entries[ubo.slot];
@@ -45,9 +45,10 @@ fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
     return vec4<f32>(1.0, 0.0, 1.0, 1.0);
 }
 
-[[stage(compute), workgroup_size(8,8)]]
+@stage(compute)
+@workgroup_size(8,8)
 fn main(
-    [[builtin(global_invocation_id)]] global_id: vec3<u32>,
+    @builtin(global_invocation_id) global_id: vec3<u32>,
 ) {
     let node = nodes.entries[ubo.slot];
 

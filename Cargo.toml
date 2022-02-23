@@ -94,6 +94,6 @@ opt-level = 3
 debug = true
 incremental = true
 
-# [patch.crates-io]
-# naga = { git = "https://github.com/gfx-rs/naga", rev = "c69f676" }
-# wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "9bbea3d" }
+[patch.crates-io]
+naga = { git = "https://github.com/gfx-rs/naga", rev = "a45b9a6" }
+wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "87102ccdf5e8e5455f22dee12617c37b8c00bd08" }

@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use naga::{
-    ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageClass, StorageFormat, TypeInner,
+    ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner, AddressSpace,
 };
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use std::cell::RefCell;
@@ -319,18 +319,21 @@ impl ShaderSet {
         match self.inner.vertex.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn fragment(&self) -> wgpu::ShaderSource {
         match self.inner.fragment.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn compute(&self) -> wgpu::ShaderSource {
         match self.inner.compute.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            _ => unreachable!(),
         }
     }
     pub fn workgroup_size(&self) -> [u32; 3] {
@@ -417,6 +420,7 @@ fn reflect_naga(
                 },
             )?,
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
+            _ => unreachable!(),
         };
 
         let _module_info = naga::valid::Validator::new(
@@ -510,15 +514,15 @@ fn reflect_naga(
                         ImageClass::Depth { .. } => unimplemented!(),
                     }
                 }
-                _ => match variable.class {
-                    StorageClass::Storage { access } => wgpu::BindingType::Buffer {
+                _ => match variable.space {
+                    AddressSpace::Storage { access } => wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage {
                             read_only: !access.contains(StorageAccess::STORE),
                         },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
-                    StorageClass::Uniform => wgpu::BindingType::Buffer {
+                    AddressSpace::Uniform => wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
                         min_binding_size: None,

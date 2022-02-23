@@ -76,7 +76,7 @@ impl TextureFormat {
                 if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
                     wgpu::TextureFormat::Bc7RgbaUnorm
                 } else if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC_LDR) {
-                    wgpu::TextureFormat::Astc4x4RgbaUnorm
+                    wgpu::TextureFormat::Astc { block: wgpu::AstcBlock::B4x4, channel: wgpu::AstcChannel::Unorm }
                 } else {
                     unreachable!("Wgpu reports no texture compression support?")
                 }

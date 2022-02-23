@@ -14,8 +14,8 @@ anyhow = "1.0.33"
 bytemuck = "1.7.0"
 generic-array = "0.14.4"
 lazy_static = "1.4.0"
-naga = { version = "0.8.0", features = ["spv-in", "glsl-in", "wgsl-in"] }
-#naga = { git = "https://github.com/gfx-rs/naga", rev = "323999f", features = ["spv-in", "glsl-in", "wgsl-in"] }
+# naga = { version = "0.8.0", features = ["spv-in", "glsl-in", "wgsl-in"] }
+naga = { git = "https://github.com/gfx-rs/naga", rev = "a45b9a6", features = ["spv-in", "glsl-in", "wgsl-in"] }
 notify = "4.0.15"
 shaderc = "0.7.0"
 spirv_headers = "1.4.2"
