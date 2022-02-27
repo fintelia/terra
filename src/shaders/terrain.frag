@@ -98,7 +98,7 @@ vec3 debug_overlay(vec3 color) {
 	// vec3 line_color = vec3(.5,0,0);
  	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
 	// float line = min(grid.x, grid.y);
-	// color = mix(color, line_color, .3* smoothstep(1, 0, line));
+	// color = mix(color, line_color, 1.3* smoothstep(1, 0, line));
 
 	// if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
 	// 	color = mix(color, vec3(0.1), 0.3);
@@ -251,8 +251,11 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0));
 
+
 	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
-		out_color.rgb *= bn_value.a;
+		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb;
+	else
+		out_color.rgb += 15000 * albedo_roughness.rgb;
 
 	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	out_color.rgb *= ap.a * 16.0;

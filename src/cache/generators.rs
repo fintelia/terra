@@ -391,6 +391,14 @@ pub(crate) fn generators(
         .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(),
         ShaderGenBuilder::new(
+            "tree-attributes".into(),
+            rshader::shader_source!("../shaders", "gen-tree-attributes.comp", "declarations.glsl", "hash.glsl"),
+        )
+        .outputs(LayerType::TreeAttributes.bit_mask())
+        .dimensions(tree_attributes_resolution)
+        .ancestor_inputs(LayerType::TreeCover.bit_mask())
+        .build(),
+        ShaderGenBuilder::new(
             "materials".into(),
             rshader::shader_source!("../shaders", "gen-materials.comp", "declarations.glsl", "hash.glsl"),
         )
@@ -414,14 +422,6 @@ pub(crate) fn generators(
         .outputs(LayerType::BentNormals.bit_mask())
         .dimensions(513)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
-        .build(),
-        ShaderGenBuilder::new(
-            "tree-attributes".into(),
-            rshader::shader_source!("../shaders", "gen-tree-attributes.comp", "declarations.glsl", "hash.glsl"),
-        )
-        .outputs(LayerType::TreeAttributes.bit_mask())
-        .dimensions(tree_attributes_resolution)
-        .ancestor_inputs(LayerType::TreeCover.bit_mask())
         .build(),
         Box::new(MeshGen {
             shaders: vec![

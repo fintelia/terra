@@ -75,13 +75,14 @@ fn main(
     let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_ratios[DISPLACEMENTS_LAYER];
     let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
     let dimensions = textureDimensions(displacements);
-    let f = fract(texcoord.xy * vec2<f32>(dimensions));
-    let base_coords = vec2<i32>(texcoord.xy * vec2<f32>(dimensions));
+    let stexcoord = max(texcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
+    let f = fract(stexcoord);
+    let base_coords = vec2<i32>(stexcoord - f);
     let i00 = textureLoad(displacements, base_coords, array_index, 0);
-    let i10 = textureLoad(displacements, base_coords + vec2<i32>(1,0), array_index, 0);
-    let i01 = textureLoad(displacements, base_coords + vec2<i32>(0,1), array_index, 0);
-    let i11 = textureLoad(displacements, base_coords + vec2<i32>(1,1), array_index, 0);
-    let position = mix(mix(i00, i10, f.x), mix(i01, i11, f.y), f.y);
+    let i10 = textureLoad(displacements, min(base_coords + vec2<i32>(1,0), dimensions-vec2<i32>(1)), array_index, 0);
+    let i01 = textureLoad(displacements, min(base_coords + vec2<i32>(0,1), dimensions-vec2<i32>(1)), array_index, 0);
+    let i11 = textureLoad(displacements, min(base_coords + vec2<i32>(1,1), dimensions-vec2<i32>(1)), array_index, 0);
+    let position = mix(mix(i00, i10, f.x), mix(i01, i11, f.x), f.y);
 
     let i = atomicAdd(&mesh_indirect.entries[ubo.mesh_base_entry + entry].vertex_count, 15) / 15;
     grass_storage.entries[ubo.storage_base_entry + entry][i].texcoord = vec2<f32>(0.0); //layer_to_texcoord(NORMALS_LAYER).xy;

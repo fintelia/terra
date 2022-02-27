@@ -25,5 +25,5 @@ void main() {
 
     out_normals = vec4(normalize((view * vec4(normal,0)).xyz).xyz, 0);
     out_depth = gl_FragCoord.z;//position.z * 5;
-    out_ao = ao;
+    out_ao = 1 - ao;
 }

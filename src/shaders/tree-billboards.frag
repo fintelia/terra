@@ -51,6 +51,8 @@ void main() {
 	vec4 albedo = texture(sampler2DArray(billboards_albedo, linear), vec3(texcoord/6.0, 0));
 	vec2 tx_normal = texture(sampler2DArray(billboards_normals, linear), vec3(texcoord/6.0, 0)).xy;
 
+	//albedo.rgb = vec3(1);
+	// albedo=vec4(1);
 	albedo.rgb += (color-0.5) * 0.05;
 
 	float tx_normal_z = sqrt(max(0, 1-dot(tx_normal, tx_normal)));
@@ -58,24 +60,27 @@ void main() {
 	//normalize(position+globals.camera);//
 	// true_normal.y += 1;
 	// true_normal = normalize(true_normal);
+	true_normal = up;
+
+	// albedo.rgb = 0*vec3(0.013,0.037,0.0);
 
 	out_color = vec4(1);
-	out_color.rgb = pbr(albedo.rgb,//vec3(0.33,0.57,0.0)*.13,//
-						0.5,
+	out_color.rgb = pbr(albedo.rgb,
+						0.4,
 						position,
 						true_normal,
 						globals.camera,
-						normalize(vec3(0.4, .7, 0.2)),
+						globals.sun_direction,
 						vec3(100000.0));
+
+	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0)).x;
+	out_color.rgb += (1 - ao) * albedo.rgb * 15000;// * max(dot(true_normal, up), 0);
 
 	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	// out_color.rgb *= ap.a * 16.0;
 	// out_color.rgb += ap.rgb * 16.0;
 
-	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0)).x;
-	out_color.rgb += ao * albedo.rgb * 3000 * max(dot(true_normal, up), 0);
-
-	if (albedo.a < .5)
+	if (albedo.a < 0.5)
 		discard;
 
    	float ev100 = 15.0;

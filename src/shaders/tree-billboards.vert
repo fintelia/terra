@@ -69,7 +69,8 @@ void main() {
 
     right = normalize(cross(position, up));
 
-    position += (up * 30 * (1-uv.y) + right * (uv.x-0.5)*30) * sqrt(sqrt(morph));
+    if (morph > 0)
+        position += 30*(up * (1-uv.y) + right * (uv.x-0.5));
 
     color = entry.albedo;//vec3(0.33,0.57,0.0)*.13;
     texcoord = uv;
