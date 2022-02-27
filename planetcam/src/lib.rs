@@ -23,11 +23,11 @@ impl PlanetCam {
         let new_bearing =
             if meters > 0.0 { end.bearing(start) + 180.0 } else { end.bearing(start) };
 
-        assert_eq!(start.lat(), self.latitude);
-        assert_eq!(start.lng(), self.longitude);
+        assert_eq!(start.y(), self.latitude);
+        assert_eq!(start.x(), self.longitude);
 
-        self.latitude = end.lat();
-        self.longitude = end.lng();
+        self.latitude = end.y();
+        self.longitude = end.x();
         self.bearing = new_bearing;
     }
     fn move_right(&mut self, meters: f64) {
@@ -40,8 +40,8 @@ impl PlanetCam {
         let new_bearing =
             if meters > 0.0 { end.bearing(start) + 90.0 } else { end.bearing(start) - 90.0 };
 
-        self.latitude = end.lat().min(89.999).max(-89.999);
-        self.longitude = end.lng();
+        self.latitude = end.y().min(89.999).max(-89.999);
+        self.longitude = end.x();
         self.bearing = new_bearing;
     }
     fn move_up(&mut self, meters: f64) {
@@ -75,8 +75,8 @@ impl PlanetCam {
 
         let start = geo::Point::new(self.longitude, self.latitude);
         let center = start.haversine_destination(self.bearing, 1.0);
-        let latc = center.lat().to_radians();
-        let longc = center.lng().to_radians();
+        let latc = center.y().to_radians();
+        let longc = center.x().to_radians();
         let forward = (1.0 + adjusted_pitch.tan() / 6371000.0)
             * cgmath::Vector3::new(latc.cos() * longc.cos(), latc.cos() * longc.sin(), latc.sin())
             - up;
@@ -195,14 +195,14 @@ mod tests {
         let start = geo::Point::new(camera.longitude, 0.0);
         let end = start.haversine_destination(0.0, 1000.0);
         assert_abs_diff_eq!(
-            end.lat() - start.lat(),
+            end.y() - start.y(),
             1000.0 * 180.0 / MEAN_EARTH_CIRCUMFERENCE,
             epsilon = 0.0000001
         );
 
         let end = start.haversine_destination(90.0, 1000.0);
         assert_abs_diff_eq!(
-            end.lng() - start.lng(),
+            end.x() - start.x(),
             1000.0 * 180.0 / MEAN_EARTH_CIRCUMFERENCE,
             epsilon = 0.0000001
         );
