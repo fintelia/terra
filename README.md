@@ -3,7 +3,7 @@
 Terra is work in progress large scale terrain rendering library built on top of
 [wgpu](https://github.com/gfx-rs/wgpu).
 
-![Screenshot](/screenshot.png?raw=true)
+<img src="/screenshot.png?raw=true" width="1008" /> <img src="https://terra.fintelia.io/file/terra-tiles/screenshots/globe.png" width="198"/> <img src="https://terra.fintelia.io/file/terra-tiles/screenshots/mediterranean.png" width="198"/> <img src="https://terra.fintelia.io/file/terra-tiles/screenshots/coastline.png" width="198"/> <img src="https://terra.fintelia.io/file/terra-tiles/screenshots/foothills.png" width="198"/> <img src="https://terra.fintelia.io/file/terra-tiles/screenshots/forest2.png" width="198"/>
 
 # Overview
 
