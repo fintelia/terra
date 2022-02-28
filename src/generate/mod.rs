@@ -57,7 +57,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::R32,
                         grid_registration: true,
                         min_level: 0,
-                        min_generated_level: VNode::LEVEL_CELL_38M,
                         max_level: VNode::LEVEL_CELL_5MM,
                         layer_type,
                     },
@@ -67,7 +66,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA32F,
                         grid_registration: true,
                         min_level: 0,
-                        min_generated_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
                         layer_type,
                     },
@@ -77,7 +75,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA8,
                         grid_registration: false,
                         min_level: 0,
-                        min_generated_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
                         layer_type,
                     },
@@ -87,7 +84,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RG8,
                         grid_registration: false,
                         min_level: 0,
-                        min_generated_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
                         layer_type,
                     },
@@ -97,7 +93,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA8,
                         grid_registration: false,
                         min_level: VNode::LEVEL_CELL_1M,
-                        min_generated_level: VNode::LEVEL_CELL_1M,
                         max_level: VNode::LEVEL_CELL_1M,
                         layer_type,
                     },
@@ -107,7 +102,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA16F,
                         grid_registration: true,
                         min_level: 0,
-                        min_generated_level: 0,
                         max_level: VNode::LEVEL_SIDE_610M,
                         layer_type,
                     },
@@ -117,7 +111,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA8,
                         grid_registration: true,
                         min_level: VNode::LEVEL_CELL_153M,
-                        min_generated_level: VNode::LEVEL_CELL_153M,
                         max_level: VNode::LEVEL_CELL_76M,
                         layer_type,
                     },
@@ -127,7 +120,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::R8,
                         grid_registration: false,
                         min_level: 0,
-                        min_generated_level: VNode::LEVEL_CELL_38M,
                         max_level: VNode::LEVEL_CELL_76M,
                         layer_type,
                     },
@@ -137,7 +129,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA8,
                         grid_registration: false,
                         min_level: 0,
-                        min_generated_level: VNode::LEVEL_CELL_305M,
                         max_level: VNode::LEVEL_CELL_610M,
                         layer_type,
                     },
@@ -147,7 +138,6 @@ impl MapFileBuilder {
                         texture_format: TextureFormat::RGBA8,
                         grid_registration: false,
                         min_level: VNode::LEVEL_CELL_10M,
-                        min_generated_level: VNode::LEVEL_CELL_10M,
                         max_level: VNode::LEVEL_CELL_10M,
                         layer_type,
                     },
@@ -157,8 +147,10 @@ impl MapFileBuilder {
             .collect();
 
         let mapfile = MapFile::new(layers);
-        for layer in LayerType::iter().filter(LayerType::streamed) {
-            mapfile.reload_tile_states(layer).await.unwrap();
+        for layer in LayerType::iter() {
+            if layer.streamed_levels() > 0 {
+                mapfile.reload_tile_states(layer).await.unwrap();
+            }
         }
 
         Self(mapfile)

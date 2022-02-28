@@ -73,16 +73,12 @@ impl LayerType {
             LayerType::BaseAlbedo => "base_albedo",
         }
     }
-    pub fn streamed(&self) -> bool {
+    pub fn streamed_levels(&self) -> u8 {
         match *self {
-            LayerType::Heightmaps | LayerType::BaseAlbedo | LayerType::TreeCover => true,
-            LayerType::Displacements
-            | LayerType::AlbedoRoughness
-            | LayerType::Normals
-            | LayerType::GrassCanopy
-            | LayerType::TreeAttributes
-            | LayerType::AerialPerspective
-            | LayerType::BentNormals => false,
+            LayerType::Heightmaps => VNode::LEVEL_CELL_76M + 1,
+            LayerType::BaseAlbedo => VNode::LEVEL_CELL_610M + 1,
+            LayerType::TreeCover => VNode::LEVEL_CELL_76M + 1,
+            _ => 0,
         }
     }
     pub fn dynamic(&self) -> bool {

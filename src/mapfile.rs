@@ -77,7 +77,7 @@ impl MapFile {
     }
 
     pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
-        if node.level() >= self.layers[layer.index()].min_generated_level {
+        if node.level() >= layer.streamed_levels() {
             return Ok(TileState::GpuOnly);
         }
 
@@ -96,7 +96,7 @@ impl MapFile {
         }
     }
     pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Option<Vec<u8>>, Error> {
-        assert!(layer.streamed());
+        assert!(layer.streamed_levels() > 0);
 
         let filename = Self::tile_path(layer, node);
         if !filename.exists() {
@@ -475,7 +475,7 @@ impl MapFile {
                 remote_tiles.insert(n);
             }
 
-            n.level() + 1 < self.layers[layer.index()].min_generated_level
+            n.level() + 1 < layer.streamed_levels()
         });
 
         Ok(())
@@ -494,7 +494,7 @@ impl MapFile {
                 missing.push(n);
             }
 
-            n.level() + 1 < self.layers[layer.index()].min_generated_level
+            n.level() + 1 < layer.streamed_levels()
         });
 
         (missing, total)

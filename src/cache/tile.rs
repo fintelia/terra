@@ -158,7 +158,6 @@ pub(crate) struct LayerParams {
     pub grid_registration: bool,
 
     pub min_level: u8,
-    pub min_generated_level: u8,
     pub max_level: u8,
 }
 
