@@ -533,20 +533,38 @@ pub(super) struct DynamicGenerator {
 }
 
 pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
-    vec![DynamicGenerator {
-        dependency_mask: LayerMask::empty(),
-        output: LayerType::AerialPerspective,
-        min_level: 0,
-        max_level: VNode::LEVEL_SIDE_610M,
-        shader: ShaderSet::compute_only(rshader::shader_source!(
-            "../shaders",
-            "gen-aerial-perspective.comp",
-            "declarations.glsl",
-            "atmosphere.glsl"
-        ))
-        .unwrap(),
-        resolution: (1, 1),
-        bindgroup_pipeline: None,
-        name: "aerial-perspective",
-    }]
+    vec![
+        DynamicGenerator {
+            dependency_mask: LayerMask::empty(),
+            output: LayerType::AerialPerspective,
+            min_level: 3,
+            max_level: VNode::LEVEL_SIDE_610M,
+            shader: ShaderSet::compute_only(rshader::shader_source!(
+                "../shaders",
+                "gen-aerial-perspective.comp",
+                "declarations.glsl",
+                "atmosphere.glsl"
+            ))
+            .unwrap(),
+            resolution: (1, 1),
+            bindgroup_pipeline: None,
+            name: "aerial-perspective",
+        },
+        DynamicGenerator {
+            dependency_mask: LayerMask::empty(),
+            output: LayerType::RootAerialPerspective,
+            min_level: 0,
+            max_level: 0,
+            shader: ShaderSet::compute_only(rshader::shader_source!(
+                "../shaders",
+                "gen-root-aerial-perspective.comp",
+                "declarations.glsl",
+                "atmosphere.glsl"
+            ))
+            .unwrap(),
+            resolution: (9, 9),
+            bindgroup_pipeline: None,
+            name: "root-aerial-perspective",
+        },
+    ]
 }

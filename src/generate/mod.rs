@@ -101,7 +101,7 @@ impl MapFileBuilder {
                         texture_border_size: 0,
                         texture_format: TextureFormat::RGBA16F,
                         grid_registration: true,
-                        min_level: 0,
+                        min_level: 3,
                         max_level: VNode::LEVEL_SIDE_610M,
                         layer_type,
                     },
@@ -141,6 +141,15 @@ impl MapFileBuilder {
                         max_level: VNode::LEVEL_CELL_10M,
                         layer_type,
                     },
+                    LayerType::RootAerialPerspective => LayerParams {
+                        texture_resolution: 65,
+                        texture_border_size: 0,
+                        texture_format: TextureFormat::RGBA16F,
+                        grid_registration: true,
+                        min_level: 0,
+                        max_level: 0,
+                        layer_type,
+                    }
                 };
                 (layer_type.index(), params)
             })

@@ -15,10 +15,11 @@ layout(set = 0, binding = 2) uniform sampler linear;
 layout(set = 0, binding = 3) uniform texture2DArray normals;
 layout(set = 0, binding = 4) uniform texture2DArray albedo;
 layout(set = 0, binding = 6) uniform texture2DArray grass_canopy;
-layout(set = 0, binding = 7) uniform texture2DArray aerial_perspective;
+layout(set = 0, binding = 7) uniform texture2DArray root_aerial_perspective;
 //layout(set = 0, binding = 8) uniform texture2DArray displacements;
-layout(set = 0, binding = 9) uniform sampler nearest;
-layout(set = 0, binding = 10) uniform texture2DArray bent_normals;
+layout(set = 0, binding = 9) uniform texture2DArray aerial_perspective;
+layout(set = 0, binding = 10) uniform sampler nearest;
+layout(set = 0, binding = 11) uniform texture2DArray bent_normals;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -257,7 +258,12 @@ void main() {
 	else
 		out_color.rgb += 15000 * albedo_roughness.rgb;
 
-	vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
+	vec4 ap;
+	if (node.layer_slots[AERIAL_PERSPECTIVE_LAYER] >= 0) {
+		ap = textureLod(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER), 0);
+	} else {
+		ap = textureLod(sampler2DArray(root_aerial_perspective, linear), layer_to_texcoord(ROOT_AERIAL_PERSPECTIVE_LAYER), 0);
+	}
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
 
