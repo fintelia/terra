@@ -156,7 +156,6 @@ pub(crate) struct LayerParams {
     pub texture_format: TextureFormat,
 
     pub grid_registration: bool,
-    pub dynamic: bool,
 
     pub min_level: u8,
     pub min_generated_level: u8,
@@ -249,7 +248,7 @@ impl TileCache {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
 
-        for layer in self.layers.values().filter(|l| !l.dynamic) {
+        for layer in self.layers.values().filter(|l| !l.layer_type.dynamic()) {
             for level in layer.min_level..=layer.max_level {
                 for ref mut entry in self.levels[level as usize].slots_mut() {
                     if entry.priority() > Priority::cutoff() {

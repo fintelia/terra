@@ -85,6 +85,12 @@ impl LayerType {
             | LayerType::BentNormals => false,
         }
     }
+    pub fn dynamic(&self) -> bool {
+        match *self {
+            LayerType::AerialPerspective => true,
+            _ => false,
+        }
+    }
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..=9).map(Self::from_index)
     }
