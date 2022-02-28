@@ -209,7 +209,7 @@ impl Terrain {
             })
             .collect();
 
-        let models = Models::new();
+        let models = Models::new()?;
         let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models)?;
         let quadtree = QuadTree::new();

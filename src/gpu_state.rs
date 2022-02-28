@@ -120,7 +120,7 @@ impl GpuState {
                     label: Some("texture.skyview"),
                 }),
             ),
-            models_albedo: with_view("models.albedo", models.make_models_albedo(device, queue)),
+            models_albedo: with_view("models.albedo", models.make_models_albedo(device, queue)?),
             billboards_albedo: with_view("billboards.albedo", models.make_billboards_albedo(device)),
             billboards_normals: with_view("billboards.normals", models.make_billboards_normals(device)),
             billboards_depth: with_view("billboards.depth", models.make_billboards_depth(device)),

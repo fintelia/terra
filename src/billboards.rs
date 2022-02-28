@@ -1,10 +1,23 @@
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufReader, Read},
+    num::NonZeroU32,
+};
 
+use anyhow::Error;
+use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use wgpu::util::DeviceExt;
+use zip::ZipArchive;
 
-use crate::{gpu_state::GpuState, speedtree_xml::{SpeedTreeModel, parse_xml}};
+use crate::{
+    asset::TERRA_DIRECTORY,
+    cache::TextureFormat,
+    gpu_state::GpuState,
+    speedtree_xml::{parse_xml, SpeedTreeModel},
+};
 
-const RESOLUTION: u32 = 128;
+const RESOLUTION: u32 = 256;
 const FRAMES_PER_SIDE: u32 = 6;
 
 // #[derive(Copy, Clone, Debug, Default)]
@@ -21,20 +34,27 @@ const FRAMES_PER_SIDE: u32 = 6;
 pub(crate) struct Models {
     tree: SpeedTreeModel,
     shader: rshader::ShaderSet,
+    albedo_texture: Vec<u8>,
 }
 impl Models {
-    pub fn new() -> Self {
-        let tree = parse_xml(include_str!("../assets/Tree/Oak_English_Sapling.xml")).unwrap();
+    pub fn new() -> Result<Self, Error> {
+        let file = BufReader::new(File::open(TERRA_DIRECTORY.join("Oak_English_Sapling.zip"))?);
+        let mut zip = ZipArchive::new(file)?;
+
+        let mut contents = String::new();
+        zip.by_name("Oak_English_Sapling.xml")?.read_to_string(&mut contents)?;
+
+        let mut albedo_texture = Vec::new();
+        zip.by_name("Oak_English_Sapling_Color.basis")?.read_to_end(&mut albedo_texture)?;
+
+        let tree = parse_xml(&contents).unwrap();
         let shader = rshader::ShaderSet::simple(
             rshader::shader_source!("shaders", "model.vert", "declarations.glsl"),
             rshader::shader_source!("shaders", "model.frag", "declarations.glsl"),
         )
         .unwrap();
 
-        Self {
-            tree,
-            shader,
-        }
+        Ok(Self { tree, shader, albedo_texture })
     }
 
     pub fn make_buffers(&self, device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
@@ -52,22 +72,39 @@ impl Models {
         (vertex_buffer, index_buffer)
     }
 
-    pub fn make_models_albedo(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
-        let img = image::load_from_memory(include_bytes!("../assets/Tree/Oak_English_Sapling_Color.png")).unwrap();
-        let albedo = img.into_rgba8();
-        device.create_texture_with_data(queue, &wgpu::TextureDescriptor {
-            label: None,
-            size: wgpu::Extent3d {
-                width: 4096,
-                height: 4096,
-                depth_or_array_layers: 1,
+    pub fn make_models_albedo(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<wgpu::Texture, Error> {
+        let mut transcoder = Transcoder::new();
+        transcoder.prepare_transcoding(&self.albedo_texture).unwrap();
+
+        let transcoded = transcoder
+            .transcode_image_level(
+                &self.albedo_texture,
+                if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+                    TranscoderTextureFormat::BC7_RGBA
+                } else {
+                    TranscoderTextureFormat::ASTC_4x4_RGBA
+                },
+                TranscodeParameters { image_index: 0, level_index: 0, ..Default::default() },
+            )
+            .unwrap();
+
+        Ok(device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d { width: 4096, height: 4096, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: TextureFormat::UASTC.to_wgpu(device.features()),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-        }, &*albedo)
+            &transcoded,
+        ))
     }
 
     fn default_billboard_desc() -> wgpu::TextureDescriptor<'static> {

@@ -160,7 +160,7 @@ impl MapFileBuilder {
                         min_generated_level: VNode::LEVEL_CELL_10M,
                         max_level: VNode::LEVEL_CELL_10M,
                         layer_type,
-                    }
+                    },
                 };
                 (layer_type.index(), params)
             })
@@ -195,6 +195,7 @@ impl MapFileBuilder {
         generate_sky(&mut self.0, &mut context)?;
 
         download_cloudcover(&mut self.0, &mut context)?;
+        download_models(&mut context)?;
 
         Ok(self.0)
     }
@@ -1320,6 +1321,14 @@ fn download_cloudcover(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
     Ok(())
 }
 
+fn download_models(context: &mut AssetLoadContext) -> Result<(), Error> {
+    WebModel {
+        url: "https://terra.fintelia.io/file/terra-tiles/Oak_English_Sapling.zip".to_owned(),
+        filename: "Oak_English_Sapling.zip".to_owned(),
+    }
+    .load(context)
+}
+
 struct WebTextureAsset {
     url: String,
     filename: String,
@@ -1346,5 +1355,23 @@ impl WebAsset for WebTextureAsset {
             },
             img.into_raw(),
         ))
+    }
+}
+
+struct WebModel {
+    url: String,
+    filename: String,
+}
+impl WebAsset for WebModel {
+    type Type = ();
+
+    fn url(&self) -> String {
+        self.url.clone()
+    }
+    fn filename(&self) -> String {
+        self.filename.clone()
+    }
+    fn parse(&self, _context: &mut AssetLoadContext, _data: Vec<u8>) -> Result<(), Error> {
+        Ok(())
     }
 }
