@@ -126,11 +126,11 @@ void main() {
 			// vec4 tree_albedo = textureLod(sampler2D(topdown_albedo, linear), topdown_tcoord, 0);
 
 			float tree_amount = tree_attr.a > 0 ? 1 : 0;
-			albedo_roughness = mix(albedo_roughness, vec4(0.013,0.037,0.0,0.4), tree_amount);
+			albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), tree_amount);
 			normal = normalize(mix(normal, vec3(0,1,0),tree_amount));
 		} else {
 			normal = normalize(mix(normal, vec3(0,1,0),treecover_value));
-			albedo_roughness = mix(albedo_roughness, vec4(0.013,0.037,0.0,0.4), min(treecover_value, 1));
+			albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), min(treecover_value, 1));
 		}
 	}
 

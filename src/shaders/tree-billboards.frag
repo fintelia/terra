@@ -51,9 +51,8 @@ void main() {
 	vec4 albedo = texture(sampler2DArray(billboards_albedo, linear), vec3(texcoord/6.0, 0));
 	vec2 tx_normal = texture(sampler2DArray(billboards_normals, linear), vec3(texcoord/6.0, 0)).xy;
 
-	//albedo.rgb = vec3(1);
-	// albedo=vec4(1);
-	albedo.rgb += (color-0.5) * 0.05;
+	albedo.rgb *= 0.15;
+	albedo.rgb += (color-0.5) * 0.01;
 
 	float tx_normal_z = sqrt(max(0, 1-dot(tx_normal, tx_normal)));
 	vec3 true_normal = normalize(tx_normal.x * right - tx_normal.y * up + tx_normal_z * normal);
