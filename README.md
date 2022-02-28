@@ -65,15 +65,12 @@ exit, press Escape.
 During operation, this library downloads and merges datasets from a variety of sources. If you integrate
 it into your own project, please be sure to give proper credit to all of the following as applicable.
 
-## Elevation
-
-* [ETOPO1 Global Relief Model](https://www.ngdc.noaa.gov/mgg/global)
-* [Shuttle Radar Topography Mission](https://www.usgs.gov/centers/eros/science/usgs-eros-archive-digital-elevation-shuttle-radar-topography-mission-srtm-1-arc)
-
-## Orthoimagery
-
-* [Blue Marble Next Generation](https://visibleearth.nasa.gov/view.php?id=76487)
-
-## Textures
-
-* [The Milky Way panorama](https://www.eso.org/public/images/eso0932a/)
+| Kind | Source |
+| --- | --- |
+| Elevation | [ETOPO1 Global Relief Model](https://www.ngdc.noaa.gov/mgg/global)
+| Elevation | [NASA Digital Elevation Model](https://portal.opentopography.org/datasetMetadata?otCollectionID=OT.032021.4326.2)
+| Orthoimagery | [Blue Marble Next Generation](https://visibleearth.nasa.gov/view.php?id=76487)
+| Stars | [Yale Bright Star Catalog](http://tdc-www.harvard.edu/catalogs/bsc5.html)
+| Treecover | [Global Forest Change](https://data.globalforestwatch.org/documents/134f92e59f344549947a3eade9d80783/explore)
+| Trees | [SpeedTree](https://store.speedtree.com/)
+| Ground Textures | [FreePBR](https://freepbr.com/)
