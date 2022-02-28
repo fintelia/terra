@@ -219,7 +219,6 @@ vec3 layer_to_texcoord(uint layer) {
 void main() {
 	Node node = nodes[instance];
 
-	vec3 light_direction = normalize(vec3(0.4, 0.7,0.2));
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
 	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
 		vec3 pn = extract_normal(textureLod(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER), 0).xy);
@@ -254,9 +253,9 @@ void main() {
 
 
 	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
-		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb;
+		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * max(0, dot(normal, globals.sun_direction));
 	else
-		out_color.rgb += 15000 * albedo_roughness.rgb;
+		out_color.rgb += 15000 * albedo_roughness.rgb * max(0, dot(normal, globals.sun_direction));
 
 	vec4 ap;
 	if (node.layer_slots[AERIAL_PERSPECTIVE_LAYER] >= 0) {

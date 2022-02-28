@@ -73,7 +73,7 @@ void main() {
 						vec3(100000.0));
 
 	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0)).x;
-	out_color.rgb += (1 - ao) * albedo.rgb * 15000;// * max(dot(true_normal, up), 0);
+	out_color.rgb += (1 - ao) * albedo.rgb * 15000 * max(0, dot(up, globals.sun_direction));// * max(dot(true_normal, up), 0);
 
 	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	// out_color.rgb *= ap.a * 16.0;

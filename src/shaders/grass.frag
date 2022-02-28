@@ -54,7 +54,7 @@ void main() {
 						position,
 						normal,
 						globals.camera,
-						normalize(vec3(0.4, .7, 0.2)),
+						globals.sun_direction,
 						vec3(100000.0));
 
 	out_color.rgb += pbr(color,
@@ -62,7 +62,7 @@ void main() {
 						position,
 						-normal,
 						globals.camera,
-						normalize(vec3(0.4, .7, 0.2)),
+						globals.sun_direction,
 						vec3(100000.0));
 
 	// out_color.rgb = out_color.rgb * 0.3 + 0.7 * pbr(color,
