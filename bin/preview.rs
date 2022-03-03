@@ -328,8 +328,6 @@ fn main() {
                 terrain.update(
                     &device,
                     &queue,
-                    (size.width, size.height),
-                    view_proj,
                     position.into(),
                 );
 

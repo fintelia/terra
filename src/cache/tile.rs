@@ -13,14 +13,12 @@ use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
-use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
-    num::{NonZeroU32, NonZeroU64},
+    num::{NonZeroU32},
     sync::Arc,
 };
-use types::{InfiniteFrustum, Priority, VNode, MAX_QUADTREE_LEVEL};
+use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, TileCache, SLOTS_PER_LEVEL};
@@ -76,7 +74,10 @@ impl TextureFormat {
                 if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
                     wgpu::TextureFormat::Bc7RgbaUnorm
                 } else if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC_LDR) {
-                    wgpu::TextureFormat::Astc { block: wgpu::AstcBlock::B4x4, channel: wgpu::AstcChannel::Unorm }
+                    wgpu::TextureFormat::Astc {
+                        block: wgpu::AstcBlock::B4x4,
+                        channel: wgpu::AstcChannel::Unorm,
+                    }
                 } else {
                     unreachable!("Wgpu reports no texture compression support?")
                 }
@@ -242,7 +243,6 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
-        frustum: Option<InfiniteFrustum>,
     ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
@@ -428,92 +428,51 @@ impl TileCache {
             }
         }
 
-        if let Some(frustum) = frustum {
-            for g in &mut self.dynamic_generators {
-                let mut nodes = Vec::new();
-                for level in g.min_level..=g.max_level {
-                    let base = Self::base_slot(level);
-                    for (i, slot) in self.levels[level as usize].slots_mut().iter_mut().enumerate()
+        queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
+
+        (encoder.finish(), planned_heightmap_downloads)
+    }
+
+    pub fn run_dynamic_generators(
+        &self,
+        queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
+        gpu_state: &GpuState,
+    ) {
+        let mut uniform_data = Vec::new();
+
+        for g in &self.dynamic_generators {
+            let mut nodes = Vec::new();
+            for level in g.min_level..=g.max_level {
+                let base = Self::base_slot(level);
+                for (i, slot) in self.levels[level as usize].slots().iter().enumerate() {
+                    if slot.priority >= Priority::cutoff()
+                        && g.dependency_mask & !slot.valid == LayerMask::empty()
                     {
-                        let height_range = match slot.heightmap {
-                            Some(
-                                CpuHeightmap::I16 { min, max, .. }
-                                | CpuHeightmap::F32 { min, max, .. },
-                            ) => (min, max),
-                            None => (0.0, 9000.0),
-                        };
-
-                        if slot.priority >= Priority::cutoff()
-                            && g.dependency_mask & !slot.valid == LayerMask::empty()
-                            && slot.node.in_frustum(&frustum, height_range)
-                        {
-                            nodes.push((base + i) as u32);
-                            slot.valid |= g.output.bit_mask();
-                        } else {
-                            slot.valid &= !g.output.bit_mask();
-                        }
+                        nodes.push((base + i) as u32);
                     }
                 }
+            }
 
-                if !nodes.is_empty() {
-                    if g.shader.refresh() {
-                        g.bindgroup_pipeline = None;
-                    }
+            if !nodes.is_empty() {
+                assert!(nodes.len() <= 1024);
+                let uniform_offset = uniform_data.len();
+                uniform_data.extend_from_slice(bytemuck::cast_slice(&nodes));
+                uniform_data.resize(uniform_offset + 4096, 0);
 
-                    assert!(nodes.len() <= 1024);
-                    let uniform_offset = uniform_data.len();
-                    uniform_data.extend_from_slice(bytemuck::cast_slice(&nodes));
-                    uniform_data.resize(uniform_offset + 4096, 0);
-
-                    if g.bindgroup_pipeline.is_none() {
-                        let (bindgroup, layout) = gpu_state.bind_group_for_shader(
-                            device,
-                            &g.shader,
-                            hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &gpu_state.generate_uniforms,
-                            offset: 0,
-                            size: Some(NonZeroU64::new(4096).unwrap()),
-                        }))],
-                        HashMap::new(),
-                        &format!("generate.{}", g.name),
-                        );
-                        let pipeline =
-                            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                                layout: Some(&device.create_pipeline_layout(
-                                    &wgpu::PipelineLayoutDescriptor {
-                                        bind_group_layouts: [&layout][..].into(),
-                                        push_constant_ranges: &[],
-                                        label: None,
-                                    },
-                                )),
-                                module: &device.create_shader_module(
-                                    &wgpu::ShaderModuleDescriptor {
-                                        label: Some(&format!("shader.generate.{}", g.name)),
-                                        source: g.shader.compute(),
-                                    },
-                                ),
-                                entry_point: "main",
-                                label: Some(&format!("pipeline.generate.{}", g.name)),
-                            });
-                        g.bindgroup_pipeline = Some((bindgroup, pipeline));
-                    }
-
-                    let mut cpass =
-                        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-                    cpass.set_pipeline(&g.bindgroup_pipeline.as_ref().unwrap().1);
-                    cpass.set_bind_group(
-                        0,
-                        &g.bindgroup_pipeline.as_ref().unwrap().0,
-                        &[uniform_offset as u32],
-                    );
-                    cpass.dispatch(g.resolution.0, g.resolution.1, nodes.len() as u32);
-                }
+                let mut cpass =
+                    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+                cpass.set_pipeline(&g.bindgroup_pipeline.as_ref().unwrap().1);
+                cpass.set_bind_group(
+                    0,
+                    &g.bindgroup_pipeline.as_ref().unwrap().0,
+                    &[uniform_offset as u32],
+                );
+                cpass.dispatch(g.resolution.0, g.resolution.1, nodes.len() as u32);
             }
         }
 
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
-
-        (encoder.finish(), planned_heightmap_downloads)
     }
 
     pub(super) fn upload_tiles(

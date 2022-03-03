@@ -521,7 +521,6 @@ pub(crate) fn generators(
 
 pub(super) struct DynamicGenerator {
     pub dependency_mask: LayerMask,
-    pub output: LayerType,
     pub min_level: u8,
     pub max_level: u8,
 
@@ -536,7 +535,6 @@ pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
     vec![
         DynamicGenerator {
             dependency_mask: LayerMask::empty(),
-            output: LayerType::AerialPerspective,
             min_level: 3,
             max_level: VNode::LEVEL_SIDE_610M,
             shader: ShaderSet::compute_only(rshader::shader_source!(
@@ -552,7 +550,6 @@ pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
         },
         DynamicGenerator {
             dependency_mask: LayerMask::empty(),
-            output: LayerType::RootAerialPerspective,
             min_level: 0,
             max_level: 0,
             shader: ShaderSet::compute_only(rshader::shader_source!(

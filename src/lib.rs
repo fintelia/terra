@@ -292,7 +292,6 @@ impl Terrain {
                 &self.gpu_state,
                 &self.mapfile,
                 &mut self.quadtree,
-                None,
                 camera,
             );
             self.loading_complete()
@@ -310,8 +309,6 @@ impl Terrain {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        frame_size: (u32, u32),
-        view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
         if self._models.refresh() {
@@ -433,15 +430,39 @@ impl Terrain {
             ));
         }
 
-        let frustum = {
-            let view_proj: cgmath::Matrix4<f64> =
-                cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap();
-            let view_proj = view_proj
-                * cgmath::Matrix4::from_translation(cgmath::Vector3::new(
-                    -camera.x, -camera.y, -camera.z,
-                ));
-            InfiniteFrustum::from_matrix(view_proj)
-        };
+        self.quadtree.update_priorities(&self.cache, camera);
+
+        // Update the tile cache and then block until root tiles have been downloaded and streamed
+        // to the GPU.
+        self.cache.update(
+            device,
+            queue,
+            &self.gpu_state,
+            &self.mapfile,
+            &mut self.quadtree,
+            camera,
+        );
+        while !self.poll_loading_status(device, queue, camera) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        self.generate_skyview.refresh(device, &self.gpu_state);
+        self.cache.update_meshes(device, &self.gpu_state);
+    }
+
+    /// Render the terrain.
+    ///
+    /// Terrain::update must be called first.
+    pub fn render(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color_buffer: &wgpu::TextureView,
+        depth_buffer: &wgpu::TextureView,
+        frame_size: (u32, u32),
+        view_proj: mint::ColumnMatrix4<f32>,
+        camera: mint::Point3<f64>,
+    ) {
         let relative_frustum =
             InfiniteFrustum::from_matrix(cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap());
         queue.write_buffer(
@@ -466,73 +487,25 @@ impl Terrain {
             }),
         );
 
-        self.quadtree.update_priorities(&self.cache, camera);
-
-        // Update the tile cache and then block until root tiles have been downloaded and streamed
-        // to the GPU.
-        self.cache.update(
-            device,
-            queue,
-            &self.gpu_state,
-            &self.mapfile,
-            &mut self.quadtree,
-            Some(frustum),
-            camera,
-        );
-        while !self.poll_loading_status(device, queue, camera) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-
-        self.generate_skyview.refresh(device, &self.gpu_state);
-        self.cache.update_meshes(device, &self.gpu_state);
-    }
-
-    /// Render the terrain.
-    ///
-    /// Terrain::update must be called first.
-    pub fn render(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        color_buffer: &wgpu::TextureView,
-        depth_buffer: &wgpu::TextureView,
-        frame_size: (u32, u32),
-        view_proj: mint::ColumnMatrix4<f32>,
-        camera: mint::Point3<f64>,
-    ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
         });
 
         {
+            self.cache.run_dynamic_generators(queue, &mut encoder, &self.gpu_state);
             self.cache.cull_meshes(device, &mut encoder, &self.gpu_state);
 
             self.generate_skyview.run(device, &mut encoder, &self.gpu_state, (16, 16, 1), &());
-
-            // self.aerial_perspective.refresh();
-            // self.aerial_perspective.run(
-            //     device,
-            //     &mut encoder,
-            //     &self.gpu_state,
-            //     (1, 1, self.quadtree.node_buffer_length() as u32),
-            //     &0,
-            // );
 
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     view: color_buffer,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.0, g: 0.0, b: 0.0, a: 1.0 }),
-                        store: true,
-                    },
+                    ops: wgpu::Operations::default(),
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth_buffer,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: true,
-                    }),
+                    depth_ops: Some(wgpu::Operations::default()),
                     stencil_ops: None,
                 }),
                 label: Some("renderpass"),

@@ -9,13 +9,15 @@ use crate::{
     terrain::quadtree::QuadTree,
 };
 use futures::{future::BoxFuture, FutureExt};
+use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::hash::Hash;
+use std::num::NonZeroU64;
 use std::ops::{Index, IndexMut};
 use std::{cmp::Eq, sync::Arc};
 use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
-use types::{InfiniteFrustum, Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
+use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 
 use self::tile::Entry;
@@ -441,7 +443,6 @@ impl TileCache {
         gpu_state: &GpuState,
         mapfile: &MapFile,
         quadtree: &mut QuadTree,
-        frustum: Option<InfiniteFrustum>,
         camera: mint::Point3<f64>,
     ) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
@@ -462,11 +463,41 @@ impl TileCache {
             }
         }
 
+        for g in &mut self.dynamic_generators {
+            if g.bindgroup_pipeline.is_none() || g.shader.refresh() {
+                let (bindgroup, layout) = gpu_state.bind_group_for_shader(
+                    device,
+                    &g.shader,
+                    hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &gpu_state.generate_uniforms,
+                    offset: 0,
+                    size: Some(NonZeroU64::new(4096).unwrap()),
+                }))],
+                HashMap::new(),
+                &format!("generate.{}", g.name),
+                );
+                let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        bind_group_layouts: [&layout][..].into(),
+                        push_constant_ranges: &[],
+                        label: None,
+                    })),
+                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        label: Some(&format!("shader.generate.{}", g.name)),
+                        source: g.shader.compute(),
+                    }),
+                    entry_point: "main",
+                    label: Some(&format!("pipeline.generate.{}", g.name)),
+                });
+                g.bindgroup_pipeline = Some((bindgroup, pipeline));
+            }
+        }
+
         TileCache::update_levels(self, quadtree);
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, frustum);
+            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
 
         self.write_nodes(queue, gpu_state, camera);
 
@@ -567,10 +598,11 @@ impl TileCache {
                         self.levels[ancestor.level() as usize].entry(&ancestor)
                     {
                         for (layer_index, layer) in LayerType::iter().enumerate() {
-                            let layer_slot = if (ancestor_index == 0
-                                && slot.valid.contains_layer(layer))
-                                || (!found_layers.contains_layer(layer)
-                                    && ancestor_slot.valid.contains_layer(layer))
+                            let layer_slot = if !found_layers.contains_layer(layer)
+                                && (ancestor_slot.valid.contains_layer(layer)
+                                    || (layer.dynamic()
+                                        && ancestor.level() >= self.layers[layer].min_level
+                                        && ancestor.level() <= self.layers[layer].max_level))
                             {
                                 found_layers |= layer.bit_mask();
                                 layer_index
