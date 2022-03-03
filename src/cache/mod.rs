@@ -10,6 +10,7 @@ use crate::{
 };
 use futures::{future::BoxFuture, FutureExt};
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::hash::Hash;
 use std::ops::{Index, IndexMut};
 use std::{cmp::Eq, sync::Arc};
@@ -147,7 +148,7 @@ impl<T> IndexMut<MeshType> for VecMap<T> {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
 pub(crate) struct LayerMask(NonZeroU32);
 impl LayerMask {
     const VALID: u32 = 0x80000000;
@@ -359,6 +360,12 @@ pub(crate) struct TileCache {
     total_download_buffers: usize,
 
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
+
+    timestamp_query: wgpu::QuerySet,
+    timestamp_buffer: wgpu::Buffer,
+    timestamp_sender: crossbeam::channel::Sender<(LayerMask, f32)>,
+    timestamp_reciever: crossbeam::channel::Receiver<(LayerMask, f32)>,
+    generator_times: HashMap<LayerMask, f32>,
 }
 
 impl TileCache {
@@ -415,6 +422,20 @@ impl TileCache {
             )
         });
 
+        let timestamp_query = device.create_query_set(&wgpu::QuerySetDescriptor {
+            label: None,
+            ty: wgpu::QueryType::Timestamp,
+            count: 8192,
+        });
+        let timestamp_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 8192 * 8,
+            usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let (timestamp_sender, timestamp_reciever) = crossbeam::channel::unbounded();
+
         Self {
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             level_masks,
@@ -431,6 +452,11 @@ impl TileCache {
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
             ),
+            timestamp_query,
+            timestamp_buffer,
+            timestamp_sender,
+            timestamp_reciever,
+            generator_times: Default::default(),
         }
     }
 
@@ -465,12 +491,38 @@ impl TileCache {
         TileCache::update_levels(self, quadtree);
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
-        let (command_buffer, mut planned_heightmap_downloads) =
+        let (command_buffer, mut planned_heightmap_downloads, output_masks, download_buffer) =
             TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state, frustum);
 
         self.write_nodes(queue, gpu_state, camera);
 
         queue.submit(Some(command_buffer));
+
+        let sender = self.timestamp_sender.clone();
+        if !output_masks.is_empty() {
+            let period = queue.get_timestamp_period();
+            tokio::task::spawn(async move {
+                let slice = download_buffer.slice(..);
+                slice.map_async(wgpu::MapMode::Read).await.unwrap();
+                {
+                    let view = slice.get_mapped_range();
+                    let view_slice: &[u64] = bytemuck::cast_slice(&*view);
+                    for (times, layers) in view_slice.chunks_exact(2).zip(output_masks) {
+                        sender.send((layers, (times[1] - times[0]) as f32 * period)).unwrap();
+                    }
+                }
+                download_buffer.unmap();
+            });
+        }
+        while let Ok((l, t)) = self.timestamp_reciever.try_recv() {
+            let avg = self.generator_times.entry(l).or_insert(t);
+            if l.contains_layer(LayerType::BentNormals) && t >= 2.0 * *avg {
+                println!("{}! [t={}]", avg, t);
+            } else if l.contains_layer(LayerType::BentNormals) {
+                *avg = *avg * 0.98 + t * 0.02;
+                println!("{}", avg);
+            }
+        }
 
         for (n, buffer) in planned_heightmap_downloads.drain(..) {
             let _ = self.start_download.send(

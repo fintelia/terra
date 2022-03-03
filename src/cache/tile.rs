@@ -10,9 +10,9 @@ use crate::{
 use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
-use futures::future::BoxFuture;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
+use futures::{future::BoxFuture, FutureExt};
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -76,7 +76,10 @@ impl TextureFormat {
                 if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
                     wgpu::TextureFormat::Bc7RgbaUnorm
                 } else if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC_LDR) {
-                    wgpu::TextureFormat::Astc { block: wgpu::AstcBlock::B4x4, channel: wgpu::AstcChannel::Unorm }
+                    wgpu::TextureFormat::Astc {
+                        block: wgpu::AstcBlock::B4x4,
+                        channel: wgpu::AstcChannel::Unorm,
+                    }
                 } else {
                     unreachable!("Wgpu reports no texture compression support?")
                 }
@@ -243,7 +246,7 @@ impl TileCache {
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
         frustum: Option<InfiniteFrustum>,
-    ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>) {
+    ) -> (wgpu::CommandBuffer, Vec<(VNode, wgpu::Buffer)>, Vec<LayerMask>, wgpu::Buffer) {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
 
@@ -285,6 +288,9 @@ impl TileCache {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.tiles.generate"),
         });
+
+        let mut next_query_slot = 0;
+        let mut output_masks = Vec::new();
 
         let mut uniform_data = Vec::new();
         let mut tiles_generated = 0;
@@ -354,6 +360,8 @@ impl TileCache {
                     continue;
                 }
 
+                // encoder.write_timestamp(&self.timestamp_query, next_query_slot);
+
                 let output_mask =
                     !(entry.valid | generated_layers) & level_mask & generator.outputs();
                 self.generators[generator_index].generate(
@@ -364,7 +372,13 @@ impl TileCache {
                     slot,
                     parent_slot,
                     &mut uniform_data,
+                    &self.timestamp_query,
+                    next_query_slot,
                 );
+
+                // encoder.write_timestamp(&self.timestamp_query, next_query_slot + 1);
+                next_query_slot += 2;
+                output_masks.push(output_mask);
 
                 generators_used |= GeneratorMask::from_index(generator_index);
                 generators_used |= self.generator_dependencies(n, peer_inputs);
@@ -513,7 +527,27 @@ impl TileCache {
 
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
 
-        (encoder.finish(), planned_heightmap_downloads)
+        encoder.resolve_query_set(
+            &self.timestamp_query,
+            0..next_query_slot,
+            &self.timestamp_buffer,
+            0,
+        );
+        let download_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: (next_query_slot * 8) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        encoder.copy_buffer_to_buffer(
+            &self.timestamp_buffer,
+            0,
+            &download_buf,
+            0,
+            (next_query_slot * 8) as u64,
+        );
+
+        (encoder.finish(), planned_heightmap_downloads, output_masks, download_buf)
     }
 
     pub(super) fn upload_tiles(

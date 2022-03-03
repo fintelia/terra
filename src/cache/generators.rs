@@ -37,6 +37,8 @@ pub(crate) trait GenerateTile: Send {
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
+        timestamp_query: &wgpu::QuerySet,
+        timestamp_offset: u32,
     );
 }
 
@@ -87,6 +89,8 @@ impl GenerateTile for MeshGen {
         slot: usize,
         _parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
+        timestamp_query: &wgpu::QuerySet,
+        timestamp_offset: u32,
     ) {
         let entry = (slot - TileCache::base_slot(self.min_level)) as u32 * self.entries_per_node;
         let uniforms = MeshGenerateUniforms {
@@ -140,6 +144,7 @@ impl GenerateTile for MeshGen {
         }
 
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+        cpass.write_timestamp(&timestamp_query, timestamp_offset);
         for i in 0..self.shaders.len() {
             cpass.set_pipeline(&self.bindgroup_pipeline[i].as_ref().unwrap().1);
             cpass.set_bind_group(
@@ -149,6 +154,7 @@ impl GenerateTile for MeshGen {
             );
             cpass.dispatch(self.dimensions[i].0, self.dimensions[i].1, self.dimensions[i].2);
         }
+        cpass.write_timestamp(&timestamp_query, timestamp_offset+1);
     }
 }
 
@@ -194,6 +200,8 @@ impl GenerateTile for ShaderGen {
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
+        timestamp_query: &wgpu::QuerySet,
+        timestamp_offset: u32,
     ) {
         let uniform_offset = uniform_data.len();
         uniform_data.extend_from_slice(bytemuck::bytes_of(&(slot as u32)));
@@ -239,11 +247,13 @@ impl GenerateTile for ShaderGen {
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             cpass.set_pipeline(self.pipeline.as_ref().unwrap());
             cpass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[uniform_offset as u32]);
+            cpass.write_timestamp(&timestamp_query, timestamp_offset);
             cpass.dispatch(
                 (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
                 (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
                 1,
             );
+            cpass.write_timestamp(&timestamp_query, timestamp_offset+1);
         } else {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(
                 device,
@@ -281,11 +291,13 @@ impl GenerateTile for ShaderGen {
                     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
                 cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
                 cpass.set_bind_group(0, &bind_group, &[uniform_offset as u32]);
+                cpass.write_timestamp(&timestamp_query, timestamp_offset);
                 cpass.dispatch(
                     (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
                     (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
                     1,
                 );
+                cpass.write_timestamp(&timestamp_query, timestamp_offset+1);
             }
 
             if image_views.is_empty() {

@@ -105,6 +105,7 @@ fn main() {
     let mut features = wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::PUSH_CONSTANTS
+        | wgpu::Features::TIMESTAMP_QUERY
         | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     if adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
@@ -198,6 +199,8 @@ fn main() {
         None => runtime.block_on(terra::Terrain::new(&device, &queue)).unwrap(),
     };
 
+    let _guard = runtime.enter();
+
     {
         while terrain.poll_loading_status(
             &device,
@@ -207,6 +210,7 @@ fn main() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
     }
+
     let mut last_time = None;
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| {
