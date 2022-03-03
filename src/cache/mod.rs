@@ -488,6 +488,8 @@ impl TileCache {
         }
 
         self.download_tiles();
+
+        self.cull_shader.refresh(device, gpu_state);
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
@@ -663,12 +665,11 @@ impl TileCache {
     }
 
     pub fn cull_meshes<'a>(
-        &'a mut self,
+        &'a self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         gpu_state: &'a GpuState,
     ) {
-        self.cull_shader.refresh();
         for (mesh_index, c) in &self.meshes {
             self.cull_shader.run(
                 device,
@@ -686,13 +687,19 @@ impl TileCache {
         }
     }
 
+    pub fn update_meshes(&mut self, device: &wgpu::Device, gpu_state: &GpuState) {
+        for (_, c) in &mut self.meshes {
+            c.update(device, gpu_state);
+        }
+    }
+
     pub fn render_meshes<'a>(
-        &'a mut self,
+        &'a self,
         device: &wgpu::Device,
         rpass: &mut wgpu::RenderPass<'a>,
         gpu_state: &'a GpuState,
     ) {
-        for (_, c) in &mut self.meshes {
+        for (_, c) in &self.meshes {
             c.render(device, rpass, gpu_state);
         }
     }

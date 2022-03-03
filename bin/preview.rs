@@ -325,6 +325,14 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
+                terrain.update(
+                    &device,
+                    &queue,
+                    (size.width, size.height),
+                    view_proj,
+                    position.into(),
+                );
+
                 terrain.render(
                     &device,
                     &queue,

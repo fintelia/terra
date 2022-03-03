@@ -22,41 +22,29 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         }
     }
 
-    pub fn refresh(&mut self) -> bool {
-        if self.shader.refresh() {
-            self.bindgroup_pipeline = None;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn run(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        state: &GpuState,
-        dimensions: (u32, u32, u32),
-        uniforms: &U,
-    ) {
+    pub fn refresh(&mut self, device: &wgpu::Device, gpu_state: &GpuState) -> bool {
         if mem::size_of::<U>() > 0 && self.uniforms.is_none() {
             self.uniforms = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
                 mapped_at_creation: false,
-                label: Some(&format!("buffer.{}.uniforms", self.name)),
+                label: Some(&format!("buffer.{}.uniforms", &self.name)),
             }));
         }
-        if self.bindgroup_pipeline.is_none() {
-            let (bind_group, bind_group_layout) = state.bind_group_for_shader(
+
+        let refreshed = self.shader.refresh();
+
+        if refreshed || self.bindgroup_pipeline.is_none() {
+            let (bind_group, bind_group_layout) = gpu_state.bind_group_for_shader(
                 device,
                 &self.shader,
                 if self.uniforms.is_some() {
                     hashmap!["ubo".into() => (false, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: self.uniforms.as_ref().unwrap(),
-                    offset: 0,
-                    size: None,
-                }))] } else {
+                        buffer: self.uniforms.as_ref().unwrap(),
+                        offset: 0,
+                        size: None,
+                    }))]
+                } else {
                     HashMap::new()
                 },
                 HashMap::new(),
@@ -77,9 +65,20 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                     entry_point: "main",
                     label: Some(&format!("pipeline.{}", self.name)),
                 }),
-            ));
+            ))
         }
 
+        refreshed
+    }
+
+    pub fn run(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        state: &GpuState,
+        dimensions: (u32, u32, u32),
+        uniforms: &U,
+    ) {
         if self.uniforms.is_some() {
             let staging = device.create_buffer(&wgpu::BufferDescriptor {
                 size: mem::size_of::<U>() as u64,

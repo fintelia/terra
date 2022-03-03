@@ -69,12 +69,7 @@ impl MeshCache {
         Self { desc, base_entry: base_slot, num_entries: num_slots, bindgroup_pipeline: None }
     }
 
-    pub fn render<'a>(
-        &'a mut self,
-        device: &wgpu::Device,
-        rpass: &mut wgpu::RenderPass<'a>,
-        gpu_state: &'a GpuState,
-    ) {
+    pub fn update(&mut self, device: &wgpu::Device, gpu_state: &GpuState) {
         if self.desc.render.refresh() {
             self.bindgroup_pipeline = None;
         }
@@ -136,7 +131,14 @@ impl MeshCache {
                 }),
             ));
         }
+    }
 
+    pub fn render<'a>(
+        &'a self,
+        device: &wgpu::Device,
+        rpass: &mut wgpu::RenderPass<'a>,
+        gpu_state: &'a GpuState,
+    ) {
         rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
         rpass.set_index_buffer(self.desc.index_buffer.slice(..), self.desc.index_format);
         rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);

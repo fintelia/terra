@@ -301,17 +301,15 @@ impl Terrain {
         }
     }
 
-    /// Render the terrain.
+    /// Update the terrain.
     ///
     /// This function will block if the root tiles haven't been downloaded/loaded from disk. If
     /// you want to avoid this, call `poll_loading_status` first to see whether this function will
     /// block.
-    pub fn render(
+    pub fn update(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        color_buffer: &wgpu::TextureView,
-        depth_buffer: &wgpu::TextureView,
         frame_size: (u32, u32),
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
@@ -485,6 +483,23 @@ impl Terrain {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
+        self.generate_skyview.refresh(device, &self.gpu_state);
+        self.cache.update_meshes(device, &self.gpu_state);
+    }
+
+    /// Render the terrain.
+    ///
+    /// Terrain::update must be called first.
+    pub fn render(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color_buffer: &wgpu::TextureView,
+        depth_buffer: &wgpu::TextureView,
+        frame_size: (u32, u32),
+        view_proj: mint::ColumnMatrix4<f32>,
+        camera: mint::Point3<f64>,
+    ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.render"),
         });
@@ -492,7 +507,6 @@ impl Terrain {
         {
             self.cache.cull_meshes(device, &mut encoder, &self.gpu_state);
 
-            self.generate_skyview.refresh();
             self.generate_skyview.run(device, &mut encoder, &self.gpu_state, (16, 16, 1), &());
 
             // self.aerial_perspective.refresh();
