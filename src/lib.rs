@@ -26,7 +26,7 @@ use crate::mapfile::MapFile;
 use anyhow::Error;
 use billboards::Models;
 use cache::TileCache;
-use cgmath::SquareMatrix;
+use cgmath::{SquareMatrix, Zero};
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::collections::HashMap;
@@ -48,6 +48,9 @@ pub struct Terrain {
     mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
+    view_proj: mint::ColumnMatrix4<f32>,
+    shadow_view_proj: mint::ColumnMatrix4<f32>,
+    camera: mint::Point3<f64>,
     _models: Models,
 }
 impl Terrain {
@@ -131,6 +134,13 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
+                    render_shadow: Some(
+                        rshader::ShaderSet::simple(
+                            rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
+                            rshader::shader_source!("shaders", "shadowpass.frag"),
+                        )
+                        .unwrap(),
+                    ),
                 },
                 MeshType::Grass => MeshCacheDesc {
                     ty,
@@ -167,6 +177,7 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
+                    render_shadow: None,
                 },
                 MeshType::TreeBillboards => MeshCacheDesc {
                     ty,
@@ -205,6 +216,24 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
+                    render_shadow: Some(
+                        rshader::ShaderSet::simple(
+                            rshader::shader_source!(
+                                "shaders",
+                                "tree-billboards.vert",
+                                "declarations.glsl";
+                                "SHADOWPASS" = "1"
+                            ),
+                            rshader::shader_source!(
+                                "shaders",
+                                "tree-billboards.frag",
+                                "declarations.glsl",
+                                "pbr.glsl";
+                                "SHADOWPASS" = "1"
+                            ),
+                        )
+                        .unwrap(),
+                    ),
                 },
             })
             .collect();
@@ -237,7 +266,8 @@ impl Terrain {
                 "pbr.glsl",
                 "atmosphere.glsl"
             ),
-        ).unwrap();
+        )
+        .unwrap();
 
         let generate_skyview = ComputeShader::new(
             rshader::shader_source!(
@@ -259,6 +289,9 @@ impl Terrain {
             mapfile,
             cache,
             generate_skyview,
+            view_proj: cgmath::Matrix4::zero().into(),
+            shadow_view_proj: cgmath::Matrix4::zero().into(),
+            camera: mint::Point3::from_slice(&[0.0, 0.0, 0.0]),
             _models: models,
         })
     }
@@ -309,8 +342,36 @@ impl Terrain {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
     ) {
+        self.view_proj = view_proj;
+        let shadow_view = cgmath::Matrix4::look_to_rh(
+            cgmath::Point3::new(0., 0., 0.),
+            cgmath::Vector3::new(-0.4, -0.7, -0.2),
+            cgmath::Vector3::unit_z(),
+        );
+        let shadow_proj = cgmath::Matrix4::new(
+            1.0 / 8192.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            1.0 / 8192.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.0 / 102400.0,
+            0.0,
+            0.0,
+            0.0,
+            0.5,
+            1.0,
+        );
+        self.shadow_view_proj = (shadow_proj * shadow_view).into();
+        self.camera = camera;
+
         if self._models.refresh() {
             self._models.render_billboards(device, queue, &self.gpu_state);
         }
@@ -450,6 +511,61 @@ impl Terrain {
         self.cache.update_meshes(device, &self.gpu_state);
     }
 
+    pub fn render_shadows(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let relative_frustum = InfiniteFrustum::from_matrix(
+            cgmath::Matrix4::<f32>::from(self.shadow_view_proj).cast().unwrap(),
+        );
+        queue.write_buffer(
+            &self.gpu_state.globals,
+            0,
+            bytemuck::bytes_of(&GlobalUniformBlock {
+                view_proj: self.shadow_view_proj,
+                view_proj_inverse: cgmath::Matrix4::from(self.shadow_view_proj)
+                    .invert()
+                    .unwrap()
+                    .into(),
+                frustum_planes: [
+                    relative_frustum.planes[0].cast().unwrap().into(),
+                    relative_frustum.planes[1].cast().unwrap().into(),
+                    relative_frustum.planes[2].cast().unwrap().into(),
+                    relative_frustum.planes[3].cast().unwrap().into(),
+                    relative_frustum.planes[4].cast().unwrap().into(),
+                ],
+                shadow_view_proj: self.shadow_view_proj,
+                camera: [self.camera.x as f32, self.camera.y as f32, self.camera.z as f32],
+                screen_width: 2048.0,
+                sun_direction: [0.4, 0.7, 0.2],
+                screen_height: 2048.0,
+                sidereal_time: 0.0,
+                _padding: [0.0; 3],
+            }),
+        );
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("encoder.render"),
+        });
+
+        {
+            self.cache.cull_meshes(device, &mut encoder, &self.gpu_state);
+
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.gpu_state.shadowmap.1,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: None,
+                }),
+                label: Some("shadowpass"),
+            });
+            self.cache.render_mesh_shadows(device, &mut rpass, &self.gpu_state);
+        }
+
+        queue.submit(Some(encoder.finish()));
+    }
+
     /// Render the terrain.
     ///
     /// Terrain::update must be called first.
@@ -460,17 +576,17 @@ impl Terrain {
         color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
         frame_size: (u32, u32),
-        view_proj: mint::ColumnMatrix4<f32>,
-        camera: mint::Point3<f64>,
     ) {
-        let relative_frustum =
-            InfiniteFrustum::from_matrix(cgmath::Matrix4::<f32>::from(view_proj).cast().unwrap());
+        let relative_frustum = InfiniteFrustum::from_matrix(
+            cgmath::Matrix4::<f32>::from(self.view_proj).cast().unwrap(),
+        );
         queue.write_buffer(
             &self.gpu_state.globals,
             0,
             bytemuck::bytes_of(&GlobalUniformBlock {
-                view_proj,
-                view_proj_inverse: cgmath::Matrix4::from(view_proj).invert().unwrap().into(),
+                view_proj: self.view_proj,
+                view_proj_inverse: cgmath::Matrix4::from(self.view_proj).invert().unwrap().into(),
+                shadow_view_proj: self.shadow_view_proj,
                 frustum_planes: [
                     relative_frustum.planes[0].cast().unwrap().into(),
                     relative_frustum.planes[1].cast().unwrap().into(),
@@ -478,7 +594,7 @@ impl Terrain {
                     relative_frustum.planes[3].cast().unwrap().into(),
                     relative_frustum.planes[4].cast().unwrap().into(),
                 ],
-                camera: [camera.x as f32, camera.y as f32, camera.z as f32],
+                camera: [self.camera.x as f32, self.camera.y as f32, self.camera.z as f32],
                 screen_width: frame_size.0 as f32,
                 sun_direction: [0.4, 0.7, 0.2],
                 screen_height: frame_size.1 as f32,

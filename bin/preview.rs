@@ -325,21 +325,9 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
-                terrain.update(
-                    &device,
-                    &queue,
-                    position.into(),
-                );
-
-                terrain.render(
-                    &device,
-                    &queue,
-                    &frame,
-                    &depth_buffer,
-                    (size.width, size.height),
-                    view_proj,
-                    position.into(),
-                );
+                terrain.update(&device, &queue, view_proj, position.into());
+                terrain.render_shadows(&device, &queue);
+                terrain.render(&device, &queue, &frame, &depth_buffer, (size.width, size.height));
 
                 drop(frame);
                 frame_texture.present();

@@ -7,6 +7,7 @@
 struct Globals {
     mat4 view_proj;
 	mat4 view_proj_inverse;
+	mat4 shadow_view_proj;
 	vec4 frustum_planes[5];
 	vec3 camera;
 	float screen_width;

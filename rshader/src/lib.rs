@@ -512,7 +512,11 @@ fn reflect_naga(
                                 ScalarKind::Bool => unreachable!(),
                             },
                         },
-                        ImageClass::Depth { .. } => unimplemented!(),
+                        ImageClass::Depth { multi } => wgpu::BindingType::Texture {
+                            multisampled: *multi,
+                            view_dimension,
+                            sample_type: wgpu::TextureSampleType::Depth,
+                        }
                     }
                 }
                 _ => match variable.space {

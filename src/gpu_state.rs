@@ -26,6 +26,7 @@ unsafe impl bytemuck::Zeroable for DrawIndexedIndirect {}
 pub(crate) struct GlobalUniformBlock {
     pub view_proj: mint::ColumnMatrix4<f32>,
     pub view_proj_inverse: mint::ColumnMatrix4<f32>,
+    pub shadow_view_proj: mint::ColumnMatrix4<f32>,
     pub frustum_planes: [[f32; 4]; 5],
     pub camera: [f32; 3],
     pub screen_width: f32,
@@ -72,10 +73,13 @@ pub(crate) struct GpuState {
     pub topdown_depth: (wgpu::Texture, wgpu::TextureView),
     pub topdown_ao: (wgpu::Texture, wgpu::TextureView),
 
+    pub shadowmap: (wgpu::Texture, wgpu::TextureView),
+
     //ground_albedo: (wgpu::Texture, wgpu::TextureView),
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
     linear_wrap: wgpu::Sampler,
+    shadow_sampler: wgpu::Sampler,
 }
 impl GpuState {
     pub(crate) fn new(
@@ -121,8 +125,14 @@ impl GpuState {
                 }),
             ),
             models_albedo: with_view("models.albedo", models.make_models_albedo(device, queue)?),
-            billboards_albedo: with_view("billboards.albedo", models.make_billboards_albedo(device)),
-            billboards_normals: with_view("billboards.normals", models.make_billboards_normals(device)),
+            billboards_albedo: with_view(
+                "billboards.albedo",
+                models.make_billboards_albedo(device),
+            ),
+            billboards_normals: with_view(
+                "billboards.normals",
+                models.make_billboards_normals(device),
+            ),
             billboards_depth: with_view("billboards.depth", models.make_billboards_depth(device)),
             billboards_ao: with_view("billboards.ao", models.make_billboards_ao(device)),
             topdown_albedo: with_view("topdown.albedo", models.make_topdown_albedo(device)),
@@ -133,6 +143,20 @@ impl GpuState {
             //     "ground_albedo",
             //     mapfile.read_texture(device, queue, "ground_albedo")?,
             // ),
+            shadowmap: with_view(
+                "shadowmap",
+                device.create_texture(&wgpu::TextureDescriptor {
+                    size: wgpu::Extent3d { width: 8192, height: 8192, depth_or_array_layers: 1 },
+                    format: wgpu::TextureFormat::Depth24Plus,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    label: Some("texture.shadowmap"),
+                }),
+            ),
+
             tile_cache: cache.make_gpu_tile_cache(device),
             mesh_storage: cache.make_gpu_mesh_storage(device),
             mesh_indirect: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -216,6 +240,17 @@ impl GpuState {
                 label: Some("sampler.linear_wrap"),
                 ..Default::default()
             }),
+            shadow_sampler: device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Linear,
+                min_filter: wgpu::FilterMode::Linear,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                label: Some("sampler.shadow"),
+                compare: Some(wgpu::CompareFunction::GreaterEqual),
+                ..Default::default()
+            }),
         })
     }
 
@@ -253,6 +288,7 @@ impl GpuState {
                                 "billboards_depth" => &self.billboards_depth.1,
                                 "topdown_albedo" => &self.topdown_albedo.1,
                                 "topdown_normals" => &self.topdown_normals.1,
+                                "shadowmap" => &self.shadowmap.1,
                                 // "ground_albedo" => &self.ground_albedo.1,
                                 _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,
                             },
@@ -301,6 +337,7 @@ impl GpuState {
                             }
                             "linear" => &self.linear,
                             "linear_wrap" => &self.linear_wrap,
+                            "shadow_sampler" => &self.shadow_sampler,
                             _ => unreachable!("unrecognized sampler: {}", name),
                         })
                     }
@@ -314,6 +351,9 @@ impl GpuState {
                             }
                             "heightmaps" | "heightmaps_in" => {
                                 *sample_type = wgpu::TextureSampleType::Uint;
+                            }
+                            "shadowmap" => {
+                                *sample_type = wgpu::TextureSampleType::Depth;
                             }
                             _ => {}
                         }

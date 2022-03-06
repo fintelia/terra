@@ -735,4 +735,15 @@ impl TileCache {
             c.render(device, rpass, gpu_state);
         }
     }
+
+    pub fn render_mesh_shadows<'a>(
+        &'a self,
+        device: &wgpu::Device,
+        rpass: &mut wgpu::RenderPass<'a>,
+        gpu_state: &'a GpuState,
+    ) {
+        for (_, c) in &self.meshes {
+            c.render_shadow(device, rpass, gpu_state);
+        }
+    }
 }

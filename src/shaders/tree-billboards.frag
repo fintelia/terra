@@ -19,6 +19,12 @@ layout(binding = 5) uniform texture2DArray billboards_normals;
 layout(binding = 6) uniform texture2DArray billboards_ao;
 layout(binding = 7) uniform texture2DArray billboards_depth;
 
+#ifndef SHADOWPASS
+layout(binding = 9) uniform texture2D shadowmap;
+layout(binding = 10) uniform sampler shadow_sampler;
+layout(location = 0) out vec4 out_color;
+#endif
+
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 layout(location = 2) in vec2 texcoord;
@@ -26,8 +32,6 @@ layout(location = 3) in vec3 normal;
 layout(location = 4) flat in uint slot;
 layout(location = 5) in vec3 right;
 layout(location = 6) in vec3 up;
-
-layout(location = 0) out vec4 out_color;
 
 vec3 extract_normal(vec2 n) {
 	n = n * 2.0 - vec2(1.0);
@@ -50,6 +54,8 @@ float mip_map_level(in vec2 texture_coordinate)
 void main() {
 	vec4 albedo = texture(sampler2DArray(billboards_albedo, linear), vec3(texcoord/6.0, 0));
 	vec2 tx_normal = texture(sampler2DArray(billboards_normals, linear), vec3(texcoord/6.0, 0)).xy;
+	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0), 0).x;
+	float depth = texture(sampler2DArray(billboards_depth, linear), vec3(texcoord/6.0, 0)).x;
 
 	albedo.rgb *= 0.15;
 	albedo.rgb += (color-0.5) * 0.01;
@@ -63,6 +69,21 @@ void main() {
 
 	// albedo.rgb = 0*vec3(0.013,0.037,0.0);
 
+
+	if (albedo.a < 0.5)
+		discard;
+
+#ifndef SHADOWPASS
+
+	float shadow = 0;
+	vec4 proj_position = globals.shadow_view_proj * vec4(position + normal * depth*10, 1);
+	//proj_position.xyz /= proj_position.w;
+	vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
+	if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
+		float depth = proj_position.z - 4.0 / 102400.0;
+		shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
+	}
+
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo.rgb,
 						0.4,
@@ -70,17 +91,15 @@ void main() {
 						true_normal,
 						globals.camera,
 						globals.sun_direction,
-						vec3(100000.0));
+						vec3(100000.0)) * (1-shadow);
 
-	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0)).x;
+
 	out_color.rgb += (1 - ao) * albedo.rgb * 15000 * max(0, dot(up, globals.sun_direction));// * max(dot(true_normal, up), 0);
 
 	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
 	// out_color.rgb *= ap.a * 16.0;
 	// out_color.rgb += ap.rgb * 16.0;
 
-	if (albedo.a < 0.5)
-		discard;
 
    	float ev100 = 15.0;
 	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
@@ -102,4 +121,5 @@ void main() {
 	// else if (level < 0)  out_color.rgb = vec3(1,0,0);
 	// else if (level < 1)  out_color.rgb = vec3(0,1,0);
 	// else if (level < 5)  out_color.rgb = vec3(0,0,1);
+#endif
 }
