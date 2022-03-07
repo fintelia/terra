@@ -24,10 +24,6 @@ void main() {
 	vec4 r1 = globals.view_proj_inverse * vec4(position.xy, 1e-9, 1);
 	vec3 r = normalize(r1.xyz / r1.w - r0.xyz / r0.w);
 
-	float lat = acos(r.z)/3.141592 * 0.5 + 0.5;
-	float lon = atan(r.y, r.x) / 3.141592 * 0.5 + 0.5;
-	OutColor.rgb = vec3(0);//pow(texture(sampler2D(sky, linear), vec2(lon, lat)).rgb, vec3(5)) * 10000;
-
 	vec3 camera = normalize(globals.camera);
     vec3 sun = normalize(globals.sun_direction);
     vec3 a = normalize(cross(camera, sun));
@@ -46,9 +42,5 @@ void main() {
 	vec4 sv = texture(sampler2D(skyview, linear), (vec2(u, phi) * 127 + 0.5) / 128);
 	OutColor.rgb = sv.rgb * 16 + OutColor.rgb * sv.a * 16;
 
-	// OutColor.rgb = vec3(3e10,0,0);
-
-	float ev100 = 15.0;
-	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
-	OutColor = tonemap(OutColor, exposure, 2.2);
+	OutColor = tonemap(OutColor, globals.exposure, 2.2);
 }

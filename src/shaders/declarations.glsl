@@ -14,6 +14,7 @@ struct Globals {
 	vec3 sun_direction;
 	float screen_height;
 	float sidereal_time;
+	float exposure;
 };
 
 struct Indirect {

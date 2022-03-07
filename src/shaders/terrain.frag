@@ -262,7 +262,6 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0)) * (1-shadow);
 
-
 	float ambient_strength = max(0, dot(normal, globals.sun_direction)) * max(0, tex_normal.y);
 	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
 		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * ambient_strength;
@@ -278,9 +277,7 @@ void main() {
 	out_color.rgb *= ap.a * 16.0;
 	out_color.rgb += ap.rgb * 16.0;
 
-	float ev100 = 15.0;
-	float exposure = 1.0 / (pow(2.0, ev100) * 1.2);
-	out_color = tonemap(out_color, exposure, 2.2);
+	out_color = tonemap(out_color, globals.exposure, 2.2);
 
 	out_color.rgb = debug_overlay(out_color.rgb);
 }

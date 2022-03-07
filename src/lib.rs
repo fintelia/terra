@@ -537,7 +537,8 @@ impl Terrain {
                 sun_direction: [0.4, 0.7, 0.2],
                 screen_height: 2048.0,
                 sidereal_time: 0.0,
-                _padding: [0.0; 3],
+                exposure: 1.0,
+                _padding: [0.0; 2],
             }),
         );
 
@@ -600,7 +601,8 @@ impl Terrain {
                 sun_direction: [0.4, 0.7, 0.2],
                 screen_height: frame_size.1 as f32,
                 sidereal_time: 0.0,
-                _padding: [0.0; 3],
+                exposure: 1.0 / (f32::powf(2.0, 15.0) * 1.2),
+                _padding: [0.0; 2],
             }),
         );
 

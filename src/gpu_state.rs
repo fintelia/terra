@@ -33,7 +33,8 @@ pub(crate) struct GlobalUniformBlock {
     pub sun_direction: [f32; 3],
     pub screen_height: f32,
     pub sidereal_time: f32,
-    pub _padding: [f32; 3],
+    pub exposure: f32,
+    pub _padding: [f32; 2],
 }
 unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
