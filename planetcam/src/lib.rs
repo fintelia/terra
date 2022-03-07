@@ -1,7 +1,7 @@
 use std::f64::consts::PI;
 
 use geo::prelude::*;
-use mint::{ColumnMatrix3, Vector3};
+use mint::{ColumnMatrix3, ColumnMatrix4, Vector3};
 
 #[derive(Clone, Debug)]
 struct PlanetCam {
@@ -71,7 +71,8 @@ impl PlanetCam {
         let up = cgmath::Vector3::new(lat.cos() * long.cos(), lat.cos() * long.sin(), lat.sin());
         let position = up * r;
 
-        let adjusted_pitch = (self.pitch.to_radians() - f64::acos(6371000.0 / r)).clamp(-0.499 * PI, 0.499 * PI);
+        let adjusted_pitch =
+            (self.pitch.to_radians() - f64::acos(6371000.0 / r)).clamp(-0.499 * PI, 0.499 * PI);
 
         let start = geo::Point::new(self.longitude, self.latitude);
         let center = start.haversine_destination(self.bearing, 1.0);
@@ -143,8 +144,22 @@ impl DualPlanetCam {
             None => self.free.position_view(terrain_elevation),
         }
     }
-    pub fn free_position_view(&self, terrain_elevation: f64) -> (Vector3<f64>, ColumnMatrix3<f32>) {
-        self.free.position_view(terrain_elevation)
+    pub fn free_position_view(&self, terrain_elevation: f64) -> ColumnMatrix4<f32> {
+        match &self.anchored {
+            Some(a) => {
+                let anchored = a.position_view(terrain_elevation);
+                let free = self.free.position_view(terrain_elevation);
+
+                let look_at = cgmath::Matrix4::from(cgmath::Matrix3::from(free.1));
+                let translation = cgmath::Vector3::from(anchored.0) - cgmath::Vector3::from(free.0);
+
+                (look_at * cgmath::Matrix4::from_translation(translation.cast().unwrap())).into()
+            }
+            None => cgmath::Matrix4::from(cgmath::Matrix3::from(
+                self.free.position_view(terrain_elevation).1,
+            ))
+            .into(),
+        }
     }
 }
 

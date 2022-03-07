@@ -576,6 +576,7 @@ impl Terrain {
         color_buffer: &wgpu::TextureView,
         depth_buffer: &wgpu::TextureView,
         frame_size: (u32, u32),
+        render_view_proj: mint::ColumnMatrix4<f32>,
     ) {
         let relative_frustum = InfiniteFrustum::from_matrix(
             cgmath::Matrix4::<f32>::from(self.view_proj).cast().unwrap(),
@@ -584,8 +585,8 @@ impl Terrain {
             &self.gpu_state.globals,
             0,
             bytemuck::bytes_of(&GlobalUniformBlock {
-                view_proj: self.view_proj,
-                view_proj_inverse: cgmath::Matrix4::from(self.view_proj).invert().unwrap().into(),
+                view_proj: render_view_proj,
+                view_proj_inverse: cgmath::Matrix4::from(render_view_proj).invert().unwrap().into(),
                 shadow_view_proj: self.shadow_view_proj,
                 frustum_planes: [
                     relative_frustum.planes[0].cast().unwrap().into(),

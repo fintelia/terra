@@ -231,8 +231,12 @@ fn main() {
                         last_mouse_position = Some(position);
                     }
                 }
+                #[allow(deprecated)]
                 event::WindowEvent::KeyboardInput {
-                    input: event::KeyboardInput { virtual_keycode: Some(keycode), state, .. },
+                    input:
+                        event::KeyboardInput {
+                            virtual_keycode: Some(keycode), state, modifiers, ..
+                        },
                     ..
                 } => {
                     let pressed = state == event::ElementState::Pressed;
@@ -245,6 +249,15 @@ fn main() {
                         event::VirtualKeyCode::Space => space_key = pressed,
                         event::VirtualKeyCode::Z | event::VirtualKeyCode::Semicolon => {
                             z_key = pressed
+                        }
+                        event::VirtualKeyCode::Tab => {
+                            if pressed && modifiers.ctrl() {
+                                if camera.is_detached() {
+                                    camera.attach();
+                                } else {
+                                    camera.detach();
+                                }
+                            }
                         }
                         _ => {}
                     }
@@ -314,7 +327,7 @@ fn main() {
                 // Compute position and camera matrices.
                 let (lat, long) = camera.latitude_longitude();
                 let surface_height = terrain.get_height(lat.to_radians(), long.to_radians()) as f64;
-                let (position, view) = camera.free_position_view(surface_height + 2.0);
+                let (position, view) = camera.anchored_position_view(surface_height + 2.0);
                 let proj = compute_projection_matrix(size.width as f32, size.height as f32);
                 let view: cgmath::Matrix4<f32> = cgmath::Matrix3::from(view).into();
                 let view_proj = proj * view;
@@ -325,9 +338,25 @@ fn main() {
                     w: view_proj.w.into(),
                 };
 
+                let render_view = camera.free_position_view(surface_height + 2.0);
+                let render_view_proj = proj * cgmath::Matrix4::from(render_view);
+                let render_view_proj = mint::ColumnMatrix4 {
+                    x: render_view_proj.x.into(),
+                    y: render_view_proj.y.into(),
+                    z: render_view_proj.z.into(),
+                    w: render_view_proj.w.into(),
+                };
+
                 terrain.update(&device, &queue, view_proj, position.into());
                 terrain.render_shadows(&device, &queue);
-                terrain.render(&device, &queue, &frame, &depth_buffer, (size.width, size.height));
+                terrain.render(
+                    &device,
+                    &queue,
+                    &frame,
+                    &depth_buffer,
+                    (size.width, size.height),
+                    render_view_proj,
+                );
 
                 drop(frame);
                 frame_texture.present();
