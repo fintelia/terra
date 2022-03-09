@@ -21,7 +21,7 @@ layout(binding = 7) uniform texture2DArray billboards_depth;
 
 #ifndef SHADOWPASS
 layout(binding = 9) uniform texture2D shadowmap;
-layout(binding = 10) uniform sampler shadow_sampler;
+layout(binding = 10) uniform samplerShadow shadow_sampler;
 layout(location = 0) out vec4 out_color;
 #endif
 
