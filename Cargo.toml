@@ -95,5 +95,8 @@ debug = true
 incremental = true
 
 [patch.crates-io]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "a45b9a6" }
+naga = { git = "https://github.com/gfx-rs/naga.git", rev = "012f2a6b2e9328e93939429705fdf9102d9f69b7" }
 wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "87102ccdf5e8e5455f22dee12617c37b8c00bd08" }
+
+[patch.'https://github.com/gfx-rs/naga']
+naga = { git = "https://github.com/gfx-rs//naga", rev = "012f2a6b2e9328e93939429705fdf9102d9f69b7" }

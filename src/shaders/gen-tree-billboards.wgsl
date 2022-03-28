@@ -1,13 +1,13 @@
 struct Entry {
-    position: vec3<f32>;
-    angle: f32;
-    albedo: vec3<f32>;
-    height: f32;
-    padding0: vec4<f32>;
-    padding1: vec4<f32>;
+    position: vec3<f32>,
+    angle: f32,
+    albedo: vec3<f32>,
+    height: f32,
+    padding0: vec4<f32>,
+    padding1: vec4<f32>,
 };
 struct Entries {
-    entries: array<array<Entry, 1024>>;
+    entries: array<array<Entry, 1024>>,
 };
 
 @group(0) @binding(0) var<uniform> ubo: GenMeshUniforms;

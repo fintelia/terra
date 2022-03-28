@@ -1,19 +1,14 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use naga::{
-    ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner, AddressSpace,
+    AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
 };
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-
-thread_local! {
-    static GLSL_COMPILER: RefCell<shaderc::Compiler>  = RefCell::new(shaderc::Compiler::new().unwrap());
-}
 
 pub enum ShaderSource {
     Inline {
@@ -62,7 +57,7 @@ impl ShaderSource {
     }
     pub(crate) fn load(
         &self,
-        stage: shaderc::ShaderKind,
+        stage: naga::ShaderStage,
     ) -> Result<wgpu::ShaderSource<'static>, anyhow::Error> {
         let (name, contents, headers, defines) = match self {
             ShaderSource::Inline { name, contents, headers, defines } => {
@@ -86,60 +81,48 @@ impl ShaderSource {
             }
         };
 
-        // eprintln!("{}", name);
         if let ShaderSource::FilesWGSL { .. } = self {
             Ok(wgpu::ShaderSource::Wgsl(contents.into()))
         } else {
-            // let mut parser = naga::front::glsl::Parser::default();
+            let mut parser = naga::front::glsl::Parser::default();
 
-            // let mut combined_source = contents.clone();
-            // for (name, header_contents) in headers.iter() {
-            //     combined_source = combined_source
-            //         .replace(&format!("\n#include \"{}\"", name), &format!("\n{}", header_contents));
-            // }
-
-            // let module = parser.parse(
-            //     &naga::front::glsl::Options {
-            //         stage: match stage {
-            //             shaderc::ShaderKind::Vertex => naga::ShaderStage::Vertex,
-            //             shaderc::ShaderKind::Fragment => naga::ShaderStage::Fragment,
-            //             shaderc::ShaderKind::Compute => naga::ShaderStage::Compute,
-            //             _ => unreachable!(),
-            //         },
-            //         defines: Default::default(),
-            //     },
-            //     &combined_source,
-            // );
-
-            // if let Err(e) = module {
-            //     for e in e {
-            //         if let Some(range) = e.meta.to_range() {
-            //             println!("ERROR: {:?} '{}'", e.kind, &combined_source[(range.start.max(30) - 30) .. range.end]);
-            //         }
-            //     }
-            // }
-
-            let mut options = shaderc::CompileOptions::new().unwrap();
-            options.set_include_callback(|f, _, _, _| match headers.get(f) {
-                Some(s) => Ok(shaderc::ResolvedInclude {
-                    resolved_name: f.to_string(),
-                    content: s.clone(),
-                }),
-                None => Err("not found".to_string()),
-            });
-            for (m, value) in defines.unwrap() {
-                options.add_macro_definition(m, Some(value));
+            let mut combined_source = defines
+                .unwrap_or(&Vec::new())
+                .iter()
+                .map(|(d, v)| format!("#define {} {}\n", d, v))
+                .collect::<String>()
+                + &contents;
+            for (name, header_contents) in headers.iter() {
+                combined_source = combined_source.replace(
+                    &format!("\n#include \"{}\"", name),
+                    &format!("\n{}", header_contents),
+                );
             }
 
-            let spv: Vec<u32> = GLSL_COMPILER.with(|compiler| -> Result<_, anyhow::Error> {
-                Ok(compiler
-                    .borrow_mut()
-                    .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
-                    .as_binary()
-                    .to_vec())
-            })?;
+            let module = parser.parse(
+                &naga::front::glsl::Options { stage, defines: Default::default() },
+                &combined_source,
+            );
 
-            Ok(wgpu::ShaderSource::SpirV(spv.into()))
+            if let Err(e) = module {
+                for e in e {
+                    if let Some(range) = e.meta.to_range() {
+                        println!(
+                            "ERROR {}: {:?} '{}'",
+                            name,
+                            e.kind,
+                            &combined_source[(range.start.max(30) - 30)..range.end]
+                        );
+                    }
+                }
+                bail!("failed to compile shader");
+            }
+
+            Ok(wgpu::ShaderSource::Glsl {
+                shader: combined_source.into(),
+                stage,
+                defines: Default::default(),
+            })
         }
     }
     pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
@@ -247,8 +230,8 @@ impl ShaderSet {
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             inner: ShaderSetInner::simple(
-                vertex_source.load(shaderc::ShaderKind::Vertex)?,
-                fragment_source.load(shaderc::ShaderKind::Fragment)?,
+                vertex_source.load(naga::ShaderStage::Vertex)?,
+                fragment_source.load(naga::ShaderStage::Fragment)?,
             )?,
             vertex_source: Some(vertex_source),
             fragment_source: Some(fragment_source),
@@ -258,9 +241,7 @@ impl ShaderSet {
     }
     pub fn compute_only(compute_source: ShaderSource) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: ShaderSetInner::compute_only(
-                compute_source.load(shaderc::ShaderKind::Compute)?,
-            )?,
+            inner: ShaderSetInner::compute_only(compute_source.load(naga::ShaderStage::Compute)?)?,
             vertex_source: None,
             fragment_source: None,
             compute_source: Some(compute_source),
@@ -290,11 +271,11 @@ impl ShaderSet {
                 Ok(self.inner =
                     match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
                         (Some(ref vs), Some(ref fs), None) => ShaderSetInner::simple(
-                            vs.load(shaderc::ShaderKind::Vertex)?,
-                            fs.load(shaderc::ShaderKind::Fragment)?,
+                            vs.load(naga::ShaderStage::Vertex)?,
+                            fs.load(naga::ShaderStage::Fragment)?,
                         ),
                         (None, None, Some(ref cs)) => {
-                            ShaderSetInner::compute_only(cs.load(shaderc::ShaderKind::Compute)?)
+                            ShaderSetInner::compute_only(cs.load(naga::ShaderStage::Compute)?)
                         }
                         _ => unreachable!(),
                     }?)
@@ -421,6 +402,10 @@ fn reflect_naga(
                 },
             )?,
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
+            wgpu::ShaderSource::Glsl {shader, stage, ..} => {
+                let mut parser = naga::front::glsl::Parser::default();
+                parser.parse(&naga::front::glsl::Options::from(*stage), &*shader).unwrap()
+            }
             _ => unreachable!(),
         };
 
@@ -516,7 +501,7 @@ fn reflect_naga(
                             multisampled: *multi,
                             view_dimension,
                             sample_type: wgpu::TextureSampleType::Depth,
-                        }
+                        },
                     }
                 }
                 _ => match variable.space {
