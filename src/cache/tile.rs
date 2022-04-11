@@ -14,10 +14,7 @@ use futures::future::BoxFuture;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use std::{
-    num::{NonZeroU32},
-    sync::Arc,
-};
+use std::{num::NonZeroU32, sync::Arc};
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
 
@@ -145,7 +142,7 @@ pub(crate) struct ByteRange {
     pub length: usize,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct LayerParams {
     /// What kind of layer this is. There can be at most one of each layer type in a file.
     pub layer_type: LayerType,
@@ -154,7 +151,7 @@ pub(crate) struct LayerParams {
     /// Number of samples outside the tile on each side.
     pub texture_border_size: u32,
     /// Format used by this layer.
-    pub texture_format: TextureFormat,
+    pub texture_format: &'static [TextureFormat],
 
     pub grid_registration: bool,
 
@@ -379,8 +376,8 @@ impl TileCache {
                 if output_mask.contains_layer(LayerType::Heightmaps)
                     && n.level() <= VNode::LEVEL_CELL_1M
                 {
-                    let bytes_per_pixel =
-                        self.layers[LayerType::Heightmaps].texture_format.bytes_per_block() as u64;
+                    let bytes_per_pixel = self.layers[LayerType::Heightmaps].texture_format[0]
+                        .bytes_per_block() as u64;
                     let resolution = self.layers[LayerType::Heightmaps].texture_resolution as u64;
                     let row_bytes = resolution * bytes_per_pixel;
                     let row_pitch = (row_bytes + 255) & !255;
@@ -396,7 +393,7 @@ impl TileCache {
                     });
                     encoder.copy_texture_to_buffer(
                         wgpu::ImageCopyTexture {
-                            texture: &gpu_state.tile_cache[LayerType::Heightmaps].0,
+                            texture: &gpu_state.tile_cache[LayerType::Heightmaps][0].0,
                             mip_level: 0,
                             origin: wgpu::Origin3d { x: 0, y: 0, z: slot as u32 },
                             aspect: wgpu::TextureAspect::All,
@@ -478,7 +475,7 @@ impl TileCache {
     pub(super) fn upload_tiles(
         &mut self,
         queue: &wgpu::Queue,
-        textures: &VecMap<(wgpu::Texture, wgpu::TextureView)>,
+        textures: &VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
     ) {
         while let Some(mut tile) = self.streamer.try_complete() {
             if let Some(entry) = self.levels[tile.node().level() as usize].entry_mut(&tile.node()) {
@@ -490,7 +487,7 @@ impl TileCache {
 
                 let resolution = self.resolution(tile.layer()) as usize;
                 let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
-                let bytes_per_block = self.layers[tile.layer()].texture_format.bytes_per_block();
+                let bytes_per_block = self.layers[tile.layer()].texture_format[0].bytes_per_block();
                 let row_bytes = resolution_blocks * bytes_per_block;
 
                 let data;
@@ -537,9 +534,10 @@ impl TileCache {
                     }
                 }
 
+                assert_eq!(textures[layer].len(), 1);
                 queue.write_texture(
                     wgpu::ImageCopyTexture {
-                        texture: &textures[layer].0,
+                        texture: &textures[layer][0].0,
                         mip_level: 0,
                         origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
                         aspect: wgpu::TextureAspect::All,
@@ -623,41 +621,54 @@ impl TileCache {
     pub(super) fn make_cache_textures(
         &self,
         device: &wgpu::Device,
-    ) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
+    ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
         self.layers
             .iter()
             .map(|(ty, layer)| {
                 assert!(layer.min_level <= layer.max_level);
-                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    size: wgpu::Extent3d {
-                        width: layer.texture_resolution,
-                        height: layer.texture_resolution,
-                        depth_or_array_layers: (Self::base_slot(layer.max_level + 1)
-                            - Self::base_slot(layer.min_level))
-                            as u32,
-                    },
-                    format: layer.texture_format.to_wgpu(device.features()),
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    usage: wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | if !layer.texture_format.is_compressed() {
-                            wgpu::TextureUsages::STORAGE_BINDING
-                        } else {
-                            wgpu::TextureUsages::empty()
-                        },
-                    label: Some(&format!("texture.tiles.{}", LayerType::from_index(ty).name())),
-                });
-                let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some(&format!(
-                        "texture.tiles.{}.view",
-                        LayerType::from_index(ty).name()
-                    )),
-                    ..Default::default()
-                });
-                (ty, (texture, view))
+                let textures = layer
+                    .texture_format
+                    .iter()
+                    .enumerate()
+                    .map(|(i, format)| {
+                        let texture = device.create_texture(&wgpu::TextureDescriptor {
+                            size: wgpu::Extent3d {
+                                width: layer.texture_resolution,
+                                height: layer.texture_resolution,
+                                depth_or_array_layers: (Self::base_slot(layer.max_level + 1)
+                                    - Self::base_slot(layer.min_level))
+                                    as u32,
+                            },
+                            format: format.to_wgpu(device.features()),
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            usage: wgpu::TextureUsages::COPY_SRC
+                                | wgpu::TextureUsages::COPY_DST
+                                | wgpu::TextureUsages::TEXTURE_BINDING
+                                | if !format.is_compressed() {
+                                    wgpu::TextureUsages::STORAGE_BINDING
+                                } else {
+                                    wgpu::TextureUsages::empty()
+                                },
+                            label: Some(&format!(
+                                "texture.tiles.{}{}",
+                                LayerType::from_index(ty).name(),
+                                i
+                            )),
+                        });
+                        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                            label: Some(&format!(
+                                "texture.tiles.{}{}.view",
+                                LayerType::from_index(ty).name(),
+                                i,
+                            )),
+                            ..Default::default()
+                        });
+                        (texture, view)
+                    })
+                    .collect();
+                (ty, textures)
             })
             .collect()
     }
@@ -737,8 +748,9 @@ impl TileCache {
         self.layers[ty].texture_resolution
     }
     fn resolution_blocks(&self, ty: LayerType) -> u32 {
+        assert_eq!(self.layers[ty].texture_format.len(), 1);
         let resolution = self.layers[ty].texture_resolution;
-        let block_size = self.layers[ty].texture_format.block_size();
+        let block_size = self.layers[ty].texture_format[0].block_size();
         assert_eq!(resolution % block_size, 0);
         resolution / block_size
     }

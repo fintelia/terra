@@ -407,7 +407,7 @@ impl TileCache {
 
         let heightmap_resolution = layers[LayerType::Heightmaps].texture_resolution as usize;
         let heightmap_bytes_per_pixel =
-            layers[LayerType::Heightmaps].texture_format.bytes_per_block() as usize;
+            layers[LayerType::Heightmaps].texture_format[0].bytes_per_block() as usize;
         std::thread::spawn(move || {
             Self::download_thread(
                 start_rx,
@@ -671,7 +671,7 @@ impl TileCache {
     pub fn make_gpu_tile_cache(
         &self,
         device: &wgpu::Device,
-    ) -> VecMap<(wgpu::Texture, wgpu::TextureView)> {
+    ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
         self.make_cache_textures(device)
     }
     pub fn make_gpu_mesh_storage(&self, device: &wgpu::Device) -> VecMap<wgpu::Buffer> {

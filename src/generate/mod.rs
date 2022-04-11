@@ -54,7 +54,7 @@ impl MapFileBuilder {
                     LayerType::Heightmaps => LayerParams {
                         texture_resolution: 521,
                         texture_border_size: 4,
-                        texture_format: TextureFormat::R32,
+                        texture_format: &[TextureFormat::R32],
                         grid_registration: true,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
@@ -63,7 +63,7 @@ impl MapFileBuilder {
                     LayerType::Displacements => LayerParams {
                         texture_resolution: 65,
                         texture_border_size: 0,
-                        texture_format: TextureFormat::RGBA32F,
+                        texture_format: &[TextureFormat::RGBA32F],
                         grid_registration: true,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
@@ -72,7 +72,7 @@ impl MapFileBuilder {
                     LayerType::AlbedoRoughness => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::RGBA8,
+                        texture_format: &[TextureFormat::RGBA8],
                         grid_registration: false,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
@@ -81,7 +81,7 @@ impl MapFileBuilder {
                     LayerType::Normals => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::RG8,
+                        texture_format: &[TextureFormat::RG8],
                         grid_registration: false,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_5MM,
@@ -90,7 +90,7 @@ impl MapFileBuilder {
                     LayerType::GrassCanopy => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::RGBA8,
+                        texture_format: &[TextureFormat::RGBA8],
                         grid_registration: false,
                         min_level: VNode::LEVEL_CELL_1M,
                         max_level: VNode::LEVEL_CELL_1M,
@@ -99,7 +99,7 @@ impl MapFileBuilder {
                     LayerType::AerialPerspective => LayerParams {
                         texture_resolution: 17,
                         texture_border_size: 0,
-                        texture_format: TextureFormat::RGBA16F,
+                        texture_format: &[TextureFormat::RGBA16F],
                         grid_registration: true,
                         min_level: 3,
                         max_level: VNode::LEVEL_SIDE_610M,
@@ -108,7 +108,7 @@ impl MapFileBuilder {
                     LayerType::BentNormals => LayerParams {
                         texture_resolution: 513,
                         texture_border_size: 0,
-                        texture_format: TextureFormat::RGBA8,
+                        texture_format: &[TextureFormat::RGBA8],
                         grid_registration: true,
                         min_level: VNode::LEVEL_CELL_153M,
                         max_level: VNode::LEVEL_CELL_76M,
@@ -117,7 +117,7 @@ impl MapFileBuilder {
                     LayerType::TreeCover => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::R8,
+                        texture_format: &[TextureFormat::R8],
                         grid_registration: false,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_76M,
@@ -126,7 +126,7 @@ impl MapFileBuilder {
                     LayerType::BaseAlbedo => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::RGBA8,
+                        texture_format: &[TextureFormat::RGBA8],
                         grid_registration: false,
                         min_level: 0,
                         max_level: VNode::LEVEL_CELL_610M,
@@ -135,7 +135,7 @@ impl MapFileBuilder {
                     LayerType::TreeAttributes => LayerParams {
                         texture_resolution: 516,
                         texture_border_size: 2,
-                        texture_format: TextureFormat::RGBA8,
+                        texture_format: &[TextureFormat::RGBA8],
                         grid_registration: false,
                         min_level: VNode::LEVEL_CELL_10M,
                         max_level: VNode::LEVEL_CELL_10M,
@@ -144,7 +144,7 @@ impl MapFileBuilder {
                     LayerType::RootAerialPerspective => LayerParams {
                         texture_resolution: 65,
                         texture_border_size: 0,
-                        texture_format: TextureFormat::RGBA16F,
+                        texture_format: &[TextureFormat::RGBA16F],
                         grid_registration: true,
                         min_level: 0,
                         max_level: 0,

@@ -40,7 +40,7 @@ unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 
 pub(crate) struct GpuState {
-    pub tile_cache: VecMap<(wgpu::Texture, wgpu::TextureView)>,
+    pub tile_cache: VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
 
     pub mesh_storage: VecMap<wgpu::Buffer>,
     pub mesh_indirect: wgpu::Buffer,
@@ -291,7 +291,14 @@ impl GpuState {
                                 "topdown_normals" => &self.topdown_normals.1,
                                 "shadowmap" => &self.shadowmap.1,
                                 // "ground_albedo" => &self.ground_albedo.1,
-                                _ => &self.tile_cache[LAYERS_BY_NAME[name]].1,
+                                _ => match name.rsplit_once(char::is_numeric) {
+                                    Some((name, suffix)) => {
+                                        &self.tile_cache[LAYERS_BY_NAME[name]]
+                                            [suffix.parse::<usize>().unwrap()]
+                                        .1
+                                    }
+                                    None => &self.tile_cache[LAYERS_BY_NAME[name]][0].1,
+                                },
                             },
                         );
                     }
