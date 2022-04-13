@@ -88,7 +88,7 @@ void main() {
     uint i = atomicAdd(mesh_indirect.indirect[ubo.mesh_base_entry + entry].vertex_count, 15) / 15;
     grass_storage.entries[ubo.storage_base_entry + entry][i].texcoord = layer_to_texcoord(NORMALS_LAYER).xy;
     grass_storage.entries[ubo.storage_base_entry + entry][i].position = position.xyz;
-    grass_storage.entries[ubo.storage_base_entry + entry][i].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3(-.0)) * mix(vec3(.5), vec3(1.5), r3);
+    grass_storage.entries[ubo.storage_base_entry + entry][i].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value) /* * mix(vec3(.5), vec3(1.5), r3) */;
     grass_storage.entries[ubo.storage_base_entry + entry][i].angle = angle;
     grass_storage.entries[ubo.storage_base_entry + entry][i].slant = r.y;
 }

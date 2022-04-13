@@ -15,8 +15,6 @@ layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
-const uint HEIGHTMAP_BORDER = 4;
-
 shared float heights[16][16];
 
 void main() {

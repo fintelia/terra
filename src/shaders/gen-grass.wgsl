@@ -63,7 +63,7 @@ fn main(
 
     // let texcoord = vec2<f32>(global_id.xy) / 128.0;
     let normal = extract_normal(read_texture(NORMALS_LAYER, global_id).xy);
-    let albedo_value = vec3<f32>(0.1, 0.2, 0.1);//read_texture(ALBEDO_LAYER, global_id).xyz;
+    let albedo_value = read_texture(ALBEDO_LAYER, global_id).xyz;
     let canopy = read_texture(GRASS_CANOPY_LAYER, global_id);
 
     if (normal.y < 0.95) {
@@ -72,10 +72,10 @@ fn main(
 
     // Sample displacements texture at random offset (rnd1, rnd).
     let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
-    let texcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_ratios[DISPLACEMENTS_LAYER];
+    let stexcoord = node.layer_origins[DISPLACEMENTS_LAYER] + texcoord * node.layer_ratios[DISPLACEMENTS_LAYER];
     let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
     let dimensions = textureDimensions(displacements);
-    let stexcoord = max(texcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
+    let stexcoord = max(stexcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
     let f = fract(stexcoord);
     let base_coords = vec2<i32>(stexcoord - f);
     let i00 = textureLoad(displacements, base_coords, array_index, 0);
@@ -85,9 +85,9 @@ fn main(
     let position = mix(mix(i00, i10, f.x), mix(i01, i11, f.x), f.y);
 
     let i = atomicAdd(&mesh_indirect.entries[ubo.mesh_base_entry + entry].vertex_count, 15) / 15;
-    grass_storage.entries[ubo.storage_base_entry + entry][i].texcoord = vec2<f32>(0.0); //layer_to_texcoord(NORMALS_LAYER).xy;
+    grass_storage.entries[ubo.storage_base_entry + entry][i].texcoord = texcoord; //layer_to_texcoord(NORMALS_LAYER).xy;
     grass_storage.entries[ubo.storage_base_entry + entry][i].position = position.xyz;
-    grass_storage.entries[ubo.storage_base_entry + entry][i].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value + vec3<f32>(-.0)) * mix(vec3<f32>(.5), vec3<f32>(1.5), vec3<f32>(rnd2, rnd3, rnd4));
+    grass_storage.entries[ubo.storage_base_entry + entry][i].albedo = ((canopy.rgb - 0.5) * 0.025 + albedo_value) * mix(vec3<f32>(.75), vec3<f32>(1.25), vec3<f32>(rnd2, rnd3, rnd4));
     grass_storage.entries[ubo.storage_base_entry + entry][i].angle = rnd5 * 2.0 * 3.14159265;
     grass_storage.entries[ubo.storage_base_entry + entry][i].slant = rnd1;
 }

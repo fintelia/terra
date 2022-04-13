@@ -85,7 +85,7 @@ void main() {
 
     color = mix(entry.albedo, vec3(0, .4, .01), .0*uv.y);
     texcoord = entry.texcoord;
-    normal = normalize(w + up);
+    normal = up;//normalize(w + up);
 
     gl_Position = globals.view_proj * vec4(position, 1.0);
 }

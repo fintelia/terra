@@ -222,8 +222,8 @@ impl GenerateTile for ShaderGen {
             }
         }
         for layer in layers.values().filter(|l| views_needed.contains_layer(l.layer_type)) {
-                // TODO: handle subsequent images of a layer.
-                image_views.insert(
+            // TODO: handle subsequent images of a layer.
+            image_views.insert(
                 format!("{}_out", layer.layer_type.name()).into(),
                 state.tile_cache[layer.layer_type][0].0.create_view(&wgpu::TextureViewDescriptor {
                     label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),

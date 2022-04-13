@@ -76,7 +76,7 @@ pub(crate) struct GpuState {
 
     pub shadowmap: (wgpu::Texture, wgpu::TextureView),
 
-    //ground_albedo: (wgpu::Texture, wgpu::TextureView),
+    ground_albedo: (wgpu::Texture, wgpu::TextureView),
     nearest: wgpu::Sampler,
     linear: wgpu::Sampler,
     linear_wrap: wgpu::Sampler,
@@ -140,10 +140,10 @@ impl GpuState {
             topdown_normals: with_view("topdown.normals", models.make_topdown_normals(device)),
             topdown_depth: with_view("topdown.depth", models.make_topdown_depth(device)),
             topdown_ao: with_view("topdown.ao", models.make_topdown_ao(device)),
-            // ground_albedo: with_view(
-            //     "ground_albedo",
-            //     mapfile.read_texture(device, queue, "ground_albedo")?,
-            // ),
+            ground_albedo: with_view(
+                "ground_albedo",
+                mapfile.read_texture(device, queue, "ground_albedo")?,
+            ),
             shadowmap: with_view(
                 "shadowmap",
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -290,7 +290,7 @@ impl GpuState {
                                 "topdown_albedo" => &self.topdown_albedo.1,
                                 "topdown_normals" => &self.topdown_normals.1,
                                 "shadowmap" => &self.shadowmap.1,
-                                // "ground_albedo" => &self.ground_albedo.1,
+                                "ground_albedo" => &self.ground_albedo.1,
                                 _ => match name.rsplit_once(char::is_numeric) {
                                     Some((name, suffix)) => {
                                         &self.tile_cache[LAYERS_BY_NAME[name]]

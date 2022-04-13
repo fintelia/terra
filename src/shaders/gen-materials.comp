@@ -21,6 +21,7 @@ layout(binding = 9) uniform texture2DArray tree_attributes;
 layout(binding = 10) uniform texture2D topdown_albedo;
 layout(binding = 11) uniform texture2D topdown_normals;
 layout(binding = 13) uniform sampler nearest;
+layout(binding = 14) uniform texture2DArray ground_albedo;
 
 layout(set = 0, binding = 12, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
@@ -31,7 +32,6 @@ shared vec2 group_normals[16];
 const uint BASE_ALBEDO_BORDER = 2;
 const uint BASE_ALBEDO_INNER_RESOLUTION = 512;
 
-const uint HEIGHTMAP_BORDER = 4;
 const uint NORMALS_BORDER = 2;
 
 vec3 layer_to_texcoord(uint layer) {
@@ -66,6 +66,7 @@ void main() {
 						-1.0 * (h01 + h11 - h00 - h10));
 		normal = normalize(normal);
 	}
+	float height = dot(vec4(0.25), vec4(h00, h10, h01, h11));
 
 	vec4 noise_value = vec4(0.5);//texture(sampler2D(noise, linear_wrap), vec2(world_pos.xy*.0001));
 
@@ -80,7 +81,7 @@ void main() {
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
-	albedo_roughness.rgb = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
+	vec3 balbedo = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
 
 	// if (ubo.parent_slot >= 0) {
 	// 	vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
@@ -97,18 +98,26 @@ void main() {
 	// 	}
 	// }
 
-	// if (is_water)
-	// 	albedo_roughness = vec4(0, .2, 5, 0.4);
-	// else if (smoothstep(2000, 3000, h00) > 1- normal.y)
-	// 	albedo_roughness = vec4(.2, .2, .2, 0.4);
-	// else if (h00 < 2)
-	// 	albedo_roughness = vec4(.2, .2, .15, .8);
-	// else if (normal.y < 0.9)
-	// 	albedo_roughness = vec4(vec3(0.02), 0.8);
-	// else if (h00 > 100 && normal.y < 0.99)
-	// 	albedo_roughness = vec4(0, 0.1, .05, 0.8);
-	// else
-	// 	albedo_roughness = vec4(0, 0.06, .015, 0.8);
+	int lod = max(18 - int(node.level) - 4, 0);
+	vec2 tx = (vec2(node.coords%128) + texcoord) * pow(0.5, int(node.level)-20);
+	vec3 v1 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,0), lod).rgb;
+	vec3 v2 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,1), lod).rgb;
+	vec3 v3 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,2), lod).rgb;
+
+	if (is_water)
+		albedo_roughness = vec4(0, .2, 5, 0.4);
+	else if (smoothstep(2000, 3000, height) > 1 - normal.y)
+		albedo_roughness = vec4(.2, .2, .2, 0.8);
+	else if (height < 2)
+		albedo_roughness = vec4(.2, .2, .15, .8);
+	else if (normal.y < 0.9)
+		albedo_roughness = vec4(vec3(0.06), 0.8);//vec4(v3, .8);//
+	else if (height > 100 && normal.y < 0.99)
+		albedo_roughness = vec4(v2, .8);//vec4(0, 0.1, .01, 0.8);//
+	else
+		albedo_roughness = vec4(v1, .8);//vec4(0, 0.06, .015, 0.8);//
+
+	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, smoothstep(5, 13, node.level) * 0.5);
 
 	// if (is_water) {
 	// 	albedo_roughness.a = 0.4;
@@ -133,7 +142,6 @@ void main() {
 			albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), min(treecover_value, 1));
 		}
 	}
-
 
 	imageStore(normals, out_pos, vec4(normal.xz*0.5+0.5, 0.0, 0.0));
 	imageStore(albedo, out_pos, albedo_roughness);
