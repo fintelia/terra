@@ -2,7 +2,7 @@ use crate::{
     cache::MeshType,
     gpu_state::{DrawIndexedIndirect, GpuState},
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 use std::mem;
 
 #[repr(C)]
@@ -45,7 +45,7 @@ unsafe impl bytemuck::Pod for MeshNodeState {}
 
 pub(crate) struct MeshCacheDesc {
     pub max_bytes_per_node: u64,
-    pub index_buffer: wgpu::Buffer,
+    pub index_buffer: Vec<u32>,
     pub render: rshader::ShaderSet,
     pub render_shadow: Option<rshader::ShaderSet>,
     pub cull_mode: Option<wgpu::Face>,
@@ -62,17 +62,20 @@ pub(crate) struct MeshCache {
     pub(super) base_entry: usize,
     pub(super) num_entries: usize,
 
+    index_buffer_range: Range<u64>,
+
     bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     shadow_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
 impl MeshCache {
-    pub(super) fn new(desc: MeshCacheDesc, base_slot: usize, num_slots: usize) -> Self {
+    pub(super) fn new(desc: MeshCacheDesc, base_slot: usize, num_slots: usize, index_buffer_range: Range<u64>) -> Self {
         Self {
             desc,
             base_entry: base_slot,
             num_entries: num_slots,
             bindgroup_pipeline: None,
             shadow_bindgroup_pipeline: None,
+            index_buffer_range,
         }
     }
 
@@ -214,7 +217,7 @@ impl MeshCache {
         gpu_state: &'a GpuState,
     ) {
         rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-        rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        rpass.set_index_buffer(gpu_state.mesh_index.slice(self.index_buffer_range.clone()), wgpu::IndexFormat::Uint32);
         rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
             rpass.multi_draw_indexed_indirect(
@@ -240,7 +243,7 @@ impl MeshCache {
     ) {
         if self.desc.render_shadow.is_some() {
             rpass.set_pipeline(&self.shadow_bindgroup_pipeline.as_ref().unwrap().1);
-            rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            rpass.set_index_buffer(gpu_state.mesh_index.slice(self.index_buffer_range.clone()), wgpu::IndexFormat::Uint32);
             rpass.set_bind_group(0, &self.shadow_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
                 rpass.multi_draw_indexed_indirect(

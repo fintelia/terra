@@ -2,7 +2,6 @@ use crate::cache::TileCache;
 use cgmath::*;
 use fnv::FnvHashMap;
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
-use wgpu::util::DeviceExt;
 
 /// The central object in terra. It holds all relevant state and provides functions to update and
 /// render the terrain.
@@ -16,7 +15,7 @@ impl QuadTree {
         Self { node_priorities: FnvHashMap::default(), last_camera_position: None }
     }
 
-    pub(crate) fn create_index_buffer(device: &wgpu::Device, resolution: u32) -> wgpu::Buffer {
+    pub(crate) fn create_index_buffer(resolution: u32) -> Vec<u32> {
         let mut data = Vec::new();
         let half_resolution = resolution / 2;
         let width = resolution + 1;
@@ -35,12 +34,7 @@ impl QuadTree {
                 }
             }
         }
-
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            usage: wgpu::BufferUsages::INDEX,
-            label: Some("buffer.terrain.index"),
-            contents: bytemuck::cast_slice(&data),
-        })
+        data
     }
 
     pub fn update_priorities(&mut self, cache: &TileCache, camera: mint::Point3<f64>) {

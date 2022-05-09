@@ -34,7 +34,6 @@ use std::path::Path;
 use std::sync::Arc;
 use terrain::quadtree::QuadTree;
 use types::{InfiniteFrustum, VNode};
-use wgpu::util::DeviceExt;
 
 pub use crate::generate::BLUE_MARBLE_URLS;
 
@@ -120,7 +119,7 @@ impl Terrain {
                     entries_per_node: 4,
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
-                    index_buffer: QuadTree::create_index_buffer(device, 64),
+                    index_buffer: QuadTree::create_index_buffer(64),
                     render_overlapping_levels: false,
                     cull_mode: Some(wgpu::Face::Front),
                     render: rshader::ShaderSet::simple(
@@ -149,22 +148,14 @@ impl Terrain {
                     max_level: VNode::LEVEL_SIDE_5M,
                     cull_mode: None,
                     render_overlapping_levels: true,
-                    index_buffer: {
-                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("buffer.index.grass"),
-                            contents: bytemuck::cast_slice(
-                                &*(0..32 * 32)
-                                    .flat_map(|i| {
-                                        IntoIterator::into_iter([
-                                            0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6,
-                                        ])
-                                        .map(move |j| j + i * 7)
-                                    })
-                                    .collect::<Vec<u32>>(),
-                            ),
-                            usage: wgpu::BufferUsages::INDEX,
+                    index_buffer: (0..32 * 32)
+                        .flat_map(|i| {
+                            IntoIterator::into_iter([
+                                0u32, 1, 2, 3, 2, 1, 2, 3, 4, 5, 4, 3, 4, 5, 6,
+                            ])
+                            .map(move |j| j + i * 7)
                         })
-                    },
+                        .collect::<Vec<u32>>(),
                     render: rshader::ShaderSet::simple(
                         rshader::shader_source!("shaders", "grass.vert", "declarations.glsl"),
                         rshader::shader_source!(
@@ -185,20 +176,11 @@ impl Terrain {
                     max_level: VNode::LEVEL_SIDE_1KM,
                     cull_mode: None,
                     render_overlapping_levels: true,
-                    index_buffer: {
-                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("buffer.index.tree_billboards"),
-                            contents: bytemuck::cast_slice(
-                                &*(0..32 * 32)
-                                    .flat_map(|i| {
-                                        IntoIterator::into_iter([0u32, 1, 2, 3, 2, 1])
-                                            .map(move |j| j + i * 4)
-                                    })
-                                    .collect::<Vec<u32>>(),
-                            ),
-                            usage: wgpu::BufferUsages::INDEX,
+                    index_buffer: (0..32 * 32)
+                        .flat_map(|i| {
+                            IntoIterator::into_iter([0u32, 1, 2, 3, 2, 1]).map(move |j| j + i * 4)
                         })
-                    },
+                        .collect::<Vec<u32>>(),
                     render: rshader::ShaderSet::simple(
                         rshader::shader_source!(
                             "shaders",

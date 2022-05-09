@@ -42,6 +42,7 @@ unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 pub(crate) struct GpuState {
     pub tile_cache: VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
 
+    pub mesh_index: wgpu::Buffer,
     pub mesh_storage: VecMap<wgpu::Buffer>,
     pub mesh_indirect: wgpu::Buffer,
     pub mesh_bounding: wgpu::Buffer,
@@ -159,6 +160,7 @@ impl GpuState {
             ),
 
             tile_cache: cache.make_gpu_tile_cache(device),
+            mesh_index: cache.make_gpu_mesh_index(device),
             mesh_storage: cache.make_gpu_mesh_storage(device),
             mesh_indirect: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 contents: &vec![

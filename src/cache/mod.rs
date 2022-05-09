@@ -19,6 +19,7 @@ use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
+use wgpu::util::DeviceExt;
 
 use self::tile::Entry;
 use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
@@ -360,6 +361,7 @@ pub(crate) struct TileCache {
     free_download_buffers: Vec<wgpu::Buffer>,
     total_download_buffers: usize,
 
+    index_buffer_contents: Vec<u32>,
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
 }
 
@@ -371,13 +373,25 @@ impl TileCache {
     ) -> Self {
         let layers = mapfile.layers().clone();
 
+        let mut index_buffer_contents = Vec::new();
+
         let mut base_slot = 0;
         let mut meshes = Vec::new();
-        for desc in mesh_layers {
+        for mut desc in mesh_layers {
             let num_slots = (TileCache::base_slot(desc.max_level + 1)
                 - TileCache::base_slot(desc.min_level))
                 * desc.entries_per_node;
-            meshes.push((desc.ty as usize, MeshCache::new(desc, base_slot, num_slots)));
+            let index_buffer_offset = index_buffer_contents.len() as u64;
+            index_buffer_contents.append(&mut desc.index_buffer);
+            meshes.push((
+                desc.ty as usize,
+                MeshCache::new(
+                    desc,
+                    base_slot,
+                    num_slots,
+                    index_buffer_offset * 4..index_buffer_contents.len() as u64 * 4,
+                ),
+            ));
             base_slot += num_slots;
         }
         let meshes = meshes.into_iter().collect();
@@ -429,6 +443,7 @@ impl TileCache {
             meshes,
             generators,
             dynamic_generators: generators::dynamic_generators(),
+            index_buffer_contents,
             cull_shader: ComputeShader::new(
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
@@ -673,6 +688,13 @@ impl TileCache {
         device: &wgpu::Device,
     ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
         self.make_cache_textures(device)
+    }
+    pub fn make_gpu_mesh_index(&self, device: &wgpu::Device) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            contents: bytemuck::cast_slice(&self.index_buffer_contents),
+            usage: wgpu::BufferUsages::INDEX,
+            label: Some("buffer.index.mesh"),
+        })
     }
     pub fn make_gpu_mesh_storage(&self, device: &wgpu::Device) -> VecMap<wgpu::Buffer> {
         self.meshes
