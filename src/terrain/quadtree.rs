@@ -16,7 +16,7 @@ impl QuadTree {
         Self { node_priorities: FnvHashMap::default(), last_camera_position: None }
     }
 
-    pub(crate) fn create_index_buffer(device: &wgpu::Device, resolution: u16) -> wgpu::Buffer {
+    pub(crate) fn create_index_buffer(device: &wgpu::Device, resolution: u32) -> wgpu::Buffer {
         let mut data = Vec::new();
         let half_resolution = resolution / 2;
         let width = resolution + 1;

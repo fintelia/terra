@@ -45,7 +45,6 @@ unsafe impl bytemuck::Pod for MeshNodeState {}
 
 pub(crate) struct MeshCacheDesc {
     pub max_bytes_per_node: u64,
-    pub index_format: wgpu::IndexFormat,
     pub index_buffer: wgpu::Buffer,
     pub render: rshader::ShaderSet,
     pub render_shadow: Option<rshader::ShaderSet>,
@@ -215,7 +214,7 @@ impl MeshCache {
         gpu_state: &'a GpuState,
     ) {
         rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-        rpass.set_index_buffer(self.desc.index_buffer.slice(..), self.desc.index_format);
+        rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
             rpass.multi_draw_indexed_indirect(
@@ -241,7 +240,7 @@ impl MeshCache {
     ) {
         if self.desc.render_shadow.is_some() {
             rpass.set_pipeline(&self.shadow_bindgroup_pipeline.as_ref().unwrap().1);
-            rpass.set_index_buffer(self.desc.index_buffer.slice(..), self.desc.index_format);
+            rpass.set_index_buffer(self.desc.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             rpass.set_bind_group(0, &self.shadow_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
                 rpass.multi_draw_indexed_indirect(

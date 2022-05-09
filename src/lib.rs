@@ -120,7 +120,6 @@ impl Terrain {
                     entries_per_node: 4,
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
-                    index_format: wgpu::IndexFormat::Uint16,
                     index_buffer: QuadTree::create_index_buffer(device, 64),
                     render_overlapping_levels: false,
                     cull_mode: Some(wgpu::Face::Front),
@@ -150,7 +149,6 @@ impl Terrain {
                     max_level: VNode::LEVEL_SIDE_5M,
                     cull_mode: None,
                     render_overlapping_levels: true,
-                    index_format: wgpu::IndexFormat::Uint32,
                     index_buffer: {
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("buffer.index.grass"),
@@ -187,17 +185,16 @@ impl Terrain {
                     max_level: VNode::LEVEL_SIDE_1KM,
                     cull_mode: None,
                     render_overlapping_levels: true,
-                    index_format: wgpu::IndexFormat::Uint16,
                     index_buffer: {
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("buffer.index.tree_billboards"),
                             contents: bytemuck::cast_slice(
                                 &*(0..32 * 32)
                                     .flat_map(|i| {
-                                        IntoIterator::into_iter([0u16, 1, 2, 3, 2, 1])
+                                        IntoIterator::into_iter([0u32, 1, 2, 3, 2, 1])
                                             .map(move |j| j + i * 4)
                                     })
-                                    .collect::<Vec<u16>>(),
+                                    .collect::<Vec<u32>>(),
                             ),
                             usage: wgpu::BufferUsages::INDEX,
                         })
