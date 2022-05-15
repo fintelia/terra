@@ -1709,7 +1709,7 @@ _ffloor64(fp64 a)
 #if defined RELAXED_NAN_PROPAGATION
       int(a.y) >= 0
 #else
-      _fge64(a, 0ul)
+      _fge64(a, 0u)
 #endif
       ;
    fp64 tr = _ftrunc64(a);
