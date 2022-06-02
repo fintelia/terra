@@ -22,7 +22,7 @@ instance defaults to `~/.cache/terra` on Linux).
 
 To ensure smooth frame rates and avoid noticable "LOD popping", Terra internally
 uses sphere mapped version of the [Continuous Distance-Dependent Level of
-Detail](https://pdfs.semanticscholar.org/6a75/892f45b72f8765379134e8d2a4ed6a04f1b0.pdf)
+Detail](https://github.com/fstrugar/CDLOD/blob/master/cdlod_paper_latest.pdf)
 algorithm.
 
 ### Incremental Generation
