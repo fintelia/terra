@@ -1,6 +1,7 @@
 #version 450 core
 #include "declarations.glsl"
 #include "pbr.glsl"
+#include "hash.glsl"
 
 layout(set = 0, binding = 0) uniform UniformBlock {
 	Globals globals;
@@ -40,7 +41,8 @@ void main() {
 	u = sqrt(u);
 
 	vec4 sv = texture(sampler2D(skyview, linear), (vec2(u, phi) * 127 + 0.5) / 128);
-	OutColor.rgb = sv.rgb * 16 + OutColor.rgb * sv.a * 16;
+	OutColor.rgb = sv.rgb * 16;
 
 	OutColor = tonemap(OutColor, globals.exposure, 2.2);
+	OutColor.rgb += dither(gl_FragCoord.xy);
 }

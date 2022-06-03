@@ -231,7 +231,8 @@ impl Terrain {
                 "sky.frag",
                 "declarations.glsl",
                 "pbr.glsl",
-                "atmosphere.glsl"
+                "atmosphere.glsl",
+                "hash.glsl"
             ),
         )
         .unwrap();

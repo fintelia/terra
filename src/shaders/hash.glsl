@@ -58,9 +58,9 @@ vec2 guassian_random(vec3 v) {
 	return box_muller_transform(r, random(r));
 }
 
-// vec3 dither() {
-// 	 return vec3(random(gl_FragCoord.xy) - 0.5,
-// 				 random(gl_FragCoord.xy + vec2(1.2345, 6.7890)) - 0.5,
-// 				 random(gl_FragCoord.xy + vec2(6.7890, 1.2345)) - 0.5)
-// 		 * 0.00392156862;
-// }
+vec3 dither(vec2 fragcoord) {
+	 return vec3(random(fragcoord) - 0.5,
+				 random(fragcoord + vec2(1.2345, 6.7890)) - 0.5,
+				 random(fragcoord + vec2(6.7890, 1.2345)) - 0.5)
+		* 0.00392156862;
+}
