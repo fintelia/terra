@@ -64,11 +64,17 @@
  */
 #define RELAXED_NAN_PROPAGATION
 
+uint uaddCarry_polyfill(uint x, uint y, out uint carry) {
+   uint sum = x + y;
+   carry = (sum < x) ? 1 : 0;
+   return sum;
+}
+
 void umulExtended_impl(
    uint x,
   	uint y,
   	out uint msb,
-  	out uint lsb) 
+  	out uint lsb)
 {
    uint x_low = x & 0xffff;
    uint x_high = x >> 16;
@@ -77,8 +83,15 @@ void umulExtended_impl(
 
    uint c1, c2;
 
-   lsb = uaddCarry(uaddCarry(x_low * y_low, ((x_high * y_low) & 0xffff) << 16, c2), ((x_low * y_high) & 0xffff) << 16, c2);
-   msb = x_high * y_high + (x_high * y_low) >> 16 + (x_low * y_high) >> 16 + c1 + c2;
+   lsb = uaddCarry_polyfill(
+      uaddCarry_polyfill(
+         x_low * y_low,
+         ((x_high * y_low) & 0xffff) << 16, c1
+      ),
+      ((x_low * y_high) & 0xffff) << 16,
+      c2
+   );
+   msb = x_high * y_high + (x_high * y_low + x_low * y_high) >> 16 + c1 + c2;
 }
 
 #define umulExtended(x, y, msb, lsb) umulExtended_impl(x, y, msb, lsb)
@@ -618,48 +631,48 @@ _roundAndPackUInt64(uint zSign, uint zFrac0, uint zFrac1, uint zFrac2)
 int
 _countLeadingZeros32(uint a)
 {
-//   return 31 - findMSB(a);
+   return 31 - findMSB(a);
 
-   if (a >= 0x80000000u) return 0;
-   if (a >= 0x40000000u) return 1;
-   if (a >= 0x20000000u) return 2;
-   if (a >= 0x10000000u) return 3;
+   // if (a >= 0x80000000u) return 0;
+   // if (a >= 0x40000000u) return 1;
+   // if (a >= 0x20000000u) return 2;
+   // if (a >= 0x10000000u) return 3;
 
-   if (a >= 0x8000000u) return 4;
-   if (a >= 0x4000000u) return 5;
-   if (a >= 0x2000000u) return 6;
-   if (a >= 0x1000000u) return 7;
+   // if (a >= 0x8000000u) return 4;
+   // if (a >= 0x4000000u) return 5;
+   // if (a >= 0x2000000u) return 6;
+   // if (a >= 0x1000000u) return 7;
 
-   if (a >= 0x800000u) return 8;
-   if (a >= 0x400000u) return 9;
-   if (a >= 0x200000u) return 10;
-   if (a >= 0x100000u) return 11;
+   // if (a >= 0x800000u) return 8;
+   // if (a >= 0x400000u) return 9;
+   // if (a >= 0x200000u) return 10;
+   // if (a >= 0x100000u) return 11;
 
-   if (a >= 0x80000u) return 12;
-   if (a >= 0x40000u) return 13;
-   if (a >= 0x20000u) return 14;
-   if (a >= 0x10000u) return 15;
+   // if (a >= 0x80000u) return 12;
+   // if (a >= 0x40000u) return 13;
+   // if (a >= 0x20000u) return 14;
+   // if (a >= 0x10000u) return 15;
 
-   if (a >= 0x8000u) return 16;
-   if (a >= 0x4000u) return 17;
-   if (a >= 0x2000u) return 18;
-   if (a >= 0x1000u) return 19;
+   // if (a >= 0x8000u) return 16;
+   // if (a >= 0x4000u) return 17;
+   // if (a >= 0x2000u) return 18;
+   // if (a >= 0x1000u) return 19;
 
-   if (a >= 0x800u) return 20;
-   if (a >= 0x400u) return 21;
-   if (a >= 0x200u) return 22;
-   if (a >= 0x100u) return 23;
+   // if (a >= 0x800u) return 20;
+   // if (a >= 0x400u) return 21;
+   // if (a >= 0x200u) return 22;
+   // if (a >= 0x100u) return 23;
 
-   if (a >= 0x80u) return 24;
-   if (a >= 0x40u) return 25;
-   if (a >= 0x20u) return 26;
-   if (a >= 0x10u) return 27;
+   // if (a >= 0x80u) return 24;
+   // if (a >= 0x40u) return 25;
+   // if (a >= 0x20u) return 26;
+   // if (a >= 0x10u) return 27;
 
-   if (a >= 0x8u) return 28;
-   if (a >= 0x4u) return 29;
-   if (a >= 0x2u) return 30;
-   if (a >= 0x1u) return 31;
-   return 32;
+   // if (a >= 0x8u) return 28;
+   // if (a >= 0x4u) return 29;
+   // if (a >= 0x2u) return 30;
+   // if (a >= 0x1u) return 31;
+   // return 32;
 }
 
 /* Takes an abstract floating-point value having sign `zSign', exponent `zExp',
@@ -721,11 +734,11 @@ _propagateFloat64NaN(fp64 a, fp64 b)
  * require a temporary.
  */
 #define EXCHANGE(a, b) \
-   do {                \
+   {                \
        a ^= b;         \
        b ^= a;         \
        a ^= b;         \
-   } while (false)
+   }
 
 /* Returns the result of adding the double-precision floating-point values
  * `a' and `b'.  The operation is performed according to the IEEE Standard for
