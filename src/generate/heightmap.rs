@@ -6,7 +6,7 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use crossbeam::channel::{self, Receiver, Sender};
 use futures::future::{self, BoxFuture, FutureExt};
-use lru_cache::LruCache;
+use lru::LruCache;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::io::Write;
@@ -48,7 +48,7 @@ impl<K: std::hash::Hash + Eq + Copy, T> Cache<K, T> {
             Some(e) => Some(Arc::clone(&e)),
             None => match self.weak.get(&n)?.upgrade() {
                 Some(t) => {
-                    self.strong.insert(n, t.clone());
+                    self.strong.push(n, t.clone());
                     Some(Arc::clone(&t))
                 }
                 None => {
@@ -60,7 +60,7 @@ impl<K: std::hash::Hash + Eq + Copy, T> Cache<K, T> {
     }
     fn insert(&mut self, n: K, a: Arc<T>) {
         self.weak.insert(n, Arc::downgrade(&a));
-        self.strong.insert(n, a);
+        self.strong.push(n, a);
     }
     fn sender(&self) -> Sender<(K, Arc<T>)> {
         self.sender.clone()
@@ -199,97 +199,5 @@ where
             .await?
         }
         .boxed()
-    }
-}
-
-pub(crate) struct HeightmapSectorGen {
-    pub root_resolution: usize,
-    pub root_border_size: usize,
-    pub sector_resolution: usize,
-    pub dems: RasterCache<f32>,
-    pub global_dem: Arc<GlobalRaster<i16>>,
-}
-impl HeightmapSectorGen {
-    pub(crate) fn generate_sector(
-        &mut self,
-        root_node: VNode,
-        x: usize,
-        y: usize,
-        output_file: PathBuf,
-    ) -> (usize, BoxFuture<'static, Result<usize, Error>>) {
-        // Reproject coordinates
-        let coordinates: Vec<_> = (0..(self.sector_resolution * self.sector_resolution))
-            .into_par_iter()
-            .map(|i| {
-                let cspace = root_node.grid_position_cspace(
-                    (x * (self.sector_resolution - 1) + (i % self.sector_resolution)) as i32,
-                    (y * (self.sector_resolution - 1) + (i / self.sector_resolution)) as i32,
-                    self.root_border_size as u32,
-                    self.root_resolution as u32,
-                );
-                let polar = coordinates::cspace_to_polar(cspace);
-                (polar.x.to_degrees(), polar.y.to_degrees())
-            })
-            .collect();
-
-        // Asynchronously start loading required tiles
-        let mut tiles: Vec<_> = coordinates
-            .par_iter()
-            .map(|(lat, long)| (lat.floor() as i16, long.floor() as i16))
-            .collect();
-
-        tiles.dedup();
-        tiles.sort();
-        tiles.dedup();
-
-        let mut rasters = Vec::new();
-        for tile in tiles {
-            rasters.push(
-                self.dems.get(tile.0, tile.1).map(move |f| -> Result<_, Error> { Ok((tile, f?)) }),
-            );
-        }
-
-        let num_rasters = rasters.len();
-        let global_dem = self.global_dem.clone();
-        let resolution = self.sector_resolution;
-        let fut = async move {
-            let mut heightmap = vec![0i16; resolution * resolution];
-
-            let rasters: fnv::FnvHashMap<(i16, i16), Arc<Raster<_>>> =
-                futures::future::try_join_all(rasters)
-                    .await?
-                    .into_iter()
-                    .filter_map(|v: ((i16, i16), Option<Arc<Raster<_>>>)| Some((v.0, v.1?)))
-                    .collect();
-
-            heightmap.par_iter_mut().zip(coordinates.into_par_iter()).for_each(
-                |(h, (lat, long))| {
-                    if let Some(r) = rasters.get(&(lat.floor() as i16, long.floor() as i16)) {
-                        *h = r.interpolate(lat, long, 0).unwrap() as i16;
-                    }
-                    if *h == 0 {
-                        *h = global_dem.interpolate(lat, long, 0) as i16;
-                    }
-                },
-            );
-
-            tokio::task::spawn_blocking(move || {
-                let tile = tilefmt::compress_heightmap_tile(
-                    resolution,
-                    0, // 2 + VNode::LEVEL_CELL_76M.saturating_sub(node.level()) as i8,
-                    &*heightmap,
-                    None, //parent.as_ref().map(|&(i, ref a)| (i, &***a)),
-                    7,
-                );
-
-                AtomicFile::new(output_file, OverwriteBehavior::AllowOverwrite)
-                    .write(|f| f.write_all(&*tile))
-            })
-            .await??;
-            Ok(num_rasters)
-        }
-        .boxed();
-
-        (num_rasters, fut)
     }
 }

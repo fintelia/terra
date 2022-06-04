@@ -105,6 +105,12 @@ pub(crate) fn make_nasadem_raster_cache(
     let mut filenames = Vec::new();
     for latitude in -90..=89i16 {
         for longitude in -180..=179i16 {
+
+            let y = u16::try_from(latitude + 90).unwrap();
+            let x = u16::try_from(longitude + 180).unwrap();
+            let key = usize::from(y * 360 as u16 + x);
+            assert_eq!(key, filenames.len(), "lat={} long={} / y={} x={} / key={} {}", latitude, longitude, y, x, key, filenames.len());
+
             let n_or_s = if latitude >= 0 { 'n' } else { 's' };
             let e_or_w = if longitude >= 0 { 'e' } else { 'w' };
             let filename = format!(
@@ -130,8 +136,14 @@ pub(crate) fn make_treecover_raster_cache(
     capacity: usize,
 ) -> RasterCache<u8> {
     let mut filenames = Vec::new();
-    for latitude in (-80..=90i16).step_by(10) {
-        for longitude in (-180..=179i16).step_by(10) {
+    for latitude in (-90..=80i16).step_by(10) {
+        for longitude in (-180..=170i16).step_by(10) {
+
+            let y = u16::try_from(latitude + 90).unwrap() / 10;
+            let x = u16::try_from(longitude + 180).unwrap() / 10;
+            let key = usize::from(y * 360 / 10 as u16 + x);
+            assert_eq!(key, filenames.len(), "lat={} long={} / y={} x={} / key={} {}", latitude, longitude, y, x, key, filenames.len());
+
             let n_or_s = if latitude >= 0 { 'N' } else { 'S' };
             let e_or_w = if longitude >= 0 { 'E' } else { 'W' };
             let filename = format!(
