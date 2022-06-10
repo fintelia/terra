@@ -418,7 +418,7 @@ impl MapFile {
             let filename = file?.file_name();
             let filename = filename.to_string_lossy();
 
-            if let Some((layer, level, face, x, y, ext)) =
+            if let Ok((layer, level, face, x, y, ext)) =
                 sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
             {
                 let face = face_index(&face);
@@ -448,7 +448,7 @@ impl MapFile {
         let encoded = tokio::fs::read(file_list_path).await?;
         lz4::Decoder::new(std::io::Cursor::new(&encoded))?.read_to_string(&mut remote_files)?;
         for filename in remote_files.split("\n") {
-            if let Some((layer, level, face, x, y, ext)) =
+            if let Ok((layer, level, face, x, y, ext)) =
                 sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
             {
                 let face = face_index(&face);

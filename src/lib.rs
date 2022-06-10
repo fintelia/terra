@@ -53,7 +53,7 @@ pub struct Terrain {
     _models: Models,
 }
 impl Terrain {
-    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(&str, usize, usize) + Send>(
+    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(String, usize, usize) + Send>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         dataset_directory: P,

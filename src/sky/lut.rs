@@ -16,7 +16,7 @@ pub(crate) trait LookupTableDefinition: Sync {
     fn generate(&self, context: &mut AssetLoadContext) -> Result<LookupTable, Error> {
         let size = self.size();
         let total = size[0] as u64 * size[1] as u64 * size[2] as u64;
-        context.reset(&format!("Generating {}... ", &self.name()), total / 1000);
+        context.reset(format!("Generating {}... ", &self.name()), total / 1000);
 
         let data = (0..total)
             .into_iter()

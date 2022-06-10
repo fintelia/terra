@@ -224,7 +224,7 @@ pub(crate) fn reproject_dataset<T, C, F, U, Downsample, FromF64>(
 ) -> impl Future<Output = Result<(), anyhow::Error>>
 where
     T: Into<f64> + Ord + Copy + bytemuck::Pod + Send + Sync + 'static,
-    F: FnMut(&str, usize, usize) + Send,
+    F: FnMut(String, usize, usize) + Send,
     Downsample: Fn(T, T, T, T) -> T + Sync + 'static,
     FromF64: Fn(f64) -> T + Sync + 'static,
     C: tiff::encoder::colortype::ColorType<Inner = T>,
@@ -307,7 +307,7 @@ where
 
         loop {
             progress_callback(
-                &format!("reprojecting {}...", dataset_name),
+                format!("reprojecting {}...", dataset_name),
                 sectors_processed,
                 total_sectors,
             );

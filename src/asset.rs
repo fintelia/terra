@@ -6,6 +6,7 @@ use memmap::MmapMut;
 use num::ToPrimitive;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::io::{BufWriter, Cursor, Read, Write};
 use std::ops::Drop;
 use std::path::PathBuf;
@@ -33,7 +34,11 @@ impl AssetLoadContextBuf {
     pub fn new() -> Self {
         Self { bars: Arc::new(MultiProgress::new()) }
     }
-    pub fn context<N: ToPrimitive>(&mut self, message: &str, total: N) -> AssetLoadContext {
+    pub fn context<N: ToPrimitive>(
+        &mut self,
+        message: impl Into<Cow<'static, str>>,
+        total: N,
+    ) -> AssetLoadContext {
         let bar = ProgressBar::new(total.to_u64().unwrap());
         let bar = self.bars.add(bar);
         bar.set_style(PROGRESS_BAR_STYLE.clone());
@@ -60,7 +65,7 @@ impl<'a> AssetLoadContext<'a> {
         self.bar.set_length(total.to_u64().unwrap());
     }
 
-    pub fn reset<N: ToPrimitive>(&mut self, message: &str, total: N) {
+    pub fn reset<N: ToPrimitive>(&mut self, message: impl Into<Cow<'static, str>>, total: N) {
         let new_bar = ProgressBar::new(total.to_u64().unwrap());
         let new_bar = self.inner.bars.add(new_bar);
 
@@ -82,7 +87,7 @@ impl<'a> AssetLoadContext<'a> {
 
     pub fn increment_level<'b, N: ToPrimitive>(
         &'b mut self,
-        message: &str,
+        message: impl Into<Cow<'static, str>>,
         total: N,
     ) -> AssetLoadContext<'b>
     where
@@ -152,28 +157,28 @@ pub(crate) trait WebAsset {
 
     fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         let context =
-            &mut context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
+            &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
         let filename = TERRA_DIRECTORY.join(self.filename());
 
         if let Ok(file) = File::open(&filename) {
             if let Ok(mut data) = read_file(context, file) {
                 match self.compression() {
                     CompressionType::Snappy => {
-                        context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
+                        context.reset(format!("Decompressing {}... ", &self.filename()), 100);
                         let mut uncompressed = Vec::new();
                         snap::read::FrameDecoder::new(Cursor::new(data))
                             .read_to_end(&mut uncompressed)?;
                         data = uncompressed;
                     }
                     CompressionType::Lz4 => {
-                        context.reset(&format!("Decompressing {}... ", &self.filename()), 100);
+                        context.reset(format!("Decompressing {}... ", &self.filename()), 100);
                         let mut uncompressed = Vec::new();
                         lz4::Decoder::new(Cursor::new(data))?.read_to_end(&mut uncompressed)?;
                         data = uncompressed;
                     }
                     CompressionType::None => {}
                 }
-                context.reset(&format!("Parsing {}... ", &self.filename()), 100);
+                context.reset(format!("Parsing {}... ", &self.filename()), 100);
                 if let Ok(asset) = self.parse(context, data) {
                     return Ok(asset);
                 }
@@ -182,7 +187,7 @@ pub(crate) trait WebAsset {
 
         let mut data = Vec::<u8>::new();
         {
-            context.reset(&format!("Downloading {}... ", &self.filename()), 100);
+            context.reset(format!("Downloading {}... ", &self.filename()), 100);
             // Bytes display will be disabled by the reset() below, or in the event of an error,
             // by the decrement_level() call in the outer scope.
             context.bytes_display_enabled(true);
@@ -214,7 +219,7 @@ pub(crate) trait WebAsset {
             transfer.perform()?;
         }
 
-        context.reset(&format!("Saving {}... ", &self.filename()), 100);
+        context.reset(format!("Saving {}... ", &self.filename()), 100);
         if let Some(parent) = filename.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -231,7 +236,7 @@ pub(crate) trait WebAsset {
             CompressionType::None => file.write_all(&data)?,
         }
         file.sync_all()?;
-        context.reset(&format!("Parsing {}... ", &self.filename()), 100);
+        context.reset(format!("Parsing {}... ", &self.filename()), 100);
         Ok(self.parse(context, data)?)
     }
 }
@@ -244,14 +249,14 @@ pub(crate) trait GeneratedAsset {
 
     fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         let context =
-            &mut context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
+            &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
         let filename = TERRA_DIRECTORY.join(self.filename());
         if let Ok(file) = File::open(&filename) {
             Ok(bincode::deserialize(&read_file(context, file)?)?)
         } else {
-            context.reset(&format!("Generating {}... ", &self.filename()), 100);
+            context.reset(format!("Generating {}... ", &self.filename()), 100);
             let generated = self.generate(context)?;
-            context.reset(&format!("Saving {}... ", &self.filename()), 100);
+            context.reset(format!("Saving {}... ", &self.filename()), 100);
             if let Some(parent) = filename.parent() {
                 fs::create_dir_all(parent)?;
             }
@@ -278,7 +283,7 @@ pub(crate) trait MMappedAsset {
 
     fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, MmapMut), Error> {
         let context =
-            &mut context.increment_level(&format!("Loading {}... ", &self.filename()), 100);
+            &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
         let header_filename = TERRA_DIRECTORY.join(self.filename() + ".hdr");
         let data_filename = TERRA_DIRECTORY.join(self.filename() + ".data");
 
@@ -292,13 +297,13 @@ pub(crate) trait MMappedAsset {
             let mapping = unsafe { MmapMut::map_mut(&data)? };
             Ok((header, mapping))
         } else {
-            context.reset(&format!("Generating {}... ", &self.filename()), 100);
+            context.reset(format!("Generating {}... ", &self.filename()), 100);
             if let Some(parent) = data_filename.parent() {
                 fs::create_dir_all(parent)?;
             }
             let mut data_file = File::create(&data_filename)?;
             let header = self.generate(context, BufWriter::new(&mut data_file))?;
-            context.reset(&format!("Saving {}... ", &self.filename()), 100);
+            context.reset(format!("Saving {}... ", &self.filename()), 100);
             data_file.sync_all()?;
 
             let mut header_file = File::create(&header_filename)?;
@@ -309,7 +314,7 @@ pub(crate) trait MMappedAsset {
             header_file.sync_all()?;
 
             // Open for reading this time
-            context.reset(&format!("Loading {}... ", &self.filename()), 100);
+            context.reset(format!("Loading {}... ", &self.filename()), 100);
             let data_file = OpenOptions::new().read(true).write(true).open(&data_filename)?;
             let mapping = unsafe { MmapMut::map_mut(&data_file)? };
             Ok((header, mapping))

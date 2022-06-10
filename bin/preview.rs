@@ -175,12 +175,12 @@ fn main() {
                     .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
                     .progress_chars("=> "),
             );
-            let mut last_message = None;
-            let progress_callback = |l: &str, i: usize, total: usize| {
-                if last_message.is_none() || l != last_message.as_ref().unwrap() {
+            let mut last_message: Option<String> = None;
+            let progress_callback = |l: String, i: usize, total: usize| {
+                if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
+                    last_message = Some(l.clone());
                     pb.set_message(l);
                     pb.reset_eta();
-                    last_message = Some(l.to_string());
                 }
                 pb.set_length(total as u64);
                 pb.set_position(i as u64);
