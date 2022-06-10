@@ -8,6 +8,7 @@ use crate::terrain::raster::RasterCache;
 use crate::terrain::raster::{GlobalRaster, Raster};
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
+use basis_universal::Transcoder;
 use fnv::FnvHashMap;
 use futures::future::BoxFuture;
 use futures::stream::FuturesUnordered;
@@ -186,6 +187,7 @@ impl MapFileBuilder {
         generate_sky(&mut self.0, &mut context)?;
 
         download_cloudcover(&mut self.0, &mut context)?;
+        download_ground_albedo(&mut self.0, &mut context)?;
         download_models(&mut context)?;
 
         Ok(self.0)
@@ -1207,7 +1209,7 @@ pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
     })
 }
 
-pub(crate) async fn generate_materials<F: FnMut(&str, usize, usize) + Send>(
+pub(crate) async fn generate_materials<F: FnMut(String, usize, usize) + Send>(
     mapfile: &MapFile,
     free_pbr_directory: PathBuf,
     mut progress_callback: F,
@@ -1236,22 +1238,25 @@ pub(crate) async fn generate_materials<F: FnMut(&str, usize, usize) + Send>(
         }
 
         let mut albedo = image::open(albedo_path.unwrap())?.to_rgb8();
-        material::high_pass_filter(&mut albedo);
+        //material::high_pass_filter(&mut albedo);
         assert_eq!(albedo.width(), 2048);
         assert_eq!(albedo.height(), 2048);
 
-        albedo_params.source_image_mut(i as u32).init(&*albedo, 2048, 2048, 3);
+        albedo =
+            image::imageops::resize(&albedo, 1024, 1024, image::imageops::FilterType::Triangle);
+
+        albedo_params.source_image_mut(i as u32).init(&*albedo, 1024, 1024, 3);
     }
 
-    progress_callback("Compressing ground albedo textures", 0, 1);
+    progress_callback("Compressing ground albedo textures".to_owned(), 0, 1);
     let mut compressor = basis_universal::encoding::Compressor::new(8);
     unsafe { compressor.init(&albedo_params) };
     unsafe { compressor.process().unwrap() };
-    progress_callback("Compressing ground albedo textures", 1, 1);
+    progress_callback("Compressing ground albedo textures".to_owned(), 1, 1);
 
     let albedo_desc = TextureDescriptor {
-        width: 2048,
-        height: 2048,
+        width: 1024,
+        height: 1024,
         depth: materials.len() as u32,
         format: TextureFormat::UASTC,
         array_texture: true,
@@ -1300,6 +1305,7 @@ fn generate_sky(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Result
         let sky = WebTextureAsset {
             url: "https://www.eso.org/public/archives/images/original/eso0932a.tif".to_owned(),
             filename: "eso0932a.tif".to_owned(),
+            format: TextureFormat::RGBA8,
         }
         .load(context)?;
         mapfile.write_texture("sky", sky.0, &sky.1)?;
@@ -1337,9 +1343,27 @@ fn download_cloudcover(mapfile: &mut MapFile, context: &mut AssetLoadContext) ->
         let cloudcover = WebTextureAsset {
             url: "https://terra.fintelia.io/file/terra-tiles/clouds_combined.png".to_owned(),
             filename: "clouds_combined.png".to_owned(),
+            format: TextureFormat::RGBA8,
         }
         .load(context)?;
         mapfile.write_texture("cloudcover", cloudcover.0, &cloudcover.1)?;
+    }
+
+    Ok(())
+}
+
+fn download_ground_albedo(
+    mapfile: &mut MapFile,
+    context: &mut AssetLoadContext,
+) -> Result<(), Error> {
+    if !mapfile.reload_texture("ground_albedo") {
+        let texture = WebTextureAsset {
+            url: "https://terra.fintelia.io/file/terra-tiles/ground_albedo.basis".to_owned(),
+            filename: "ground_albedo.basis".to_owned(),
+            format: TextureFormat::UASTC,
+        }
+        .load(context)?;
+        mapfile.write_texture("ground_albedo", texture.0, &texture.1)?;
     }
 
     Ok(())
@@ -1356,6 +1380,7 @@ fn download_models(context: &mut AssetLoadContext) -> Result<(), Error> {
 struct WebTextureAsset {
     url: String,
     filename: String,
+    format: TextureFormat,
 }
 impl WebAsset for WebTextureAsset {
     type Type = (TextureDescriptor, Vec<u8>);
@@ -1367,18 +1392,37 @@ impl WebAsset for WebTextureAsset {
         self.filename.clone()
     }
     fn parse(&self, _context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error> {
-        // TODO: handle other pixel formats
-        let img = image::load_from_memory(&data)?.into_rgba8();
-        Ok((
-            TextureDescriptor {
-                format: TextureFormat::RGBA8,
-                width: img.width(),
-                height: img.height(),
-                depth: 1,
-                array_texture: false,
-            },
-            img.into_raw(),
-        ))
+        match self.format {
+            TextureFormat::UASTC => {
+                let transcoder = Transcoder::new();
+                let depth = transcoder.image_count(&data);
+                let info = transcoder.image_info(&data, 0).unwrap();
+                Ok((
+                    TextureDescriptor {
+                        format: self.format,
+                        width: info.m_width,
+                        height: info.m_height,
+                        depth,
+                        array_texture: true,
+                    },
+                    data,
+                ))
+            }
+            TextureFormat::RGBA8 => {
+                let img = image::load_from_memory(&data)?.into_rgba8();
+                Ok((
+                    TextureDescriptor {
+                        format: TextureFormat::RGBA8,
+                        width: img.width(),
+                        height: img.height(),
+                        depth: 1,
+                        array_texture: false,
+                    },
+                    img.into_raw(),
+                ))
+            }
+            _ => unimplemented!(),
+        }
     }
 }
 

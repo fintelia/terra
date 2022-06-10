@@ -103,12 +103,12 @@ impl Terrain {
         //     &mut progress_callback,
         // )
         // .await?;
-        // generate::generate_materials(
-        //     &*mapfile,
-        //     dataset_directory.join("free_pbr"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
+        generate::generate_materials(
+            &*mapfile,
+            dataset_directory.join("free_pbr"),
+            &mut progress_callback,
+        )
+        .await?;
 
         Self::new_impl(device, queue, mapfile)
     }

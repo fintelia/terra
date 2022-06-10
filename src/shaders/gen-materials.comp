@@ -98,11 +98,11 @@ void main() {
 	// 	}
 	// }
 
-	int lod = max(18 - int(node.level) - 4, 0);
-	vec2 tx = (vec2(node.coords%128) + texcoord) * pow(0.5, int(node.level)-20);
-	vec3 v1 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,0), lod).rgb;
-	vec3 v2 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,1), lod).rgb;
-	vec3 v3 = textureLod(sampler2DArray(ground_albedo, linear_wrap), vec3(tx,2), lod).rgb;
+	int lod = clamp(22 - int(node.level), 0, 10);
+	ivec2 v = (ivec2(node.coords%128) * 512 + ivec2(gl_GlobalInvocationID.xy)) % (1024 >> lod);
+	vec3 v1 = texelFetch(ground_albedo, ivec3(v,0), lod).rgb;
+	vec3 v2 = texelFetch(ground_albedo, ivec3(v,1), lod).rgb;
+	vec3 v3 = texelFetch(ground_albedo, ivec3(v,2), lod).rgb;
 
 	if (is_water)
 		albedo_roughness = vec4(0, .2, 5, 0.4);
