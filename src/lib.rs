@@ -11,6 +11,7 @@ mod asset;
 mod billboards;
 mod cache;
 mod coordinates;
+pub mod download;
 mod generate;
 mod gpu_state;
 mod mapfile;
@@ -63,31 +64,43 @@ impl Terrain {
 
         let dataset_directory = dataset_directory.as_ref();
 
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _, _>(
-            dataset_directory.to_owned(),
-            "treecover",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            false,
-            terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 12),
-            &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
-            &|t| (t * (255.0 / 100.0)) as u8,
-            0,
-        )
-        .await?;
+        // generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _, _>(
+        //     dataset_directory.to_owned(),
+        //     "treecover",
+        //     VNode::LEVEL_CELL_76M,
+        //     &mut progress_callback,
+        //     false,
+        //     terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 12),
+        //     &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
+        //     &|t| (t * (255.0 / 100.0)) as u8,
+        //     0,
+        // )
+        // .await?;
 
-        generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _, _, _>(
+        // generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _, _>(
+        //     dataset_directory.to_owned(),
+        //     "nasadem",
+        //     VNode::LEVEL_CELL_76M,
+        //     &mut progress_callback,
+        //     false,
+        //     vrt_file::VrtFile::new(&dataset_directory.join("nasadem/merged.vrt"))?,
+        //     //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
+        //     &|_, _, _, _| 0,
+        //     &|t| t as i16,
+        //     i16::MIN,
+        // )?;
+
+        generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _>(
             dataset_directory.to_owned(),
-            "nasadem",
+            "copernicus-hgt",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
             false,
-            terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
+            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"))?,
+            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
             &|_, _, _, _| 0,
-            &|t| t as i16,
-            i16::MIN,
-        )
-        .await?;
+            0,
+        )?;
 
         // generate::generate_heightmaps(
         //     &*mapfile,
@@ -103,12 +116,12 @@ impl Terrain {
         //     &mut progress_callback,
         // )
         // .await?;
-        generate::generate_materials(
-            &*mapfile,
-            dataset_directory.join("free_pbr"),
-            &mut progress_callback,
-        )
-        .await?;
+        // generate::generate_materials(
+        //     &*mapfile,
+        //     dataset_directory.join("free_pbr"),
+        //     &mut progress_callback,
+        // )
+        // .await?;
 
         Self::new_impl(device, queue, mapfile)
     }

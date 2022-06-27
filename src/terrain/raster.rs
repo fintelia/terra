@@ -1,21 +1,18 @@
 use crate::coordinates;
 use anyhow::Error;
-use bincode::config::WithOtherEndian;
 use bit_vec::BitVec;
-use crossbeam::channel::{self, Receiver, Sender};
 use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use futures::stream::StreamExt;
 use futures::{Future, FutureExt};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{VecDeque};
 use std::convert::TryFrom;
 use std::f64::consts::PI;
-use std::mem;
 use std::ops::Index;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Mutex};
 
 pub trait Scalar: Copy + 'static {
     fn from_f64(_: f64) -> Self;

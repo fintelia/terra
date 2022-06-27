@@ -18,6 +18,8 @@ struct Opt {
     elevation: f64,
     #[structopt(long)]
     generate: Option<PathBuf>,
+    #[structopt(long)]
+    download: Option<PathBuf>,
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -69,6 +71,12 @@ fn main() {
     env_logger::init();
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
+
+    let opt = Opt::from_args();
+    if let Some(path) = opt.download {
+        terra::download::download_copernicus_wbm(&path).unwrap();
+        terra::download::download_copernicus_hgt(&path).unwrap();
+    }
 
     let trace_path: Option<&std::path::Path> = if cfg!(feature = "trace") {
         std::fs::create_dir_all("trace").unwrap();
@@ -150,7 +158,6 @@ fn main() {
         current_gamepad = Some(gamepad.id());
     }
 
-    let opt = Opt::from_args();
     let plus_center =
         open_location_code::decode(&opt.plus).expect("Failed to parse plus code").center;
 
@@ -177,13 +184,13 @@ fn main() {
             );
             let mut last_message: Option<String> = None;
             let progress_callback = |l: String, i: usize, total: usize| {
+                pb.set_length(total as u64);
+                pb.set_position(i as u64);
                 if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
                     last_message = Some(l.clone());
                     pb.set_message(l);
                     pb.reset_eta();
                 }
-                pb.set_length(total as u64);
-                pb.set_position(i as u64);
             };
 
             runtime

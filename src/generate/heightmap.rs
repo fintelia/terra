@@ -1,15 +1,10 @@
 use crate::cache::LayerType;
-use crate::coordinates;
 use crate::mapfile::MapFile;
-use crate::terrain::raster::{GlobalRaster, Raster, RasterCache};
 use anyhow::Error;
-use atomicwrites::{AtomicFile, OverwriteBehavior};
 use crossbeam::channel::{self, Receiver, Sender};
 use futures::future::{self, BoxFuture, FutureExt};
 use lru::LruCache;
-use rayon::prelude::*;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use types::{VFace, VNode, NODE_OFFSETS};
