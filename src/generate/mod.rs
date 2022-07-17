@@ -222,7 +222,7 @@ pub(crate) fn reproject_dataset<T, C, F, Downsample>(
     no_data_value: T,
 ) -> Result<(), anyhow::Error>
 where
-    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + Send + Sync + 'static + From<i16>,
+    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + Send + Sync + 'static,
     F: FnMut(String, usize, usize) + Send,
     Downsample: Fn(T, T, T, T) -> T + Sync + 'static,
     C: tiff::encoder::colortype::ColorType<Inner = T>,
@@ -230,6 +230,8 @@ where
 {
     let (reprojected_directory, reprojected) =
         scan_directory(&base_directory, format!("{}_reprojected", dataset_name))?;
+
+    let bands = C::BITS_PER_SAMPLE.len();
 
     let mut missing = Vec::new();
     for root_node in VNode::roots() {
@@ -254,10 +256,7 @@ where
 
     let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
 
-    const TILE_RESOLUTION: usize = 516;
-    const BORDER_SIZE: usize = 2;
-    const TILE_INNER_RESOLUTION: usize = TILE_RESOLUTION - BORDER_SIZE * 2;
-
+    const TILE_INNER_RESOLUTION: usize = 512;
     let base_sector_resolution = if grid_registration {
         1 + (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
     } else {
@@ -333,7 +332,7 @@ where
             let reprojected_directory = reprojected_directory.clone();
 
             let resolution = base_sector_resolution as usize;
-            let mut heightmap = vec![no_data_value; resolution * resolution];
+            let mut heightmap = vec![no_data_value; resolution * resolution * bands];
 
             vrt_file.batch_lookup(&*coordinates, &mut heightmap);
 
@@ -341,20 +340,28 @@ where
 
             let mut output_files = Vec::new();
 
-            let mut resolution = base_sector_resolution;
+            let mut resolution = resolution;
             let mut downsampled: Vec<T> = heightmap.clone();
             for level in (min_level..=max_level).rev() {
                 let mut bytes = Vec::new();
 
-                let mut min = downsampled[0];
-                let mut max = downsampled[0];
-                for &v in &downsampled {
-                    min = min.min(v);
-                    max = max.max(v);
+                let mut constant = true;
+                for band in 0..bands {
+                    let mut min = downsampled[band];
+                    let mut max = downsampled[band];
+                    for &v in downsampled.iter().skip(band).step_by(bands) {
+                        min = min.min(v);
+                        max = max.max(v);
+                    }
+                    if min != max {
+                        constant = false;
+                        break;
+                    }
                 }
-                if min == max {
+
+                if constant {
                     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                        .write_image::<C>(1, 1, &[min])?;
+                        .write_image::<C>(1, 1, &downsampled[..bands])?;
                 } else {
                     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
                         .write_image_with_compression::<C, _>(
@@ -378,11 +385,13 @@ where
                     if grid_registration {
                         let half_resolution = (resolution - 1) / 2 + 1;
                         let mut half =
-                            vec![no_data_value; (half_resolution * half_resolution) as usize];
+                            vec![no_data_value; half_resolution * half_resolution * bands];
                         for y in 0..half_resolution {
                             for x in 0..half_resolution {
-                                half[(y * half_resolution + x) as usize] =
-                                    downsampled[(y * 2 * resolution + x * 2) as usize];
+                                for band in 0..bands {
+                                    half[(y * half_resolution + x) * bands + band] =
+                                        downsampled[(y * 2 * resolution + x * 2) * bands + band];
+                                }
                             }
                         }
                         downsampled = half;
@@ -390,16 +399,19 @@ where
                     } else {
                         let half_resolution = resolution / 2;
                         let mut half =
-                            vec![no_data_value; (half_resolution * half_resolution) as usize];
+                            vec![no_data_value; half_resolution * half_resolution * bands];
                         for y in 0..half_resolution {
                             for x in 0..half_resolution {
                                 let (x2, y2) = (x * 2, y * 2);
-                                half[(y * half_resolution + x) as usize] = downsample(
-                                    downsampled[(y2 * resolution + x2) as usize],
-                                    downsampled[((y2 + 1) * resolution + x2) as usize],
-                                    downsampled[(y2 * resolution + x2 + 1) as usize],
-                                    downsampled[((y2 + 1) * resolution + x2 + 1) as usize],
-                                );
+                                for band in 0..bands {
+                                    half[(y * half_resolution + x) * bands + band] = downsample(
+                                        downsampled[(y2 * resolution + x2) * bands + band],
+                                        downsampled[((y2 + 1) * resolution + x2) * bands + band],
+                                        downsampled[(y2 * resolution + x2 + 1) * bands + band],
+                                        downsampled
+                                            [((y2 + 1) * resolution + x2 + 1) * bands + band],
+                                    );
+                                }
                             }
                         }
                         downsampled = half;
@@ -425,57 +437,51 @@ where
     Ok(())
 }
 
-pub(crate) fn merge_datasets_to_tiles<T, C, F, Downsample, FromF64>(
+pub(crate) fn merge_datasets_to_tiles<T, C, F>(
     base_directory: PathBuf,
-    dataset_name: &'static str,
     max_level: u8,
     mut progress_callback: F,
     grid_registration: bool,
 ) -> impl Future<Output = Result<(), anyhow::Error>>
 where
-    T: Into<f64> + num_traits::Zero + Ord + Copy + bytemuck::Pod + Send + Sync + 'static,
-    F: FnMut(&str, usize, usize) + Send,
-    Downsample: Fn(T, T, T, T) -> T + Sync + 'static,
-    FromF64: Fn(f64) -> T + Sync + 'static,
+    T: Into<f64>
+        + num_traits::Zero
+        + Ord
+        + Copy
+        + std::ops::Div<i16, Output = T>
+        + bytemuck::Pod
+        + Send
+        + Sync
+        + 'static,
+    F: FnMut(String, usize, usize) + Send,
     C: tiff::encoder::colortype::ColorType<Inner = T>,
     [T]: tiff::encoder::TiffValue,
 {
     async move {
-        let (reprojected_directory, _reprojected) =
-            scan_directory(&base_directory, format!("{}_reprojected", dataset_name))?;
-        let (tiles_directory, existing_tiles) =
-            scan_directory(&base_directory, format!("tiles/{}", dataset_name))?;
+        let (hgt_directory, _reprojected) =
+            scan_directory(&base_directory, "copernicus-hgt_reprojected")?;
+        let (tiles_directory, existing_tiles) = scan_directory(&base_directory, "tiles")?;
 
         let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
 
-        const TILE_RESOLUTION: usize = 516;
-        const BORDER_SIZE: usize = 2;
-        const TILE_INNER_RESOLUTION: usize = TILE_RESOLUTION - BORDER_SIZE * 2;
+        const TILE_RESOLUTION: usize = 521;
+        const BORDER_SIZE: usize = 4;
+        const TILE_INNER_RESOLUTION: usize = 512; //TILE_RESOLUTION - BORDER_SIZE * 2;
 
         let base_sector_resolution = if grid_registration {
-            1 + (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
+            1 + (512 << max_level) as u32 / (SECTORS_PER_SIDE - 1)
         } else {
-            (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
+            (512 << max_level) as u32 / (SECTORS_PER_SIDE - 1)
         };
 
         base_sector_resolution
             .checked_mul(base_sector_resolution)
             .expect("TODO: Handle sector resolution overflow");
 
-        const MAX_CONCURRENT: usize = 1;
-        const MAX_RASTERS: usize = 8;
-
         let mut total_tiles = 0;
         let mut missing_tiles = Vec::new();
         VNode::breadth_first(|n| {
-            let filename = format!(
-                "{}_{}_{}_{}x{}.tiff",
-                dataset_name,
-                n.level(),
-                VFace(n.face()),
-                n.x(),
-                n.y()
-            );
+            let filename = format!("hgt_{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
 
             total_tiles += 1;
             if !existing_tiles.contains(&filename) {
@@ -486,17 +492,19 @@ where
         });
         missing_tiles.reverse();
 
-        let mut sector_cache =
-            SectorCache::new(32, reprojected_directory.to_owned(), "", "tiff", &|bytes| -> Result<
-                Vec<T>,
-                _,
-            > {
+        let mut sector_cache = SectorCache::new(
+            32,
+            hgt_directory.to_owned(),
+            "",
+            "tiff",
+            &|bytes| -> Result<Vec<T>, _> {
                 let mut decoder = tiff::decoder::Decoder::new(Cursor::new(bytes))?;
                 Ok(match decoder.read_image()? {
-                    tiff::decoder::DecodingResult::U8(v) => bytemuck::cast_vec(v),
+                    tiff::decoder::DecodingResult::I16(v) => bytemuck::cast_vec(v),
                     _ => unimplemented!(),
                 })
-            });
+            },
+        );
         let mut unordered = FuturesUnordered::new();
         let mut tiles_processed = total_tiles - missing_tiles.len();
         while !missing_tiles.is_empty() || !unordered.is_empty() {
@@ -525,10 +533,12 @@ where
 
                 let min_sector_x = (root_x / sector_inner_resolution) as u32;
                 let min_sector_y = (root_y / sector_inner_resolution) as u32;
-                let max_sector_x =
-                    ((root_x + (TILE_RESOLUTION - 1) * step) / sector_inner_resolution) as u32;
-                let max_sector_y =
-                    ((root_y + (TILE_RESOLUTION - 1) * step) / sector_inner_resolution) as u32;
+                let max_sector_x = (((root_x + (TILE_RESOLUTION - 1) * step)
+                    / sector_inner_resolution) as u32)
+                    .min(SECTORS_PER_SIDE - 1);
+                let max_sector_y = (((root_y + (TILE_RESOLUTION - 1) * step)
+                    / sector_inner_resolution) as u32)
+                    .min(SECTORS_PER_SIDE - 1);
                 for y in min_sector_y..=max_sector_y {
                     for x in min_sector_x..=max_sector_x {
                         let s = Sector { face: node.face(), x, y };
@@ -566,41 +576,63 @@ where
                     let encoded = tokio::task::spawn_blocking(move || {
                         for y in 0..TILE_RESOLUTION {
                             for x in 0..TILE_RESOLUTION {
-                                let s = Sector {
+                                let total_x = x * step + root_x;
+                                let total_y = y * step + root_y;
+
+                                let mut s = Sector {
                                     face: node.face(),
-                                    x: ((x * step + root_x) / sector_inner_resolution) as u32,
-                                    y: ((y * step + root_y) / sector_inner_resolution) as u32,
+                                    x: (total_x / sector_inner_resolution) as u32,
+                                    y: (total_y / sector_inner_resolution) as u32,
                                 };
+
+                                if grid_registration {
+                                    if x == TILE_RESOLUTION - 1
+                                        && total_x % sector_inner_resolution == 0
+                                    {
+                                        s.x -= 1;
+                                    }
+                                    if y == TILE_RESOLUTION - 1
+                                        && total_y % sector_inner_resolution == 0
+                                    {
+                                        s.y -= 1;
+                                    }
+                                }
+
                                 let sector = &sectors_map[&s];
                                 if sector.len() == 1 {
-                                    heights[y * TILE_RESOLUTION + x] = sector[0];
+                                    heights[y * TILE_RESOLUTION + x] = sector[0] / 4;
                                 } else {
-                                    let sector_x = (x * step + root_x) % sector_inner_resolution;
-                                    let sector_y = (y * step + root_y) % sector_inner_resolution;
+                                    assert_eq!(sector_resolution * sector_resolution, sector.len());
+                                    let sector_x = total_x - s.x as usize * sector_inner_resolution;
+                                    let sector_y = total_y - s.y as usize * sector_inner_resolution;
 
                                     heights[y * TILE_RESOLUTION + x] =
-                                        sector[sector_y * sector_resolution + sector_x];
+                                        sector[sector_y * sector_resolution + sector_x] / 4;
                                 }
                             }
                         }
 
                         let mut bytes = Vec::new();
                         if heights.iter().any(|&h| h != T::zero()) {
-                            tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                                .write_image_with_compression::<C, _>(
-                                    TILE_RESOLUTION as u32,
-                                    TILE_RESOLUTION as u32,
-                                    tiff::encoder::compression::Lzw,
-                                    &heights,
-                                )?;
-                            // } else {
-                            //     tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                            //         .write_image_with_compression::<C, _>(
-                            //             1,
-                            //             1,
-                            //             tiff::encoder::compression::Lzw,
-                            //             &heights[..1],
-                            //         )?;
+                            let mut e =
+                                lz4::EncoderBuilder::new().level(9).build(&mut bytes).unwrap();
+                            e.write_all(bytemuck::cast_slice(&heights)).unwrap();
+                            e.finish().0;
+                            // tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                            //     .write_image_with_compression::<C, _>(
+                            //         TILE_RESOLUTION as u32,
+                            //         TILE_RESOLUTION as u32,
+                            //         tiff::encoder::compression::Lzw,
+                            //         &heights,
+                            //     )?;
+                        } else {
+                            // tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
+                            //     .write_image_with_compression::<C, _>(
+                            //         1,
+                            //         1,
+                            //         tiff::encoder::compression::Lzw,
+                            //         &heights[..1],
+                            //     )?;
                         }
 
                         Ok::<_, anyhow::Error>((filename, bytes))
@@ -617,7 +649,7 @@ where
 
                 tiles_processed += 1;
                 progress_callback(
-                    &format!("Generating {} tiles...", dataset_name),
+                    "Generating hgt tiles...".to_string(),
                     tiles_processed,
                     total_tiles,
                 );

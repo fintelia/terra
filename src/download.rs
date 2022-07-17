@@ -113,7 +113,9 @@ pub fn download_copernicus_wbm(path: &Path) -> Result<(), anyhow::Error> {
         s3_download(&bucket_fallback, &remote_path, &local_path)
     })?;
 
-    make_vrt(&directory, OsStr::new("tif"))?;
+    if !directory.join("merged.vrt").exists() {
+        make_vrt(&directory, OsStr::new("tif"))?;
+    }
 
     Ok(())
 }
@@ -154,7 +156,9 @@ pub fn download_copernicus_hgt(path: &Path) -> Result<(), anyhow::Error> {
         s3_download(&bucket_fallback, &remote_path, &local_path)
     })?;
 
-    make_vrt(&directory, OsStr::new("tif"))?;
+    if !directory.join("merged.vrt").exists() {
+        make_vrt(&directory, OsStr::new("tif"))?;
+    }
 
     Ok(())
 }
@@ -180,6 +184,7 @@ pub fn download_bluemarble(path: &Path) -> Result<(), anyhow::Error> {
                 r#"  <SimpleSource>
     <SourceFilename relativeToVRT="1">{}</SourceFilename>
     <SourceBand>1</SourceBand>
+    <SourceProperties RasterXSize="21600" RasterYSize="21600" DataType="Byte" />
     <SrcRect xOff="0" yOff="0" xSize="21600" ySize="21600"/>
     <DstRect xOff="{}" yOff="{}" xSize="21600" ySize="21600"/>
   </SimpleSource>
@@ -190,7 +195,8 @@ pub fn download_bluemarble(path: &Path) -> Result<(), anyhow::Error> {
             );
         }
     }
-    data.push_str("</VRTRasterBand>
+    data.push_str(
+        "</VRTRasterBand>
 </VRTDataset>",
     );
     std::fs::write(directory.join("merged.vrt"), data)?;

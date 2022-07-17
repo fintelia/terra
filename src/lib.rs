@@ -95,12 +95,52 @@ impl Terrain {
             "copernicus-hgt",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"))?,
+            true,
+            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"), 1)?,
             //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
             &|_, _, _, _| 0,
             0,
         )?;
+
+        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
+            dataset_directory.to_owned(),
+            "copernicus-wbm",
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            false,
+            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
+            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
+            &|a, b, c, d| {
+                let mut counts = [0; 4];
+                counts[a as usize] += 1;
+                counts[b as usize] += 1;
+                counts[c as usize] += 1;
+                counts[d as usize] += 1;
+                counts.iter().cloned().enumerate().max_by_key(|&(i, count)| (count, i)).unwrap().0
+                    as u8
+            },
+            1,
+        )?;
+
+        generate::reproject_dataset::<u8, tiff::encoder::colortype::RGB8, _, _>(
+            dataset_directory.to_owned(),
+            "bluemarble",
+            VNode::LEVEL_CELL_305M,
+            &mut progress_callback,
+            false,
+            vrt_file::VrtFile::new(&dataset_directory.join("bluemarble/merged.vrt"), 3)?,
+            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
+            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
+            1,
+        )?;
+
+        generate::merge_datasets_to_tiles::<i16, tiff::encoder::colortype::GrayI16, _>(
+            dataset_directory.to_owned(),
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            true,
+        )
+        .await?;
 
         // generate::generate_heightmaps(
         //     &*mapfile,
