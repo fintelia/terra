@@ -7,7 +7,7 @@ use futures::stream::StreamExt;
 use futures::{Future, FutureExt};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use std::convert::TryFrom;
 use std::f64::consts::PI;
 use std::ops::Index;
@@ -315,59 +315,63 @@ impl<T: Send + Sync + 'static> RasterCacheInner<T> {
         }
 
         // Gather futures for the loading of rasters.
-        let raster_futures: Vec<_> = coordinates.iter().zip(&keys).map(|(&(latitude, longitude), &key)| {
-            match &mut self.rasters[key] {
-                RasterCacheEntry::Pending(ref mut queue) => {
-                    let (sender, receiver) = oneshot::channel();
-                    queue.push(sender);
-                    async { Ok::<_, anyhow::Error>(Some(receiver.await?)) }.boxed()
-                }
-                RasterCacheEntry::Loaded(raster) => {
-                    futures::future::ready(Ok(Some(raster.clone()))).boxed()
-                }
-                RasterCacheEntry::Empty => match &self.filenames[key as usize] {
-                    Some(ref filename) => {
-                        assert!(matches!(self.rasters[key], RasterCacheEntry::Empty));
-                        self.rasters[usize::from(key)] = RasterCacheEntry::Pending(Vec::new());
-                        self.reserved_slots += 1;
-                        while self.reserved_slots + self.lru.len() > self.capacity {
-                            self.lru.pop_lru().unwrap();
-                        }
-
-                        let parse = (&self.parse).clone();
-                        let file = tokio::fs::read(filename.clone());
-                        let filename = filename.clone();
-
-                        let rs = self.raster_size_degrees as i16;
-                        let latitude = latitude - (latitude % rs + rs) % rs;
-                        let longitude = longitude - (longitude % rs + rs) % rs;
-                        let arc = arc.clone();
-                        async move {
-                            // Load and parse raster.
-                            let raster = Arc::new(
-                                parse(latitude, longitude, &file.await?)
-                                    .map_err(|_| anyhow::format_err!("{:?}", filename))?,
-                            );
-                            // Insert into rasters map.
-                            let mut inner = arc.lock().unwrap();
-                            match &mut inner.rasters[usize::from(key)] {
-                                RasterCacheEntry::Pending(v) => {
-                                    for sender in v.drain(..) {
-                                        sender.send(raster.clone()).unwrap();
-                                    }
-                                }
-                                _ => unreachable!(),
-                            };
-                            inner.rasters[usize::from(key)] =
-                                RasterCacheEntry::Loaded(raster.clone());
-                            Ok(Some(raster))
-                        }
-                        .boxed()
+        let raster_futures: Vec<_> = coordinates
+            .iter()
+            .zip(&keys)
+            .map(|(&(latitude, longitude), &key)| {
+                match &mut self.rasters[key] {
+                    RasterCacheEntry::Pending(ref mut queue) => {
+                        let (sender, receiver) = oneshot::channel();
+                        queue.push(sender);
+                        async { Ok::<_, anyhow::Error>(Some(receiver.await?)) }.boxed()
                     }
-                    None => futures::future::ready(Ok(None)).boxed(),
-                },
-            }
-        }).collect();
+                    RasterCacheEntry::Loaded(raster) => {
+                        futures::future::ready(Ok(Some(raster.clone()))).boxed()
+                    }
+                    RasterCacheEntry::Empty => match &self.filenames[key as usize] {
+                        Some(ref filename) => {
+                            assert!(matches!(self.rasters[key], RasterCacheEntry::Empty));
+                            self.rasters[usize::from(key)] = RasterCacheEntry::Pending(Vec::new());
+                            self.reserved_slots += 1;
+                            while self.reserved_slots + self.lru.len() > self.capacity {
+                                self.lru.pop_lru().unwrap();
+                            }
+
+                            let parse = (&self.parse).clone();
+                            let file = tokio::fs::read(filename.clone());
+                            let filename = filename.clone();
+
+                            let rs = self.raster_size_degrees as i16;
+                            let latitude = latitude - (latitude % rs + rs) % rs;
+                            let longitude = longitude - (longitude % rs + rs) % rs;
+                            let arc = arc.clone();
+                            async move {
+                                // Load and parse raster.
+                                let raster = Arc::new(
+                                    parse(latitude, longitude, &file.await?)
+                                        .map_err(|_| anyhow::format_err!("{:?}", filename))?,
+                                );
+                                // Insert into rasters map.
+                                let mut inner = arc.lock().unwrap();
+                                match &mut inner.rasters[usize::from(key)] {
+                                    RasterCacheEntry::Pending(v) => {
+                                        for sender in v.drain(..) {
+                                            sender.send(raster.clone()).unwrap();
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                inner.rasters[usize::from(key)] =
+                                    RasterCacheEntry::Loaded(raster.clone());
+                                Ok(Some(raster))
+                            }
+                            .boxed()
+                        }
+                        None => futures::future::ready(Ok(None)).boxed(),
+                    },
+                }
+            })
+            .collect();
 
         let inner = arc.clone();
         async move {

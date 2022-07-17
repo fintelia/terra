@@ -95,7 +95,11 @@ impl MapFile {
             Ok(TileState::MissingBase)
         }
     }
-    pub(crate) async fn read_tile(&self, layer: LayerType, node: VNode) -> Result<Option<Vec<u8>>, Error> {
+    pub(crate) async fn read_tile(
+        &self,
+        layer: LayerType,
+        node: VNode,
+    ) -> Result<Option<Vec<u8>>, Error> {
         assert!(layer.streamed_levels() > 0);
 
         let filename = Self::tile_path(layer, node);
@@ -105,8 +109,8 @@ impl MapFile {
             }
             // unreachable!("{:?}", filename)
             let url = Self::tile_url(layer, node);
-            let client = hyper::Client::builder()
-                .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+            let client =
+                hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
             let resp = client.get(url.parse()?).await?;
             if resp.status().is_success() {
                 let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
@@ -364,7 +368,7 @@ impl MapFile {
     }
 
     fn layer_name_ext_strs(layer: LayerType) -> (&'static str, &'static str) {
-         match layer {
+        match layer {
             LayerType::BaseAlbedo => ("albedo", "png"),
             LayerType::Heightmaps => ("heightmaps", "raw"),
             LayerType::TreeCover => ("treecover", "tiff"),
@@ -396,7 +400,7 @@ impl MapFile {
     pub(crate) async fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
         let (target_layer, target_ext) = Self::layer_name_ext_strs(layer);
 
-        fn face_index(s: &str) -> Option<u8>{
+        fn face_index(s: &str) -> Option<u8> {
             Some(match s {
                 "0E" => 0,
                 "180E" => 1,
@@ -422,7 +426,7 @@ impl MapFile {
                 sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
             {
                 let face = face_index(&face);
-                if layer == target_layer && ext == target_ext && face.is_some(){
+                if layer == target_layer && ext == target_ext && face.is_some() {
                     existing.insert((level, face.unwrap(), x, y));
                 }
             }
@@ -452,7 +456,7 @@ impl MapFile {
                 sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
             {
                 let face = face_index(&face);
-                if layer == target_layer && ext == target_ext && face.is_some(){
+                if layer == target_layer && ext == target_ext && face.is_some() {
                     all.insert((level, face.unwrap(), x, y));
                 }
             }
