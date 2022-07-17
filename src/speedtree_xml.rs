@@ -231,10 +231,11 @@ mod tests {
     fn vertex_size() {
         assert_eq!(std::mem::size_of::<super::Vertex>(), 64);
     }
-    #[test]
-    fn parse_xml() {
-        let t: super::SpeedTreeRaw =
-            quick_xml::de::from_str(include_str!("../assets/Tree/Oak_English_Sapling.xml"))
-                .unwrap();
-    }
+
+    // #[test]
+    // fn parse_xml() {
+    //     let t: super::SpeedTreeRaw =
+    //         quick_xml::de::from_str(include_str!("../assets/Tree/Oak_English_Sapling.xml"))
+    //             .unwrap();
+    // }
 }
