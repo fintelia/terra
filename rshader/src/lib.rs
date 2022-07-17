@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use naga::{
-    ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner, AddressSpace,
+    AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
 };
 use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
 use std::cell::RefCell;
@@ -516,7 +516,7 @@ fn reflect_naga(
                             multisampled: *multi,
                             view_dimension,
                             sample_type: wgpu::TextureSampleType::Depth,
-                        }
+                        },
                     }
                 }
                 _ => match variable.space {

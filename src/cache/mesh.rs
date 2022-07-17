@@ -2,8 +2,8 @@ use crate::{
     cache::MeshType,
     gpu_state::{DrawIndexedIndirect, GpuState},
 };
-use std::{collections::HashMap, ops::Range};
 use std::mem;
+use std::{collections::HashMap, ops::Range};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -68,7 +68,12 @@ pub(crate) struct MeshCache {
     shadow_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
 }
 impl MeshCache {
-    pub(super) fn new(desc: MeshCacheDesc, base_slot: usize, num_slots: usize, index_buffer_range: Range<u64>) -> Self {
+    pub(super) fn new(
+        desc: MeshCacheDesc,
+        base_slot: usize,
+        num_slots: usize,
+        index_buffer_range: Range<u64>,
+    ) -> Self {
         Self {
             desc,
             base_entry: base_slot,
@@ -217,7 +222,10 @@ impl MeshCache {
         gpu_state: &'a GpuState,
     ) {
         rpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
-        rpass.set_index_buffer(gpu_state.mesh_index.slice(self.index_buffer_range.clone()), wgpu::IndexFormat::Uint32);
+        rpass.set_index_buffer(
+            gpu_state.mesh_index.slice(self.index_buffer_range.clone()),
+            wgpu::IndexFormat::Uint32,
+        );
         rpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
         if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
             rpass.multi_draw_indexed_indirect(
@@ -243,7 +251,10 @@ impl MeshCache {
     ) {
         if self.desc.render_shadow.is_some() {
             rpass.set_pipeline(&self.shadow_bindgroup_pipeline.as_ref().unwrap().1);
-            rpass.set_index_buffer(gpu_state.mesh_index.slice(self.index_buffer_range.clone()), wgpu::IndexFormat::Uint32);
+            rpass.set_index_buffer(
+                gpu_state.mesh_index.slice(self.index_buffer_range.clone()),
+                wgpu::IndexFormat::Uint32,
+            );
             rpass.set_bind_group(0, &self.shadow_bindgroup_pipeline.as_ref().unwrap().0, &[]);
             if device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT) {
                 rpass.multi_draw_indexed_indirect(

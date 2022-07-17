@@ -1,17 +1,14 @@
-
 #[macro_use]
 extern crate lazy_static;
-
 
 use serde::{Deserialize, Serialize};
 use std::f64::consts::PI;
 
-
-mod node;
 mod math;
+mod node;
 
-pub use node::{VNode, NODE_OFFSETS};
 pub use math::{BoundingBox, InfiniteFrustum};
+pub use node::{VNode, NODE_OFFSETS};
 
 pub const EARTH_RADIUS: f64 = 6371000.0;
 pub const EARTH_CIRCUMFERENCE: f64 = 2.0 * PI * EARTH_RADIUS;
@@ -38,7 +35,6 @@ impl Ord for Priority {
         self.partial_cmp(other).unwrap()
     }
 }
-
 
 pub struct VFace(pub u8);
 impl std::fmt::Display for VFace {
