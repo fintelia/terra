@@ -107,7 +107,7 @@ impl MeshCache {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
                     vertex: wgpu::VertexState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.{}.vertex", self.desc.ty.name())),
                             source: self.desc.render.vertex(),
                         }),
@@ -115,19 +115,19 @@ impl MeshCache {
                         buffers: &[],
                     },
                     fragment: Some(wgpu::FragmentState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.{}.fragment", self.desc.ty.name())),
                             source: self.desc.render.fragment(),
                         }),
                         entry_point: "main",
-                        targets: &[wgpu::ColorTargetState {
+                        targets: &[Some(wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
                             blend: Some(wgpu::BlendState {
                                 color: wgpu::BlendComponent::REPLACE,
                                 alpha: wgpu::BlendComponent::REPLACE,
                             }),
                             write_mask: wgpu::ColorWrites::ALL,
-                        }],
+                        })],
                     }),
                     primitive: wgpu::PrimitiveState {
                         cull_mode: self.desc.cull_mode,
@@ -170,7 +170,7 @@ impl MeshCache {
                     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                         layout: Some(&render_pipeline_layout),
                         vertex: wgpu::VertexState {
-                            module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                                 label: Some(&format!(
                                     "shader.{}_shadow.vertex",
                                     self.desc.ty.name()
@@ -181,7 +181,7 @@ impl MeshCache {
                             buffers: &[],
                         },
                         fragment: Some(wgpu::FragmentState {
-                            module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                            module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                                 label: Some(&format!(
                                     "shader.{}_shadow.fragment",
                                     self.desc.ty.name()

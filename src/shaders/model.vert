@@ -24,7 +24,9 @@ layout(location = 0) out vec4 position;
 layout(location = 1) out vec2 texcoord;
 layout(location = 2) out vec3 normal;
 layout(location = 3) out float ao;
-layout(location = 4) out mat4 view;
+layout(location = 4) out vec4 view_0;
+layout(location = 5) out vec4 view_1;
+layout(location = 6) out vec4 view_2;
 
 void main() {
     Vertex vertex = model_storage.vertices[gl_VertexIndex];
@@ -46,7 +48,8 @@ void main() {
                        0, 0.1,    0,  0,
                        0,   0,  -0.05,  0,
                        0,   0,    0,  1);
-    view = mat4(
+
+    mat4 view = mat4(
         s.x, u.x, -f.x, 0,
         s.y, u.y, -f.y, 0,
         s.z, u.z, -f.z, 0,
@@ -59,6 +62,10 @@ void main() {
     texcoord = vec2(vertex.texcoord_u, 1-vertex.texcoord_v);
     normal = normalize((view * vec4(vertex.normal,0)).xyz);
     ao = vertex.ao;
+
+    view_0 = view[0];
+    view_1 = view[1];
+    view_2 = view[2];
 
     // position.z = 0.5;
     // position.y -= 1.0;

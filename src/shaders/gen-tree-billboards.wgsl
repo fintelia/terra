@@ -1,26 +1,26 @@
 struct Entry {
-    position: vec3<f32>;
-    angle: f32;
-    albedo: vec3<f32>;
-    height: f32;
-    padding0: vec4<f32>;
-    padding1: vec4<f32>;
+    position: vec3<f32>,
+    angle: f32,
+    albedo: vec3<f32>,
+    height: f32,
+    padding0: vec4<f32>,
+    padding1: vec4<f32>,
 };
 struct Entries {
-    entries: array<array<Entry, 1024>>;
+    entries: array<array<Entry, 1024>>,
 };
 
 @group(0) @binding(0) var<uniform> ubo: GenMeshUniforms;
 @group(0) @binding(1) var<storage, read_write> tree_billboards_storage: Entries;
 @group(0) @binding(2) var<storage, read> nodes: Nodes;
 @group(0) @binding(3) var<storage, read_write> mesh_indirect: Indirects;
-@group(0) @binding(4) var linear: sampler;
+@group(0) @binding(4) var linearsamp: sampler;
 @group(0) @binding(5) var nearest: sampler;
 @group(0) @binding(6) var displacements: texture_2d_array<f32>;
 @group(0) @binding(7) var tree_attributes: texture_2d_array<f32>;
 
 
-@stage(compute)
+@compute
 @workgroup_size(8,8)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,

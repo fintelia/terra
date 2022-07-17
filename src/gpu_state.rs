@@ -345,7 +345,7 @@ impl GpuState {
                                 *binding_type = wgpu::SamplerBindingType::NonFiltering;
                                 &self.nearest
                             }
-                            "linear" => &self.linear,
+                            "linear" | "linearsamp" => &self.linear,
                             "linear_wrap" => &self.linear_wrap,
                             "shadow_sampler" => &self.shadow_sampler,
                             _ => unreachable!("unrecognized sampler: {}", name),

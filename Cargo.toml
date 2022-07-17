@@ -61,7 +61,7 @@ rust-s3 = { version = "0.31.0", features = ["blocking"] }
 serde = { version = "1.0.137", features = ["derive"] }
 serde_json = "1.0.81"
 sled = "0.34.7"
-smaa = { version = "0.6.0", optional = true }
+smaa = { version = "0.7.0", optional = true }
 snap = "1.0.5"
 sscanf = "0.2.1"
 structopt = "0.3.26"
@@ -73,7 +73,7 @@ tokio-stream = "0.1.9"
 types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
 vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "5f29f58bfe0926353cc262f878222cb6555dea69" }
-wgpu = { version = "0.12.0", features = ["spirv"] }
+wgpu = { version = "0.13.1", features = ["spirv"] }
 winit = "0.26.1"
 zip = "0.6.2"
 
@@ -95,7 +95,3 @@ opt-level = 3
 [profile.release]
 debug = true
 incremental = true
-
-[patch.crates-io]
-naga = { git = "https://github.com/gfx-rs/naga", rev = "a45b9a6" }
-wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "87102ccdf5e8e5455f22dee12617c37b8c00bd08" }

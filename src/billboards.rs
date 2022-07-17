@@ -219,7 +219,7 @@ impl Models {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("shader.billboard-texture.vertex"),
                     source: self.shader.vertex(),
                 }),
@@ -227,44 +227,44 @@ impl Models {
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
-                module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("shader.billboard-texture.fragment"),
                     source: self.shader.fragment(),
                 }),
                 entry_point: "main",
                 targets: &[
-                    wgpu::ColorTargetState {
+                    Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent::REPLACE,
                             alpha: wgpu::BlendComponent::REPLACE,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
-                    },
-                    wgpu::ColorTargetState {
+                    }),
+                    Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Snorm,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent::REPLACE,
                             alpha: wgpu::BlendComponent::REPLACE,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
-                    },
-                    wgpu::ColorTargetState {
+                    }),
+                    Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::R16Float,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent::REPLACE,
                             alpha: wgpu::BlendComponent::REPLACE,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
-                    },
-                    wgpu::ColorTargetState {
+                    }),
+                    Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::R8Unorm,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent::REPLACE,
                             alpha: wgpu::BlendComponent::REPLACE,
                         }),
                         write_mask: wgpu::ColorWrites::ALL,
-                    },
+                    }),
                 ],
             }),
             primitive: wgpu::PrimitiveState {
@@ -318,26 +318,26 @@ impl Models {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[
-                        wgpu::RenderPassColorAttachment {
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &albedo_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &normals_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &linear_depth_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &ao_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
+                        }),
                     ],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &depth_view,
@@ -405,26 +405,26 @@ impl Models {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     color_attachments: &[
-                        wgpu::RenderPassColorAttachment {
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &albedo_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &normals_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &linear_depth_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
-                        wgpu::RenderPassColorAttachment {
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
                             view: &ao_view,
                             resolve_target: None,
                             ops: Default::default(),
-                        },
+                        }),
                     ],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &depth_view,

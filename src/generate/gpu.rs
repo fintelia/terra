@@ -58,7 +58,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         push_constant_ranges: &[],
                         label: Some(&format!("pipeline.{}.layout", self.name)),
                     })),
-                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.{}", self.name)),
                         source: self.shader.compute(),
                     }),
@@ -103,6 +103,6 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
         cpass.set_pipeline(&self.bindgroup_pipeline.as_ref().unwrap().1);
         cpass.set_bind_group(0, &self.bindgroup_pipeline.as_ref().unwrap().0, &[]);
-        cpass.dispatch(dimensions.0, dimensions.1, dimensions.2);
+        cpass.dispatch_workgroups(dimensions.0, dimensions.1, dimensions.2);
     }
 }

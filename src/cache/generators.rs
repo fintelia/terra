@@ -128,7 +128,7 @@ impl GenerateTile for MeshGen {
                         push_constant_ranges: &[],
                         label: None,
                     })),
-                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.generate.{}", self.name)),
                         source: self.shaders[i].compute(),
                     }),
@@ -147,7 +147,7 @@ impl GenerateTile for MeshGen {
                 &self.bindgroup_pipeline[i].as_ref().unwrap().0,
                 &[uniform_offset as u32],
             );
-            cpass.dispatch(self.dimensions[i].0, self.dimensions[i].1, self.dimensions[i].2);
+            cpass.dispatch_workgroups(self.dimensions[i].0, self.dimensions[i].1, self.dimensions[i].2);
         }
     }
 }
@@ -215,6 +215,7 @@ impl GenerateTile for ShaderGen {
                             )),
                             base_array_layer: parent_slot as u32,
                             array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
                             ..Default::default()
                         },
                     ),
@@ -229,6 +230,7 @@ impl GenerateTile for ShaderGen {
                     label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),
                     base_array_layer: slot as u32,
                     array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
                     ..Default::default()
                 }),
             );
@@ -241,7 +243,7 @@ impl GenerateTile for ShaderGen {
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
             cpass.set_pipeline(self.pipeline.as_ref().unwrap());
             cpass.set_bind_group(0, self.bind_group.as_ref().unwrap(), &[uniform_offset as u32]);
-            cpass.dispatch(
+            cpass.dispatch_workgroups(
                 (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
                 (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
                 1,
@@ -269,7 +271,7 @@ impl GenerateTile for ShaderGen {
                                 label: None,
                             },
                         )),
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some(&format!("shader.generate.{}", self.name)),
                             source: self.shader.compute().into(),
                         }),
@@ -283,7 +285,7 @@ impl GenerateTile for ShaderGen {
                     encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
                 cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
                 cpass.set_bind_group(0, &bind_group, &[uniform_offset as u32]);
-                cpass.dispatch(
+                cpass.dispatch_workgroups(
                     (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
                     (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
                     1,

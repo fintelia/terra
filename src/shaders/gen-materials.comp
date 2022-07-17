@@ -99,7 +99,7 @@ void main() {
 	// }
 
 	int lod = clamp(22 - int(node.level), 0, 10);
-	ivec2 v = (ivec2(node.coords%128) * 512 + ivec2(gl_GlobalInvocationID.xy)) % (1024 >> lod);
+	uvec2 v = ((node.coords%128) * 512 + uvec2(gl_GlobalInvocationID.xy)) % (1024 >> lod);
 	vec3 v1 = texelFetch(ground_albedo, ivec3(v,0), lod).rgb;
 	vec3 v2 = texelFetch(ground_albedo, ivec3(v,1), lod).rgb;
 	vec3 v3 = texelFetch(ground_albedo, ivec3(v,2), lod).rgb;

@@ -8,13 +8,13 @@ use crate::{
     cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
     terrain::quadtree::QuadTree,
 };
-use futures::{future::BoxFuture, FutureExt};
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
+use std::cmp::Eq;
 use std::hash::Hash;
 use std::num::NonZeroU64;
 use std::ops::{Index, IndexMut};
-use std::{cmp::Eq, sync::Arc};
+use std::sync::Arc;
 use std::{collections::HashMap, num::NonZeroU32};
 pub(crate) use tile::{LayerParams, TextureFormat};
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
@@ -355,9 +355,8 @@ pub(crate) struct TileCache {
     dynamic_generators: Vec<DynamicGenerator>,
 
     streamer: TileStreamerEndpoint,
-    start_download:
-        tokio::sync::mpsc::UnboundedSender<BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>>,
-    completed_downloads: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
+    completed_downloads_tx: crossbeam::channel::Sender<(VNode, wgpu::Buffer, CpuHeightmap)>,
+    completed_downloads_rx: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
     free_download_buffers: Vec<wgpu::Buffer>,
     total_download_buffers: usize,
 
@@ -416,26 +415,13 @@ impl TileCache {
             levels.push(PriorityCache::new(SLOTS_PER_LEVEL));
         }
 
-        let (start_tx, start_rx) = tokio::sync::mpsc::unbounded_channel();
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
-
-        let heightmap_resolution = layers[LayerType::Heightmaps].texture_resolution as usize;
-        let heightmap_bytes_per_pixel =
-            layers[LayerType::Heightmaps].texture_format[0].bytes_per_block() as usize;
-        std::thread::spawn(move || {
-            Self::download_thread(
-                start_rx,
-                completed_tx,
-                heightmap_resolution,
-                heightmap_bytes_per_pixel,
-            )
-        });
 
         Self {
             streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
             level_masks,
-            start_download: start_tx,
-            completed_downloads: completed_rx,
+            completed_downloads_tx: completed_tx,
+            completed_downloads_rx: completed_rx,
             free_download_buffers: Vec::new(),
             total_download_buffers: 0,
             levels,
@@ -497,7 +483,7 @@ impl TileCache {
                         push_constant_ranges: &[],
                         label: None,
                     })),
-                    module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.generate.{}", g.name)),
                         source: g.shader.compute(),
                     }),
@@ -518,19 +504,49 @@ impl TileCache {
 
         queue.submit(Some(command_buffer));
 
-        for (n, buffer) in planned_heightmap_downloads.drain(..) {
-            let _ = self.start_download.send(
-                buffer
-                    .slice(..)
-                    .map_async(wgpu::MapMode::Read)
-                    .then(move |result| {
-                        futures::future::ready(match result {
-                            Ok(()) => Ok((n, buffer)),
-                            Err(_) => Err(()),
-                        })
-                    })
-                    .boxed(),
-            );
+        let heightmap_resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
+        let heightmap_bytes_per_pixel =
+            self.layers[LayerType::Heightmaps].texture_format[0].bytes_per_block() as usize;
+        let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
+        let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
+        for (node, buffer) in planned_heightmap_downloads.drain(..) {
+            let buffer = Arc::new(buffer);
+            let completed_downloads_tx = self.completed_downloads_tx.clone();
+            buffer.clone().slice(..).map_async(wgpu::MapMode::Read, move |r| {
+                if r.is_err() {
+                    return;
+                }
+
+                let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
+                {
+                    let mapped_buffer = buffer.slice(..).get_mapped_range();
+                    for (h, b) in heights
+                        .chunks_exact_mut(heightmap_resolution)
+                        .zip(mapped_buffer.chunks_exact(heightmap_row_pitch))
+                    {
+                        bytemuck::cast_slice_mut(h).copy_from_slice(&b[..heightmap_row_bytes]);
+                    }
+                }
+                buffer.unmap();
+
+                let heights: Vec<f32> =
+                    heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
+                let (mut min, mut max) = (f32::MAX, 0.0);
+                for &h in &heights {
+                    if min < h {
+                        min = h;
+                    }
+                    if max > h {
+                        max = h;
+                    }
+                }
+
+                let _ = completed_downloads_tx.send((
+                    node,
+                    Arc::try_unwrap(buffer).unwrap(),
+                    CpuHeightmap::F32 { min, max, heights: Arc::new(heights) },
+                ));
+            });
         }
 
         self.download_tiles();

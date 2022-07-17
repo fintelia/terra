@@ -1,6 +1,6 @@
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use rayon::iter::{IntoParallelIterator, IntoParallelRefIterator, ParallelIterator};

@@ -105,8 +105,7 @@ fn main() {
             force_fallback_adapter: false,
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let swapchain_format =
-        surface.get_preferred_format(&adapter).expect("No compatible swapchain formats");
+    let swapchain_format = surface.get_supported_formats(&adapter)[0];
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));

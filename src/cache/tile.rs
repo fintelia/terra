@@ -465,7 +465,7 @@ impl TileCache {
                     &g.bindgroup_pipeline.as_ref().unwrap().0,
                     &[uniform_offset as u32],
                 );
-                cpass.dispatch(g.resolution.0, g.resolution.1, nodes.len() as u32);
+                cpass.dispatch_workgroups(g.resolution.0, g.resolution.1, nodes.len() as u32);
             }
         }
 
@@ -559,63 +559,12 @@ impl TileCache {
     }
 
     pub(super) fn download_tiles(&mut self) {
-        while let Ok((node, buffer, heightmap)) = self.completed_downloads.try_recv() {
+        while let Ok((node, buffer, heightmap)) = self.completed_downloads_rx.try_recv() {
             if let Some(entry) = self.levels[node.level() as usize].entry_mut(&node) {
                 self.free_download_buffers.push(buffer);
                 entry.heightmap = Some(heightmap);
             }
         }
-    }
-
-    pub(super) fn download_thread(
-        start_rx: tokio::sync::mpsc::UnboundedReceiver<
-            BoxFuture<'static, Result<(VNode, wgpu::Buffer), ()>>,
-        >,
-        completed_tx: crossbeam::channel::Sender<(VNode, wgpu::Buffer, CpuHeightmap)>,
-        heightmap_resolution: usize,
-        heightmap_bytes_per_pixel: usize,
-    ) {
-        let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
-        let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
-
-        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async move {
-            let mut pending_heightmap_downloads = FuturesUnordered::new();
-            let mut start_rx = tokio_stream::wrappers::UnboundedReceiverStream::new(start_rx).fuse();
-            loop {
-                futures::select! {
-                    n = start_rx.select_next_some() => {
-                        pending_heightmap_downloads.push(n);
-                    }
-                    h = pending_heightmap_downloads.select_next_some() => {
-                        if let Ok((node, buffer)) = h {
-                            let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
-                            {
-                                let mapped_buffer = buffer.slice(..).get_mapped_range();
-                                for (h, b) in heights.chunks_exact_mut(heightmap_resolution).zip(mapped_buffer.chunks_exact(heightmap_row_pitch)) {
-                                    bytemuck::cast_slice_mut(h).copy_from_slice(&b[..heightmap_row_bytes]);
-                                }
-                            }
-                            buffer.unmap();
-
-                            let heights: Vec<f32> =
-                                heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
-                            let (mut min, mut max) = (f32::MAX, 0.0);
-                            for &h in &heights {
-                                if min < h {
-                                    min = h;
-                                }
-                                if max > h {
-                                    max = h;
-                                }
-                            }
-
-                            let _ = completed_tx.send((node, buffer, CpuHeightmap::F32 { min, max, heights: Arc::new(heights) }));
-                        }
-                    }
-                    complete => break,
-                }
-            }
-        });
     }
 
     pub(super) fn make_cache_textures(

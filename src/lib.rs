@@ -198,13 +198,13 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
-                    render_shadow: Some(
+                    render_shadow: None/*Some(
                         rshader::ShaderSet::simple(
                             rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
                             rshader::shader_source!("shaders", "shadowpass.frag"),
                         )
                         .unwrap(),
-                    ),
+                    )*/,
                 },
                 MeshType::Grass => MeshCacheDesc {
                     ty,
@@ -261,7 +261,7 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
-                    render_shadow: Some(
+                    render_shadow: None/*Some(
                         rshader::ShaderSet::simple(
                             rshader::shader_source!(
                                 "shaders",
@@ -278,7 +278,7 @@ impl Terrain {
                             ),
                         )
                         .unwrap(),
-                    ),
+                    )*/,
                 },
             })
             .collect();
@@ -444,7 +444,7 @@ impl Terrain {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
                     vertex: wgpu::VertexState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.vertex"),
                             source: self.sky_shader.vertex(),
                         }),
@@ -452,19 +452,19 @@ impl Terrain {
                         buffers: &[],
                     },
                     fragment: Some(wgpu::FragmentState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some("shader.sky.fragment"),
                             source: self.sky_shader.fragment(),
                         }),
                         entry_point: "main",
-                        targets: &[wgpu::ColorTargetState {
+                        targets: &[Some(wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
                             blend: Some(wgpu::BlendState {
                                 color: wgpu::BlendComponent::REPLACE,
                                 alpha: wgpu::BlendComponent::REPLACE,
                             }),
                             write_mask: wgpu::ColorWrites::ALL,
-                        }],
+                        })],
                     }),
                     primitive: Default::default(),
                     depth_stencil: Some(wgpu::DepthStencilState {
@@ -503,7 +503,7 @@ impl Terrain {
                 device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     layout: Some(&render_pipeline_layout),
                     vertex: wgpu::VertexState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some("shader.stars.vertex"),
                             source: self.stars_shader.vertex(),
                         }),
@@ -511,16 +511,16 @@ impl Terrain {
                         buffers: &[],
                     },
                     fragment: Some(wgpu::FragmentState {
-                        module: &device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                        module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                             label: Some("shader.stars.fragment"),
                             source: self.stars_shader.fragment(),
                         }),
                         entry_point: "main",
-                        targets: &[wgpu::ColorTargetState {
+                        targets: &[Some(wgpu::ColorTargetState {
                             format: wgpu::TextureFormat::Bgra8UnormSrgb,
                             blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                             write_mask: wgpu::ColorWrites::ALL,
-                        }],
+                        })],
                     }),
                     primitive: Default::default(),
                     depth_stencil: Some(wgpu::DepthStencilState {
@@ -663,11 +663,11 @@ impl Terrain {
             self.generate_skyview.run(device, &mut encoder, &self.gpu_state, (16, 16, 1), &());
 
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: color_buffer,
                     resolve_target: None,
                     ops: wgpu::Operations::default(),
-                }],
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth_buffer,
                     depth_ops: Some(wgpu::Operations::default()),

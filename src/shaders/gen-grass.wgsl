@@ -1,21 +1,21 @@
 struct Entry {
-    position: vec3<f32>;
-    angle: f32;
-    albedo: vec3<f32>;
-    slant: f32;
-    texcoord: vec2<f32>;
-    padding1: vec2<f32>;
-    padding2: vec4<f32>;
+    position: vec3<f32>,
+    angle: f32,
+    albedo: vec3<f32>,
+    slant: f32,
+    texcoord: vec2<f32>,
+    padding1: vec2<f32>,
+    padding2: vec4<f32>,
 };
 struct Entries {
-    entries: array<array<Entry, 1024>>;
+    entries: array<array<Entry, 1024>>,
 };
 
 @group(0) @binding(0) var<uniform> ubo: GenMeshUniforms;
 @group(0) @binding(1) var<storage, read_write> grass_storage: Entries;
 @group(0) @binding(3) var<storage, read_write> mesh_indirect: Indirects;
 @group(0) @binding(4) var<storage, read> nodes: Nodes;
-@group(0) @binding(5) var linear: sampler;
+@group(0) @binding(5) var linearsamp: sampler;
 @group(0) @binding(6) var displacements: texture_2d_array<f32>;
 @group(0) @binding(7) var normals: texture_2d_array<f32>;
 @group(0) @binding(8) var albedo: texture_2d_array<f32>;
@@ -28,9 +28,9 @@ fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
     let array_index = node.layer_slots[layer];
 
     let l = layer % NUM_LAYERS;
-    if (l == ALBEDO_LAYER) {            return textureSampleLevel(albedo, linear, texcoord, array_index, 0.0); }
-    else if (l == NORMALS_LAYER) {           return textureSampleLevel(normals, linear, texcoord, array_index, 0.0); }
-    else if (l == GRASS_CANOPY_LAYER) {      return textureSampleLevel(grass_canopy, linear, texcoord, array_index, 0.0); }
+    if (l == ALBEDO_LAYER) {            return textureSampleLevel(albedo, linearsamp, texcoord, array_index, 0.0); }
+    else if (l == NORMALS_LAYER) {           return textureSampleLevel(normals, linearsamp, texcoord, array_index, 0.0); }
+    else if (l == GRASS_CANOPY_LAYER) {      return textureSampleLevel(grass_canopy, linearsamp, texcoord, array_index, 0.0); }
     else if (l == DISPLACEMENTS_LAYER) {
         let dimensions = textureDimensions(displacements);
         let f = fract(texcoord.xy * vec2<f32>(dimensions));
@@ -45,7 +45,7 @@ fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
     return vec4<f32>(1.0, 0.0, 1.0, 1.0);
 }
 
-@stage(compute)
+@compute
 @workgroup_size(8,8)
 fn main(
     @builtin(global_invocation_id) global_id: vec3<u32>,

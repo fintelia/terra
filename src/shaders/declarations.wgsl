@@ -1,40 +1,40 @@
 
 struct Node {
-    node_center: array<vec2<u32>, 4>;
+    node_center: array<vec2<u32>, 4>,
 
-    layer_origins: array<vec2<f32>, 48>;
-    layer_ratios: array<f32, 48>;
-    layer_slots: array<i32, 48>;
-	relative_position: vec3<f32>;
-	min_distance: f32;
-	mesh_valid_mask: array<u32, 4>;
-    face: u32;
-	level: u32;
-    coords: vec2<u32>;
+    layer_origins: array<vec2<f32>, 48>,
+    layer_ratios: array<f32, 48>,
+    layer_slots: array<i32, 48>,
+	relative_position: vec3<f32>,
+	min_distance: f32,
+	mesh_valid_mask: array<u32, 4>,
+    face: u32,
+	level: u32,
+    coords: vec2<u32>,
 
-    parent: i32;
-	padding2: array<u32, 43>;
+    parent: i32,
+	padding2: array<u32, 43>,
 };
 struct Nodes {
-    entries: array<Node>;
+    entries: array<Node>,
 };
 
 struct GenMeshUniforms {
-    slot: u32;
-    storage_base_entry: u32;
-    mesh_base_entry: u32;
-    entries_per_node: u32;
+    slot: u32,
+    storage_base_entry: u32,
+    mesh_base_entry: u32,
+    entries_per_node: u32,
 };
 
 struct Indirect {
-    vertex_count: atomic<i32>; // TODO: why doesn't u32 work here?
-    instance_count: u32;
-    base_index: u32;
-    vertex_offset: u32;
-    base_instance: u32;
+    vertex_count: atomic<i32>, // TODO: why doesn't u32 work here?
+    instance_count: u32,
+    base_index: u32,
+    vertex_offset: u32,
+    base_instance: u32,
 };
 struct Indirects {
-    entries: array<Indirect>;
+    entries: array<Indirect>,
 };
 
 let NUM_LAYERS: u32 = 24u;
