@@ -72,7 +72,7 @@ tokio = { version = "1.19.2", features = ["fs", "macros", "sync", "rt", "rt-mult
 tokio-stream = "0.1.9"
 types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
-vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "bdc1f1a8bd19a7d1f97975c380c274af2290af6a" }
+vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "c86751aa3f11f7bb6f28d7aabd8082a8dbb4d0d8" }
 wgpu = { version = "0.12.0", features = ["spirv"] }
 winit = "0.26.1"
 zip = "0.6.2"
