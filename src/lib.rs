@@ -198,13 +198,13 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
-                    render_shadow: None/*Some(
-                        rshader::ShaderSet::simple(
-                            rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
-                            rshader::shader_source!("shaders", "shadowpass.frag"),
-                        )
-                        .unwrap(),
-                    )*/,
+                    render_shadow: None, /*Some(
+                                             rshader::ShaderSet::simple(
+                                                 rshader::shader_source!("shaders", "terrain.vert", "declarations.glsl"),
+                                                 rshader::shader_source!("shaders", "shadowpass.frag"),
+                                             )
+                                             .unwrap(),
+                                         )*/
                 },
                 MeshType::Grass => MeshCacheDesc {
                     ty,
@@ -261,24 +261,24 @@ impl Terrain {
                         ),
                     )
                     .unwrap(),
-                    render_shadow: None/*Some(
-                        rshader::ShaderSet::simple(
-                            rshader::shader_source!(
-                                "shaders",
-                                "tree-billboards.vert",
-                                "declarations.glsl";
-                                "SHADOWPASS" = "1"
-                            ),
-                            rshader::shader_source!(
-                                "shaders",
-                                "tree-billboards.frag",
-                                "declarations.glsl",
-                                "pbr.glsl";
-                                "SHADOWPASS" = "1"
-                            ),
-                        )
-                        .unwrap(),
-                    )*/,
+                    render_shadow: None, /*Some(
+                                             rshader::ShaderSet::simple(
+                                                 rshader::shader_source!(
+                                                     "shaders",
+                                                     "tree-billboards.vert",
+                                                     "declarations.glsl";
+                                                     "SHADOWPASS" = "1"
+                                                 ),
+                                                 rshader::shader_source!(
+                                                     "shaders",
+                                                     "tree-billboards.frag",
+                                                     "declarations.glsl",
+                                                     "pbr.glsl";
+                                                     "SHADOWPASS" = "1"
+                                                 ),
+                                             )
+                                             .unwrap(),
+                                         )*/
                 },
             })
             .collect();

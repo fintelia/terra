@@ -203,3 +203,14 @@ pub fn download_bluemarble(path: &Path) -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+pub fn download_treecover(path: &Path) -> Result<(), anyhow::Error> {
+    let directory = path.join("treecover");
+    std::fs::create_dir_all(&directory)?;
+
+    if !directory.join("merged.vrt").exists() {
+        make_vrt(&directory, OsStr::new("tif"))?;
+    }
+
+    Ok(())
+}

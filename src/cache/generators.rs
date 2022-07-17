@@ -147,7 +147,11 @@ impl GenerateTile for MeshGen {
                 &self.bindgroup_pipeline[i].as_ref().unwrap().0,
                 &[uniform_offset as u32],
             );
-            cpass.dispatch_workgroups(self.dimensions[i].0, self.dimensions[i].1, self.dimensions[i].2);
+            cpass.dispatch_workgroups(
+                self.dimensions[i].0,
+                self.dimensions[i].1,
+                self.dimensions[i].2,
+            );
         }
     }
 }
