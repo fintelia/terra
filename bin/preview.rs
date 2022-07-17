@@ -74,6 +74,7 @@ fn main() {
 
     let opt = Opt::from_args();
     if let Some(path) = opt.download {
+        terra::download::download_bluemarble(&path).unwrap();
         terra::download::download_copernicus_wbm(&path).unwrap();
         terra::download::download_copernicus_hgt(&path).unwrap();
     }

@@ -82,7 +82,6 @@ fn make_vrt(directory: &Path, extension: &OsStr) -> Result<(), anyhow::Error> {
 //  |-------|---------------|
 pub fn download_copernicus_wbm(path: &Path) -> Result<(), anyhow::Error> {
     let directory = path.join("copernicus-wbm");
-
     std::fs::create_dir_all(&directory)?;
 
     let bucket =
@@ -124,7 +123,6 @@ pub fn download_copernicus_wbm(path: &Path) -> Result<(), anyhow::Error> {
 // See https://registry.opendata.aws/copernicus-dem/
 pub fn download_copernicus_hgt(path: &Path) -> Result<(), anyhow::Error> {
     let directory = path.join("copernicus-hgt");
-
     std::fs::create_dir_all(&directory)?;
 
     let bucket =
@@ -157,6 +155,45 @@ pub fn download_copernicus_hgt(path: &Path) -> Result<(), anyhow::Error> {
     })?;
 
     make_vrt(&directory, OsStr::new("tif"))?;
+
+    Ok(())
+}
+
+pub fn download_bluemarble(path: &Path) -> Result<(), anyhow::Error> {
+    let directory = path.join("bluemarble");
+    std::fs::create_dir_all(&directory)?;
+
+    // TODO: actually download
+
+    // Write vrt file.
+    let mut data = r#"<VRTDataset rasterXSize="86400" rasterYSize="43200">
+<SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]</SRS>
+<GeoTransform> -180.0, 0.004166666666666667, 0.0, 90.0, 0.0, -0.004166666666666667</GeoTransform>
+<VRTRasterBand dataType="Byte" band="1">
+<ColorInterp>Red</ColorInterp>
+"#.to_owned();
+    for x in 0..4 {
+        for y in 0..2 {
+            let filename =
+                format!("world.200406.3x21600x21600.{}{}.png", ['A', 'B', 'C', 'D'][x], y + 1);
+            data += &format!(
+                r#"  <SimpleSource>
+    <SourceFilename relativeToVRT="1">{}</SourceFilename>
+    <SourceBand>1</SourceBand>
+    <SrcRect xOff="0" yOff="0" xSize="21600" ySize="21600"/>
+    <DstRect xOff="{}" yOff="{}" xSize="21600" ySize="21600"/>
+  </SimpleSource>
+"#,
+                filename,
+                x * 21600,
+                y * 21600,
+            );
+        }
+    }
+    data.push_str("</VRTRasterBand>
+</VRTDataset>",
+    );
+    std::fs::write(directory.join("merged.vrt"), data)?;
 
     Ok(())
 }
