@@ -97,7 +97,6 @@ impl Terrain {
             &mut progress_callback,
             true,
             vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"), 1)?,
-            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
             &|_, _, _, _| 0,
             0,
         )?;
@@ -109,7 +108,6 @@ impl Terrain {
             &mut progress_callback,
             false,
             vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
-            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
             &|a, b, c, d| {
                 let mut counts = [0; 4];
                 counts[a as usize] += 1;
@@ -122,6 +120,17 @@ impl Terrain {
             1,
         )?;
 
+        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
+            dataset_directory.to_owned(),
+            "treecover",
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            false,
+            vrt_file::VrtFile::new(&dataset_directory.join("treecover/merged.vrt"), 1)?,
+            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
+            0,
+        )?;
+
         generate::reproject_dataset::<u8, tiff::encoder::colortype::RGB8, _, _>(
             dataset_directory.to_owned(),
             "bluemarble",
@@ -129,7 +138,6 @@ impl Terrain {
             &mut progress_callback,
             false,
             vrt_file::VrtFile::new(&dataset_directory.join("bluemarble/merged.vrt"), 3)?,
-            //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
             &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
             1,
         )?;
