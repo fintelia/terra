@@ -20,6 +20,10 @@ struct Opt {
     generate: Option<PathBuf>,
     #[structopt(long)]
     download: Option<PathBuf>,
+    #[structopt(long)]
+    time: Option<String>,
+    #[structopt(long, default_value = "0.0")]
+    timescale: f64,
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -73,6 +77,16 @@ fn main() {
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
     let opt = Opt::from_args();
+    let epoch = opt
+        .time
+        .map(|s| {
+            chrono::NaiveTime::parse_from_str(&s, "%-H:%M")
+                .unwrap()
+                .signed_duration_since(chrono::NaiveTime::from_hms(12, 0, 0))
+                .num_minutes() as f64
+                / 1440.0
+        })
+        .unwrap_or(0.0);
     if let Some(path) = opt.download {
         terra::download::download_bluemarble(&path).unwrap();
         terra::download::download_treecover(&path).unwrap();
@@ -216,6 +230,7 @@ fn main() {
         }
     }
     let mut last_time = None;
+    let start_time = std::time::Instant::now();
     window.set_visible(true);
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -355,7 +370,15 @@ fn main() {
                     w: render_view_proj.w.into(),
                 };
 
-                terrain.update(&device, &queue, view_proj, position.into(), 2451545.0);
+                terrain.update(
+                    &device,
+                    &queue,
+                    view_proj,
+                    position.into(),
+                    2451545.0
+                        + epoch
+                        + start_time.elapsed().as_secs_f64() * opt.timescale / 86400.0,
+                );
                 terrain.render_shadows(&device, &queue);
                 terrain.render(
                     &device,

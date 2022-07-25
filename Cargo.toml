@@ -27,6 +27,7 @@ bit-vec = "0.6.3"
 bytemuck = { version = "1.9.1", features = ["extern_crate_alloc"] }
 byteorder = "1.4.3"
 cgmath = { version = "0.18.0", features = ["mint", "serde"] }
+chrono = "0.4.19"
 crossbeam = "0.8.1"
 curl = "0.4.43"
 dirs = "4.0.0"
