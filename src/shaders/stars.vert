@@ -30,8 +30,8 @@ void main() {
 	if(gl_VertexIndex % 6 == 5) texcoord = vec2(1, 0);
 
 	vec4 direction = vec4(
-		cos(star.ascension + globals.sidereal_time) * cos(star.declination),
-		sin(star.ascension + globals.sidereal_time) * cos(star.declination),
+		cos(star.ascension - globals.sidereal_time) * cos(star.declination),
+		sin(star.ascension - globals.sidereal_time) * cos(star.declination),
 		sin(star.declination),
 		1e-15);
 

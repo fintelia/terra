@@ -25,9 +25,10 @@ use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use anyhow::Error;
+use astro::time::julian_day;
 use billboards::Models;
 use cache::TileCache;
-use cgmath::{SquareMatrix, Zero};
+use cgmath::{SquareMatrix, Vector3, Zero};
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::collections::HashMap;
@@ -51,6 +52,8 @@ pub struct Terrain {
     view_proj: mint::ColumnMatrix4<f32>,
     shadow_view_proj: mint::ColumnMatrix4<f32>,
     camera: mint::Point3<f64>,
+    sun_direction: Vector3<f32>,
+    sidereal_time: f32,
     _models: Models,
 }
 impl Terrain {
@@ -346,6 +349,8 @@ impl Terrain {
             view_proj: cgmath::Matrix4::zero().into(),
             shadow_view_proj: cgmath::Matrix4::zero().into(),
             camera: mint::Point3::from_slice(&[0.0, 0.0, 0.0]),
+            sun_direction: cgmath::Vector3::new(0.4, 0.7, 0.2),
+            sidereal_time: 0.0,
             _models: models,
         })
     }
@@ -398,6 +403,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         view_proj: mint::ColumnMatrix4<f32>,
         camera: mint::Point3<f64>,
+        julian_day: f64,
     ) {
         self.view_proj = view_proj;
         let shadow_view = cgmath::Matrix4::look_to_rh(
@@ -563,6 +569,25 @@ impl Terrain {
 
         self.generate_skyview.refresh(device, &self.gpu_state);
         self.cache.update_meshes(device, &self.gpu_state);
+
+        let sidereal_time = astro::time::mn_sidr(julian_day);
+        self.sun_direction = {
+            let n = julian_day - 2451545.0;
+            let l: f64 = (280.460 + 0.9856474 * n).to_radians();
+            let g: f64 = (357.528 + 0.9856003 * n).to_radians();
+            let oblq_eclip = (23.439 - 0.0000004 * n).to_radians();
+            let lambda = l + 1.915 * f64::sin(g) + 0.02 * f64::sin(2.0 * g);
+            let declination = astro::coords::dec_frm_ecl(lambda, 0.0, oblq_eclip);
+            let ascension = astro::coords::asc_frm_ecl(lambda, 0.0, oblq_eclip);
+            cgmath::Vector3::new(
+                f64::cos(declination) * f64::cos(ascension - sidereal_time),
+                f64::cos(declination) * f64::sin(ascension - sidereal_time),
+                f64::sin(declination),
+            )
+            .cast()
+            .unwrap()
+        };
+        self.sidereal_time = sidereal_time as f32;
     }
 
     pub fn render_shadows(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -588,9 +613,9 @@ impl Terrain {
                 shadow_view_proj: self.shadow_view_proj,
                 camera: [self.camera.x as f32, self.camera.y as f32, self.camera.z as f32],
                 screen_width: 2048.0,
-                sun_direction: [0.4, 0.7, 0.2],
+                sun_direction: self.sun_direction.into(),
                 screen_height: 2048.0,
-                sidereal_time: 0.0,
+                sidereal_time: self.sidereal_time,
                 exposure: 1.0,
                 _padding: [0.0; 2],
             }),
@@ -652,9 +677,9 @@ impl Terrain {
                 ],
                 camera: [self.camera.x as f32, self.camera.y as f32, self.camera.z as f32],
                 screen_width: frame_size.0 as f32,
-                sun_direction: [0.4, 0.7, 0.2],
+                sun_direction: self.sun_direction.into(),
                 screen_height: frame_size.1 as f32,
-                sidereal_time: 0.0,
+                sidereal_time: self.sidereal_time,
                 exposure: 1.0 / (f32::powf(2.0, 15.0) * 1.2),
                 _padding: [0.0; 2],
             }),

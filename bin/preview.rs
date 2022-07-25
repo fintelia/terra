@@ -355,7 +355,7 @@ fn main() {
                     w: render_view_proj.w.into(),
                 };
 
-                terrain.update(&device, &queue, view_proj, position.into());
+                terrain.update(&device, &queue, view_proj, position.into(), 2451545.0);
                 terrain.render_shadows(&device, &queue);
                 terrain.render(
                     &device,
