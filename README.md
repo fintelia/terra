@@ -27,8 +27,8 @@ algorithm.
 
 ### Incremental Generation
 
-After downloading and reprojecting some initial datasets, Terra does the rest of
-its processing using wgpu's compute shader support.
+Terra works by streaming coarse grained tiles containing terrain attributes and then
+adding fractal details using wgpu compute shaders.
 
 # Getting Started
 
@@ -45,14 +45,16 @@ git clone git@github.com:fintelia/terra && cd terra
 cargo run --release
 ```
 
-The first time you run Terra, it will download and process some large
-datasets. Don't worry if you have to kill the process part way through, on
-subsequent runs it will resume where it left off.
+The first time you run Terra, it may take a minute or two to stream the necessary
+files. Don't worry if you have to kill the process part way through, on subsequent
+runs it will resume where it left off.
 
 Once that step is done, you should see the main Terra window. You can navigate
 with the arrow keeps, and increase/decrease your altitude via the Space and Z
 keys respectively. Joystick controls are also supported if one is detected. To
 exit, press Escape.
+
+You can also pass `--help` to see some other command line options.
 
 ### System Requirements
 
