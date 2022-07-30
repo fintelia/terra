@@ -485,24 +485,24 @@ impl MapFile {
         Ok(())
     }
 
-    /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
-    pub(crate) fn get_missing_base(&self, layer: LayerType) -> (Vec<VNode>, usize) {
-        let mut tiles_on_disk = self.local_tiles.lock().unwrap();
-        let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
+    // /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.
+    // pub(crate) fn get_missing_base(&self, layer: LayerType) -> (Vec<VNode>, usize) {
+    //     let mut tiles_on_disk = self.local_tiles.lock().unwrap();
+    //     let tiles_on_disk = tiles_on_disk.entry(layer.index()).or_insert_with(Default::default);
 
-        let mut total = 0;
-        let mut missing = Vec::new();
-        VNode::breadth_first(|n| {
-            total += 1;
-            if !tiles_on_disk.contains(&n) {
-                missing.push(n);
-            }
+    //     let mut total = 0;
+    //     let mut missing = Vec::new();
+    //     VNode::breadth_first(|n| {
+    //         total += 1;
+    //         if !tiles_on_disk.contains(&n) {
+    //             missing.push(n);
+    //         }
 
-            n.level() + 1 < layer.streamed_levels()
-        });
+    //         n.level() + 1 < layer.streamed_levels()
+    //     });
 
-        (missing, total)
-    }
+    //     (missing, total)
+    // }
 
     //
     // These functions use the database.

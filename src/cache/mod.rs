@@ -6,7 +6,7 @@ pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
 use crate::{
     cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
-    terrain::quadtree::QuadTree,
+    quadtree::QuadTree,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};

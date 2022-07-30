@@ -15,26 +15,26 @@ pub mod download;
 mod generate;
 mod gpu_state;
 mod mapfile;
+mod noise;
+mod quadtree;
 mod sky;
 mod speedtree_xml;
 mod srgb;
 mod stream;
-mod terrain;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
 use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use anyhow::Error;
-use astro::time::julian_day;
 use billboards::Models;
 use cache::TileCache;
 use cgmath::{SquareMatrix, Vector3, Zero};
 use generate::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
+use quadtree::QuadTree;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use terrain::quadtree::QuadTree;
 use types::{InfiniteFrustum, VNode};
 
 pub use crate::generate::BLUE_MARBLE_URLS;
@@ -167,12 +167,12 @@ impl Terrain {
         //     &mut progress_callback,
         // )
         // .await?;
-        // generate::generate_materials(
-        //     &*mapfile,
-        //     dataset_directory.join("free_pbr"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
+        generate::generate_materials(
+            &*mapfile,
+            dataset_directory.join("free_pbr"),
+            &mut progress_callback,
+        )
+        .await?;
 
         Self::new_impl(device, queue, mapfile)
     }

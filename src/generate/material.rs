@@ -1,4 +1,4 @@
-use image::GenericImageView;
+// use image::GenericImageView;
 
 // #[derive(Clone, Copy)]
 // pub enum MaterialType {
@@ -9,50 +9,50 @@ use image::GenericImageView;
 //     RockSteep = 4,
 // }
 
-pub(super) fn high_pass_filter(albedo_image: &mut image::RgbImage) {
-    let resolution = 2048;
+// pub(super) fn high_pass_filter(albedo_image: &mut image::RgbImage) {
+//     let resolution = 2048;
 
-    let albedo_image_blurred = {
-        let sigma = 8;
-        let tiled =
-            image::RgbImage::from_fn(resolution + 4 * sigma, resolution + 4 * sigma, |x, y| {
-                *albedo_image.get_pixel(
-                    (x + resolution - 2 * sigma) % resolution,
-                    (y + resolution - 2 * sigma) % resolution,
-                )
-            });
-        let mut tiled = image::DynamicImage::ImageRgb8(tiled).blur(sigma as f32);
-        tiled.crop(2 * sigma, 2 * sigma, resolution, resolution)
-    };
+//     let albedo_image_blurred = {
+//         let sigma = 8;
+//         let tiled =
+//             image::RgbImage::from_fn(resolution + 4 * sigma, resolution + 4 * sigma, |x, y| {
+//                 *albedo_image.get_pixel(
+//                     (x + resolution - 2 * sigma) % resolution,
+//                     (y + resolution - 2 * sigma) % resolution,
+//                 )
+//             });
+//         let mut tiled = image::DynamicImage::ImageRgb8(tiled).blur(sigma as f32);
+//         tiled.crop(2 * sigma, 2 * sigma, resolution, resolution)
+//     };
 
-    let mut albedo_sum = [0u64; 3];
-    for color in albedo_image.pixels() {
-        for i in 0..3 {
-            albedo_sum[i] += color[i] as u64;
-        }
-    }
-    let num_pixels = (albedo_image.width() * albedo_image.height()) as u64;
-    let average_albedo: [u8; 3] = [
-        (albedo_sum[0] / num_pixels) as u8,
-        (albedo_sum[1] / num_pixels) as u8,
-        (albedo_sum[2] / num_pixels) as u8,
-    ];
+//     let mut albedo_sum = [0u64; 3];
+//     for color in albedo_image.pixels() {
+//         for i in 0..3 {
+//             albedo_sum[i] += color[i] as u64;
+//         }
+//     }
+//     let num_pixels = (albedo_image.width() * albedo_image.height()) as u64;
+//     let average_albedo: [u8; 3] = [
+//         (albedo_sum[0] / num_pixels) as u8,
+//         (albedo_sum[1] / num_pixels) as u8,
+//         (albedo_sum[2] / num_pixels) as u8,
+//     ];
 
-    for (x, y, blurred_color) in albedo_image_blurred.pixels() {
-        let mut color = *albedo_image.get_pixel(x, y);
-        for i in 0..3 {
-            let c = (color[i] as i16) - (blurred_color[i] as i16) + (average_albedo[i] as i16);
-            color[i] = if c < 0 {
-                0
-            } else if c > 255 {
-                255
-            } else {
-                c
-            } as u8;
-        }
-        albedo_image.put_pixel(x, y, color);
-    }
-}
+//     for (x, y, blurred_color) in albedo_image_blurred.pixels() {
+//         let mut color = *albedo_image.get_pixel(x, y);
+//         for i in 0..3 {
+//             let c = (color[i] as i16) - (blurred_color[i] as i16) + (average_albedo[i] as i16);
+//             color[i] = if c < 0 {
+//                 0
+//             } else if c > 255 {
+//                 255
+//             } else {
+//                 c
+//             } as u8;
+//         }
+//         albedo_image.put_pixel(x, y, color);
+//     }
+// }
 
 // struct MaterialTypeFiltered(MaterialType);
 // impl GeneratedAsset for MaterialTypeFiltered {

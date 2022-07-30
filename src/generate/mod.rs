@@ -3,27 +3,19 @@ use crate::cache::{LayerParams, LayerType, TextureFormat};
 use crate::coordinates;
 use crate::generate::heightmap::{Sector, SectorCache};
 use crate::mapfile::{MapFile, TextureDescriptor};
-use crate::srgb::SRGB_TO_LINEAR;
-use crate::terrain::raster::GlobalRaster;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::Transcoder;
 use fnv::FnvHashMap;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
-use image::{codecs::png::PngDecoder, ColorType, ImageDecoder};
-use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
 use std::{fs, mem};
-use std::{fs::File, path::PathBuf};
-use std::{
-    io::{Read, Write},
-    path::Path,
-    sync::Mutex,
-};
+use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use vec_map::VecMap;
 
@@ -1058,108 +1050,108 @@ where
 //     Ok(())
 // }
 
-/// Generate albedo tiles.
-///
-/// `blue_marble_directory` must contain the 8 files from NASA's Blue Marble: Next Generation
-/// indicated in [`BLUE_MARBLE_URLS`](constant.BLUE_MARBLE_URLS.html).
-pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
-    mapfile: &MapFile,
-    blue_marble_directory: impl AsRef<Path>,
-    mut progress_callback: F,
-) -> Result<(), Error> {
-    let (missing, total_tiles) = mapfile.get_missing_base(LayerType::BaseAlbedo);
-    if missing.is_empty() {
-        return Ok(());
-    }
+// /// Generate albedo tiles.
+// ///
+// /// `blue_marble_directory` must contain the 8 files from NASA's Blue Marble: Next Generation
+// /// indicated in [`BLUE_MARBLE_URLS`](constant.BLUE_MARBLE_URLS.html).
+// pub(crate) async fn generate_albedos<F: FnMut(&str, usize, usize) + Send>(
+//     mapfile: &MapFile,
+//     blue_marble_directory: impl AsRef<Path>,
+//     mut progress_callback: F,
+// ) -> Result<(), Error> {
+//     let (missing, total_tiles) = mapfile.get_missing_base(LayerType::BaseAlbedo);
+//     if missing.is_empty() {
+//         return Ok(());
+//     }
 
-    let layer = mapfile.layers()[LayerType::BaseAlbedo].clone();
-    assert!(layer.texture_border_size >= 2);
+//     let layer = mapfile.layers()[LayerType::BaseAlbedo].clone();
+//     assert!(layer.texture_border_size >= 2);
 
-    let bm_dimensions = 21600;
-    let mut values = vec![0u8; bm_dimensions * bm_dimensions * 8 * 3];
+//     let bm_dimensions = 21600;
+//     let mut values = vec![0u8; bm_dimensions * bm_dimensions * 8 * 3];
 
-    let (north, south) = values.split_at_mut(bm_dimensions * bm_dimensions * 12);
-    let mut slices: Vec<&mut [u8]> = north
-        .chunks_exact_mut(bm_dimensions * 3)
-        .interleave(south.chunks_exact_mut(bm_dimensions * 3))
-        .collect();
+//     let (north, south) = values.split_at_mut(bm_dimensions * bm_dimensions * 12);
+//     let mut slices: Vec<&mut [u8]> = north
+//         .chunks_exact_mut(bm_dimensions * 3)
+//         .interleave(south.chunks_exact_mut(bm_dimensions * 3))
+//         .collect();
 
-    let mut decoders = Vec::new();
-    for x in 0..4 {
-        for y in 0..2 {
-            let decoder =
-                PngDecoder::new(File::open(blue_marble_directory.as_ref().join(format!(
-                    "world.200406.3x21600x21600.{}{}.png",
-                    "ABCD".chars().nth(x).unwrap(),
-                    "12".chars().nth(y).unwrap()
-                )))?)?;
-            assert_eq!(decoder.dimensions(), (bm_dimensions as u32, bm_dimensions as u32));
-            assert_eq!(decoder.color_type(), ColorType::Rgb8);
-            decoders.push(decoder.into_reader()?);
-        }
-    }
+//     let mut decoders = Vec::new();
+//     for x in 0..4 {
+//         for y in 0..2 {
+//             let decoder =
+//                 PngDecoder::new(File::open(blue_marble_directory.as_ref().join(format!(
+//                     "world.200406.3x21600x21600.{}{}.png",
+//                     "ABCD".chars().nth(x).unwrap(),
+//                     "12".chars().nth(y).unwrap()
+//                 )))?)?;
+//             assert_eq!(decoder.dimensions(), (bm_dimensions as u32, bm_dimensions as u32));
+//             assert_eq!(decoder.color_type(), ColorType::Rgb8);
+//             decoders.push(decoder.into_reader()?);
+//         }
+//     }
 
-    let total = slices.len() / 8;
-    for (i, chunk) in slices.chunks_mut(8).enumerate() {
-        if i % 108 == 0 {
-            progress_callback("Loading blue marble images... ", i / 108, total / 108);
-        }
+//     let total = slices.len() / 8;
+//     for (i, chunk) in slices.chunks_mut(8).enumerate() {
+//         if i % 108 == 0 {
+//             progress_callback("Loading blue marble images... ", i / 108, total / 108);
+//         }
 
-        decoders.par_iter_mut().zip(chunk).try_for_each(|(d, s)| d.read_exact(s))?;
-    }
+//         decoders.par_iter_mut().zip(chunk).try_for_each(|(d, s)| d.read_exact(s))?;
+//     }
 
-    let bluemarble =
-        GlobalRaster { width: bm_dimensions * 4, height: bm_dimensions * 2, bands: 3, values };
+//     let bluemarble =
+//         GlobalRaster { width: bm_dimensions * 4, height: bm_dimensions * 2, bands: 3, values };
 
-    let mapfile = &mapfile;
-    let progress = &Mutex::new((total_tiles - missing.len(), progress_callback));
+//     let mapfile = &mapfile;
+//     let progress = &Mutex::new((total_tiles - missing.len(), progress_callback));
 
-    missing.into_par_iter().try_for_each(|n| -> Result<(), Error> {
-        {
-            let mut progress = progress.lock().unwrap();
-            let v = progress.0;
-            progress.1("Generating albedo... ", v, total_tiles);
-            progress.0 += 1;
-        }
+//     missing.into_par_iter().try_for_each(|n| -> Result<(), Error> {
+//         {
+//             let mut progress = progress.lock().unwrap();
+//             let v = progress.0;
+//             progress.1("Generating albedo... ", v, total_tiles);
+//             progress.0 += 1;
+//         }
 
-        let mut colormap = Vec::with_capacity(
-            layer.texture_resolution as usize * layer.texture_resolution as usize,
-        );
+//         let mut colormap = Vec::with_capacity(
+//             layer.texture_resolution as usize * layer.texture_resolution as usize,
+//         );
 
-        let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
-            .into_par_iter()
-            .map(|i| {
-                let cspace = n.cell_position_cspace(
-                    (i % layer.texture_resolution) as i32,
-                    (i / layer.texture_resolution) as i32,
-                    layer.texture_border_size,
-                    layer.texture_resolution,
-                );
-                let polar = coordinates::cspace_to_polar(cspace);
-                (polar.x.to_degrees(), polar.y.to_degrees())
-            })
-            .collect();
+//         let coordinates: Vec<_> = (0..(layer.texture_resolution * layer.texture_resolution))
+//             .into_par_iter()
+//             .map(|i| {
+//                 let cspace = n.cell_position_cspace(
+//                     (i % layer.texture_resolution) as i32,
+//                     (i / layer.texture_resolution) as i32,
+//                     layer.texture_border_size,
+//                     layer.texture_resolution,
+//                 );
+//                 let polar = coordinates::cspace_to_polar(cspace);
+//                 (polar.x.to_degrees(), polar.y.to_degrees())
+//             })
+//             .collect();
 
-        for (lat, long) in coordinates {
-            colormap.extend_from_slice(&[
-                SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 0) as u8],
-                SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 1) as u8],
-                SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 2) as u8],
-                255,
-            ]);
-        }
+//         for (lat, long) in coordinates {
+//             colormap.extend_from_slice(&[
+//                 SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 0) as u8],
+//                 SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 1) as u8],
+//                 SRGB_TO_LINEAR[bluemarble.interpolate(lat, long, 2) as u8],
+//                 255,
+//             ]);
+//         }
 
-        let mut data = Vec::new();
-        let encoder = image::codecs::png::PngEncoder::new(&mut data);
-        encoder.encode(
-            &colormap,
-            layer.texture_resolution as u32,
-            layer.texture_resolution as u32,
-            image::ColorType::Rgba8,
-        )?;
-        mapfile.write_tile(LayerType::BaseAlbedo, n, &data)
-    })
-}
+//         let mut data = Vec::new();
+//         let encoder = image::codecs::png::PngEncoder::new(&mut data);
+//         encoder.encode(
+//             &colormap,
+//             layer.texture_resolution as u32,
+//             layer.texture_resolution as u32,
+//             image::ColorType::Rgba8,
+//         )?;
+//         mapfile.write_tile(LayerType::BaseAlbedo, n, &data)
+//     })
+// }
 
 pub(crate) async fn generate_materials<F: FnMut(String, usize, usize) + Send>(
     mapfile: &MapFile,
@@ -1231,7 +1223,7 @@ fn generate_noise(mapfile: &mut MapFile, context: &mut AssetLoadContext) -> Resu
         };
 
         let noise_heightmaps: Vec<_> =
-            (0..4).map(|i| crate::terrain::heightmap::wavelet_noise(64 << i, 32 >> i)).collect();
+            (0..4).map(|i| crate::noise::wavelet_noise(64 << i, 32 >> i)).collect();
 
         context.reset("Generating noise textures... ", noise_heightmaps.len());
 

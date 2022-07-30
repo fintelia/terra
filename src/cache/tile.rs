@@ -1,6 +1,6 @@
 use crate::{
     cache::{self, PriorityCacheEntry},
-    terrain::quadtree::QuadTree,
+    quadtree::QuadTree,
 };
 use crate::{coordinates, stream::TileResult};
 use crate::{
@@ -10,9 +10,6 @@ use crate::{
 use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
-use futures::future::BoxFuture;
-use futures::stream::futures_unordered::FuturesUnordered;
-use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
