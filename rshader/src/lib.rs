@@ -2,14 +2,14 @@ use anyhow::anyhow;
 use naga::{
     AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
 };
-use notify::{self, DebouncedEvent, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{self, RecommendedWatcher, RecursiveMode, Watcher};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 thread_local! {
     static GLSL_COMPILER: RefCell<shaderc::Compiler>  = RefCell::new(shaderc::Compiler::new().unwrap());
@@ -147,8 +147,7 @@ impl ShaderSource {
             ShaderSource::Inline { .. } => false,
             ShaderSource::Files { path, header_paths, .. }
             | ShaderSource::FilesWGSL { path, header_paths, .. } => {
-                let mut directory_watcher = DIRECTORY_WATCHER.lock().unwrap();
-                directory_watcher.detect_changes();
+                let directory_watcher = DIRECTORY_WATCHER.lock().unwrap();
                 header_paths
                     .values()
                     .chain(std::iter::once(path))
@@ -207,23 +206,24 @@ impl ShaderSetInner {
 
 pub(crate) struct DirectoryWatcher {
     watcher: RecommendedWatcher,
-    watcher_rx: Receiver<DebouncedEvent>,
     last_modifications: HashMap<PathBuf, Instant>,
 }
 impl DirectoryWatcher {
     pub fn new() -> Self {
-        let (tx, watcher_rx) = mpsc::channel();
-        let watcher = notify::watcher(tx, Duration::from_millis(50)).unwrap();
-
-        Self { watcher, watcher_rx, last_modifications: HashMap::new() }
-    }
-
-    pub fn detect_changes(&mut self) {
-        while let Ok(event) = self.watcher_rx.try_recv() {
-            if let DebouncedEvent::Write(p) = event {
-                self.last_modifications.insert(p, Instant::now());
+        let watcher = notify::recommended_watcher(|event: Result<notify::Event, _>| {
+            if let Ok(event) = event {
+                if event.kind.is_modify() {
+                    let last_modifications =
+                        &mut DIRECTORY_WATCHER.lock().unwrap().last_modifications;
+                    for p in event.paths {
+                        last_modifications.insert(p, Instant::now());
+                    }
+                }
             }
-        }
+        })
+        .unwrap();
+
+        Self { watcher, last_modifications: HashMap::new() }
     }
 
     pub fn watch(&mut self, directory: &Path) {

@@ -14,12 +14,12 @@ fn s3_download(bucket: &Bucket, remote_path: &str, local_path: &Path) -> Result<
         let contents;
         loop {
             match bucket.get_object_blocking(&remote_path) {
-                Ok((c, code)) => {
-                    contents = c;
-                    if code != 200 {
+                Ok(c) => {
+                    if c.status_code() != 200 {
                         println!("{}", remote_path);
                         return Ok(());
                     }
+                    contents = c;
                     break;
                 }
                 Err(e) => {
@@ -33,7 +33,7 @@ fn s3_download(bucket: &Bucket, remote_path: &str, local_path: &Path) -> Result<
         }
 
         AtomicFile::new(local_path, OverwriteBehavior::AllowOverwrite)
-            .write(|f| f.write_all(&contents))?;
+            .write(|f| f.write_all(contents.bytes()))?;
     }
     Ok(())
 }
@@ -89,12 +89,12 @@ pub fn download_copernicus_wbm(path: &Path) -> Result<(), anyhow::Error> {
     let bucket_fallback =
         Bucket::new("copernicus-dem-90m", "eu-central-1".parse()?, Credentials::anonymous()?)?;
 
-    let (tile_list, code) = bucket.get_object_blocking("tileList.txt")?;
-    assert_eq!(200, code);
-    let (missing, code) = bucket.get_object_blocking("blacklist.txt")?;
-    assert_eq!(200, code);
+    let tile_list = bucket.get_object_blocking("tileList.txt")?;
+    assert_eq!(200, tile_list.status_code());
+    let missing = bucket.get_object_blocking("blacklist.txt")?;
+    assert_eq!(200, missing.status_code());
 
-    let tile_list = String::from_utf8(tile_list)?;
+    let tile_list = String::from_utf8(tile_list.bytes().to_owned())?;
     let tile_list: Vec<_> = tile_list.split_ascii_whitespace().collect();
     tile_list.par_iter().try_for_each(|name| -> Result<(), anyhow::Error> {
         let filename = format!("{}WBM.tif", &name[..name.len() - 3]);
@@ -103,7 +103,7 @@ pub fn download_copernicus_wbm(path: &Path) -> Result<(), anyhow::Error> {
         s3_download(&bucket, &remote_path, &local_path)
     })?;
 
-    let missing = String::from_utf8(missing)?;
+    let missing = String::from_utf8(missing.bytes().to_owned())?;
     let missing: Vec<_> = missing.split_ascii_whitespace().collect();
     missing.par_iter().try_for_each(|name| -> Result<(), anyhow::Error> {
         let name = name.replace("DSM_10", "DSM_COG_30").replace(".tif", "");
@@ -132,12 +132,12 @@ pub fn download_copernicus_hgt(path: &Path) -> Result<(), anyhow::Error> {
     let bucket_fallback =
         Bucket::new("copernicus-dem-90m", "eu-central-1".parse()?, Credentials::anonymous()?)?;
 
-    let (tile_list, code) = bucket.get_object_blocking("tileList.txt")?;
-    assert_eq!(200, code);
-    let (missing, code) = bucket.get_object_blocking("blacklist.txt")?;
-    assert_eq!(200, code);
+    let tile_list = bucket.get_object_blocking("tileList.txt")?;
+    assert_eq!(200, tile_list.status_code());
+    let missing = bucket.get_object_blocking("blacklist.txt")?;
+    assert_eq!(200, missing.status_code());
 
-    let tile_list = String::from_utf8(tile_list)?;
+    let tile_list = String::from_utf8(tile_list.bytes().to_owned())?;
     let tile_list: Vec<_> = tile_list.split_ascii_whitespace().collect();
     tile_list.into_par_iter().try_for_each(|name| -> Result<(), anyhow::Error> {
         let filename = format!("{}DEM.tif", &name[..name.len() - 3]);
@@ -146,7 +146,7 @@ pub fn download_copernicus_hgt(path: &Path) -> Result<(), anyhow::Error> {
         s3_download(&bucket, &remote_path, &local_path)
     })?;
 
-    let missing = String::from_utf8(missing)?;
+    let missing = String::from_utf8(missing.bytes().to_owned())?;
     let missing: Vec<_> = missing.split_ascii_whitespace().collect();
     missing.into_par_iter().try_for_each(|name| -> Result<(), anyhow::Error> {
         let name = name.replace("DSM_10", "DSM_COG_30").replace(".tif", "");

@@ -19,19 +19,19 @@ pub trait Scalar: Copy + 'static {
     fn to_f64(self) -> f64;
 }
 
-/// Wrapper around BitVec that converts values to f64's so that it can be uses as a backing for a
-/// GlobalRaster.
-pub struct BitContainer(pub BitVec<u32>);
-impl Index<usize> for BitContainer {
-    type Output = u8;
-    fn index(&self, i: usize) -> &u8 {
-        if self.0[i] {
-            &255
-        } else {
-            &0
-        }
-    }
-}
+// /// Wrapper around BitVec that converts values to f64's so that it can be uses as a backing for a
+// /// GlobalRaster.
+// pub struct BitContainer(pub BitVec<u32>);
+// impl Index<usize> for BitContainer {
+//     type Output = u8;
+//     fn index(&self, i: usize) -> &u8 {
+//         if self.0[i] {
+//             &255
+//         } else {
+//             &0
+//         }
+//     }
+// }
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct MMappedRasterHeader {
