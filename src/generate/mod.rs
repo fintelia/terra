@@ -14,6 +14,7 @@ use std::collections::HashSet;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 use std::{fs, mem};
 use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
@@ -429,51 +430,25 @@ where
     Ok(())
 }
 
-pub(crate) fn merge_datasets_to_tiles<T, C, F>(
+pub(crate) fn merge_datasets_to_tiles<F>(
     base_directory: PathBuf,
-    max_level: u8,
     mut progress_callback: F,
-    grid_registration: bool,
 ) -> impl Future<Output = Result<(), anyhow::Error>>
 where
-    T: Into<f64>
-        + num_traits::Zero
-        + Ord
-        + Copy
-        + std::ops::Div<i16, Output = T>
-        + bytemuck::Pod
-        + Send
-        + Sync
-        + 'static,
     F: FnMut(String, usize, usize) + Send,
-    C: tiff::encoder::colortype::ColorType<Inner = T>,
-    [T]: tiff::encoder::TiffValue,
 {
     async move {
-        let (hgt_directory, _reprojected) =
-            scan_directory(&base_directory, "copernicus-hgt_reprojected")?;
         let (tiles_directory, existing_tiles) = scan_directory(&base_directory, "tiles")?;
 
+        const BORDER_SIZE: usize = 2;
+        const TILE_INNER_RESOLUTION: usize = 512;
+        let max_level = VNode::LEVEL_CELL_76M;
         let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
-
-        const TILE_RESOLUTION: usize = 521;
-        const BORDER_SIZE: usize = 4;
-        const TILE_INNER_RESOLUTION: usize = 512; //TILE_RESOLUTION - BORDER_SIZE * 2;
-
-        let base_sector_resolution = if grid_registration {
-            1 + (512 << max_level) as u32 / (SECTORS_PER_SIDE - 1)
-        } else {
-            (512 << max_level) as u32 / (SECTORS_PER_SIDE - 1)
-        };
-
-        base_sector_resolution
-            .checked_mul(base_sector_resolution)
-            .expect("TODO: Handle sector resolution overflow");
 
         let mut total_tiles = 0;
         let mut missing_tiles = Vec::new();
         VNode::breadth_first(|n| {
-            let filename = format!("hgt_{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
+            let filename = format!("{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
 
             total_tiles += 1;
             if !existing_tiles.contains(&filename) {
@@ -484,150 +459,262 @@ where
         });
         missing_tiles.reverse();
 
-        let mut sector_cache = SectorCache::new(
-            32,
-            hgt_directory.to_owned(),
-            "",
-            "tiff",
-            &|bytes| -> Result<Vec<T>, _> {
-                let mut decoder = tiff::decoder::Decoder::new(Cursor::new(bytes))?;
-                Ok(match decoder.read_image()? {
-                    tiff::decoder::DecodingResult::I16(v) => bytemuck::cast_vec(v),
-                    _ => unimplemented!(),
-                })
-            },
+        fn decode_tiff_u8(bytes: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+            let mut decoder = tiff::decoder::Decoder::new(Cursor::new(bytes))?;
+            Ok(match decoder.read_image()? {
+                tiff::decoder::DecodingResult::U8(v) => bytemuck::cast_vec(v),
+                _ => unimplemented!(),
+            })
+        }
+        fn decode_tiff_i16(bytes: &[u8]) -> Result<Vec<i16>, anyhow::Error> {
+            let mut decoder = tiff::decoder::Decoder::new(Cursor::new(bytes))?;
+            Ok(match decoder.read_image()? {
+                tiff::decoder::DecodingResult::I16(v) => bytemuck::cast_vec(v),
+                _ => unimplemented!(),
+            })
+        }
+
+        let mut heightmap_cache = SectorCache::<i16, _>::new(
+            base_directory.join("copernicus-hgt_reprojected"),
+            &decode_tiff_i16,
         );
+        let mut albedo_cache = SectorCache::<u8, _>::new(
+            base_directory.join("bluemarble_reprojected"),
+            &decode_tiff_u8,
+        );
+        let mut treecover_cache = SectorCache::<u8, _>::new(
+            base_directory.join("treecover_reprojected"),
+            &decode_tiff_u8,
+        );
+        let mut watermask_cache = SectorCache::<u8, _>::new(
+            base_directory.join("copernicus-wbm_reprojected"),
+            &decode_tiff_u8,
+        );
+
+        let max_bluemarble_level = VNode::LEVEL_CELL_305M;
+
         let mut unordered = FuturesUnordered::new();
         let mut tiles_processed = total_tiles - missing_tiles.len();
         while !missing_tiles.is_empty() || !unordered.is_empty() {
             if unordered.len() < 16 && !missing_tiles.is_empty() {
                 let (filename, node) = missing_tiles.pop().unwrap();
 
-                let mut heights = vec![T::zero(); TILE_RESOLUTION * TILE_RESOLUTION];
-
                 let step = 1 << min_level.saturating_sub(node.level());
                 let sector_level = node.level().max(min_level);
                 let sector_inner_resolution =
                     (512 << sector_level) / (SECTORS_PER_SIDE - 1) as usize;
-                let sector_resolution = if grid_registration {
-                    1 + sector_inner_resolution
-                } else {
-                    sector_inner_resolution
-                };
-                let root_x = node.x() as usize * TILE_INNER_RESOLUTION * step
-                    + sector_resolution / 2
-                    - BORDER_SIZE * step;
-                let root_y = node.y() as usize * TILE_INNER_RESOLUTION * step
-                    + sector_resolution / 2
-                    - BORDER_SIZE * step;
 
-                let mut sectors = FnvHashMap::default();
+                let mut heightmap_sectors = FnvHashMap::default();
+                // let mut albedo_sectors = FnvHashMap::default();
+                let mut treecover_sectors = FnvHashMap::default();
+                let mut watermask_sectors = FnvHashMap::default();
 
-                let min_sector_x = (root_x / sector_inner_resolution) as u32;
-                let min_sector_y = (root_y / sector_inner_resolution) as u32;
-                let max_sector_x = (((root_x + (TILE_RESOLUTION - 1) * step)
-                    / sector_inner_resolution) as u32)
-                    .min(SECTORS_PER_SIDE - 1);
-                let max_sector_y = (((root_y + (TILE_RESOLUTION - 1) * step)
-                    / sector_inner_resolution) as u32)
-                    .min(SECTORS_PER_SIDE - 1);
-                for y in min_sector_y..=max_sector_y {
-                    for x in min_sector_x..=max_sector_x {
-                        let s = Sector { face: node.face(), x, y };
-                        if !sectors.contains_key(&s) {
-                            sectors.insert(s, sector_cache.get_sector(s, Some(sector_level)));
+                let min_root_x = node.x() as usize * TILE_INNER_RESOLUTION * step
+                    + sector_inner_resolution / 2
+                    - BORDER_SIZE * step;
+                let min_root_y = node.y() as usize * TILE_INNER_RESOLUTION * step
+                    + sector_inner_resolution / 2
+                    - BORDER_SIZE * step;
+                let max_root_x = min_root_x + (TILE_INNER_RESOLUTION + BORDER_SIZE * 2) * step;
+                let max_root_y = min_root_y + (TILE_INNER_RESOLUTION + BORDER_SIZE * 2) * step;
+                let min_sector_i = min_root_x / sector_inner_resolution;
+                let min_sector_j = min_root_y / sector_inner_resolution;
+                let max_sector_i = max_root_x / sector_inner_resolution;
+                let max_sector_j = min_root_y / sector_inner_resolution;
+                for j in min_sector_j..=max_sector_j {
+                    for i in min_sector_i..=max_sector_i {
+                        let s = Sector { face: node.face(), x: i as u32, y: j as u32 };
+                        if !heightmap_sectors.contains_key(&s) {
+                            heightmap_sectors
+                                .insert(s, heightmap_cache.get_sector(s, Some(sector_level)));
+                        }
+                        // if node.level() <= max_bluemarble_level && !albedo_sectors.contains_key(&s)
+                        // {
+                        //     albedo_sectors
+                        //         .insert(s, albedo_cache.get_sector(s, Some(sector_level)));
+                        // }
+                        if !treecover_sectors.contains_key(&s) {
+                            treecover_sectors
+                                .insert(s, treecover_cache.get_sector(s, Some(sector_level)));
+                        }
+                        if !watermask_sectors.contains_key(&s) {
+                            watermask_sectors
+                                .insert(s, watermask_cache.get_sector(s, Some(sector_level)));
                         }
                     }
                 }
 
-                // for y in (0..TILE_RESOLUTION).step_by(2) {
-                //     for x in (0..TILE_RESOLUTION).step_by(2) {
-                //         let s = Sector {
-                //             face: node.face(),
-                //             x: ((x * step + root_x) / sector_inner_resolution) as u32,
-                //             y: ((y * step + root_y) / sector_inner_resolution) as u32,
-                //         };
-                //         if !sectors.contains_key(&s) {
-                //             //eprintln!("x={}, y={}, step={}, root_x={}, root_y={}", x, y, step, root_x, root_y);
-                //             sectors.insert(s, sector_cache.get_sector(s, Some(sector_level)));
-                //         }
-                //     }
-                // }
-
                 unordered.push(async move {
-                    let sectors: Vec<(Sector, Result<_, _>)> = futures::future::join_all(
-                        sectors.into_iter().map(|s| async move { (s.0, s.1.await) }),
-                    )
-                    .await;
+                    let heightmap_sectors: FnvHashMap<Sector, Arc<Vec<i16>>> =
+                        futures::future::join_all(heightmap_sectors.into_iter().map(
+                            |s| async move {
+                                match s.1.await {
+                                    Ok(r) => Ok((s.0, r)),
+                                    Err(e) => Err(e),
+                                }
+                            },
+                        ))
+                        .await
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
 
-                    let mut sectors_map = FnvHashMap::default();
-                    for s in sectors {
-                        sectors_map.insert(s.0, s.1?);
-                    }
+                    // let albedo_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
+                    //     futures::future::join_all(albedo_sectors.into_iter().map(|s| async move {
+                    //         match s.1.await {
+                    //             Ok(r) => Ok((s.0, r)),
+                    //             Err(e) => Err(e),
+                    //         }
+                    //     }))
+                    //     .await
+                    //     .into_iter()
+                    //     .collect::<Result<_, _>>()?;
+
+                    let treecover_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
+                        futures::future::join_all(treecover_sectors.into_iter().map(
+                            |s| async move {
+                                match s.1.await {
+                                    Ok(r) => Ok((s.0, r)),
+                                    Err(e) => Err(e),
+                                }
+                            },
+                        ))
+                        .await
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
+
+                    let watermask_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
+                        futures::future::join_all(watermask_sectors.into_iter().map(
+                            |s| async move {
+                                match s.1.await {
+                                    Ok(r) => Ok((s.0, r)),
+                                    Err(e) => Err(e),
+                                }
+                            },
+                        ))
+                        .await
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
 
                     let encoded = tokio::task::spawn_blocking(move || {
-                        for y in 0..TILE_RESOLUTION {
-                            for x in 0..TILE_RESOLUTION {
-                                let total_x = x * step + root_x;
-                                let total_y = y * step + root_y;
+                        let mut heights = vec![0; 517 * 517];
+                        // let mut albedo = if node.level() <= max_bluemarble_level {
+                        //     vec![0; 516 * 516 * 3]
+                        // } else {
+                        //     vec![]
+                        // };
+                        let mut treecover = vec![0; 516 * 516];
+                        let mut watermask = vec![0; 516 * 516];
 
-                                let mut s = Sector {
-                                    face: node.face(),
-                                    x: (total_x / sector_inner_resolution) as u32,
-                                    y: (total_y / sector_inner_resolution) as u32,
-                                };
+                        for j in min_sector_j..=max_sector_j {
+                            for i in min_sector_i..=max_sector_i {
+                                let s = Sector { face: node.face(), x: i as u32, y: j as u32 };
+                                let sector_min_x = i * sector_inner_resolution;
+                                let sector_min_y = j * sector_inner_resolution;
+                                let min_x = min_root_x.max(sector_min_x);
+                                let min_y = min_root_y.max(sector_min_y);
+                                let max_cell_x = max_root_x.min((i + 1) * sector_inner_resolution);
+                                let max_cell_y = max_root_y.min((j + 1) * sector_inner_resolution);
+                                let max_grid_x =
+                                    (max_root_x + step).min((i + 1) * sector_inner_resolution + 1);
+                                let max_grid_y =
+                                    (max_root_y + step).min((j + 1) * sector_inner_resolution + 1);
 
-                                if grid_registration {
-                                    if x == TILE_RESOLUTION - 1
-                                        && total_x % sector_inner_resolution == 0
-                                    {
-                                        s.x -= 1;
-                                    }
-                                    if y == TILE_RESOLUTION - 1
-                                        && total_y % sector_inner_resolution == 0
-                                    {
-                                        s.y -= 1;
+                                let heightmap_sector = heightmap_sectors.get(&s).unwrap();
+                                // let albedo_sector = albedo_sectors.get(&s);
+                                let treecover_sector = treecover_sectors.get(&s).unwrap();
+                                let watermask_sector = watermask_sectors.get(&s).unwrap();
+
+                                let height_value =
+                                    (heightmap_sector.len() == 1).then(|| heightmap_sector[0]);
+                                // let albedo_value =
+                                //     albedo_sector.and_then(|s| (s.len() == 3).then(|| s.clone()));
+                                let treecover_value =
+                                    (treecover_sector.len() == 1).then(|| treecover_sector[0]);
+                                let watermask_value =
+                                    (watermask_sector.len() == 1).then(|| watermask_sector[0]);
+
+                                for y in (min_y..max_grid_y).step_by(step) {
+                                    for x in (min_x..max_grid_x).step_by(step) {
+                                        let in_index = (y - sector_min_y)
+                                            * (sector_inner_resolution + 1)
+                                            + (x - sector_min_x);
+                                        let out_index = ((y - min_root_y) / step) * 517
+                                            + ((x - min_root_x) / step);
+                                        //assert!(heightmap_sector.len() == 1 || in_index < heightmap_sector.len(), "{x} {y} {sector_min_x} {sector_min_y}");
+                                        heights[out_index] = height_value
+                                            .unwrap_or_else(|| heightmap_sector[in_index]);
                                     }
                                 }
-
-                                let sector = &sectors_map[&s];
-                                if sector.len() == 1 {
-                                    heights[y * TILE_RESOLUTION + x] = sector[0] / 4;
-                                } else {
-                                    assert_eq!(sector_resolution * sector_resolution, sector.len());
-                                    let sector_x = total_x - s.x as usize * sector_inner_resolution;
-                                    let sector_y = total_y - s.y as usize * sector_inner_resolution;
-
-                                    heights[y * TILE_RESOLUTION + x] =
-                                        sector[sector_y * sector_resolution + sector_x] / 4;
+                                for y in (min_y..max_cell_y).step_by(step) {
+                                    for x in (min_x..max_cell_x).step_by(step) {
+                                        let in_index = (y - sector_min_y) * sector_inner_resolution
+                                            + (x - sector_min_x);
+                                        let out_index = ((y - min_root_y) / step) * 516
+                                            + ((x - min_root_x) / step);
+                                        // if let Some(albedo_sector) = albedo_sector {
+                                        //     match albedo_value {
+                                        //         Some(ref v) => {
+                                        //             albedo[out_index * 3] = v[0];
+                                        //             albedo[out_index * 3 + 1] = v[1];
+                                        //             albedo[out_index * 3 + 2] = v[2];
+                                        //         }
+                                        //         None => {
+                                        //             albedo[out_index * 3] =
+                                        //                 albedo_sector[in_index * 3];
+                                        //             albedo[out_index * 3 + 1] =
+                                        //                 albedo_sector[in_index * 3 + 1];
+                                        //             albedo[out_index * 3 + 2] =
+                                        //                 albedo_sector[in_index * 3 + 2];
+                                        //         }
+                                        //     }
+                                        // }
+                                        assert!(treecover_value.is_some() || in_index < treecover_sector.len(), "j={j} y={y} step={step} in_index={in_index} {} {} len={}", (y - sector_min_y), (x - sector_min_x), treecover_sector.len());
+                                        treecover[out_index] = treecover_value
+                                            .unwrap_or_else(|| treecover_sector[in_index]);
+                                        watermask[out_index] = watermask_value
+                                            .unwrap_or_else(|| watermask_sector[in_index]);
+                                    }
                                 }
                             }
                         }
 
-                        let mut bytes = Vec::new();
-                        if heights.iter().any(|&h| h != T::zero()) {
-                            let mut e =
-                                lz4::EncoderBuilder::new().level(9).build(&mut bytes).unwrap();
-                            e.write_all(bytemuck::cast_slice(&heights)).unwrap();
-                            e.finish().0;
-                            // tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                            //     .write_image_with_compression::<C, _>(
-                            //         TILE_RESOLUTION as u32,
-                            //         TILE_RESOLUTION as u32,
-                            //         tiff::encoder::compression::Lzw,
-                            //         &heights,
-                            //     )?;
-                        } else {
-                            // tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                            //     .write_image_with_compression::<C, _>(
-                            //         1,
-                            //         1,
-                            //         tiff::encoder::compression::Lzw,
-                            //         &heights[..1],
-                            //     )?;
+                        let compressed_layers: Vec<_> =
+                            [bytemuck::cast_slice(&heights), /*&*albedo,*/ &*treecover, &*watermask]
+                                .par_iter()
+                                .map(|v| {
+                                    let mut bytes = Vec::<u8>::new();
+                                    if v.iter().any(|&h| h != 0) {
+                                        let mut e = lz4::EncoderBuilder::new()
+                                            .level(9)
+                                            .build(&mut bytes)
+                                            .unwrap();
+                                        e.write_all(bytemuck::cast_slice(&heights)).unwrap();
+                                        e.finish().0;
+                                    }
+                                    bytes
+                                })
+                                .collect();
+
+                        let mut bytes = vec![4, 0, b'T', b'E', b'R', b'R', b'A', b'!'];
+                        bytes.extend_from_slice(&(compressed_layers.len() as u16).to_le_bytes());
+                        bytes.extend_from_slice(&[0; 6]);
+
+                        let mut offset = bytes.len() as u32;
+                        for (i, layer) in compressed_layers.iter().enumerate() {
+                            bytes.extend_from_slice(&(i as u32).to_le_bytes());
+                            if layer.len() > 0 {
+                                bytes.extend_from_slice(&offset.to_le_bytes());
+                            } else {
+                                bytes.extend_from_slice(&[0; 4]);
+                            }
+                            offset += layer.len() as u32;
                         }
 
-                        Ok::<_, anyhow::Error>((filename, bytes))
+                        for layer in compressed_layers {
+                            bytes.extend_from_slice(&layer);
+                        }
+
+                        Ok::<(PathBuf, Vec<u8>), anyhow::Error>((filename, bytes))
                     })
                     .await?;
 
@@ -640,11 +727,7 @@ where
                     .write(|f| f.write_all(&bytes))?;
 
                 tiles_processed += 1;
-                progress_callback(
-                    "Generating hgt tiles...".to_string(),
-                    tiles_processed,
-                    total_tiles,
-                );
+                progress_callback("Generating tiles...".to_string(), tiles_processed, total_tiles);
             }
         }
 

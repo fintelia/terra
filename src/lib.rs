@@ -145,13 +145,8 @@ impl Terrain {
             1,
         )?;
 
-        generate::merge_datasets_to_tiles::<i16, tiff::encoder::colortype::GrayI16, _>(
-            dataset_directory.to_owned(),
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            true,
-        )
-        .await?;
+        generate::merge_datasets_to_tiles(dataset_directory.to_owned(), &mut progress_callback)
+            .await?;
 
         // generate::generate_heightmaps(
         //     &*mapfile,

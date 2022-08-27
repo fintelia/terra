@@ -128,7 +128,6 @@ pub(crate) struct SectorCache<T, F: 'static> {
     sectors: Cache<Sector, Vec<T>>,
     parse: &'static F,
     directory: PathBuf,
-    filename_prefix: &'static str,
     filename_extension: &'static str,
 }
 impl<T, F> SectorCache<T, F>
@@ -137,17 +136,13 @@ where
     T: 'static + Send + Sync,
 {
     pub fn new(
-        capacity: usize,
         directory: PathBuf,
-        filename_prefix: &'static str,
-        filename_extension: &'static str,
         f: &'static F,
     ) -> Self {
         Self {
-            sectors: Cache::new(capacity),
+            sectors: Cache::new(32),
             directory,
-            filename_prefix,
-            filename_extension,
+            filename_extension: "tiff",
             parse: f,
         }
     }
@@ -163,8 +158,7 @@ where
 
         let path = match level {
             Some(level) => self.directory.join(&format!(
-                "{}{}_S-{}-{:02}x{:02}.{}",
-                self.filename_prefix,
+                "{}_S-{}-{:02}x{:02}.{}",
                 VFace(s.face),
                 level,
                 s.x,
@@ -172,8 +166,7 @@ where
                 self.filename_extension
             )),
             None => self.directory.join(&format!(
-                "{}_S-{}-{}x{}.{}",
-                self.filename_prefix,
+                "S-{}-{}x{}.{}",
                 VFace(s.face),
                 s.x,
                 s.y,
