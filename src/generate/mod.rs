@@ -19,6 +19,7 @@ use std::{fs, mem};
 use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use vec_map::VecMap;
+use zip::ZipWriter;
 
 mod gpu;
 pub mod heightmap;
@@ -37,152 +38,128 @@ pub const BLUE_MARBLE_URLS: [&str; 8] = [
     "https://eoimages.gsfc.nasa.gov/images/imagerecords/76000/76487/world.200406.3x21600x21600.D2.png",
 ];
 
-pub(crate) struct MapFileBuilder(MapFile);
-impl MapFileBuilder {
-    pub(crate) async fn new() -> Self {
-        let layers: VecMap<LayerParams> = LayerType::iter()
-            .map(|layer_type| {
-                let params = match layer_type {
-                    LayerType::Heightmaps => LayerParams {
-                        texture_resolution: 521,
-                        texture_border_size: 4,
-                        texture_format: &[TextureFormat::R32],
-                        grid_registration: true,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_5MM,
-                        layer_type,
-                    },
-                    LayerType::Displacements => LayerParams {
-                        texture_resolution: 65,
-                        texture_border_size: 0,
-                        texture_format: &[TextureFormat::RGBA32F],
-                        grid_registration: true,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_5MM,
-                        layer_type,
-                    },
-                    LayerType::AlbedoRoughness => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::RGBA8],
-                        grid_registration: false,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_5MM,
-                        layer_type,
-                    },
-                    LayerType::Normals => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::RG8],
-                        grid_registration: false,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_5MM,
-                        layer_type,
-                    },
-                    LayerType::GrassCanopy => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::RGBA8],
-                        grid_registration: false,
-                        min_level: VNode::LEVEL_CELL_1M,
-                        max_level: VNode::LEVEL_CELL_1M,
-                        layer_type,
-                    },
-                    LayerType::AerialPerspective => LayerParams {
-                        texture_resolution: 17,
-                        texture_border_size: 0,
-                        texture_format: &[TextureFormat::RGBA16F],
-                        grid_registration: true,
-                        min_level: 3,
-                        max_level: VNode::LEVEL_SIDE_610M,
-                        layer_type,
-                    },
-                    LayerType::BentNormals => LayerParams {
-                        texture_resolution: 513,
-                        texture_border_size: 0,
-                        texture_format: &[TextureFormat::RGBA8],
-                        grid_registration: true,
-                        min_level: VNode::LEVEL_CELL_153M,
-                        max_level: VNode::LEVEL_CELL_76M,
-                        layer_type,
-                    },
-                    LayerType::TreeCover => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::R8],
-                        grid_registration: false,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_76M,
-                        layer_type,
-                    },
-                    LayerType::BaseAlbedo => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::RGBA8],
-                        grid_registration: false,
-                        min_level: 0,
-                        max_level: VNode::LEVEL_CELL_610M,
-                        layer_type,
-                    },
-                    LayerType::TreeAttributes => LayerParams {
-                        texture_resolution: 516,
-                        texture_border_size: 2,
-                        texture_format: &[TextureFormat::RGBA8],
-                        grid_registration: false,
-                        min_level: VNode::LEVEL_CELL_10M,
-                        max_level: VNode::LEVEL_CELL_10M,
-                        layer_type,
-                    },
-                    LayerType::RootAerialPerspective => LayerParams {
-                        texture_resolution: 65,
-                        texture_border_size: 0,
-                        texture_format: &[TextureFormat::RGBA16F],
-                        grid_registration: true,
-                        min_level: 0,
-                        max_level: 0,
-                        layer_type,
-                    },
-                };
-                (layer_type.index(), params)
-            })
-            .collect();
+pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
+    let layers: VecMap<LayerParams> = LayerType::iter()
+        .map(|layer_type| {
+            let params = match layer_type {
+                LayerType::Heightmaps => LayerParams {
+                    texture_resolution: 517,
+                    texture_border_size: 4,
+                    texture_format: &[TextureFormat::R32],
+                    grid_registration: true,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
+                    layer_type,
+                },
+                LayerType::Displacements => LayerParams {
+                    texture_resolution: 65,
+                    texture_border_size: 0,
+                    texture_format: &[TextureFormat::RGBA32F],
+                    grid_registration: true,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
+                    layer_type,
+                },
+                LayerType::AlbedoRoughness => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::RGBA8],
+                    grid_registration: false,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
+                    layer_type,
+                },
+                LayerType::Normals => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::RG8],
+                    grid_registration: false,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_5MM,
+                    layer_type,
+                },
+                LayerType::GrassCanopy => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::RGBA8],
+                    grid_registration: false,
+                    min_level: VNode::LEVEL_CELL_1M,
+                    max_level: VNode::LEVEL_CELL_1M,
+                    layer_type,
+                },
+                LayerType::AerialPerspective => LayerParams {
+                    texture_resolution: 17,
+                    texture_border_size: 0,
+                    texture_format: &[TextureFormat::RGBA16F],
+                    grid_registration: true,
+                    min_level: 3,
+                    max_level: VNode::LEVEL_SIDE_610M,
+                    layer_type,
+                },
+                LayerType::BentNormals => LayerParams {
+                    texture_resolution: 513,
+                    texture_border_size: 0,
+                    texture_format: &[TextureFormat::RGBA8],
+                    grid_registration: true,
+                    min_level: VNode::LEVEL_CELL_153M,
+                    max_level: VNode::LEVEL_CELL_76M,
+                    layer_type,
+                },
+                LayerType::TreeCover => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::R8],
+                    grid_registration: false,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_76M,
+                    layer_type,
+                },
+                LayerType::BaseAlbedo => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::UASTC],
+                    grid_registration: false,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_610M,
+                    layer_type,
+                },
+                LayerType::TreeAttributes => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::RGBA8],
+                    grid_registration: false,
+                    min_level: VNode::LEVEL_CELL_10M,
+                    max_level: VNode::LEVEL_CELL_10M,
+                    layer_type,
+                },
+                LayerType::RootAerialPerspective => LayerParams {
+                    texture_resolution: 65,
+                    texture_border_size: 0,
+                    texture_format: &[TextureFormat::RGBA16F],
+                    grid_registration: true,
+                    min_level: 0,
+                    max_level: 0,
+                    layer_type,
+                },
+            };
+            (layer_type.index(), params)
+        })
+        .collect();
 
-        let mapfile = MapFile::new(layers);
-        for layer in LayerType::iter() {
-            if layer.streamed_levels() > 0 {
-                mapfile.reload_tile_states(layer).await.unwrap();
-            }
-        }
+    let mut mapfile = MapFile::new(layers, server).await?;
+    let mut context = AssetLoadContextBuf::new();
+    let mut context = context.context("Building Terrain...", 1);
+    // generate_heightmaps(&mut mapfile, &mut context).await?;
+    // generate_albedo(&mut mapfile, &mut context)?;
+    // generate_roughness(&mut mapfile, &mut context)?;
+    generate_noise(&mut mapfile, &mut context)?;
+    generate_sky(&mut mapfile, &mut context)?;
 
-        Self(mapfile)
-    }
+    download_cloudcover(&mut mapfile, &mut context)?;
+    download_ground_albedo(&mut mapfile, &mut context)?;
+    download_models(&mut context)?;
 
-    /// Actually construct the `QuadTree`.
-    ///
-    /// This function will (the first time it is called) download many gigabytes of raw data,
-    /// primarily datasets relating to real world land cover and elevation. These files will be
-    /// stored in ~/.cache/terra, so that they don't have to be fetched multiple times. This means that
-    /// this function can largely resume from where it left off if interrupted.
-    ///
-    /// Even once all needed files have been downloaded, the generation process takes a large amount
-    /// of CPU resources. You can expect it to run at full load continiously for several full
-    /// minutes, even in release builds (you *really* don't want to wait for generation in debug
-    /// mode...).
-    pub(crate) async fn build(mut self) -> Result<MapFile, Error> {
-        let mut context = AssetLoadContextBuf::new();
-        let mut context = context.context("Building Terrain...", 1);
-        // generate_heightmaps(&mut mapfile, &mut context).await?;
-        // generate_albedo(&mut mapfile, &mut context)?;
-        // generate_roughness(&mut mapfile, &mut context)?;
-        generate_noise(&mut self.0, &mut context)?;
-        generate_sky(&mut self.0, &mut context)?;
-
-        download_cloudcover(&mut self.0, &mut context)?;
-        download_ground_albedo(&mut self.0, &mut context)?;
-        download_models(&mut context)?;
-
-        Ok(self.0)
-    }
+    Ok(mapfile)
 }
 
 const SECTORS_PER_SIDE: u32 = 65;
@@ -438,7 +415,8 @@ where
     F: FnMut(String, usize, usize) + Send,
 {
     async move {
-        let (tiles_directory, existing_tiles) = scan_directory(&base_directory, "tiles")?;
+        let serve_directory = base_directory.join("serve");
+        let (tiles_directory, existing_tiles) = scan_directory(&serve_directory, "tiles")?;
 
         const BORDER_SIZE: usize = 2;
         const TILE_INNER_RESOLUTION: usize = 512;
@@ -505,7 +483,7 @@ where
                     (512 << sector_level) / (SECTORS_PER_SIDE - 1) as usize;
 
                 let mut heightmap_sectors = FnvHashMap::default();
-                // let mut albedo_sectors = FnvHashMap::default();
+                let mut albedo_sectors = FnvHashMap::default();
                 let mut treecover_sectors = FnvHashMap::default();
                 let mut watermask_sectors = FnvHashMap::default();
 
@@ -520,7 +498,7 @@ where
                 let min_sector_i = min_root_x / sector_inner_resolution;
                 let min_sector_j = min_root_y / sector_inner_resolution;
                 let max_sector_i = max_root_x / sector_inner_resolution;
-                let max_sector_j = min_root_y / sector_inner_resolution;
+                let max_sector_j = max_root_y / sector_inner_resolution;
                 for j in min_sector_j..=max_sector_j {
                     for i in min_sector_i..=max_sector_i {
                         let s = Sector { face: node.face(), x: i as u32, y: j as u32 };
@@ -528,11 +506,11 @@ where
                             heightmap_sectors
                                 .insert(s, heightmap_cache.get_sector(s, Some(sector_level)));
                         }
-                        // if node.level() <= max_bluemarble_level && !albedo_sectors.contains_key(&s)
-                        // {
-                        //     albedo_sectors
-                        //         .insert(s, albedo_cache.get_sector(s, Some(sector_level)));
-                        // }
+                        if node.level() <= max_bluemarble_level && !albedo_sectors.contains_key(&s)
+                        {
+                            albedo_sectors
+                                .insert(s, albedo_cache.get_sector(s, Some(sector_level)));
+                        }
                         if !treecover_sectors.contains_key(&s) {
                             treecover_sectors
                                 .insert(s, treecover_cache.get_sector(s, Some(sector_level)));
@@ -558,16 +536,16 @@ where
                         .into_iter()
                         .collect::<Result<_, _>>()?;
 
-                    // let albedo_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
-                    //     futures::future::join_all(albedo_sectors.into_iter().map(|s| async move {
-                    //         match s.1.await {
-                    //             Ok(r) => Ok((s.0, r)),
-                    //             Err(e) => Err(e),
-                    //         }
-                    //     }))
-                    //     .await
-                    //     .into_iter()
-                    //     .collect::<Result<_, _>>()?;
+                    let albedo_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
+                        futures::future::join_all(albedo_sectors.into_iter().map(|s| async move {
+                            match s.1.await {
+                                Ok(r) => Ok((s.0, r)),
+                                Err(e) => Err(e),
+                            }
+                        }))
+                        .await
+                        .into_iter()
+                        .collect::<Result<_, _>>()?;
 
                     let treecover_sectors: FnvHashMap<Sector, Arc<Vec<u8>>> =
                         futures::future::join_all(treecover_sectors.into_iter().map(
@@ -597,13 +575,13 @@ where
 
                     let encoded = tokio::task::spawn_blocking(move || {
                         let mut heights = vec![0; 517 * 517];
-                        // let mut albedo = if node.level() <= max_bluemarble_level {
-                        //     vec![0; 516 * 516 * 3]
-                        // } else {
-                        //     vec![]
-                        // };
+                        let mut albedo = if node.level() <= max_bluemarble_level {
+                            vec![0; 516 * 516 * 3]
+                        } else {
+                            vec![]
+                        };
                         let mut treecover = vec![0; 516 * 516];
-                        let mut watermask = vec![0; 516 * 516];
+                        let mut watermask = vec![1; 516 * 516];
 
                         for j in min_sector_j..=max_sector_j {
                             for i in min_sector_i..=max_sector_i {
@@ -620,14 +598,14 @@ where
                                     (max_root_y + step).min((j + 1) * sector_inner_resolution + 1);
 
                                 let heightmap_sector = heightmap_sectors.get(&s).unwrap();
-                                // let albedo_sector = albedo_sectors.get(&s);
+                                let albedo_sector = albedo_sectors.get(&s);
                                 let treecover_sector = treecover_sectors.get(&s).unwrap();
                                 let watermask_sector = watermask_sectors.get(&s).unwrap();
 
                                 let height_value =
                                     (heightmap_sector.len() == 1).then(|| heightmap_sector[0]);
-                                // let albedo_value =
-                                //     albedo_sector.and_then(|s| (s.len() == 3).then(|| s.clone()));
+                                let albedo_value =
+                                    albedo_sector.and_then(|s| (s.len() == 3).then(|| s.clone()));
                                 let treecover_value =
                                     (treecover_sector.len() == 1).then(|| treecover_sector[0]);
                                 let watermask_value =
@@ -651,23 +629,18 @@ where
                                             + (x - sector_min_x);
                                         let out_index = ((y - min_root_y) / step) * 516
                                             + ((x - min_root_x) / step);
-                                        // if let Some(albedo_sector) = albedo_sector {
-                                        //     match albedo_value {
-                                        //         Some(ref v) => {
-                                        //             albedo[out_index * 3] = v[0];
-                                        //             albedo[out_index * 3 + 1] = v[1];
-                                        //             albedo[out_index * 3 + 2] = v[2];
-                                        //         }
-                                        //         None => {
-                                        //             albedo[out_index * 3] =
-                                        //                 albedo_sector[in_index * 3];
-                                        //             albedo[out_index * 3 + 1] =
-                                        //                 albedo_sector[in_index * 3 + 1];
-                                        //             albedo[out_index * 3 + 2] =
-                                        //                 albedo_sector[in_index * 3 + 2];
-                                        //         }
-                                        //     }
-                                        // }
+                                        if let Some(ref v) = albedo_value {
+                                            albedo[out_index * 3] = v[0];
+                                            albedo[out_index * 3 + 1] = v[1];
+                                            albedo[out_index * 3 + 2] = v[2];
+                                        } else if let Some(sector) = albedo_sector {
+                                            albedo[out_index * 3] =
+                                                sector[in_index * 3];
+                                            albedo[out_index * 3 + 1] =
+                                                sector[in_index * 3 + 1];
+                                            albedo[out_index * 3 + 2] =
+                                                sector[in_index * 3 + 2];
+                                        }
                                         assert!(treecover_value.is_some() || in_index < treecover_sector.len(), "j={j} y={y} step={step} in_index={in_index} {} {} len={}", (y - sector_min_y), (x - sector_min_x), treecover_sector.len());
                                         treecover[out_index] = treecover_value
                                             .unwrap_or_else(|| treecover_sector[in_index]);
@@ -678,8 +651,29 @@ where
                             }
                         }
 
+                        let mut prev = 0;
+                        for i in 0..heights.len() {
+                            heights[i] /= 4;
+                            heights[i] = heights[i].wrapping_sub(prev);
+                            prev = prev.wrapping_add(heights[i]);
+                        }
+
+                        let mut prev = 0;
+                        for i in 0..treecover.len() {
+                            treecover[i] = treecover[i].wrapping_sub(prev);
+                            prev = prev.wrapping_add(treecover[i]);
+                        }
+
+                        let mut prev = 0;
+                        for i in 0..watermask.len() {
+                            watermask[i] = watermask[i].wrapping_sub(1);
+                            watermask[i] = watermask[i].wrapping_sub(prev);
+                            prev = prev.wrapping_add(watermask[i]);
+                        }
+
+                        let layer_names = ["heights.lz4", "treecover.lz4", "watermask.lz4"];
                         let compressed_layers: Vec<_> =
-                            [bytemuck::cast_slice(&heights), /*&*albedo,*/ &*treecover, &*watermask]
+                            [bytemuck::cast_slice(&heights), &*treecover, &*watermask]
                                 .par_iter()
                                 .map(|v| {
                                     let mut bytes = Vec::<u8>::new();
@@ -688,32 +682,48 @@ where
                                             .level(9)
                                             .build(&mut bytes)
                                             .unwrap();
-                                        e.write_all(bytemuck::cast_slice(&heights)).unwrap();
+                                        e.write_all(v).unwrap();
                                         e.finish().0;
                                     }
                                     bytes
                                 })
                                 .collect();
 
-                        let mut bytes = vec![4, 0, b'T', b'E', b'R', b'R', b'A', b'!'];
-                        bytes.extend_from_slice(&(compressed_layers.len() as u16).to_le_bytes());
-                        bytes.extend_from_slice(&[0; 6]);
+                        // if watermask.iter().filter(|v| **v != 0).count() >= 1 {
+                        //     let overlap = min_root_y % sector_inner_resolution != max_root_y % sector_inner_resolution;
+                        //     let p =  watermask.iter().position(|&w| w != 0).unwrap();
+                        //     // if p != 0 {
+                        //         eprintln!("[{}] {:08x} x={}..{} y={}..{} {sector_inner_resolution} {overlap}", watermask[p], watermask.iter().position(|&w| w != 0).unwrap(), min_root_x, max_root_x, min_root_y, max_root_y);
+                        //     // }
+                        // }
 
-                        let mut offset = bytes.len() as u32;
-                        for (i, layer) in compressed_layers.iter().enumerate() {
-                            bytes.extend_from_slice(&(i as u32).to_le_bytes());
-                            if layer.len() > 0 {
-                                bytes.extend_from_slice(&offset.to_le_bytes());
-                            } else {
-                                bytes.extend_from_slice(&[0; 4]);
-                            }
-                            offset += layer.len() as u32;
+                        if compressed_layers.iter().all(Vec::is_empty) &&  albedo.iter().all(|v| *v == 0) {
+                            return Ok::<(PathBuf, Vec<u8>), anyhow::Error>((filename, Vec::new()));
                         }
 
-                        for layer in compressed_layers {
-                            bytes.extend_from_slice(&layer);
+                        let zip_options = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+                        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+                        for (data, name) in compressed_layers.iter().zip(&layer_names) {
+                            zip.start_file(name.to_string(), zip_options)?;
+                            zip.write_all(&data)?;
                         }
 
+                        if !albedo.is_empty() {
+                            let mut albedo_params = basis_universal::encoding::CompressorParams::new();
+                            albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
+                            // albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
+                            // albedo_params.set_generate_mipmaps(true);
+                            albedo_params.source_image_mut(0).init(&*albedo, 516, 516, 3);
+
+                            let mut compressor = basis_universal::encoding::Compressor::new(1);
+                            unsafe { compressor.init(&albedo_params) };
+                            unsafe { compressor.process().unwrap() };
+
+                            zip.start_file("albedo.basis", zip_options)?;
+                            zip.write_all(compressor.basis_file())?;
+                        }
+
+                        let bytes = zip.finish().unwrap().into_inner();
                         Ok::<(PathBuf, Vec<u8>), anyhow::Error>((filename, bytes))
                     })
                     .await?;
@@ -729,6 +739,27 @@ where
                 tiles_processed += 1;
                 progress_callback("Generating tiles...".to_string(), tiles_processed, total_tiles);
             }
+        }
+
+        // Write tile list
+        let tile_list_path = serve_directory.join("tile_list.txt.lz4");
+        if !tile_list_path.exists() {
+            let mut list = Vec::new();
+            for entry in fs::read_dir(tiles_directory)? {
+                let entry = entry?;
+                if entry.metadata()?.len() > 0 {
+                    if let Ok(s) = entry.file_name().into_string() {
+                        list.push(s);
+                    }
+                }
+            }
+            list.sort();
+            let mut list_compressed = Vec::new();
+            let mut e = lz4::EncoderBuilder::new().level(9).build(&mut list_compressed).unwrap();
+            e.write_all(&list.join("\n").into_bytes()).unwrap();
+            e.finish().0;
+            AtomicFile::new(tile_list_path, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(&list_compressed))?;
         }
 
         Ok(())

@@ -1,6 +1,6 @@
 use crate::asset::TERRA_DIRECTORY;
-use crate::cache::{LayerParams, LayerType, TextureFormat};
-use anyhow::Error;
+use crate::cache::{LayerParams, TextureFormat};
+use anyhow::{Error};
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use serde::{Deserialize, Serialize};
@@ -9,11 +9,10 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, num::NonZeroU32};
-use tokio::io::AsyncReadExt;
 use types::VNode;
 use vec_map::VecMap;
 
-const TERRA_TILES_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
+const MAX_STREAMED_LEVEL: u8 = VNode::LEVEL_CELL_76M;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum TileState {
@@ -42,11 +41,12 @@ pub(crate) struct MapFile {
     _db: sled::Db,
     textures: sled::Tree,
 
-    remote_tiles: Arc<Mutex<VecMap<HashSet<VNode>>>>,
-    local_tiles: Arc<Mutex<VecMap<HashSet<VNode>>>>,
+    server: String,
+    remote_tiles: Arc<Mutex<HashSet<VNode>>>,
+    local_tiles: Arc<Mutex<HashSet<VNode>>>,
 }
 impl MapFile {
-    pub(crate) fn new(layers: VecMap<LayerParams>) -> Self {
+    pub(crate) async fn new(layers: VecMap<LayerParams>, server: String) -> Result<Self, Error> {
         let directory = TERRA_DIRECTORY.join("tiles/meta");
         let db = sled::open(&directory).expect(&format!(
             "Failed to open/create sled database. Deleting the '{}' directory may fix this",
@@ -67,73 +67,36 @@ impl MapFile {
         }
         db.insert("version", &*format!("{}", CURRENT_VERSION)).unwrap();
 
-        Self {
+        let mapfile = Self {
             layers,
             textures: db.open_tree("textures").unwrap(),
             _db: db,
+            server,
             remote_tiles: Default::default(),
             local_tiles: Default::default(),
-        }
+        };
+        mapfile.reload_tile_states().await?;
+        Ok(mapfile)
     }
 
-    pub(crate) fn tile_state(&self, layer: LayerType, node: VNode) -> Result<TileState, Error> {
-        if node.level() >= layer.streamed_levels() {
-            return Ok(TileState::GpuOnly);
-        }
-
-        let exists = self
-            .local_tiles
-            .lock()
-            .unwrap()
-            .get(layer.index())
-            .map(|m| m.contains(&node))
-            .unwrap_or(false);
-
-        if exists {
-            Ok(TileState::Base)
+    pub(crate) async fn read_tile(&self, node: VNode) -> Result<Option<Vec<u8>>, Error> {
+        let filename = Self::tile_path(node);
+        if filename.exists() {
+            Ok(Some(tokio::fs::read(&filename).await?))
         } else {
-            Ok(TileState::MissingBase)
-        }
-    }
-    pub(crate) async fn read_tile(
-        &self,
-        layer: LayerType,
-        node: VNode,
-    ) -> Result<Option<Vec<u8>>, Error> {
-        assert!(layer.streamed_levels() > 0);
-
-        let filename = Self::tile_path(layer, node);
-        if !filename.exists() {
-            if !self.remote_tiles.lock().unwrap()[layer].contains(&node) {
+            if !self.remote_tiles.lock().unwrap().contains(&node) {
                 return Ok(None);
             }
-            // unreachable!("{:?}", filename)
-            let url = Self::tile_url(layer, node);
-            let client =
-                hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
-            let resp = client.get(url.parse()?).await?;
-            if resp.status().is_success() {
-                let data = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
-                // TODO: Fix lifetime issues so we can do this tile write asynchronously.
-                tokio::task::block_in_place(|| self.write_tile(layer, node, &data))?;
-                return Ok(Some(data));
-            } else {
-                panic!("Tile download failed with {:?} for URL '{}'", resp.status(), url);
+            let contents = self.download(&format!("tiles/{}", Self::tile_name(node))).await?;
+            if self.server.starts_with("http://") || self.server.starts_with("https://") {
+                tokio::task::block_in_place(|| self.write_tile(node, &contents))?;
             }
+            Ok(Some(contents))
         }
-
-        let mut contents = Vec::new();
-        tokio::fs::File::open(filename).await?.read_to_end(&mut contents).await?;
-        Ok(Some(contents))
     }
 
-    pub(crate) fn write_tile(
-        &self,
-        layer: LayerType,
-        node: VNode,
-        data: &[u8],
-    ) -> Result<(), Error> {
-        let filename = Self::tile_path(layer, node);
+    pub(crate) fn write_tile(&self, node: VNode, data: &[u8]) -> Result<(), Error> {
+        let filename = Self::tile_path(node);
         if let Some(parent) = filename.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -141,12 +104,7 @@ impl MapFile {
         AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
             .write(|f| f.write_all(data))?;
 
-        self.local_tiles
-            .lock()
-            .unwrap()
-            .entry(layer.index())
-            .or_insert_with(Default::default)
-            .insert(node);
+        self.local_tiles.lock().unwrap().insert(node);
 
         Ok(())
     }
@@ -367,15 +325,7 @@ impl MapFile {
         &self.layers
     }
 
-    fn layer_name_ext_strs(layer: LayerType) -> (&'static str, &'static str) {
-        match layer {
-            LayerType::BaseAlbedo => ("albedo", "png"),
-            LayerType::Heightmaps => ("heightmaps", "raw"),
-            LayerType::TreeCover => ("treecover", "tiff"),
-            _ => unreachable!(),
-        }
-    }
-    fn tile_name(layer: LayerType, node: VNode) -> String {
+    fn tile_name(node: VNode) -> String {
         let face = match node.face() {
             0 => "0E",
             1 => "180E",
@@ -385,21 +335,14 @@ impl MapFile {
             5 => "S",
             _ => unreachable!(),
         };
-        let (layer, ext) = Self::layer_name_ext_strs(layer);
-        format!("{}/{}_{}_{}_{}x{}.{}", layer, layer, node.level(), face, node.x(), node.y(), ext)
+        format!("{}_{}_{}x{}.raw", node.level(), face, node.x(), node.y())
     }
 
-    fn tile_path(layer: LayerType, node: VNode) -> PathBuf {
-        TERRA_DIRECTORY.join("tiles").join(&Self::tile_name(layer, node))
+    fn tile_path(node: VNode) -> PathBuf {
+        TERRA_DIRECTORY.join("tiles").join(&Self::tile_name(node))
     }
 
-    fn tile_url(layer: LayerType, node: VNode) -> String {
-        format!("{}{}", TERRA_TILES_URL, Self::tile_name(layer, node))
-    }
-
-    pub(crate) async fn reload_tile_states(&self, layer: LayerType) -> Result<(), Error> {
-        let (target_layer, target_ext) = Self::layer_name_ext_strs(layer);
-
+    async fn reload_tile_states(&self) -> Result<(), Error> {
         fn face_index(s: &str) -> Option<u8> {
             Some(match s {
                 "0E" => 0,
@@ -416,57 +359,45 @@ impl MapFile {
         let mut existing = HashSet::new();
 
         // Scan local files.
-        let directory = TERRA_DIRECTORY.join("tiles").join(target_layer);
+        let directory = TERRA_DIRECTORY.join("tiles");
         std::fs::create_dir_all(&directory)?;
         for file in fs::read_dir(directory)? {
             let filename = file?.file_name();
             let filename = filename.to_string_lossy();
 
-            if let Ok((layer, level, face, x, y, ext)) =
-                sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
+            if let Ok((level, face, x, y)) =
+                sscanf::scanf!(filename, "{}_{}_{}x{}.raw", u8, String, u32, u32)
             {
-                let face = face_index(&face);
-                if layer == target_layer && ext == target_ext && face.is_some() {
-                    existing.insert((level, face.unwrap(), x, y));
-                }
+                face_index(&face).map(|face| existing.insert((level, face, x, y)));
             }
         }
 
         // Download file list if necessary.
-        let file_list_path =
-            TERRA_DIRECTORY.join(&format!("tiles/{}_tile_list.txt.gz", target_layer));
-        if !file_list_path.exists() {
-            let url = format!("{}{}_tile_list.txt.lz4", TERRA_TILES_URL, target_layer);
-            let client =
-                hyper::Client::builder().build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
-            let resp = client.get(url.parse()?).await?;
-            if resp.status().is_success() {
-                let contents = hyper::body::to_bytes(resp.into_body()).await?.to_vec();
-                tokio::fs::write(&file_list_path, contents).await?;
-            } else {
-                anyhow::bail!("Failed to download '{}'", url);
+        let file_list_path = TERRA_DIRECTORY.join("tile_list.txt.lz4");
+        let file_list_encoded = if !file_list_path.exists() {
+            let contents = self.download("tile_list.txt.lz4").await?;
+            if self.server.starts_with("http://") || self.server.starts_with("https://") {
+                tokio::fs::write(&file_list_path, &contents).await?;
             }
-        }
+            contents
+        } else {
+            tokio::fs::read(file_list_path).await?
+        };
+
         // Parse file list to learn all files available from the remote.
         let mut remote_files = String::new();
-        let encoded = tokio::fs::read(file_list_path).await?;
-        lz4::Decoder::new(std::io::Cursor::new(&encoded))?.read_to_string(&mut remote_files)?;
+        lz4::Decoder::new(std::io::Cursor::new(&file_list_encoded))?
+            .read_to_string(&mut remote_files)?;
         for filename in remote_files.split("\n") {
-            if let Ok((layer, level, face, x, y, ext)) =
-                sscanf::scanf!(filename, "{}_{}_{}_{}x{}.{}", String, u8, String, u32, u32, String)
+            if let Ok((level, face, x, y)) =
+                sscanf::scanf!(filename, "{}_{}_{}x{}.raw", u8, String, u32, u32)
             {
-                let face = face_index(&face);
-                if layer == target_layer && ext == target_ext && face.is_some() {
-                    all.insert((level, face.unwrap(), x, y));
-                }
+                face_index(&face).map(|face| all.insert((level, face, x, y)));
             }
         }
 
         let mut local_tiles = self.local_tiles.lock().unwrap();
         let mut remote_tiles = self.remote_tiles.lock().unwrap();
-
-        let local_tiles = local_tiles.entry(layer.index()).or_insert_with(Default::default);
-        let remote_tiles = remote_tiles.entry(layer.index()).or_insert_with(Default::default);
 
         VNode::breadth_first(|n| {
             if existing.contains(&(n.level(), n.face(), n.x(), n.y())) {
@@ -479,10 +410,35 @@ impl MapFile {
                 remote_tiles.insert(n);
             }
 
-            n.level() + 1 < layer.streamed_levels()
+            n.level() + 1 < MAX_STREAMED_LEVEL
         });
 
         Ok(())
+    }
+
+    async fn download(&self, path: &str) -> Result<Vec<u8>, Error> {
+        match self.server.split_once("//") {
+            Some(("file:", base_path)) => {
+                let full_path = PathBuf::from(base_path).join(path);
+                Ok(tokio::fs::read(&full_path).await?)
+            }
+            Some(("http:", ..)) | Some(("https:", ..)) => {
+                let url = format!("{}{}", self.server, path);
+                let client = hyper::Client::builder()
+                    .build::<_, hyper::Body>(hyper_tls::HttpsConnector::new());
+                let resp = client.get(url.parse()?).await?;
+                if resp.status().is_success() {
+                    Ok(hyper::body::to_bytes(resp.into_body()).await?.to_vec())
+                } else {
+                    Err(anyhow::format_err!(
+                        "Tile download failed with {:?} for URL '{}'",
+                        resp.status(),
+                        url
+                    ))
+                }
+            }
+            _ => Err(anyhow::format_err!("Invalid server URL {}", self.server)),
+        }
     }
 
     // /// Return a list of the missing bases for a layer, as well as the total number bases in the layer.

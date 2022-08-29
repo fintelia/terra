@@ -23,7 +23,6 @@ mod srgb;
 mod stream;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
-use crate::generate::MapFileBuilder;
 use crate::mapfile::MapFile;
 use anyhow::Error;
 use billboards::Models;
@@ -39,6 +38,8 @@ use types::{InfiniteFrustum, VNode};
 
 pub use crate::generate::BLUE_MARBLE_URLS;
 
+pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
+
 pub struct Terrain {
     sky_shader: rshader::ShaderSet,
     sky_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
@@ -46,7 +47,7 @@ pub struct Terrain {
     stars_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     gpu_state: GpuState,
     quadtree: QuadTree,
-    mapfile: Arc<MapFile>,
+    _mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
     view_proj: mint::ColumnMatrix4<f32>,
@@ -60,11 +61,10 @@ impl Terrain {
     pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(String, usize, usize) + Send>(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        server: String,
         dataset_directory: P,
         mut progress_callback: F,
     ) -> Result<Self, Error> {
-        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
-
         let dataset_directory = dataset_directory.as_ref();
 
         // generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _, _>(
@@ -162,6 +162,7 @@ impl Terrain {
         //     &mut progress_callback,
         // )
         // .await?;
+        let mapfile = Arc::new(generate::build_mapfile(server).await?);
         generate::generate_materials(
             &*mapfile,
             dataset_directory.join("free_pbr"),
@@ -173,8 +174,8 @@ impl Terrain {
     }
 
     /// Create a new Terrain object.
-    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
-        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
+    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue, server: String) -> Result<Self, Error> {
+        let mapfile = Arc::new(generate::build_mapfile(server).await?);
         Self::new_impl(device, queue, mapfile)
     }
 
@@ -338,7 +339,7 @@ impl Terrain {
             stars_bindgroup_pipeline: None,
             gpu_state,
             quadtree,
-            mapfile,
+            _mapfile: mapfile,
             cache,
             generate_skyview,
             view_proj: cgmath::Matrix4::zero().into(),
@@ -377,7 +378,6 @@ impl Terrain {
                 device,
                 queue,
                 &self.gpu_state,
-                &self.mapfile,
                 &mut self.quadtree,
                 camera,
             );
@@ -554,7 +554,6 @@ impl Terrain {
             device,
             queue,
             &self.gpu_state,
-            &self.mapfile,
             &mut self.quadtree,
             camera,
         );

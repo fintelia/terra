@@ -1,12 +1,9 @@
+use crate::coordinates;
 use crate::{
     cache::{self, PriorityCacheEntry},
     quadtree::QuadTree,
 };
-use crate::{coordinates, stream::TileResult};
-use crate::{
-    gpu_state::GpuState,
-    mapfile::{MapFile, TileState},
-};
+use crate::gpu_state::GpuState;
 use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
@@ -158,7 +155,7 @@ pub(crate) struct LayerParams {
 
 #[derive(Clone)]
 pub(super) enum CpuHeightmap {
-    I16 { min: f32, max: f32, heights: Arc<Vec<i16>> },
+    I16 { min: f32, max: f32, heights: Vec<i16> },
     F32 { min: f32, max: f32, heights: Arc<Vec<f32>> },
 }
 
@@ -171,7 +168,7 @@ pub(super) struct Entry {
     /// bitmask of whether the tile for each layer is valid.
     pub(super) valid: LayerMask,
     /// bitmask of whether the tile for each layer is currently being streamed.
-    streaming: LayerMask,
+    streaming: bool,
     /// A CPU copy of the heightmap tile, useful for collision detection and such.
     heightmap: Option<CpuHeightmap>,
     /// Map from layer to the generators that were used (perhaps indirectly) to produce it.
@@ -183,7 +180,7 @@ impl Entry {
             node,
             priority,
             valid: LayerMask::empty(),
-            streaming: LayerMask::empty(),
+            streaming: false,
             heightmap: None,
             generators: VecMap::new(),
         }
@@ -233,7 +230,6 @@ impl TileCache {
 
     pub(super) fn generate_tiles(
         &mut self,
-        mapfile: &MapFile,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
@@ -246,17 +242,13 @@ impl TileCache {
                 for ref mut entry in self.levels[level as usize].slots_mut() {
                     if entry.priority() > Priority::cutoff() {
                         let ty = layer.layer_type;
-                        if !((entry.valid | entry.streaming).contains_layer(ty)) {
-                            match mapfile.tile_state(ty, entry.node).unwrap() {
-                                TileState::MissingBase | TileState::Base => {
-                                    if self.streamer.num_inflight() < 128 {
-                                        entry.streaming |= ty.bit_mask();
-                                        self.streamer.request_tile(entry.node, ty);
-                                    }
-                                }
-                                TileState::GpuOnly => {
-                                    pending_generate.push(entry.node);
-                                }
+                        if !entry.valid.contains_layer(ty) {
+                            if level >= layer.layer_type.streamed_levels() {
+                                pending_generate.push(entry.node);
+                            } else if !entry.streaming && self.streamer.num_inflight() < 128 {
+                                entry.streaming = true;
+                                self.streamer.request_tile(entry.node);
+                                // println!("Requesting tile level={}", entry.node.level());
                             }
                         }
                     }
@@ -474,83 +466,71 @@ impl TileCache {
         queue: &wgpu::Queue,
         textures: &VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
     ) {
-        while let Some(mut tile) = self.streamer.try_complete() {
-            if let Some(entry) = self.levels[tile.node().level() as usize].entry_mut(&tile.node()) {
-                entry.valid |= tile.layer().bit_mask();
-                entry.streaming &= !tile.layer().bit_mask();
+        while let Some(tile) = self.streamer.try_complete() {
+            if let Some(entry) = self.levels[tile.node.level() as usize].entry_mut(&tile.node) {
+                entry.streaming = false;
+                for layer_index in tile.layers.keys() {
+                    entry.valid |= LayerType::from_index(layer_index).bit_mask();
+                }
 
-                let index = self.get_slot(tile.node()).unwrap();
-                let layer = tile.layer();
+                let index = self.get_slot(tile.node).unwrap();
+                for (layer_index, mut data) in tile.layers {
+                    let layer = LayerType::from_index(layer_index);
+                    let resolution = self.resolution(layer) as usize;
+                    let resolution_blocks = self.resolution_blocks(layer) as usize;
+                    let bytes_per_block = self.layers[layer].texture_format[0].bytes_per_block();
+                    let row_bytes = resolution_blocks * bytes_per_block;
 
-                let resolution = self.resolution(tile.layer()) as usize;
-                let resolution_blocks = self.resolution_blocks(tile.layer()) as usize;
-                let bytes_per_block = self.layers[tile.layer()].texture_format[0].bytes_per_block();
-                let row_bytes = resolution_blocks * bytes_per_block;
+                    if tile.node.level() < self.layers[layer].min_level
+                        || tile.node.level() > self.layers[layer].max_level
+                    {
+                        continue;
+                    }
 
-                let data;
-                let mut owned_data;
-                match tile {
-                    TileResult::Heightmaps(node, ref heights) => {
-                        if let Some(entry) = self.levels[node.level() as usize].entry_mut(&node) {
-                            let min = *heights.iter().min().unwrap() as f32;
-                            let max = *heights.iter().max().unwrap() as f32;
-                            entry.heightmap =
-                                Some(CpuHeightmap::I16 { min, max, heights: Arc::clone(&heights) });
-                        }
-                        let heights: Vec<_> = heights
-                            .iter()
-                            .map(|&h| {
-                                if h <= 0 {
-                                    0x800000 | (((h + 1024).max(0) as u32) << 9)
-                                } else {
-                                    (((h as u32) + 1024) << 9).min(0x7fffff)
+                    if data.is_empty() {
+                        data.resize(row_bytes * resolution_blocks, 0);
+                    }
+
+                    if cfg!(feature = "small-trace") {
+                        for y in 0..resolution_blocks {
+                            for x in 0..resolution_blocks {
+                                if x % 16 == 0 && y % 16 == 0 {
+                                    continue;
                                 }
-                            })
-                            .collect();
-                        owned_data = vec![0; heights.len() * 4];
-                        owned_data.copy_from_slice(bytemuck::cast_slice(&heights));
-                        data = &mut owned_data;
-                    }
-                    TileResult::Generic(_, _, ref mut d) if d.len() == 0 => {
-                        owned_data = vec![0; row_bytes * resolution_blocks];
-                        data = &mut owned_data;
-                    }
-                    TileResult::Generic(_, _, ref mut d) => data = &mut *d,
-                }
-
-                if cfg!(feature = "small-trace") {
-                    for y in 0..resolution_blocks {
-                        for x in 0..resolution_blocks {
-                            if x % 16 == 0 && y % 16 == 0 {
-                                continue;
+                                let src =
+                                    ((x & !15) + (y & !15) * resolution_blocks) * bytes_per_block;
+                                let dst = (x + y * resolution_blocks) * bytes_per_block;
+                                data.copy_within(src..src + bytes_per_block, dst);
                             }
-                            let src = ((x & !15) + (y & !15) * resolution_blocks) * bytes_per_block;
-                            let dst = (x + y * resolution_blocks) * bytes_per_block;
-                            data.copy_within(src..src + bytes_per_block, dst);
                         }
                     }
+                    assert_eq!(textures[layer].len(), 1);
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &textures[layer][0].0,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &*data,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
+                            rows_per_image: None,
+                        },
+                        wgpu::Extent3d {
+                            width: resolution as u32,
+                            height: resolution as u32,
+                            depth_or_array_layers: 1,
+                        },
+                    );
                 }
 
-                assert_eq!(textures[layer].len(), 1);
-                queue.write_texture(
-                    wgpu::ImageCopyTexture {
-                        texture: &textures[layer][0].0,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d { x: 0, y: 0, z: index as u32 },
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &*data,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(NonZeroU32::new(row_bytes as u32).unwrap()),
-                        rows_per_image: None,
-                    },
-                    wgpu::Extent3d {
-                        width: resolution as u32,
-                        height: resolution as u32,
-                        depth_or_array_layers: 1,
-                    },
-                );
+                if let Some(entry) = self.levels[tile.node.level() as usize].entry_mut(&tile.node) {
+                    let min = *tile.heightmap.iter().min().unwrap() as f32;
+                    let max = *tile.heightmap.iter().max().unwrap() as f32;
+                    entry.heightmap = Some(CpuHeightmap::I16 { min, max, heights: tile.heightmap });
+                }
             }
         }
     }

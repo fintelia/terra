@@ -24,6 +24,8 @@ struct Opt {
     time: Option<String>,
     #[structopt(long, default_value = "0.0")]
     timescale: f64,
+    #[structopt(long)]
+    server: Option<String>,
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -189,6 +191,7 @@ fn main() {
     let mut space_key = false;
     let mut z_key = false;
 
+    let server = opt.server.unwrap_or_else(|| terra::DEFAULT_TILE_SERVER_URL.to_string());
     let mut terrain = match opt.generate {
         Some(dataset_directory) => {
             let pb = indicatif::ProgressBar::new(100);
@@ -212,12 +215,13 @@ fn main() {
                 .block_on(terra::Terrain::generate_and_new(
                     &device,
                     &queue,
+                    server,
                     dataset_directory,
                     progress_callback,
                 ))
                 .unwrap()
         }
-        None => runtime.block_on(terra::Terrain::new(&device, &queue)).unwrap(),
+        None => runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap(),
     };
 
     {

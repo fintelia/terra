@@ -1,13 +1,11 @@
-use crate::cache::LayerType;
-use crate::mapfile::MapFile;
 use anyhow::Error;
 use crossbeam::channel::{self, Receiver, Sender};
-use futures::future::{self, BoxFuture, FutureExt};
+use futures::future::{BoxFuture, FutureExt};
 use lru::LruCache;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
-use types::{VFace, VNode, NODE_OFFSETS};
+use types::VFace;
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub(crate) struct Sector {
@@ -62,67 +60,67 @@ impl<K: std::hash::Hash + Eq + Copy, T> Cache<K, T> {
     }
 }
 
-pub(crate) struct HeightmapCache {
-    resolution: usize,
-    border_size: usize,
-    tiles: Cache<VNode, Vec<i16>>,
-}
-impl HeightmapCache {
-    pub fn new(resolution: usize, border_size: usize, capacity: usize) -> Self {
-        Self { resolution, border_size, tiles: Cache::new(capacity) }
-    }
+// pub(crate) struct HeightmapCache {
+//     resolution: usize,
+//     border_size: usize,
+//     tiles: Cache<VNode, Vec<i16>>,
+// }
+// impl HeightmapCache {
+//     pub fn new(resolution: usize, border_size: usize, capacity: usize) -> Self {
+//         Self { resolution, border_size, tiles: Cache::new(capacity) }
+//     }
 
-    pub(crate) fn get_tile<'a>(
-        &mut self,
-        mapfile: &'a MapFile,
-        node: VNode,
-    ) -> BoxFuture<'a, Result<Arc<Vec<i16>>, Error>> {
-        let mut tiles_pending = Vec::new();
-        let mut root = None;
+//     pub(crate) fn get_tile<'a>(
+//         &mut self,
+//         mapfile: &'a MapFile,
+//         node: VNode,
+//     ) -> BoxFuture<'a, Result<Arc<Vec<i16>>, Error>> {
+//         let mut tiles_pending = Vec::new();
+//         let mut root = None;
 
-        let mut n = node;
-        loop {
-            if let Some(t) = self.tiles.get(n) {
-                root = Some(t);
-                break;
-            }
+//         let mut n = node;
+//         loop {
+//             if let Some(t) = self.tiles.get(n) {
+//                 root = Some(t);
+//                 break;
+//             }
 
-            tiles_pending
-                .push(async move { (n, mapfile.read_tile(LayerType::Heightmaps, n).await) });
-            match n.parent() {
-                Some((p, _)) => n = p,
-                None => break,
-            }
-        }
+//             tiles_pending
+//                 .push(async move { (n, mapfile.read_tile(LayerType::Heightmaps, n).await) });
+//             match n.parent() {
+//                 Some((p, _)) => n = p,
+//                 None => break,
+//             }
+//         }
 
-        let sender = self.tiles.sender();
-        let (resolution, border_size) = (self.resolution, self.border_size);
-        async move {
-            let tiles = future::join_all(tiles_pending.into_iter()).await;
-            for (n, t) in tiles.into_iter().rev() {
-                let tile = Arc::new(match root.take() {
-                    None => tilefmt::uncompress_heightmap_tile(None, &*t?.unwrap()).1,
-                    Some(parent_tile) => {
-                        tilefmt::uncompress_heightmap_tile(
-                            Some((
-                                NODE_OFFSETS[n.parent().unwrap().1 as usize],
-                                border_size,
-                                resolution,
-                                &*parent_tile,
-                            )),
-                            &*t?.unwrap(),
-                        )
-                        .1
-                    }
-                });
-                let _ = sender.send((n, Arc::clone(&tile)));
-                root = Some(tile);
-            }
-            Ok(root.unwrap())
-        }
-        .boxed()
-    }
-}
+//         let sender = self.tiles.sender();
+//         let (resolution, border_size) = (self.resolution, self.border_size);
+//         async move {
+//             let tiles = future::join_all(tiles_pending.into_iter()).await;
+//             for (n, t) in tiles.into_iter().rev() {
+//                 let tile = Arc::new(match root.take() {
+//                     None => tilefmt::uncompress_heightmap_tile(None, &*t?.unwrap()).1,
+//                     Some(parent_tile) => {
+//                         tilefmt::uncompress_heightmap_tile(
+//                             Some((
+//                                 NODE_OFFSETS[n.parent().unwrap().1 as usize],
+//                                 border_size,
+//                                 resolution,
+//                                 &*parent_tile,
+//                             )),
+//                             &*t?.unwrap(),
+//                         )
+//                         .1
+//                     }
+//                 });
+//                 let _ = sender.send((n, Arc::clone(&tile)));
+//                 root = Some(tile);
+//             }
+//             Ok(root.unwrap())
+//         }
+//         .boxed()
+//     }
+// }
 
 pub(crate) struct SectorCache<T, F: 'static> {
     sectors: Cache<Sector, Vec<T>>,
@@ -135,16 +133,8 @@ where
     F: Fn(&[u8]) -> Result<Vec<T>, Error> + Send + Sync + 'static,
     T: 'static + Send + Sync,
 {
-    pub fn new(
-        directory: PathBuf,
-        f: &'static F,
-    ) -> Self {
-        Self {
-            sectors: Cache::new(32),
-            directory,
-            filename_extension: "tiff",
-            parse: f,
-        }
+    pub fn new(directory: PathBuf, f: &'static F) -> Self {
+        Self { sectors: Cache::new(32), directory, filename_extension: "tiff", parse: f }
     }
 
     pub(crate) fn get_sector<'a>(

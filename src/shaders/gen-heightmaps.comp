@@ -41,7 +41,7 @@ void main() {
 	}
 	barrier();
 
-	if (x >= 521 && y >= 521)
+	if (x >= HEIGHTMAP_RESOLUTION && y >= HEIGHTMAP_RESOLUTION)
 		return;
 
 	// Bicubic Interpolation

@@ -8,6 +8,7 @@ use crate::{
     cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
     quadtree::QuadTree,
 };
+use basis_universal::TranscoderTextureFormat;
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
@@ -417,8 +418,14 @@ impl TileCache {
 
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
 
+        let transcode_format = if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+            TranscoderTextureFormat::BC7_RGBA
+        } else {
+            TranscoderTextureFormat::ASTC_4x4_RGBA
+        };
+
         Self {
-            streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
+            streamer: TileStreamerEndpoint::new(mapfile, transcode_format).unwrap(),
             level_masks,
             completed_downloads_tx: completed_tx,
             completed_downloads_rx: completed_rx,
@@ -442,7 +449,6 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
-        mapfile: &MapFile,
         quadtree: &mut QuadTree,
         camera: mint::Point3<f64>,
     ) {
@@ -498,7 +504,7 @@ impl TileCache {
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
+            TileCache::generate_tiles(self, device, &queue, gpu_state);
 
         self.write_nodes(queue, gpu_state, camera);
 
