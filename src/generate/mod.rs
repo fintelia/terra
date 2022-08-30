@@ -120,7 +120,7 @@ pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
                     texture_format: &[TextureFormat::UASTC],
                     grid_registration: false,
                     min_level: 0,
-                    max_level: VNode::LEVEL_CELL_610M,
+                    max_level: VNode::LEVEL_CELL_305M,
                     layer_type,
                 },
                 LayerType::TreeAttributes => LayerParams {

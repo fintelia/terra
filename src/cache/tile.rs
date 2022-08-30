@@ -470,6 +470,12 @@ impl TileCache {
             if let Some(entry) = self.levels[tile.node.level() as usize].entry_mut(&tile.node) {
                 entry.streaming = false;
                 for layer_index in tile.layers.keys() {
+                    let layer = LayerType::from_index(layer_index);
+                    if tile.node.level() < self.layers[layer].min_level
+                        || tile.node.level() > self.layers[layer].max_level
+                    {
+                        continue;
+                    }
                     entry.valid |= LayerType::from_index(layer_index).bit_mask();
                 }
 
