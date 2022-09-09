@@ -67,19 +67,6 @@ impl Terrain {
     ) -> Result<Self, Error> {
         let dataset_directory = dataset_directory.as_ref();
 
-        // generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _, _>(
-        //     dataset_directory.to_owned(),
-        //     "treecover",
-        //     VNode::LEVEL_CELL_76M,
-        //     &mut progress_callback,
-        //     false,
-        //     terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 12),
-        //     &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
-        //     &|t| (t * (255.0 / 100.0)) as u8,
-        //     0,
-        // )
-        // .await?;
-
         // generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _, _>(
         //     dataset_directory.to_owned(),
         //     "nasadem",
@@ -93,75 +80,57 @@ impl Terrain {
         //     i16::MIN,
         // )?;
 
-        generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _>(
+        generate::reproject_dataset::<i16, _>(
             dataset_directory.to_owned(),
             "copernicus-hgt",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
             true,
             vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"), 1)?,
-            &|_, _, _, _| 0,
             0,
+            vec![16],
+            true,
         )?;
 
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
+        generate::reproject_dataset::<u8, _>(
             dataset_directory.to_owned(),
             "copernicus-wbm",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
-            false,
+            true,
             vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
-            &|a, b, c, d| {
-                let mut counts = [0; 4];
-                counts[a as usize] += 1;
-                counts[b as usize] += 1;
-                counts[c as usize] += 1;
-                counts[d as usize] += 1;
-                counts.iter().cloned().enumerate().max_by_key(|&(i, count)| (count, i)).unwrap().0
-                    as u8
-            },
             1,
+            vec![8],
+            false,
         )?;
 
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
+        generate::reproject_dataset::<u8, _>(
             dataset_directory.to_owned(),
             "treecover",
             VNode::LEVEL_CELL_76M,
             &mut progress_callback,
             false,
             vrt_file::VrtFile::new(&dataset_directory.join("treecover/merged.vrt"), 1)?,
-            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
             0,
+            vec![8],
+            false,
         )?;
 
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::RGB8, _, _>(
+        generate::reproject_dataset::<u8, _>(
             dataset_directory.to_owned(),
             "bluemarble",
-            VNode::LEVEL_CELL_305M,
+            VNode::LEVEL_CELL_610M,
             &mut progress_callback,
             false,
             vrt_file::VrtFile::new(&dataset_directory.join("bluemarble/merged.vrt"), 3)?,
-            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
-            1,
+            0,
+            vec![8, 8, 8],
+            false,
         )?;
 
         generate::merge_datasets_to_tiles(dataset_directory.to_owned(), &mut progress_callback)
             .await?;
 
-        // generate::generate_heightmaps(
-        //     &*mapfile,
-        //     dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-        //     dataset_directory.join("nasadem"),
-        //     dataset_directory.join("nasadem_reprojected"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
-        // generate::generate_albedos(
-        //     &*mapfile,
-        //     dataset_directory.join("bluemarble"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
         let mapfile = Arc::new(generate::build_mapfile(server).await?);
         generate::generate_materials(
             &*mapfile,

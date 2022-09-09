@@ -26,6 +26,7 @@ bytemuck = { version = "1.11.0", features = ["extern_crate_alloc"] }
 byteorder = "1.4.3"
 cgmath = { version = "0.18.0", features = ["mint", "serde"] }
 chrono = "0.4.19"
+cogbuilder = { path = "../cogbuilder" }
 crossbeam = "0.8.2"
 curl = "0.4.44"
 dirs = "4.0.0"

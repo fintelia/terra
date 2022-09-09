@@ -11,6 +11,7 @@ use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
 use rayon::prelude::*;
 use std::collections::HashSet;
+use std::fs::File;
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicUsize;
@@ -181,228 +182,140 @@ fn scan_directory(
     Ok((directory, existing))
 }
 
-pub(crate) fn reproject_dataset<T, C, F, Downsample>(
+pub(crate) fn reproject_dataset<T, F>(
     base_directory: PathBuf,
     dataset_name: &'static str,
     max_level: u8,
     progress_callback: F,
     grid_registration: bool,
     vrt_file: vrt_file::VrtFile,
-    downsample: &'static Downsample,
     no_data_value: T,
+    bits_per_sample: Vec<u8>,
+    signed: bool,
 ) -> Result<(), anyhow::Error>
 where
-    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + Send + Sync + 'static,
+    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
     F: FnMut(String, usize, usize) + Send,
-    Downsample: Fn(T, T, T, T) -> T + Sync + 'static,
-    C: tiff::encoder::colortype::ColorType<Inner = T>,
     [T]: tiff::encoder::TiffValue,
 {
-    let (reprojected_directory, reprojected) =
-        scan_directory(&base_directory, format!("{}_reprojected", dataset_name))?;
+    const BORDER_SIZE: u32 = 4;
+    const TILE_INNER_RESOLUTION: u32 = 512;
+    let root_border_size = BORDER_SIZE << max_level;
+    let root_dimensions = if grid_registration {
+        1 + ((TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level)
+    } else {
+        (TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level
+    };
 
-    let bands = C::BITS_PER_SAMPLE.len();
-
+    let mut cogs = Vec::new();
     let mut missing = Vec::new();
     for root_node in VNode::roots() {
-        for y in 0..SECTORS_PER_SIDE {
-            for x in 0..SECTORS_PER_SIDE {
-                let is_missing = (VNode::LEVEL_CELL_1KM.min(max_level)..=max_level).any(|level| {
-                    !reprojected.contains(&format!(
-                        "{}_S-{}-{:02}x{:02}.tiff",
-                        VFace(root_node.face()),
-                        level,
-                        x,
-                        y
-                    ))
-                });
-
-                if is_missing {
-                    missing.push((root_node, x, y));
-                }
-            }
+        let path = base_directory
+            .join(format!("{dataset_name}_reprojected"))
+            .join(format!("{}.tiff", VFace(root_node.face())));
+        fs::create_dir_all(&path.parent().unwrap())?;
+        let mut cog = cogbuilder::CogBuilder::new(
+            File::options().read(true).write(true).create(true).open(path)?,
+            root_dimensions,
+            root_dimensions,
+            bits_per_sample.clone(),
+            signed,
+            &no_data_value.to_string(),
+        )?;
+        for (tile, _) in cog.valid_mask(0)?.iter().enumerate().filter(|v| !v.1) {
+            missing.push((root_node, tile as u32));
         }
+        cogs.push(Mutex::new(cog));
     }
 
-    let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
-
-    const TILE_INNER_RESOLUTION: usize = 512;
-    let base_sector_resolution = if grid_registration {
-        1 + (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
-    } else {
-        (TILE_INNER_RESOLUTION << max_level) as u32 / (SECTORS_PER_SIDE - 1)
-    };
-    let root_border_size = base_sector_resolution / 2;
-
-    base_sector_resolution
-        .checked_mul(base_sector_resolution)
-        .expect("TODO: Handle sector resolution overflow");
-
-    let total_sectors = (6 * SECTORS_PER_SIDE * SECTORS_PER_SIDE) as usize;
+    let bands = bits_per_sample.len();
+    let root_dimensions_tiles = (root_dimensions - 1) / cogbuilder::TILE_SIZE + 1;
+    let total_sectors = (6 * root_dimensions_tiles * root_dimensions_tiles) as usize;
     let sectors_processed = AtomicUsize::new(total_sectors - missing.len());
 
     let progress_callback = Mutex::new(progress_callback);
     let geotransform = vrt_file.geotransform();
 
     vrt_file.alloc_user_bytes(
-        u64::from(base_sector_resolution * base_sector_resolution)
+        u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
             * (16 + mem::size_of::<T>()) as u64
-            * 16,
+            * 128,
     );
-    missing.chunks(16).try_for_each(|chunk| {
-        chunk.into_par_iter().try_for_each(|(root, x, y)| -> Result<(), anyhow::Error> {
-            (progress_callback.lock().unwrap())(
-                format!("reprojecting {}...", dataset_name),
-                sectors_processed.load(std::sync::atomic::Ordering::SeqCst),
-                total_sectors,
-            );
+    missing.into_iter().par_bridge().try_for_each(|(root, tile)| -> Result<(), anyhow::Error> {
+        (progress_callback.lock().unwrap())(
+            format!("reprojecting {}...", dataset_name),
+            sectors_processed.load(std::sync::atomic::Ordering::SeqCst),
+            total_sectors,
+        );
 
-            let mut coordinates =
-                Vec::with_capacity((base_sector_resolution * base_sector_resolution) as usize);
-            if grid_registration {
-                (0..(base_sector_resolution * base_sector_resolution))
-                    .into_par_iter()
-                    .map(|i| {
-                        let cspace = root.grid_position_cspace(
-                            (x * (base_sector_resolution - 1) + (i % base_sector_resolution))
-                                as i32,
-                            (y * (base_sector_resolution - 1) + (i / base_sector_resolution))
-                                as i32,
-                            root_border_size as u32,
-                            ((base_sector_resolution - 1) * SECTORS_PER_SIDE + 1) as u32,
-                        );
-                        let polar = coordinates::cspace_to_polar(cspace);
-                        let latitude = polar.x.to_degrees();
-                        let longitude = polar.y.to_degrees();
-                        let x = (longitude - geotransform[0]) / geotransform[1];
-                        let y = (latitude - geotransform[3]) / geotransform[5];
-                        (x, y)
-                    })
-                    .collect_into_vec(&mut coordinates);
-            } else {
-                (0..(base_sector_resolution * base_sector_resolution))
-                    .into_par_iter()
-                    .map(|i| {
-                        let cspace = root.cell_position_cspace(
-                            (x * base_sector_resolution + (i % base_sector_resolution)) as i32,
-                            (y * base_sector_resolution + (i / base_sector_resolution)) as i32,
-                            root_border_size as u32,
-                            base_sector_resolution * SECTORS_PER_SIDE,
-                        );
-                        let polar = coordinates::cspace_to_polar(cspace);
-                        let latitude = polar.x.to_degrees();
-                        let longitude = polar.y.to_degrees();
-                        let x = (longitude - geotransform[0]) / geotransform[1];
-                        let y = (latitude - geotransform[3]) / geotransform[5];
-                        (x, y)
-                    })
-                    .collect_into_vec(&mut coordinates);
-            }
+        let base_x = (tile % root_dimensions_tiles) * cogbuilder::TILE_SIZE;
+        let base_y = (tile / root_dimensions_tiles) * cogbuilder::TILE_SIZE;
 
-            let reprojected_directory = reprojected_directory.clone();
+        let mut coordinates =
+            Vec::with_capacity((cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE) as usize);
+        if grid_registration {
+            (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
+                .into_par_iter()
+                .map(|i| {
+                    let cspace = root.grid_position_cspace(
+                        (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
+                        (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
+                        root_border_size,
+                        root_dimensions,
+                    );
+                    let polar = coordinates::cspace_to_polar(cspace);
+                    let latitude = polar.x.to_degrees();
+                    let longitude = polar.y.to_degrees();
+                    let x = (longitude - geotransform[0]) / geotransform[1];
+                    let y = (latitude - geotransform[3]) / geotransform[5];
+                    (x, y)
+                })
+                .collect_into_vec(&mut coordinates);
+        } else {
+            (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
+                .into_par_iter()
+                .map(|i| {
+                    let cspace = root.cell_position_cspace(
+                        (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
+                        (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
+                        root_border_size,
+                        root_dimensions,
+                    );
+                    let polar = coordinates::cspace_to_polar(cspace);
+                    let latitude = polar.x.to_degrees();
+                    let longitude = polar.y.to_degrees();
+                    let x = (longitude - geotransform[0]) / geotransform[1];
+                    let y = (latitude - geotransform[3]) / geotransform[5];
+                    (x, y)
+                })
+                .collect_into_vec(&mut coordinates);
+        }
 
-            let resolution = base_sector_resolution as usize;
-            let mut heightmap = vec![no_data_value; resolution * resolution * bands];
+        let mut heightmap =
+            vec![
+                no_data_value;
+                cogbuilder::TILE_SIZE as usize * cogbuilder::TILE_SIZE as usize * bands
+            ];
 
-            vrt_file.batch_lookup(&*coordinates, &mut heightmap);
+        vrt_file.batch_lookup(&*coordinates, &mut heightmap);
 
-            drop(coordinates);
+        drop(coordinates);
 
-            let mut output_files = Vec::new();
+        if heightmap.iter().any(|&v| v != no_data_value) {
+            let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*heightmap));
+            let mut cog = cogs[root.face() as usize].lock().unwrap();
+            cog.write_tile(0, tile, &compressed)?;
+        } else {
+            cogs[root.face() as usize].lock().unwrap().write_nodata_tile(0, tile)?;
+        }
 
-            let mut resolution = resolution;
-            let mut downsampled: Vec<T> = heightmap.clone();
-            for level in (min_level..=max_level).rev() {
-                let mut bytes = Vec::new();
-
-                let mut constant = true;
-                for band in 0..bands {
-                    let mut min = downsampled[band];
-                    let mut max = downsampled[band];
-                    for &v in downsampled.iter().skip(band).step_by(bands) {
-                        min = min.min(v);
-                        max = max.max(v);
-                    }
-                    if min != max {
-                        constant = false;
-                        break;
-                    }
-                }
-
-                if constant {
-                    tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                        .write_image::<C>(1, 1, &downsampled[..bands])?;
-                } else {
-                    tiff::encoder::TiffEncoder::new(std::io::Cursor::new(&mut bytes))?
-                        .write_image_with_compression::<C, _>(
-                            resolution as u32,
-                            resolution as u32,
-                            tiff::encoder::compression::Lzw,
-                            &downsampled,
-                        )?;
-                }
-
-                let filename = reprojected_directory.join(&format!(
-                    "{}_S-{}-{:02}x{:02}.tiff",
-                    VFace(root.face()),
-                    level,
-                    x,
-                    y
-                ));
-                output_files.push((filename, bytes));
-
-                if level != min_level {
-                    if grid_registration {
-                        let half_resolution = (resolution - 1) / 2 + 1;
-                        let mut half =
-                            vec![no_data_value; half_resolution * half_resolution * bands];
-                        for y in 0..half_resolution {
-                            for x in 0..half_resolution {
-                                for band in 0..bands {
-                                    half[(y * half_resolution + x) * bands + band] =
-                                        downsampled[(y * 2 * resolution + x * 2) * bands + band];
-                                }
-                            }
-                        }
-                        downsampled = half;
-                        resolution = half_resolution;
-                    } else {
-                        let half_resolution = resolution / 2;
-                        let mut half =
-                            vec![no_data_value; half_resolution * half_resolution * bands];
-                        for y in 0..half_resolution {
-                            for x in 0..half_resolution {
-                                let (x2, y2) = (x * 2, y * 2);
-                                for band in 0..bands {
-                                    half[(y * half_resolution + x) * bands + band] = downsample(
-                                        downsampled[(y2 * resolution + x2) * bands + band],
-                                        downsampled[((y2 + 1) * resolution + x2) * bands + band],
-                                        downsampled[(y2 * resolution + x2 + 1) * bands + band],
-                                        downsampled
-                                            [((y2 + 1) * resolution + x2 + 1) * bands + band],
-                                    );
-                                }
-                            }
-                        }
-                        downsampled = half;
-                        resolution = half_resolution;
-                    }
-                }
-            }
-
-            for (filename, bytes) in output_files.into_iter().rev() {
-                AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
-                    .write(|f| f.write_all(&bytes))?;
-            }
-
-            sectors_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(())
-        })
+        sectors_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
     })?;
     vrt_file.free_user_bytes(
-        u64::from(base_sector_resolution * base_sector_resolution)
+        u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
             * (16 + mem::size_of::<T>()) as u64
-            * 16,
+            * 128,
     );
     Ok(())
 }
