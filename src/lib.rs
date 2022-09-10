@@ -67,86 +67,53 @@ impl Terrain {
     ) -> Result<Self, Error> {
         let dataset_directory = dataset_directory.as_ref();
 
-        // generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _, _>(
-        //     dataset_directory.to_owned(),
-        //     "nasadem",
-        //     VNode::LEVEL_CELL_76M,
-        //     &mut progress_callback,
-        //     false,
-        //     vrt_file::VrtFile::new(&dataset_directory.join("nasadem/merged.vrt"))?,
-        //     //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
-        //     &|_, _, _, _| 0,
-        //     &|t| t as i16,
-        //     i16::MIN,
-        // )?;
+        let copernicus_hgt = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "copernicus-hgt",
+            max_level: VNode::LEVEL_CELL_76M,
+            no_data_value: 0i16,
+            grid_registration: true,
+            bits_per_sample: vec![16],
+            signed: true,
+        };
+        copernicus_hgt.reproject_dataset(&mut progress_callback)?;
+        copernicus_hgt.downsample_dataset_grid(&mut progress_callback)?;
 
-        generate::reproject_dataset::<i16, _>(
-            dataset_directory.to_owned(),
-            "copernicus-hgt",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            true,
-            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"), 1)?,
-            0,
-            vec![16],
-            true,
-        )?;
-        generate::downsample_dataset::<i16, _, _>(
-            dataset_directory.to_owned(),
-            "copernicus-hgt",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            None::<fn(i16, i16, i16, i16)->i16>,
-            0,
-            vec![16],
-            true,
-        )?;
+        let copernicus_wbm = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "copernicus-wbm",
+            max_level: VNode::LEVEL_CELL_76M,
+            no_data_value: 1u8,
+            grid_registration: true,
+            bits_per_sample: vec![8],
+            signed: false,
+        };
+        copernicus_wbm.reproject_dataset(&mut progress_callback)?;
+        copernicus_wbm.downsample_dataset_grid(&mut progress_callback)?;
 
-        generate::reproject_dataset::<u8, _>(
-            dataset_directory.to_owned(),
-            "copernicus-wbm",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            true,
-            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
-            1,
-            vec![8],
-            false,
-        )?;
-        generate::downsample_dataset::<u8, _, _>(
-            dataset_directory.to_owned(),
-            "copernicus-wbm",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            None::<fn(u8, u8, u8, u8) -> u8>,
-            0,
-            vec![8],
-            false,
-        )?;
+        let treecover = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "treecover",
+            max_level: VNode::LEVEL_CELL_76M,
+            no_data_value: 0u8,
+            grid_registration: false,
+            bits_per_sample: vec![8],
+            signed: false,
+        };
+        treecover.reproject_dataset(&mut progress_callback)?;
+        //treecover.downsample_dataset_grid(&mut progress_callback)?;
 
-        generate::reproject_dataset::<u8, _>(
-            dataset_directory.to_owned(),
-            "treecover",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("treecover/merged.vrt"), 1)?,
-            0,
-            vec![8],
-            false,
-        )?;
-
-        generate::reproject_dataset::<u8, _>(
-            dataset_directory.to_owned(),
-            "bluemarble",
-            VNode::LEVEL_CELL_610M,
-            &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("bluemarble/merged.vrt"), 3)?,
-            0,
-            vec![8, 8, 8],
-            false,
-        )?;
+        let blue_marble = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "bluemarble",
+            max_level: VNode::LEVEL_CELL_610M,
+            no_data_value: 0u8,
+            grid_registration: false,
+            bits_per_sample: vec![8, 8, 8],
+            signed: false,
+        };
+        blue_marble.reproject_dataset(&mut progress_callback)?;
+        //blue_marble.downsample_dataset_grid(&mut progress_callback)?;
 
         generate::merge_datasets_to_tiles(dataset_directory.to_owned(), &mut progress_callback)
             .await?;

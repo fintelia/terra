@@ -6,6 +6,7 @@ use crate::mapfile::{MapFile, TextureDescriptor};
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::Transcoder;
+use cogbuilder::CogBuilder;
 use fnv::FnvHashMap;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
@@ -182,285 +183,310 @@ fn scan_directory(
     Ok((directory, existing))
 }
 
-pub(crate) fn reproject_dataset<T, F>(
-    base_directory: PathBuf,
-    dataset_name: &'static str,
-    max_level: u8,
-    progress_callback: F,
-    grid_registration: bool,
-    vrt_file: vrt_file::VrtFile,
-    no_data_value: T,
-    bits_per_sample: Vec<u8>,
-    signed: bool,
-) -> Result<(), anyhow::Error>
-where
-    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
-    F: FnMut(String, usize, usize) + Send,
-    [T]: tiff::encoder::TiffValue,
-{
-    const BORDER_SIZE: u32 = 4;
-    const TILE_INNER_RESOLUTION: u32 = 512;
-    let root_border_size = BORDER_SIZE << max_level;
-    let root_dimensions = if grid_registration {
-        1 + ((TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level)
-    } else {
-        (TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level
-    };
-
-    let mut cogs = Vec::new();
-    let mut missing = Vec::new();
-    for root_node in VNode::roots() {
-        let path = base_directory
-            .join(format!("{dataset_name}_reprojected"))
-            .join(format!("{}.tiff", VFace(root_node.face())));
-        fs::create_dir_all(&path.parent().unwrap())?;
-        let mut cog = cogbuilder::CogBuilder::new(
-            File::options().read(true).write(true).create(true).open(path)?,
-            root_dimensions,
-            root_dimensions,
-            bits_per_sample.clone(),
-            signed,
-            &no_data_value.to_string(),
-        )?;
-        for (tile, _) in cog.valid_mask(0)?.iter().enumerate().filter(|v| !v.1) {
-            missing.push((root_node, tile as u32));
-        }
-        cogs.push(Mutex::new(cog));
-    }
-
-    let bands = bits_per_sample.len();
-    let root_dimensions_tiles = (root_dimensions - 1) / cogbuilder::TILE_SIZE + 1;
-    let total_sectors = (6 * root_dimensions_tiles * root_dimensions_tiles) as usize;
-    let sectors_processed = AtomicUsize::new(total_sectors - missing.len());
-
-    let progress_callback = Mutex::new(progress_callback);
-    let geotransform = vrt_file.geotransform();
-
-    vrt_file.alloc_user_bytes(
-        u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
-            * (16 + mem::size_of::<T>()) as u64
-            * 128,
-    );
-    missing.into_iter().par_bridge().try_for_each(|(root, tile)| -> Result<(), anyhow::Error> {
-        (progress_callback.lock().unwrap())(
-            format!("reprojecting {}...", dataset_name),
-            sectors_processed.load(std::sync::atomic::Ordering::SeqCst),
-            total_sectors,
-        );
-
-        let base_x = (tile % root_dimensions_tiles) * cogbuilder::TILE_SIZE;
-        let base_y = (tile / root_dimensions_tiles) * cogbuilder::TILE_SIZE;
-
-        let mut coordinates =
-            Vec::with_capacity((cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE) as usize);
-        if grid_registration {
-            (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
-                .into_par_iter()
-                .map(|i| {
-                    let cspace = root.grid_position_cspace(
-                        (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
-                        (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
-                        root_border_size,
-                        root_dimensions,
-                    );
-                    let polar = coordinates::cspace_to_polar(cspace);
-                    let latitude = polar.x.to_degrees();
-                    let longitude = polar.y.to_degrees();
-                    let x = (longitude - geotransform[0]) / geotransform[1];
-                    let y = (latitude - geotransform[3]) / geotransform[5];
-                    (x, y)
-                })
-                .collect_into_vec(&mut coordinates);
-        } else {
-            (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
-                .into_par_iter()
-                .map(|i| {
-                    let cspace = root.cell_position_cspace(
-                        (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
-                        (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
-                        root_border_size,
-                        root_dimensions,
-                    );
-                    let polar = coordinates::cspace_to_polar(cspace);
-                    let latitude = polar.x.to_degrees();
-                    let longitude = polar.y.to_degrees();
-                    let x = (longitude - geotransform[0]) / geotransform[1];
-                    let y = (latitude - geotransform[3]) / geotransform[5];
-                    (x, y)
-                })
-                .collect_into_vec(&mut coordinates);
-        }
-
-        let mut heightmap =
-            vec![
-                no_data_value;
-                cogbuilder::TILE_SIZE as usize * cogbuilder::TILE_SIZE as usize * bands
-            ];
-
-        vrt_file.batch_lookup(&*coordinates, &mut heightmap);
-
-        drop(coordinates);
-
-        if heightmap.iter().any(|&v| v != no_data_value) {
-            let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*heightmap));
-            let mut cog = cogs[root.face() as usize].lock().unwrap();
-            cog.write_tile(0, tile, &compressed)?;
-        } else {
-            cogs[root.face() as usize].lock().unwrap().write_nodata_tile(0, tile)?;
-        }
-
-        sectors_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Ok(())
-    })?;
-    vrt_file.free_user_bytes(
-        u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
-            * (16 + mem::size_of::<T>()) as u64
-            * 128,
-    );
-    Ok(())
+pub(crate) struct Dataset<T> {
+    pub base_directory: PathBuf,
+    pub dataset_name: &'static str,
+    pub max_level: u8,
+    pub no_data_value: T,
+    pub grid_registration: bool,
+    pub bits_per_sample: Vec<u8>,
+    pub signed: bool,
 }
-
-pub(crate) fn downsample_dataset<T, F, Downsample>(
-    base_directory: PathBuf,
-    dataset_name: &'static str,
-    max_level: u8,
-    progress_callback: F,
-    downsample_func: Option<Downsample>,
-    no_data_value: T,
-    bits_per_sample: Vec<u8>,
-    signed: bool,
-) -> Result<(), anyhow::Error>
+impl<T> Dataset<T>
 where
     T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
-    F: FnMut(String, usize, usize) + Send,
-    Downsample: Fn(T, T, T, T) -> T + Send + Sync,
 {
     const BORDER_SIZE: u32 = 4;
     const TILE_INNER_RESOLUTION: u32 = 512;
-    let root_dimensions = if downsample_func.is_none() {
-        1 + ((TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level)
-    } else {
-        (TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level
-    };
 
-    let mut cogs = Vec::new();
-    for root_node in VNode::roots() {
-        let path = base_directory
-            .join(format!("{dataset_name}_reprojected"))
-            .join(format!("{}.tiff", VFace(root_node.face())));
-        fs::create_dir_all(&path.parent().unwrap())?;
-        let mut cog = cogbuilder::CogBuilder::new(
-            File::options().read(true).write(true).create(true).open(path)?,
-            root_dimensions,
-            root_dimensions,
-            bits_per_sample.clone(),
-            signed,
-            &no_data_value.to_string(),
-        )?;
-        let mut valid = Vec::new();
-        for level in 1..cog.levels() {
-            valid.push(cog.valid_mask(level)?);
+    fn root_dimensions(&self) -> u32 {
+        if self.grid_registration {
+            1 + ((Self::TILE_INNER_RESOLUTION + 2 * Self::BORDER_SIZE) << self.max_level)
+        } else {
+            (Self::TILE_INNER_RESOLUTION + 2 * Self::BORDER_SIZE) << self.max_level
         }
-        cogs.push((cog, valid));
     }
 
-    let progress_callback = Mutex::new(progress_callback);
-    let total = cogs.iter().flat_map(|(_, v)| v.iter().map(|vv| vv.len())).sum();
-    let completed = AtomicUsize::new(
-        cogs.iter()
-            .flat_map(|(_, v)| v.iter().flat_map(|vv| vv.iter().filter(|vvv| **vvv)))
-            .count(),
-    );
+    fn cogs(&self) -> Result<Vec<(VNode, CogBuilder<std::fs::File>)>, anyhow::Error> {
+        let root_dimensions = self.root_dimensions();
 
-    let resolution = cogbuilder::TILE_SIZE as usize;
-    cogs.into_par_iter().try_for_each(|(mut cog, valid_masks)| -> Result<(), anyhow::Error> {
-        for level in 1..cog.levels() {
-            let valid = &valid_masks[level as usize - 1];
-            let tiles_across = cog.tiles_across(level);
-            let parent_tiles_across = cog.tiles_across(level - 1);
+        let mut cogs = Vec::new();
+        for root_node in VNode::roots() {
+            let path = self
+                .base_directory
+                .join(format!("{}_reprojected", self.dataset_name))
+                .join(format!("{}.tiff", VFace(root_node.face())));
+            fs::create_dir_all(&path.parent().unwrap())?;
+            cogs.push((
+                root_node,
+                cogbuilder::CogBuilder::new(
+                    File::options().read(true).write(true).create(true).open(path)?,
+                    root_dimensions,
+                    root_dimensions,
+                    self.bits_per_sample.clone(),
+                    self.signed,
+                    &self.no_data_value.to_string(),
+                )?,
+            ));
+        }
+        Ok(cogs)
+    }
 
-            for tile in 0..valid.len() as u32 {
-                if !valid[tile as usize] {
-                    let x = tile % tiles_across;
-                    let y = tile / tiles_across;
-                    let parents = [
-                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2)?,
-                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2 + 1)?,
-                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2)?,
-                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2 + 1)?,
+    pub(crate) fn reproject_dataset<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+    {
+        let root_border_size = Self::BORDER_SIZE << self.max_level;
+        let root_dimensions = self.root_dimensions();
+
+        let vrt_file = vrt_file::VrtFile::new(
+            &self.base_directory.join(self.dataset_name).join("merged.vrt"),
+            1,
+        )?;
+
+        let mut missing = Vec::new();
+        let cogs = self
+            .cogs()?
+            .into_iter()
+            .map(|(root_node, mut cog)| {
+                for (tile, _) in cog.valid_mask(0)?.iter().enumerate().filter(|v| !v.1) {
+                    missing.push((root_node, tile as u32));
+                }
+                Ok(Mutex::new(cog))
+            })
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+        let bands = self.bits_per_sample.len();
+        let root_dimensions_tiles = (root_dimensions - 1) / cogbuilder::TILE_SIZE + 1;
+        let total_sectors = (6 * root_dimensions_tiles * root_dimensions_tiles) as usize;
+        let sectors_processed = AtomicUsize::new(total_sectors - missing.len());
+
+        let progress_callback = Mutex::new(progress_callback);
+        let geotransform = vrt_file.geotransform();
+
+        vrt_file.alloc_user_bytes(
+            u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
+                * (16 + mem::size_of::<T>()) as u64
+                * 128,
+        );
+        missing.into_iter().par_bridge().try_for_each(
+            |(root, tile)| -> Result<(), anyhow::Error> {
+                (progress_callback.lock().unwrap())(
+                    format!("reprojecting {}...", self.dataset_name),
+                    sectors_processed.load(std::sync::atomic::Ordering::SeqCst),
+                    total_sectors,
+                );
+
+                let base_x = (tile % root_dimensions_tiles) * cogbuilder::TILE_SIZE;
+                let base_y = (tile / root_dimensions_tiles) * cogbuilder::TILE_SIZE;
+
+                let mut coordinates =
+                    Vec::with_capacity((cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE) as usize);
+                if self.grid_registration {
+                    (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
+                        .into_par_iter()
+                        .map(|i| {
+                            let cspace = root.grid_position_cspace(
+                                (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
+                                (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
+                                root_border_size,
+                                root_dimensions,
+                            );
+                            let polar = coordinates::cspace_to_polar(cspace);
+                            let latitude = polar.x.to_degrees();
+                            let longitude = polar.y.to_degrees();
+                            let x = (longitude - geotransform[0]) / geotransform[1];
+                            let y = (latitude - geotransform[3]) / geotransform[5];
+                            (x, y)
+                        })
+                        .collect_into_vec(&mut coordinates);
+                } else {
+                    (0..(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE))
+                        .into_par_iter()
+                        .map(|i| {
+                            let cspace = root.cell_position_cspace(
+                                (base_x + (i % cogbuilder::TILE_SIZE)) as i32,
+                                (base_y + (i / cogbuilder::TILE_SIZE)) as i32,
+                                root_border_size,
+                                root_dimensions,
+                            );
+                            let polar = coordinates::cspace_to_polar(cspace);
+                            let latitude = polar.x.to_degrees();
+                            let longitude = polar.y.to_degrees();
+                            let x = (longitude - geotransform[0]) / geotransform[1];
+                            let y = (latitude - geotransform[3]) / geotransform[5];
+                            (x, y)
+                        })
+                        .collect_into_vec(&mut coordinates);
+                }
+
+                let mut heightmap =
+                    vec![
+                        self.no_data_value;
+                        cogbuilder::TILE_SIZE as usize * cogbuilder::TILE_SIZE as usize * bands
                     ];
 
-                    if parents.iter().all(Option::is_none) {
-                        cog.write_nodata_tile(level, tile)?;
-                    } else {
-                        let mut parent_tiles = [None, None, None, None];
-                        for (input, output) in parents.into_iter().zip(parent_tiles.iter_mut()) {
-                            if let Some(input) = input {
-                                let mut v = vec![no_data_value; resolution * resolution];
-                                bytemuck::cast_slice_mut(&mut v)
-                                    .copy_from_slice(&*cogbuilder::decompress_tile(&input)?);
-                                *output = Some(v);
-                            }
-                        }
+                vrt_file.batch_lookup(&*coordinates, &mut heightmap);
 
-                        let mut downsampled = vec![no_data_value; resolution * resolution];
-                        match &downsample_func {
-                            None => {
-                                for i in 0..4 {
-                                    if let Some(parent_tile) = &parent_tiles[i] {
+                drop(coordinates);
+
+                if heightmap.iter().any(|&v| v != self.no_data_value) {
+                    let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*heightmap));
+                    let mut cog = cogs[root.face() as usize].lock().unwrap();
+                    cog.write_tile(0, tile, &compressed)?;
+                } else {
+                    cogs[root.face() as usize].lock().unwrap().write_nodata_tile(0, tile)?;
+                }
+
+                sectors_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            },
+        )?;
+        vrt_file.free_user_bytes(
+            u64::from(cogbuilder::TILE_SIZE * cogbuilder::TILE_SIZE)
+                * (16 + mem::size_of::<T>()) as u64
+                * 128,
+        );
+        Ok(())
+    }
+
+    pub(crate) fn downsample_dataset_grid<F>(
+        &self,
+        progress_callback: F,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+    {
+        assert!(self.grid_registration);
+        self.downsample_dataset(progress_callback, None::<fn(T, T, T, T) -> T>)
+    }
+
+    pub(crate) fn downsample_dataset<F, Downsample>(
+        &self,
+        progress_callback: F,
+        downsample_func: Option<Downsample>,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        Downsample: Fn(T, T, T, T) -> T + Send + Sync,
+    {
+        let cogs = self
+            .cogs()?
+            .into_iter()
+            .map(|(_, mut cog)| {
+                let mut valid = Vec::new();
+                for level in 1..cog.levels() {
+                    valid.push(cog.valid_mask(level)?);
+                }
+                Ok((cog, valid))
+            })
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+        let progress_callback = Mutex::new(progress_callback);
+        let total = cogs.iter().flat_map(|(_, v)| v.iter().map(|vv| vv.len())).sum();
+        let completed = AtomicUsize::new(
+            cogs.iter()
+                .flat_map(|(_, v)| v.iter().flat_map(|vv| vv.iter().filter(|vvv| **vvv)))
+                .count(),
+        );
+
+        let resolution = cogbuilder::TILE_SIZE as usize;
+        cogs.into_par_iter().try_for_each(|(mut cog, valid_masks)| -> Result<(), anyhow::Error> {
+            for level in 1..cog.levels() {
+                let valid = &valid_masks[level as usize - 1];
+                let tiles_across = cog.tiles_across(level);
+                let parent_tiles_across = cog.tiles_across(level - 1);
+
+                for tile in 0..valid.len() as u32 {
+                    if !valid[tile as usize] {
+                        let x = tile % tiles_across;
+                        let y = tile / tiles_across;
+                        let parents = [
+                            cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2)?,
+                            cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2 + 1)?,
+                            cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2)?,
+                            cog.read_tile(
+                                level - 1,
+                                (y * 2 + 1) * parent_tiles_across + x * 2 + 1,
+                            )?,
+                        ];
+
+                        if parents.iter().all(Option::is_none) {
+                            cog.write_nodata_tile(level, tile)?;
+                        } else {
+                            let mut parent_tiles = [None, None, None, None];
+                            for (input, output) in parents.into_iter().zip(parent_tiles.iter_mut())
+                            {
+                                if let Some(input) = input {
+                                    let mut v = vec![self.no_data_value; resolution * resolution];
+                                    bytemuck::cast_slice_mut(&mut v)
+                                        .copy_from_slice(&*cogbuilder::decompress_tile(&input)?);
+                                    *output = Some(v);
+                                }
+                            }
+
+                            let mut downsampled = vec![self.no_data_value; resolution * resolution];
+                            match &downsample_func {
+                                None => {
+                                    for i in 0..4 {
+                                        if let Some(parent_tile) = &parent_tiles[i] {
+                                            let base_x = (i % 2) * (resolution / 2);
+                                            let base_y = (i / 2) * (resolution / 2);
+                                            for y in 0..resolution / 2 {
+                                                for x in 0..resolution / 2 {
+                                                    downsampled
+                                                        [(base_y + y) * resolution + base_x + x] =
+                                                        parent_tile[(y * 2) * resolution + x * 2];
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Some(downsample_func) => {
+                                    for i in 0..4 {
                                         let base_x = (i % 2) * (resolution / 2);
                                         let base_y = (i / 2) * (resolution / 2);
                                         for y in 0..resolution / 2 {
                                             for x in 0..resolution / 2 {
                                                 downsampled
                                                     [(base_y + y) * resolution + base_x + x] =
-                                                    parent_tile[(y * 2) * resolution + x * 2];
+                                                    parent_tiles[i]
+                                                        .as_ref()
+                                                        .map(|v| {
+                                                            let t00 = v[y * 2 * resolution + x * 2];
+                                                            let t01 =
+                                                                v[y * 2 * resolution + x * 2 + 1];
+                                                            let t10 =
+                                                                v[(y * 2 + 1) * resolution + x * 2];
+                                                            let t11 = v[(y * 2 + 1) * resolution
+                                                                + x * 2
+                                                                + 1];
+                                                            downsample_func(t00, t01, t10, t11)
+                                                        })
+                                                        .unwrap_or(self.no_data_value);
                                             }
                                         }
                                     }
                                 }
                             }
-                            Some(downsample_func) => {
-                                for i in 0..4 {
-                                    let base_x = (i % 2) * (resolution / 2);
-                                    let base_y = (i / 2) * (resolution / 2);
-                                    for y in 0..resolution / 2 {
-                                        for x in 0..resolution / 2 {
-                                            downsampled[(base_y + y) * resolution + base_x + x] =
-                                                parent_tiles[i]
-                                                    .as_ref()
-                                                    .map(|v| {
-                                                        let t00 = v[y * 2 * resolution + x * 2];
-                                                        let t01 = v[y * 2 * resolution + x * 2 + 1];
-                                                        let t10 =
-                                                            v[(y * 2 + 1) * resolution + x * 2];
-                                                        let t11 =
-                                                            v[(y * 2 + 1) * resolution + x * 2 + 1];
-                                                        downsample_func(t00, t01, t10, t11)
-                                                    })
-                                                    .unwrap_or(no_data_value);
-                                        }
-                                    }
-                                }
-                            }
+
+                            let compressed =
+                                cogbuilder::compress_tile(bytemuck::cast_slice(&*downsampled));
+                            cog.write_tile(level, tile, &compressed)?;
                         }
 
-                        let compressed =
-                            cogbuilder::compress_tile(bytemuck::cast_slice(&*downsampled));
-                        cog.write_tile(level, tile, &compressed)?;
+                        completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        progress_callback.lock().unwrap()(
+                            format!("downsampling {}...", self.dataset_name),
+                            completed.load(std::sync::atomic::Ordering::SeqCst),
+                            total,
+                        );
                     }
-
-                    completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    progress_callback.lock().unwrap()(
-                        format!("downsampling {dataset_name}..."),
-                        completed.load(std::sync::atomic::Ordering::SeqCst),
-                        total,
-                    );
                 }
             }
-        }
-        Ok(())
-    })
+            Ok(())
+        })
+    }
 }
 
 pub(crate) fn merge_datasets_to_tiles<F>(
