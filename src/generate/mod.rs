@@ -10,6 +10,7 @@ use cogbuilder::CogBuilder;
 use fnv::FnvHashMap;
 use futures::stream::FuturesUnordered;
 use futures::{Future, StreamExt};
+use itertools::Itertools;
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::fs::File;
@@ -232,7 +233,7 @@ where
         Ok(cogs)
     }
 
-    pub(crate) fn reproject_dataset<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
+    pub(crate) fn reproject<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
     where
         F: FnMut(String, usize, usize) + Send,
     {
@@ -350,18 +351,31 @@ where
         Ok(())
     }
 
-    pub(crate) fn downsample_dataset_grid<F>(
-        &self,
-        progress_callback: F,
-    ) -> Result<(), anyhow::Error>
+    pub(crate) fn downsample_grid<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
     where
         F: FnMut(String, usize, usize) + Send,
     {
         assert!(self.grid_registration);
-        self.downsample_dataset(progress_callback, None::<fn(T, T, T, T) -> T>)
+        self.downsample(progress_callback, None::<fn(T, T, T, T) -> T>)
     }
 
-    pub(crate) fn downsample_dataset<F, Downsample>(
+    pub(crate) fn downsample_average_int<F>(
+        &self,
+        progress_callback: F,
+    ) -> Result<(), anyhow::Error>
+    where
+        T: Into<u64> + TryFrom<u64>,
+        F: FnMut(String, usize, usize) + Send,
+    {
+        self.downsample(
+            progress_callback,
+            Some(|a: T, b: T, c: T, d: T| {
+                T::try_from((a.into() + b.into() + c.into() + d.into()) / 4).ok().unwrap()
+            }),
+        )
+    }
+
+    pub(crate) fn downsample<F, Downsample>(
         &self,
         progress_callback: F,
         downsample_func: Option<Downsample>,
@@ -390,6 +404,7 @@ where
                 .count(),
         );
 
+        let bands = self.bits_per_sample.len();
         let resolution = cogbuilder::TILE_SIZE as usize;
         cogs.into_par_iter().try_for_each(|(mut cog, valid_masks)| -> Result<(), anyhow::Error> {
             for level in 1..cog.levels() {
@@ -398,90 +413,72 @@ where
                 let parent_tiles_across = cog.tiles_across(level - 1);
 
                 for tile in 0..valid.len() as u32 {
-                    if !valid[tile as usize] {
-                        let x = tile % tiles_across;
-                        let y = tile / tiles_across;
-                        let parents = [
-                            cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2)?,
-                            cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2 + 1)?,
-                            cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2)?,
-                            cog.read_tile(
-                                level - 1,
-                                (y * 2 + 1) * parent_tiles_across + x * 2 + 1,
-                            )?,
-                        ];
-
-                        if parents.iter().all(Option::is_none) {
-                            cog.write_nodata_tile(level, tile)?;
-                        } else {
-                            let mut parent_tiles = [None, None, None, None];
-                            for (input, output) in parents.into_iter().zip(parent_tiles.iter_mut())
-                            {
-                                if let Some(input) = input {
-                                    let mut v = vec![self.no_data_value; resolution * resolution];
-                                    bytemuck::cast_slice_mut(&mut v)
-                                        .copy_from_slice(&*cogbuilder::decompress_tile(&input)?);
-                                    *output = Some(v);
-                                }
-                            }
-
-                            let mut downsampled = vec![self.no_data_value; resolution * resolution];
-                            match &downsample_func {
-                                None => {
-                                    for i in 0..4 {
-                                        if let Some(parent_tile) = &parent_tiles[i] {
-                                            let base_x = (i % 2) * (resolution / 2);
-                                            let base_y = (i / 2) * (resolution / 2);
-                                            for y in 0..resolution / 2 {
-                                                for x in 0..resolution / 2 {
-                                                    downsampled
-                                                        [(base_y + y) * resolution + base_x + x] =
-                                                        parent_tile[(y * 2) * resolution + x * 2];
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Some(downsample_func) => {
-                                    for i in 0..4 {
-                                        let base_x = (i % 2) * (resolution / 2);
-                                        let base_y = (i / 2) * (resolution / 2);
-                                        for y in 0..resolution / 2 {
-                                            for x in 0..resolution / 2 {
-                                                downsampled
-                                                    [(base_y + y) * resolution + base_x + x] =
-                                                    parent_tiles[i]
-                                                        .as_ref()
-                                                        .map(|v| {
-                                                            let t00 = v[y * 2 * resolution + x * 2];
-                                                            let t01 =
-                                                                v[y * 2 * resolution + x * 2 + 1];
-                                                            let t10 =
-                                                                v[(y * 2 + 1) * resolution + x * 2];
-                                                            let t11 = v[(y * 2 + 1) * resolution
-                                                                + x * 2
-                                                                + 1];
-                                                            downsample_func(t00, t01, t10, t11)
-                                                        })
-                                                        .unwrap_or(self.no_data_value);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            let compressed =
-                                cogbuilder::compress_tile(bytemuck::cast_slice(&*downsampled));
-                            cog.write_tile(level, tile, &compressed)?;
-                        }
-
-                        completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                        progress_callback.lock().unwrap()(
-                            format!("downsampling {}...", self.dataset_name),
-                            completed.load(std::sync::atomic::Ordering::SeqCst),
-                            total,
-                        );
+                    if valid[tile as usize] {
+                        continue;
                     }
+
+                    progress_callback.lock().unwrap()(
+                        format!("downsampling {}...", self.dataset_name),
+                        completed.load(std::sync::atomic::Ordering::SeqCst),
+                        total,
+                    );
+
+                    let x = tile % tiles_across;
+                    let y = tile / tiles_across;
+                    let parents = [
+                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2)?,
+                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2 + 1)?,
+                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2)?,
+                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2 + 1)?,
+                    ];
+
+                    if parents.iter().all(Option::is_none) {
+                        cog.write_nodata_tile(level, tile)?;
+                        completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        continue;
+                    }
+
+                    let mut parent_tiles = [None, None, None, None];
+                    for (input, output) in parents.into_iter().zip(parent_tiles.iter_mut()) {
+                        if let Some(input) = input {
+                            let mut v = vec![self.no_data_value; resolution * resolution * bands];
+                            bytemuck::cast_slice_mut(&mut v)
+                                .copy_from_slice(&*cogbuilder::decompress_tile(&input)?);
+                            *output = Some(v);
+                        }
+                    }
+
+                    let mut downsampled = vec![self.no_data_value; resolution * resolution * bands];
+                    for (i, parent) in
+                        parent_tiles.into_iter().enumerate().filter_map(|(i, t)| t.map(|t| (i, t)))
+                    {
+                        let base_x = (i % 2) * (resolution / 2);
+                        let base_y = (i / 2) * (resolution / 2);
+                        for px in [0..resolution / 2, 0..resolution / 2, 0..bands]
+                            .into_iter()
+                            .multi_cartesian_product()
+                        {
+                            let (y, x, b) = (px[0], px[1], px[2]);
+                            let (x2, y2) = (x * 2, y * 2);
+
+                            if let Some(downsample_func) = &downsample_func {
+                                let t00 = parent[(y2 * resolution + x2) * bands + b];
+                                let t01 = parent[(y2 * resolution + x2 + 1) * bands + b];
+                                let t10 = parent[((y2 + 1) * resolution + x2) * bands + b];
+                                let t11 = parent[((y2 + 1) * resolution + x2 + 1) * bands + b];
+                                let v = downsample_func(t00, t01, t10, t11);
+                                downsampled[((base_y + y) * resolution + base_x + x) * bands + b] =
+                                    v;
+                            } else {
+                                downsampled[((base_y + y) * resolution + base_x + x) * bands + b] =
+                                    parent[(y2 * resolution + x2) * bands + b];
+                            }
+                        }
+                    }
+
+                    let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*downsampled));
+                    cog.write_tile(level, tile, &compressed)?;
+                    completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
             }
             Ok(())

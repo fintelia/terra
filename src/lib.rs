@@ -76,8 +76,8 @@ impl Terrain {
             bits_per_sample: vec![16],
             signed: true,
         };
-        copernicus_hgt.reproject_dataset(&mut progress_callback)?;
-        copernicus_hgt.downsample_dataset_grid(&mut progress_callback)?;
+        copernicus_hgt.reproject(&mut progress_callback)?;
+        copernicus_hgt.downsample_grid(&mut progress_callback)?;
 
         let copernicus_wbm = generate::Dataset {
             base_directory: dataset_directory.to_owned(),
@@ -88,8 +88,8 @@ impl Terrain {
             bits_per_sample: vec![8],
             signed: false,
         };
-        copernicus_wbm.reproject_dataset(&mut progress_callback)?;
-        copernicus_wbm.downsample_dataset_grid(&mut progress_callback)?;
+        copernicus_wbm.reproject(&mut progress_callback)?;
+        copernicus_wbm.downsample_grid(&mut progress_callback)?;
 
         let treecover = generate::Dataset {
             base_directory: dataset_directory.to_owned(),
@@ -100,8 +100,8 @@ impl Terrain {
             bits_per_sample: vec![8],
             signed: false,
         };
-        treecover.reproject_dataset(&mut progress_callback)?;
-        //treecover.downsample_dataset_grid(&mut progress_callback)?;
+        treecover.reproject(&mut progress_callback)?;
+        treecover.downsample_average_int(&mut progress_callback)?;
 
         let blue_marble = generate::Dataset {
             base_directory: dataset_directory.to_owned(),
@@ -112,8 +112,8 @@ impl Terrain {
             bits_per_sample: vec![8, 8, 8],
             signed: false,
         };
-        blue_marble.reproject_dataset(&mut progress_callback)?;
-        //blue_marble.downsample_dataset_grid(&mut progress_callback)?;
+        blue_marble.reproject(&mut progress_callback)?;
+        blue_marble.downsample_average_int(&mut progress_callback)?;
 
         generate::merge_datasets_to_tiles(dataset_directory.to_owned(), &mut progress_callback)
             .await?;
