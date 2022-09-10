@@ -320,6 +320,149 @@ where
     Ok(())
 }
 
+pub(crate) fn downsample_dataset<T, F, Downsample>(
+    base_directory: PathBuf,
+    dataset_name: &'static str,
+    max_level: u8,
+    progress_callback: F,
+    downsample_func: Option<Downsample>,
+    no_data_value: T,
+    bits_per_sample: Vec<u8>,
+    signed: bool,
+) -> Result<(), anyhow::Error>
+where
+    T: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
+    F: FnMut(String, usize, usize) + Send,
+    Downsample: Fn(T, T, T, T) -> T + Send + Sync,
+{
+    const BORDER_SIZE: u32 = 4;
+    const TILE_INNER_RESOLUTION: u32 = 512;
+    let root_dimensions = if downsample_func.is_none() {
+        1 + ((TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level)
+    } else {
+        (TILE_INNER_RESOLUTION + 2 * BORDER_SIZE) << max_level
+    };
+
+    let mut cogs = Vec::new();
+    for root_node in VNode::roots() {
+        let path = base_directory
+            .join(format!("{dataset_name}_reprojected"))
+            .join(format!("{}.tiff", VFace(root_node.face())));
+        fs::create_dir_all(&path.parent().unwrap())?;
+        let mut cog = cogbuilder::CogBuilder::new(
+            File::options().read(true).write(true).create(true).open(path)?,
+            root_dimensions,
+            root_dimensions,
+            bits_per_sample.clone(),
+            signed,
+            &no_data_value.to_string(),
+        )?;
+        let mut valid = Vec::new();
+        for level in 1..cog.levels() {
+            valid.push(cog.valid_mask(level)?);
+        }
+        cogs.push((cog, valid));
+    }
+
+    let progress_callback = Mutex::new(progress_callback);
+    let total = cogs.iter().flat_map(|(_, v)| v.iter().map(|vv| vv.len())).sum();
+    let completed = AtomicUsize::new(
+        cogs.iter()
+            .flat_map(|(_, v)| v.iter().flat_map(|vv| vv.iter().filter(|vvv| **vvv)))
+            .count(),
+    );
+
+    let resolution = cogbuilder::TILE_SIZE as usize;
+    cogs.into_par_iter().try_for_each(|(mut cog, valid_masks)| -> Result<(), anyhow::Error> {
+        for level in 1..cog.levels() {
+            let valid = &valid_masks[level as usize - 1];
+            let tiles_across = cog.tiles_across(level);
+            let parent_tiles_across = cog.tiles_across(level - 1);
+
+            for tile in 0..valid.len() as u32 {
+                if !valid[tile as usize] {
+                    let x = tile % tiles_across;
+                    let y = tile / tiles_across;
+                    let parents = [
+                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2)?,
+                        cog.read_tile(level - 1, y * 2 * parent_tiles_across + x * 2 + 1)?,
+                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2)?,
+                        cog.read_tile(level - 1, (y * 2 + 1) * parent_tiles_across + x * 2 + 1)?,
+                    ];
+
+                    if parents.iter().all(Option::is_none) {
+                        cog.write_nodata_tile(level, tile)?;
+                    } else {
+                        let mut parent_tiles = [None, None, None, None];
+                        for (input, output) in parents.into_iter().zip(parent_tiles.iter_mut()) {
+                            if let Some(input) = input {
+                                let mut v = vec![no_data_value; resolution * resolution];
+                                bytemuck::cast_slice_mut(&mut v)
+                                    .copy_from_slice(&*cogbuilder::decompress_tile(&input)?);
+                                *output = Some(v);
+                            }
+                        }
+
+                        let mut downsampled = vec![no_data_value; resolution * resolution];
+                        match &downsample_func {
+                            None => {
+                                for i in 0..4 {
+                                    if let Some(parent_tile) = &parent_tiles[i] {
+                                        let base_x = (i % 2) * (resolution / 2);
+                                        let base_y = (i / 2) * (resolution / 2);
+                                        for y in 0..resolution / 2 {
+                                            for x in 0..resolution / 2 {
+                                                downsampled
+                                                    [(base_y + y) * resolution + base_x + x] =
+                                                    parent_tile[(y * 2) * resolution + x * 2];
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Some(downsample_func) => {
+                                for i in 0..4 {
+                                    let base_x = (i % 2) * (resolution / 2);
+                                    let base_y = (i / 2) * (resolution / 2);
+                                    for y in 0..resolution / 2 {
+                                        for x in 0..resolution / 2 {
+                                            downsampled[(base_y + y) * resolution + base_x + x] =
+                                                parent_tiles[i]
+                                                    .as_ref()
+                                                    .map(|v| {
+                                                        let t00 = v[y * 2 * resolution + x * 2];
+                                                        let t01 = v[y * 2 * resolution + x * 2 + 1];
+                                                        let t10 =
+                                                            v[(y * 2 + 1) * resolution + x * 2];
+                                                        let t11 =
+                                                            v[(y * 2 + 1) * resolution + x * 2 + 1];
+                                                        downsample_func(t00, t01, t10, t11)
+                                                    })
+                                                    .unwrap_or(no_data_value);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let compressed =
+                            cogbuilder::compress_tile(bytemuck::cast_slice(&*downsampled));
+                        cog.write_tile(level, tile, &compressed)?;
+                    }
+
+                    completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    progress_callback.lock().unwrap()(
+                        format!("downsampling {dataset_name}..."),
+                        completed.load(std::sync::atomic::Ordering::SeqCst),
+                        total,
+                    );
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
 pub(crate) fn merge_datasets_to_tiles<F>(
     base_directory: PathBuf,
     mut progress_callback: F,

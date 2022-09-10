@@ -91,6 +91,16 @@ impl Terrain {
             vec![16],
             true,
         )?;
+        generate::downsample_dataset::<i16, _, _>(
+            dataset_directory.to_owned(),
+            "copernicus-hgt",
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            None::<fn(i16, i16, i16, i16)->i16>,
+            0,
+            vec![16],
+            true,
+        )?;
 
         generate::reproject_dataset::<u8, _>(
             dataset_directory.to_owned(),
@@ -100,6 +110,16 @@ impl Terrain {
             true,
             vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
             1,
+            vec![8],
+            false,
+        )?;
+        generate::downsample_dataset::<u8, _, _>(
+            dataset_directory.to_owned(),
+            "copernicus-wbm",
+            VNode::LEVEL_CELL_76M,
+            &mut progress_callback,
+            None::<fn(u8, u8, u8, u8) -> u8>,
+            0,
             vec![8],
             false,
         )?;
@@ -143,7 +163,11 @@ impl Terrain {
     }
 
     /// Create a new Terrain object.
-    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue, server: String) -> Result<Self, Error> {
+    pub async fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        server: String,
+    ) -> Result<Self, Error> {
         let mapfile = Arc::new(generate::build_mapfile(server).await?);
         Self::new_impl(device, queue, mapfile)
     }
@@ -343,13 +367,7 @@ impl Terrain {
     ) -> bool {
         self.quadtree.update_priorities(&self.cache, camera);
         if !self.loading_complete() {
-            self.cache.update(
-                device,
-                queue,
-                &self.gpu_state,
-                &mut self.quadtree,
-                camera,
-            );
+            self.cache.update(device, queue, &self.gpu_state, &mut self.quadtree, camera);
             self.loading_complete()
         } else {
             true
@@ -519,13 +537,7 @@ impl Terrain {
 
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
-        self.cache.update(
-            device,
-            queue,
-            &self.gpu_state,
-            &mut self.quadtree,
-            camera,
-        );
+        self.cache.update(device, queue, &self.gpu_state, &mut self.quadtree, camera);
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
