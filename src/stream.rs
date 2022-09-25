@@ -184,6 +184,7 @@ impl TileStreamer {
                                     heightmap: vec![0i16; 517 * 517],
                                     layers: VecMap::new(),
                                 };
+                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0x880000u32; 517 * 517]).to_vec());
                                 result.layers.insert(LayerType::TreeCover.index(), vec![0u8; 516 * 516]);
                                 Ok(result)
                             }
