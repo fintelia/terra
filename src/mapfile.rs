@@ -410,7 +410,7 @@ impl MapFile {
                 remote_tiles.insert(n);
             }
 
-            n.level() + 1 < MAX_STREAMED_LEVEL
+            n.level() + 1 <= MAX_STREAMED_LEVEL
         });
 
         Ok(())
