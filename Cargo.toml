@@ -17,7 +17,7 @@ name = "preview"
 path = "bin/preview.rs"
 
 [dependencies]
-aligned-buf = { path = "../aligned-buf" } #{ git = "https://github.com/fintelia/aligned-buf", rev = "b62a84f26554cea4e926fcf25899a2ad612aea08" }
+aligned-buf = { git = "https://github.com/fintelia/aligned-buf", rev = "daec48c6e868b194838b97772c9e018f259aab78" }
 anyhow = "1.0.58"
 astro = "2.0.0"
 atomicwrites = "0.3.1"
@@ -27,7 +27,7 @@ bytemuck = { version = "1.11.0", features = ["extern_crate_alloc"] }
 byteorder = "1.4.3"
 cgmath = { version = "0.18.0", features = ["mint", "serde"] }
 chrono = "0.4.19"
-cogbuilder = { path = "../cogbuilder" }
+cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "6e9450d2c1cbcd9b4d7490d436904718809e19be" }
 crossbeam = "0.8.2"
 curl = "0.4.44"
 dirs = "4.0.0"
