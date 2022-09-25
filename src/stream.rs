@@ -116,13 +116,12 @@ impl TileStreamer {
                 for i in 0..result.heightmap.len() {
                     result.heightmap[i] = result.heightmap[i].wrapping_add(prev);
                     prev = result.heightmap[i];
-                    result.heightmap[i] *= 4;
                 }
             }
         }
 
+        let mut treecover = vec![0u8; 516 * 516];
         if let Some(compressed) = get_file("treecover.lz4")? {
-            let mut treecover = vec![0u8; 516 * 516];
             if !compressed.is_empty() {
                 lz4::Decoder::new(Cursor::new(compressed))?
                     .read_exact(bytemuck::cast_slice_mut(&mut treecover))?;
@@ -132,10 +131,8 @@ impl TileStreamer {
                     prev = treecover[i];
                 }
             }
-            result.layers.insert(LayerType::TreeCover.index(), treecover);
-        } else {
-            println!("missing treecover!");
         }
+        result.layers.insert(LayerType::TreeCover.index(), treecover);
 
         if let Some(bytes) = get_file("albedo.basis")? {
             let mut transcoder = Transcoder::new();

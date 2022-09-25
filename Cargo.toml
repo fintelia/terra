@@ -17,6 +17,7 @@ name = "preview"
 path = "bin/preview.rs"
 
 [dependencies]
+aligned-buf = { path = "../aligned-buf" } #{ git = "https://github.com/fintelia/aligned-buf", rev = "b62a84f26554cea4e926fcf25899a2ad612aea08" }
 anyhow = "1.0.58"
 astro = "2.0.0"
 atomicwrites = "0.3.1"

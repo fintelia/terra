@@ -115,8 +115,14 @@ impl Terrain {
         blue_marble.reproject(&mut progress_callback)?;
         blue_marble.downsample_average_int(&mut progress_callback)?;
 
-        generate::merge_datasets_to_tiles(dataset_directory.to_owned(), &mut progress_callback)
-            .await?;
+        generate::merge_datasets_to_tiles(
+            dataset_directory.to_owned(),
+            copernicus_hgt,
+            copernicus_wbm,
+            treecover,
+            blue_marble,
+            &mut progress_callback,
+        )?;
 
         let mapfile = Arc::new(generate::build_mapfile(server).await?);
         generate::generate_materials(

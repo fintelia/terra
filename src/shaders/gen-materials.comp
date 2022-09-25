@@ -81,7 +81,7 @@ void main() {
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
-	vec3 balbedo = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
+	vec3 balbedo = pow(texture(sampler2DArray(base_albedo, linear), texcoord3).rgb, vec3(2.2));
 
 	// if (ubo.parent_slot >= 0) {
 	// 	vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
