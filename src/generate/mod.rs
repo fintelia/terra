@@ -505,7 +505,7 @@ fn delta_encode<T: WrappingAdd + WrappingSub + Zero>(data: &mut [T]) {
 fn compress<T: Pod + PartialEq + Zero>(data: &[T]) -> Vec<u8> {
     let mut bytes = Vec::<u8>::new();
     if data.iter().any(|&h| h != T::zero()) {
-        let mut e = lz4::EncoderBuilder::new().level(9).build(&mut bytes).unwrap();
+        let mut e = lz4::EncoderBuilder::new().level(1).build(&mut bytes).unwrap();
         e.write_all(&bytemuck::cast_slice(data)).unwrap();
         e.finish().0;
     }
@@ -562,7 +562,17 @@ where
     let cogs = CogTileCache::new(cogs);
     let grid_registration = vec![true, true, false, false];
     let bytes_per_element = vec![2, 1, 1, 3];
-    let leaf_border_size = vec![4, 4, 2, 2];
+    let leaf_border_size = vec![2, 16, 2, 2];
+
+    let no_data_values: Vec<Vec<u8>> = [
+        bytemuck::bytes_of(&copernicus_hgt.no_data_value),
+        bytemuck::bytes_of(&copernicus_wbm.no_data_value),
+        bytemuck::bytes_of(&treecover.no_data_value),
+        bytemuck::bytes_of(&blue_marble.no_data_value),
+    ]
+    .into_iter()
+    .map(|slice| slice.into_iter().cycle().cloned().take(1024).collect())
+    .collect();
 
     // let mut faces = Vec::new();
     // for tiles in missing_tiles {
@@ -571,155 +581,219 @@ where
     // }
 
     let tiles_processed = AtomicUsize::new(total_tiles - missing_tiles.len());
-    missing_tiles.into_par_iter().try_for_each(|(filename, node)| -> Result<(), anyhow::Error> {
-        //assert!(node.face() as usize == i);
-        progress_callback.lock().unwrap()(
-            "Generating tiles...".to_string(),
-            tiles_processed.load(Ordering::SeqCst),
-            total_tiles,
-        );
+    missing_tiles.into_par_iter().try_for_each(
+        |(filename, node)| -> Result<(), anyhow::Error> {
+            //assert!(node.face() as usize == i);
+            progress_callback.lock().unwrap()(
+                "Generating tiles...".to_string(),
+                tiles_processed.load(Ordering::SeqCst),
+                total_tiles,
+            );
 
-        let mut layers = (0..num_layers)
-            .into_par_iter()
-            .map(|layer| -> Result<Option<AlignedBuf>, anyhow::Error> {
-                if node.level() >= cog_levels[layer] as u8 {
-                    return Ok(None);
-                }
+            let mut layers = (0..num_layers)
+                .into_par_iter()
+                .map(|layer| -> Result<Option<AlignedBuf>, anyhow::Error> {
+                    if node.level() >= cog_levels[layer] as u8 {
+                        return Ok(None);
+                    }
 
-                let is_leaf = node.level() + 1 == cog_levels[layer] as u8;
-                let border = if is_leaf { leaf_border_size[layer] } else { 2 };
-                let cog_level = cog_levels[layer] - node.level() as u32 - 1;
-                let resolution =
-                    if grid_registration[layer] { 513 + 2 * border } else { 512 + 2 * border };
+                    let is_leaf = node.level() + 1 == cog_levels[layer] as u8;
+                    let border = if is_leaf { leaf_border_size[layer] } else { 2 };
+                    let cog_level = cog_levels[layer] - node.level() as u32 - 1;
+                    let resolution =
+                        if grid_registration[layer] { 513 + 2 * border } else { 512 + 2 * border };
 
-                let min_x = node.x() * TILE_INNER_RESOLUTION
-                    + (Dataset::<u8>::BORDER_SIZE << node.level())
-                    - border;
-                let min_y = node.y() * TILE_INNER_RESOLUTION
-                    + (Dataset::<u8>::BORDER_SIZE << node.level())
-                    - border;
-                let min_tile_x = min_x / cogbuilder::TILE_SIZE;
-                let min_tile_y = min_y / cogbuilder::TILE_SIZE;
-                let max_tile_x = (min_x + resolution - 1) / cogbuilder::TILE_SIZE;
-                let max_tile_y = (min_y + resolution - 1) / cogbuilder::TILE_SIZE;
+                    let min_x = node.x() * TILE_INNER_RESOLUTION
+                        + (Dataset::<u8>::BORDER_SIZE << node.level())
+                        - border;
+                    let min_y = node.y() * TILE_INNER_RESOLUTION
+                        + (Dataset::<u8>::BORDER_SIZE << node.level())
+                        - border;
+                    let min_tile_x = min_x / cogbuilder::TILE_SIZE;
+                    let min_tile_y = min_y / cogbuilder::TILE_SIZE;
+                    let max_tile_x = (min_x + resolution - 1) / cogbuilder::TILE_SIZE;
+                    let max_tile_y = (min_y + resolution - 1) / cogbuilder::TILE_SIZE;
 
-                let mut buf = AlignedBuf::new(
-                    resolution as usize * resolution as usize * bytes_per_element[layer],
-                );
-                for tile_y in min_tile_y..=max_tile_y {
-                    for tile_x in min_tile_x..=max_tile_x {
-                        let tile = tile_y * cogs.tiles_across(layer as u8, cog_level) + tile_x;
+                    let mut buf = AlignedBuf::new(
+                        resolution as usize * resolution as usize * bytes_per_element[layer],
+                    );
+                    buf.as_slice_mut::<u8>().chunks_mut(1024).for_each(|c: &mut [u8]| {
+                        let s = &no_data_values[layer][..c.len()];
+                        c.copy_from_slice(&s)
+                    });
+                    for tile_y in min_tile_y..=max_tile_y {
+                        for tile_x in min_tile_x..=max_tile_x {
+                            let tile = tile_y * cogs.tiles_across(layer as u8, cog_level) + tile_x;
 
-                        let contents = cogs.get(layer as u8, node.face(), cog_level as u8, tile)?;
-                        let contents = match contents {
-                            ref c if c.is_some() => (**c).as_ref().unwrap(),
-                            _ => continue,
-                        };
+                            let contents =
+                                cogs.get(layer as u8, node.face(), cog_level as u8, tile)?;
+                            let contents = match contents {
+                                ref c if c.is_some() => (**c).as_ref().unwrap(),
+                                _ => {
+                                    continue;
+                                }
+                            };
 
-                        let min_rect_x = min_x.max(tile_x * cogbuilder::TILE_SIZE);
-                        let min_rect_y = min_y.max(tile_y * cogbuilder::TILE_SIZE);
-                        let max_rect_x =
-                            (min_x + resolution).min((tile_x + 1) * cogbuilder::TILE_SIZE);
-                        let max_rect_y =
-                            (min_y + resolution).min((tile_y + 1) * cogbuilder::TILE_SIZE);
+                            let min_rect_x = min_x.max(tile_x * cogbuilder::TILE_SIZE);
+                            let min_rect_y = min_y.max(tile_y * cogbuilder::TILE_SIZE);
+                            let max_rect_x =
+                                (min_x + resolution).min((tile_x + 1) * cogbuilder::TILE_SIZE);
+                            let max_rect_y =
+                                (min_y + resolution).min((tile_y + 1) * cogbuilder::TILE_SIZE);
 
-                        for y in min_rect_y..max_rect_y {
-                            let src_offset = ((y - tile_y * cogbuilder::TILE_SIZE)
-                                * cogbuilder::TILE_SIZE
-                                + (min_rect_x - tile_x * cogbuilder::TILE_SIZE))
-                                as usize
-                                * bytes_per_element[layer];
+                            for y in min_rect_y..max_rect_y {
+                                let src_offset = ((y - tile_y * cogbuilder::TILE_SIZE)
+                                    * cogbuilder::TILE_SIZE
+                                    + (min_rect_x - tile_x * cogbuilder::TILE_SIZE))
+                                    as usize
+                                    * bytes_per_element[layer];
 
-                            let dst_offset = ((y - min_y) * resolution + min_rect_x - min_x)
-                                as usize
-                                * bytes_per_element[layer];
+                                let dst_offset = ((y - min_y) * resolution + min_rect_x - min_x)
+                                    as usize
+                                    * bytes_per_element[layer];
 
-                            let bytes =
-                                (max_rect_x - min_rect_x) as usize * bytes_per_element[layer];
+                                let bytes =
+                                    (max_rect_x - min_rect_x) as usize * bytes_per_element[layer];
 
-                            buf.as_slice_mut()[dst_offset..][..bytes]
-                                .copy_from_slice(&contents[src_offset..][..bytes]);
+                                buf.as_slice_mut()[dst_offset..][..bytes]
+                                    .copy_from_slice(&contents[src_offset..][..bytes]);
+                            }
+                        }
+                    }
+
+                    Ok(Some(buf))
+                })
+                .collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+            let zip_options = zip::write::FileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+
+            let mut compressed_layers = BTreeMap::new();
+            if node.level() + 1 == cog_levels[0] as u8 {
+                let mut heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>().to_vec();
+                let mut raw_watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>().to_vec();
+
+                let mut water_surface = heights.clone();
+
+                if raw_watermask.iter().all(|&w| w != 0) {
+                    heights.iter_mut().for_each(|h| *h = -1024);
+                } else {
+                    raw_watermask.iter_mut().for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
+                    assert_eq!(raw_watermask.len(), 545 * 545);
+                    let watermask =
+                        image::GrayImage::from_raw(513 + 32, 513 + 32, raw_watermask).unwrap();
+                    let shore_distance =
+                        imageproc::distance_transform::euclidean_squared_distance_transform(
+                            &watermask,
+                        );
+                    for y in 0..517 {
+                        for x in 0..517 {
+                            let dist: f64 =
+                                shore_distance.get_pixel(x as u32 + 14, y as u32 + 14)[0];
+                            if dist > 0.0 {
+                                heights[y * 517 + x] -= ((dist as f32).sqrt() * 4.0) as i16;
+                            }
+                        }
+                    }
+                    // for y in 0..517 {
+                    //     for x in 0..517 {
+                    //         if watermask.get_pixel(y as u32 + 14, x as u32 + 14)[0] == 1 {
+                    //             water_surface[y * 517 + x] = -9999;
+                    //         }
+                    //     }
+                    // }
+                    // for _ in 0..3 {
+                    //     for y in 0..517 {
+                    //         for x in 0..517 {
+                    //             if water_surface[y * 517 + x] == -9999 {
+                    //                 let w0 = water_surface[y * 517 + x.saturating_sub(1)];
+                    //                 let w1 = water_surface[y.saturating_sub(1) * 517 + x];
+                    //                 let w2 = water_surface[y * 517 + (x + 1).min(516)];
+                    //                 let w3 =
+                    //                     water_surface[(y + 1).min(516) * 517 + (x + 1).min(516)];
+                    //                 water_surface[y * 517 + x] = w0.max(w1).max(w2).max(w3);
+                    //             }
+                    //         }
+                    //     }
+                    // }
+                    for y in 0..517 {
+                        for x in 0..517 {
+                            if watermask.get_pixel(x as u32 + 14, y as u32 + 14)[0] == 1 {
+                                heights[y * 517 + x] = heights[y * 517 + x].max(1);//  .max(water_surface[y * 517 + x] + 1);
+                            }
                         }
                     }
                 }
+                heights.iter_mut().filter(|&&mut h| h > 8 || h < -8).for_each(|h| *h = (*h / 4) * 4);
+                delta_encode(&mut heights);
+                compressed_layers.insert("heights.lz4", compress(&heights));
 
-                Ok(Some(buf))
-            })
-            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+                // water_surface.iter_mut().for_each(|h| *h = (*h / 4) * 4);
+                // delta_encode(&mut water_surface);
+                // compressed_layers.insert("water_surface.lz4", compress(&water_surface));
 
-        let zip_options =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
-        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+                // let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
+                // watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
+                // let mut cropped_watermask = vec![0; 517 * 517];
+                // crop(&mut cropped_watermask, 517, watermask, 521);
+                // delta_encode(&mut cropped_watermask);
+                // compressed_layers.insert("watermask.lz4", compress(&cropped_watermask));
 
-        let mut compressed_layers = BTreeMap::new();
-        if node.level() + 1 == cog_levels[0] as u8 {
-            let heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>();
-            heights.iter_mut().for_each(|h| *h = (*h / 4) * 4);
-            let mut cropped_heights = vec![0i16; 517 * 517];
-            crop(&mut cropped_heights, 517, heights, 521);
-            delta_encode(&mut cropped_heights);
-            compressed_layers.insert("heights.lz4", compress(&cropped_heights));
+                let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
+                delta_encode(treecover);
+                compressed_layers.insert("treecover.lz4", compress(treecover));
+            } else {
+                let heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>();
+                heights.iter_mut().for_each(|h| *h = (*h / 4) * 4);
+                delta_encode(heights);
+                compressed_layers.insert("heights.lz4", compress(heights));
 
-            let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
-            watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
-            let mut cropped_watermask = vec![0; 517 * 517];
-            crop(&mut cropped_watermask, 517, watermask, 521);
-            delta_encode(&mut cropped_watermask);
-            compressed_layers.insert("watermask.lz4", compress(&cropped_watermask));
+                let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
+                watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
+                delta_encode(watermask);
+                compressed_layers.insert("watermask.lz4", compress(watermask));
 
-            let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
-            delta_encode(treecover);
-            compressed_layers.insert("treecover.lz4", compress(treecover));
-        } else {
-            let heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>();
-            heights.iter_mut().for_each(|h| *h = (*h / 4) * 4);
-            delta_encode(heights);
-            compressed_layers.insert("heights.lz4", compress(heights));
+                let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
+                delta_encode(treecover);
+                compressed_layers.insert("treecover.lz4", compress(treecover));
 
-            let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
-            watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
-            delta_encode(watermask);
-            compressed_layers.insert("watermask.lz4", compress(watermask));
+                if let Some(layer) = layers[3].as_mut() {
+                    if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
+                        compressed_layers.insert("albedo.basis", Vec::new());
+                    } else {
+                        let mut albedo_params = basis_universal::encoding::CompressorParams::new();
+                        albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
+                        // albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
+                        // albedo_params.set_generate_mipmaps(true);
+                        albedo_params.source_image_mut(0).init(layer.as_slice(), 516, 516, 3);
 
-            let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
-            delta_encode(treecover);
-            compressed_layers.insert("treecover.lz4", compress(treecover));
+                        let mut compressor = basis_universal::encoding::Compressor::new(1);
+                        unsafe { compressor.init(&albedo_params) };
+                        unsafe { compressor.process().unwrap() };
 
-            if let Some(layer) = layers[3].as_mut() {
-                if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
-                    compressed_layers.insert("albedo.basis", Vec::new());
-                } else {
-                    let mut albedo_params = basis_universal::encoding::CompressorParams::new();
-                    albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
-                    // albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
-                    // albedo_params.set_generate_mipmaps(true);
-                    albedo_params.source_image_mut(0).init(layer.as_slice(), 516, 516, 3);
+                        compressed_layers.insert("albedo.basis", compressor.basis_file().to_vec());
+                    }
+                }
+            };
 
-                    let mut compressor = basis_universal::encoding::Compressor::new(1);
-                    unsafe { compressor.init(&albedo_params) };
-                    unsafe { compressor.process().unwrap() };
-
-                    compressed_layers.insert("albedo.basis", compressor.basis_file().to_vec());
+            let mut all_empty = true;
+            for (name, data) in compressed_layers.iter() {
+                if !data.is_empty() {
+                    all_empty = false;
+                    zip.start_file(name.to_string(), zip_options)?;
+                    zip.write_all(&data)?;
                 }
             }
-        };
+            let bytes = if !all_empty { zip.finish().unwrap().into_inner() } else { Vec::new() };
 
-        let mut all_empty = true;
-        for (name, data) in compressed_layers.iter() {
-            if !data.is_empty() {
-                all_empty = false;
-                zip.start_file(name.to_string(), zip_options)?;
-                zip.write_all(&data)?;
-            }
-        }
-        let bytes = if !all_empty { zip.finish().unwrap().into_inner() } else { Vec::new() };
+            AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(&bytes))?;
+            tiles_processed.fetch_add(1, Ordering::SeqCst);
 
-        AtomicFile::new(filename, OverwriteBehavior::AllowOverwrite)
-            .write(|f| f.write_all(&bytes))?;
-        tiles_processed.fetch_add(1, Ordering::SeqCst);
-
-        Ok(())
-    })?;
+            Ok(())
+        },
+    )?;
 
     // Write tile list
     let tile_list_path = serve_directory.join("tile_list.txt.lz4");
