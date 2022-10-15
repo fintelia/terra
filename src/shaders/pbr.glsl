@@ -124,8 +124,8 @@ vec3 pbr(vec3 albedo,
 	vec3 v = normalize(camera - position);
 	vec3 l = normalize(lightDir);
 	vec3 h = normalize(l+v);
-	float NdotL = clamp(dot(n, l), 0.001, 1.0);
-	float NdotV = clamp(abs(dot(n, v)), 0.001, 1.0);
+	float NdotL = clamp(dot(n, l), 0.0, 1.0);
+	float NdotV = clamp(abs(dot(n, v)), 0.0, 1.0);
 	float NdotH = clamp(dot(n, h), 0.0, 1.0);
 	float LdotH = clamp(dot(l, h), 0.0, 1.0);
 	float VdotH = clamp(dot(v, h), 0.0, 1.0);
@@ -149,9 +149,9 @@ vec3 pbr(vec3 albedo,
 
 	// Calculation of analytical lighting contribution
 	vec3 diffuseContrib = (1.0 - F) * diffuse(pbrInputs);
-	float specContrib = F * G * D / (4.0 * NdotL * NdotV);
+	float specContrib = F * G * D / (4.0 * NdotV);
 	// Obtain final intensity as reflectance (BRDF) scaled by the energy of the light (cosine law)
-	vec3 color = NdotL * lightColor * (diffuseContrib + vec3(specContrib));
+	vec3 color = lightColor * (NdotL * diffuseContrib + vec3(specContrib));
 
 	// vec3 reflection = -normalize(reflect(v, n));
 	// reflection.y *= -1.0f;
