@@ -20,8 +20,8 @@ layout(set = 0, binding = 7) uniform texture2DArray root_aerial_perspective;
 layout(set = 0, binding = 9) uniform texture2DArray aerial_perspective;
 layout(set = 0, binding = 10) uniform sampler nearest;
 layout(set = 0, binding = 11) uniform texture2DArray bent_normals;
-layout(set = 0, binding = 12) uniform texture2D shadowmap;
-layout(set = 0, binding = 13) uniform samplerShadow shadow_sampler;
+// layout(set = 0, binding = 12) uniform texture2D shadowmap;
+// layout(set = 0, binding = 13) uniform samplerShadow shadow_sampler;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -245,13 +245,13 @@ void main() {
 	// }
 
 	float shadow = 0;
-	vec4 proj_position = globals.shadow_view_proj * vec4(position, 1);
-	//proj_position.xyz /= proj_position.w;
-	vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
-	if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
-		float depth = proj_position.z - 4.0 / 102400.0;
-		shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
-	}
+	// vec4 proj_position = globals.shadow_view_proj * vec4(position, 1);
+	// //proj_position.xyz /= proj_position.w;
+	// vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
+	// if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
+	// 	float depth = proj_position.z - 4.0 / 102400.0;
+	// 	shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
+	// }
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,
