@@ -142,6 +142,15 @@ pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
                     max_level: 0,
                     layer_type,
                 },
+                LayerType::LandFraction => LayerParams {
+                    texture_resolution: 516,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::R8],
+                    grid_registration: false,
+                    min_level: 0,
+                    max_level: VNode::LEVEL_CELL_76M,
+                    layer_type,
+                },
             };
             (layer_type.index(), params)
         })
@@ -211,6 +220,7 @@ where
         for root_node in VNode::roots() {
             let path = self
                 .base_directory
+                .join("derived")
                 .join(format!("{}_reprojected", self.dataset_name))
                 .join(format!("{}.tiff", VFace(root_node.face())));
             fs::create_dir_all(&path.parent().unwrap())?;
@@ -233,11 +243,25 @@ where
     where
         F: FnMut(String, usize, usize) + Send,
     {
+        self.reproject_from(self.dataset_name, self.no_data_value, progress_callback, |_| {})
+    }
+
+    pub(crate) fn reproject_from<F, G>(
+        &self,
+        base_dataset_name: &str,
+        base_no_data: T,
+        progress_callback: F,
+        postprocess: G,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        G: Fn(&mut [T]) + Sync,
+    {
         let root_border_size = Self::BORDER_SIZE << self.max_level;
         let root_dimensions = self.root_dimensions();
 
         let vrt_file = vrt_file::VrtFile::new(
-            &self.base_directory.join(self.dataset_name).join("merged.vrt"),
+            &self.base_directory.join("download").join(base_dataset_name).join("merged.vrt"),
             self.bits_per_sample.len(),
         )?;
 
@@ -319,13 +343,15 @@ where
 
                 let mut heightmap =
                     vec![
-                        self.no_data_value;
+                        base_no_data;
                         cogbuilder::TILE_SIZE as usize * cogbuilder::TILE_SIZE as usize * bands
                     ];
 
                 vrt_file.batch_lookup(&*coordinates, &mut heightmap);
 
                 drop(coordinates);
+
+                postprocess(&mut *heightmap);
 
                 if heightmap.iter().any(|&v| v != self.no_data_value) {
                     let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*heightmap));
@@ -518,6 +544,7 @@ pub(crate) fn merge_datasets_to_tiles<F>(
     copernicus_wbm: Dataset<u8>,
     treecover: Dataset<u8>,
     blue_marble: Dataset<u8>,
+    landfraction: Dataset<u8>,
     progress_callback: F,
 ) -> Result<(), anyhow::Error>
 where
@@ -556,19 +583,21 @@ where
         copernicus_wbm.cogs()?.into_iter().map(|(_, c)| c).collect(),
         treecover.cogs()?.into_iter().map(|(_, c)| c).collect(),
         blue_marble.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        landfraction.cogs()?.into_iter().map(|(_, c)| c).collect(),
     ];
     let num_layers = cogs.len();
     let cog_levels: Vec<_> = cogs.iter().map(|c| c[0].levels()).collect();
     let cogs = CogTileCache::new(cogs);
-    let grid_registration = vec![true, true, false, false];
-    let bytes_per_element = vec![2, 1, 1, 3];
-    let leaf_border_size = vec![2, 16, 2, 2];
+    let grid_registration = vec![true, true, false, false, false];
+    let bytes_per_element = vec![2, 1, 1, 3, 1];
+    let leaf_border_size = vec![2, 16, 2, 2, 2];
 
     let no_data_values: Vec<Vec<u8>> = [
         bytemuck::bytes_of(&copernicus_hgt.no_data_value),
         bytemuck::bytes_of(&copernicus_wbm.no_data_value),
         bytemuck::bytes_of(&treecover.no_data_value),
         bytemuck::bytes_of(&blue_marble.no_data_value),
+        bytemuck::bytes_of(&landfraction.no_data_value),
     ]
     .into_iter()
     .map(|slice| slice.into_iter().cycle().cloned().take(1024).collect())
@@ -679,7 +708,9 @@ where
                 if raw_watermask.iter().all(|&w| w != 0) {
                     heights.iter_mut().for_each(|h| *h = -1024);
                 } else {
-                    raw_watermask.iter_mut().for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
+                    raw_watermask
+                        .iter_mut()
+                        .for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
                     assert_eq!(raw_watermask.len(), 545 * 545);
                     let watermask =
                         image::GrayImage::from_raw(513 + 32, 513 + 32, raw_watermask).unwrap();
@@ -720,12 +751,16 @@ where
                     for y in 0..517 {
                         for x in 0..517 {
                             if watermask.get_pixel(x as u32 + 14, y as u32 + 14)[0] == 1 {
-                                heights[y * 517 + x] = heights[y * 517 + x].max(1);//  .max(water_surface[y * 517 + x] + 1);
+                                heights[y * 517 + x] = heights[y * 517 + x].max(1);
+                                //  .max(water_surface[y * 517 + x] + 1);
                             }
                         }
                     }
                 }
-                heights.iter_mut().filter(|&&mut h| h > 8 || h < -8).for_each(|h| *h = (*h / 4) * 4);
+                heights
+                    .iter_mut()
+                    .filter(|&&mut h| h > 8 || h < -8)
+                    .for_each(|h| *h = (*h / 4) * 4);
                 delta_encode(&mut heights);
                 compressed_layers.insert("heights.lz4", compress(&heights));
 
@@ -743,6 +778,10 @@ where
                 let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
                 delta_encode(treecover);
                 compressed_layers.insert("treecover.lz4", compress(treecover));
+
+                let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
+                delta_encode(landfraction);
+                compressed_layers.insert("landfraction.lz4", compress(landfraction));
             } else {
                 let heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>();
                 heights.iter_mut().for_each(|h| *h = (*h / 4) * 4);
@@ -757,6 +796,10 @@ where
                 let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
                 delta_encode(treecover);
                 compressed_layers.insert("treecover.lz4", compress(treecover));
+
+                let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
+                delta_encode(landfraction);
+                compressed_layers.insert("landfraction.lz4", compress(landfraction));
 
                 if let Some(layer) = layers[3].as_mut() {
                     if layer.as_slice::<u8>().iter().all(|v| *v == 0) {

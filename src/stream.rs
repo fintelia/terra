@@ -134,6 +134,20 @@ impl TileStreamer {
         }
         result.layers.insert(LayerType::TreeCover.index(), treecover);
 
+        let mut landfraction = vec![0u8; 516 * 516];
+        if let Some(compressed) = get_file("landfraction.lz4")? {
+            if !compressed.is_empty() {
+                lz4::Decoder::new(Cursor::new(compressed))?
+                    .read_exact(bytemuck::cast_slice_mut(&mut landfraction))?;
+                let mut prev = 0;
+                for i in 0..landfraction.len() {
+                    landfraction[i] = landfraction[i].wrapping_add(prev);
+                    prev = landfraction[i];
+                }
+            }
+        }
+        result.layers.insert(LayerType::LandFraction.index(), landfraction);
+
         if let Some(bytes) = get_file("albedo.basis")? {
             let mut transcoder = Transcoder::new();
             transcoder.prepare_transcoding(&bytes).unwrap();
@@ -186,6 +200,7 @@ impl TileStreamer {
                                 };
                                 result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0x880000u32; 517 * 517]).to_vec());
                                 result.layers.insert(LayerType::TreeCover.index(), vec![0u8; 516 * 516]);
+                                result.layers.insert(LayerType::LandFraction.index(), vec![0u8; 516 * 516]);
                                 Ok(result)
                             }
                         }

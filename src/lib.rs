@@ -79,6 +79,23 @@ impl Terrain {
         copernicus_hgt.reproject(&mut progress_callback)?;
         copernicus_hgt.downsample_grid(&mut progress_callback)?;
 
+        let landfraction = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "landfraction",
+            max_level: VNode::LEVEL_CELL_38M,
+            no_data_value: 0u8,
+            grid_registration: false,
+            bits_per_sample: vec![8],
+            signed: false,
+        };
+        landfraction.reproject_from("copernicus-wbm", 1u8, &mut progress_callback, |values| {
+            values.iter_mut().for_each(|v| match v {
+                1 | 2 => *v = 0,
+                _ => *v = 255,
+            })
+        })?;
+        landfraction.downsample_average_int(&mut progress_callback)?;
+
         let copernicus_wbm = generate::Dataset {
             base_directory: dataset_directory.to_owned(),
             dataset_name: "copernicus-wbm",
@@ -121,6 +138,7 @@ impl Terrain {
             copernicus_wbm,
             treecover,
             blue_marble,
+            landfraction,
             &mut progress_callback,
         )?;
 
