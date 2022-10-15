@@ -69,6 +69,7 @@ fn configure_surface(
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
         },
     );
 }
