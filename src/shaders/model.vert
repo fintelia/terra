@@ -42,11 +42,11 @@ void main() {
     vec3 s = normalize(cross(f, up));
     vec3 u = cross(s, f);
 
-    vec3 eye = vec3(0, 10, 0) - f * 10;
-
-    mat4 proj = mat4(0.1,   0,    0,  0,
-                       0, 0.1,    0,  0,
-                       0,   0,  -0.05,  0,
+    float size = 9;
+    vec3 eye = vec3(0, size, 0) - f * 10;
+    mat4 proj = mat4(1./size,   0,    0,  0,
+                       0, 1./size,    0,  0,
+                       0,   0,  -0.5/size,  0,
                        0,   0,    0,  1);
 
     mat4 view = mat4(

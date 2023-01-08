@@ -85,7 +85,7 @@ fn main() {
         .map(|s| {
             chrono::NaiveTime::parse_from_str(&s, "%-H:%M")
                 .unwrap()
-                .signed_duration_since(chrono::NaiveTime::from_hms(12, 0, 0))
+                .signed_duration_since(chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap())
                 .num_minutes() as f64
                 / 1440.0
         })

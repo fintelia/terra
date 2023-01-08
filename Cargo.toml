@@ -27,7 +27,7 @@ bytemuck = { version = "1.11.0", features = ["extern_crate_alloc"] }
 byteorder = "1.4.3"
 cgmath = { version = "0.18.0", features = ["mint", "serde"] }
 chrono = "0.4.19"
-cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "6e9450d2c1cbcd9b4d7490d436904718809e19be" }
+cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "24e491e823e446c0ddacef2fb5f797952867ff0f" }
 crossbeam = "0.8.2"
 curl = "0.4.44"
 dirs = "4.0.0"
@@ -42,6 +42,7 @@ imageproc = "0.23.0"
 indicatif = "0.16.2"
 itertools = "0.10.3"
 lazy_static = "1.4.0"
+lindel = "0.1.1"
 linked-hash-map = "0.5.6"
 log = "0.4.17"
 lru = "0.7.8"

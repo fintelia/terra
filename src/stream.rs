@@ -7,6 +7,7 @@ use futures::{FutureExt, StreamExt};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::thread;
+use std::time::Instant;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use types::VNode;
@@ -21,7 +22,7 @@ pub(crate) struct TileResult {
 }
 
 pub(crate) struct TileStreamerEndpoint {
-    sender: UnboundedSender<VNode>,
+    sender: UnboundedSender<(VNode, Instant)>,
     receiver: crossbeam::channel::Receiver<TileResult>,
     join_handle: Option<thread::JoinHandle<Result<(), Error>>>,
     num_inflight: usize,
@@ -56,7 +57,7 @@ impl TileStreamerEndpoint {
     }
 
     pub(crate) fn request_tile(&mut self, node: VNode) {
-        if let Err(_) = self.sender.send(node) {
+        if let Err(_) = self.sender.send((node, Instant::now())) {
             // The worker thread has panicked (we still have the sender open, so that cannot be why
             // it exited). Join it to see what the panic message was.
             self.join_handle.take().unwrap().join().unwrap().expect("TileStreamer panicked");
@@ -80,7 +81,7 @@ impl TileStreamerEndpoint {
 }
 
 struct TileStreamer {
-    requests: UnboundedReceiver<VNode>,
+    requests: UnboundedReceiver<(VNode, Instant)>,
     results: crossbeam::channel::Sender<TileResult>,
     transcode_format: TranscoderTextureFormat,
     mapfile: Arc<MapFile>,
@@ -94,7 +95,7 @@ impl TileStreamer {
     ) -> Result<TileResult, Error> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         let mut result =
-            TileResult { node, heightmap: vec![0i16; 517 * 517], layers: VecMap::new() };
+            TileResult { node, heightmap: vec![0i16; 521 * 521], layers: VecMap::new() };
 
         let mut get_file = |name| -> Result<Option<Vec<u8>>, Error> {
             match zip.by_name(name) {
@@ -145,17 +146,23 @@ impl TileStreamer {
                     prev = landfraction[i];
                 }
             }
+        } else {
+            assert!(node.level() > 0);
         }
         result.layers.insert(LayerType::LandFraction.index(), landfraction);
 
         if let Some(bytes) = get_file("albedo.basis")? {
-            let mut transcoder = Transcoder::new();
-            transcoder.prepare_transcoding(&bytes).unwrap();
-            let data = transcoder
-                .transcode_image_level(&bytes, transcode_format, Default::default())
-                .map_err(|e| anyhow::format_err!("corrupt albedo.basis: {:?}", e))?;
-            transcoder.end_transcoding();
-            result.layers.insert(LayerType::BaseAlbedo.index(), data);
+            if !bytes.is_empty() {
+                let mut transcoder = Transcoder::new();
+                transcoder.prepare_transcoding(&bytes).unwrap();
+                let data = transcoder
+                    .transcode_image_level(&bytes, transcode_format, Default::default())
+                    .map_err(|e| anyhow::format_err!("corrupt albedo.basis: {:?}", e))?;
+                transcoder.end_transcoding();
+                result.layers.insert(LayerType::BaseAlbedo.index(), data);
+            } else {
+                result.layers.insert(LayerType::BaseAlbedo.index(), vec![0u8; 516 * 516 * 4]);
+            }
         }
 
         let heights: Vec<_> = result
@@ -163,15 +170,22 @@ impl TileStreamer {
             .iter()
             .map(|&h| {
                 if h <= 0 {
-                    0x800000 | (((h + 1024).max(0) as u32) << 9)
+                    0x800000 | (((h + 4096).max(0) as u32) << 7)
                 } else {
-                    (((h as u32) + 1024) << 9).min(0x7fffff)
+                    (((h as u32) + 4096) << 7).min(0x7fffff)
                 }
             })
             .collect();
         result
             .layers
             .insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&heights).to_vec());
+
+        if node.level() == 0 {
+            assert!(result.layers.contains_key(LayerType::Heightmaps.index()));
+            assert!(result.layers.contains_key(LayerType::TreeCover.index()));
+            assert!(result.layers.contains_key(LayerType::LandFraction.index()));
+            assert!(result.layers.contains_key(LayerType::BaseAlbedo.index()));
+        }
 
         Ok(result)
     }
@@ -186,19 +200,19 @@ impl TileStreamer {
                 tile_result = pending.select_next_some() => {
                     results.send(tile_result?)?;
                 },
-                node = requests.recv().fuse() => if let Some(node) = node {
+                node = requests.recv().fuse() => if let Some((node, _start)) = node {
                     pending.push(async move {
                         match mapfile.read_tile(node).await? {
                             Some(raw_data) => {
-                                tokio::task::spawn_blocking(move || Self::parse_tile(node, &raw_data, transcode_format)).await?
+                                tokio::task::spawn_blocking(move || Self::parse_tile(node, &raw_data, transcode_format)).await.unwrap()
                             }
                             None => {
                                 let mut result = TileResult {
                                     node,
-                                    heightmap: vec![0i16; 517 * 517],
+                                    heightmap: vec![0i16; 521 * 521],
                                     layers: VecMap::new(),
                                 };
-                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0x880000u32; 517 * 517]).to_vec());
+                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0x880000u32; 521 * 521]).to_vec());
                                 result.layers.insert(LayerType::TreeCover.index(), vec![0u8; 516 * 516]);
                                 result.layers.insert(LayerType::LandFraction.index(), vec![0u8; 516 * 516]);
                                 Ok(result)

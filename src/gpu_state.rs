@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, num::NonZeroU8};
 
 use crate::{
     billboards::Models,
@@ -229,7 +229,8 @@ impl GpuState {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::FilterMode::Linear,
+                anisotropy_clamp: Some(NonZeroU8::new(4).unwrap()),
                 label: Some("sampler.linear"),
                 ..Default::default()
             }),

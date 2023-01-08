@@ -42,6 +42,7 @@ pub(crate) enum LayerType {
     BaseAlbedo = 9,
     RootAerialPerspective = 10,
     LandFraction = 11,
+    Slopes = 12,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -61,6 +62,7 @@ impl LayerType {
             9 => LayerType::BaseAlbedo,
             10 => LayerType::RootAerialPerspective,
             11 => LayerType::LandFraction,
+            12 => LayerType::Slopes,
             _ => unreachable!(),
         }
     }
@@ -81,6 +83,7 @@ impl LayerType {
             LayerType::BaseAlbedo => "base_albedo",
             LayerType::RootAerialPerspective => "root_aerial_perspective",
             LayerType::LandFraction => "land_fraction",
+            LayerType::Slopes => "slopes",
         }
     }
     pub fn streamed_levels(&self) -> u8 {
@@ -99,7 +102,7 @@ impl LayerType {
         }
     }
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..=11).map(Self::from_index)
+        (0..=12).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {

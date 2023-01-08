@@ -342,20 +342,34 @@ impl MapFile {
         TERRA_DIRECTORY.join("tiles").join(&Self::tile_name(node))
     }
 
-    async fn reload_tile_states(&self) -> Result<(), Error> {
-        fn face_index(s: &str) -> Option<u8> {
-            Some(match s {
-                "0E" => 0,
-                "180E" => 1,
-                "90E" => 2,
-                "90W" => 3,
-                "N" => 4,
-                "S" => 5,
-                _ => return None,
-            })
-        }
+    fn face_index(s: &str) -> Option<u8> {
+        Some(match s {
+            "0E" => 0,
+            "180E" => 1,
+            "90E" => 2,
+            "90W" => 3,
+            "N" => 4,
+            "S" => 5,
+            _ => return None,
+        })
+    }
 
+    pub(crate) fn parse_tile_list(encoded: &[u8]) -> Result<HashSet<(u8, u8, u32, u32)>, Error> {
+        let mut remote_files = String::new();
+        lz4::Decoder::new(std::io::Cursor::new(&encoded))?
+            .read_to_string(&mut remote_files)?;
         let mut all = HashSet::new();
+        for filename in remote_files.split("\n") {
+            if let Ok((level, face, x, y)) =
+                sscanf::scanf!(filename, "{}_{}_{}x{}.raw", u8, String, u32, u32)
+            {
+                Self::face_index(&face).map(|face| all.insert((level, face, x, y)));
+            }
+        }
+        Ok(all)
+    }
+
+    async fn reload_tile_states(&self) -> Result<(), Error> {
         let mut existing = HashSet::new();
 
         // Scan local files.
@@ -368,7 +382,7 @@ impl MapFile {
             if let Ok((level, face, x, y)) =
                 sscanf::scanf!(filename, "{}_{}_{}x{}.raw", u8, String, u32, u32)
             {
-                face_index(&face).map(|face| existing.insert((level, face, x, y)));
+                Self::face_index(&face).map(|face| existing.insert((level, face, x, y)));
             }
         }
 
@@ -385,16 +399,7 @@ impl MapFile {
         };
 
         // Parse file list to learn all files available from the remote.
-        let mut remote_files = String::new();
-        lz4::Decoder::new(std::io::Cursor::new(&file_list_encoded))?
-            .read_to_string(&mut remote_files)?;
-        for filename in remote_files.split("\n") {
-            if let Ok((level, face, x, y)) =
-                sscanf::scanf!(filename, "{}_{}_{}x{}.raw", u8, String, u32, u32)
-            {
-                face_index(&face).map(|face| all.insert((level, face, x, y)));
-            }
-        }
+        let all = Self::parse_tile_list(&file_list_encoded)?;
 
         let mut local_tiles = self.local_tiles.lock().unwrap();
         let mut remote_tiles = self.remote_tiles.lock().unwrap();

@@ -44,7 +44,7 @@ pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
         .map(|layer_type| {
             let params = match layer_type {
                 LayerType::Heightmaps => LayerParams {
-                    texture_resolution: 517,
+                    texture_resolution: 521,
                     texture_border_size: 4,
                     texture_format: &[TextureFormat::R32],
                     grid_registration: true,
@@ -149,6 +149,15 @@ pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
                     grid_registration: false,
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_76M,
+                    layer_type,
+                },
+                LayerType::Slopes => LayerParams {
+                    texture_resolution: 517,
+                    texture_border_size: 2,
+                    texture_format: &[TextureFormat::RG16F],
+                    grid_registration: true,
+                    min_level: VNode::LEVEL_CELL_10M,
+                    max_level: VNode::LEVEL_CELL_10M,
                     layer_type,
                 },
             };
@@ -270,9 +279,22 @@ where
             .cogs()?
             .into_iter()
             .map(|(root_node, cog)| {
+                let mut tiles = Vec::new();
+                let tiles_across = cog.tiles_across(0);
                 for (tile, _) in cog.valid_mask(0)?.iter().enumerate().filter(|v| !v.1) {
-                    missing.push((root_node, tile as u32));
+                    tiles.push((
+                        lindel::morton_encode([
+                            tile as u32 % tiles_across,
+                            tile as u32 / tiles_across,
+                        ]),
+                        tile as u32,
+                    ));
                 }
+                tiles.sort_by_key(|v| v.0);
+                for (_, tile) in tiles {
+                    missing.push((root_node, tile));
+                }
+
                 Ok(Mutex::new(cog))
             })
             .collect::<Result<Vec<_>, anyhow::Error>>()?;
@@ -371,6 +393,287 @@ where
                 * 128,
         );
         Ok(())
+    }
+
+    fn derive_dataset_impl<F, G>(
+        &self,
+        progress_callback: F,
+        no_data_values: &[&[u8]],
+        input_row_bytes: &[usize],
+        input_cogs: &[CogTileCache],
+        g: G,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        G: Fn(&[Vec<u8>], &mut [T]) + Sync,
+    {
+        let root_dimensions = self.root_dimensions();
+
+        let mut missing = Vec::new();
+        let out_cogs = self
+            .cogs()?
+            .into_iter()
+            .map(|(root_node, cog)| {
+                for (tile, _) in cog.valid_mask(0)?.iter().enumerate().filter(|v| !v.1) {
+                    missing.push((root_node, tile as u32));
+                }
+                Ok(Mutex::new(cog))
+            })
+            .collect::<Result<Vec<_>, anyhow::Error>>()?;
+
+        let out_bands = self.bits_per_sample.len();
+        let root_dimensions_tiles = (root_dimensions - 1) / cogbuilder::TILE_SIZE + 1;
+        let total_sectors = (6 * root_dimensions_tiles * root_dimensions_tiles) as usize;
+        let sectors_processed = AtomicUsize::new(total_sectors - missing.len());
+
+        let no_data = no_data_values
+            .iter()
+            .zip(input_row_bytes)
+            .map(|(v, &n)| {
+                v.iter()
+                    .cycle()
+                    .copied()
+                    .take(n * cogbuilder::TILE_SIZE as usize * 9)
+                    .collect::<Vec<u8>>()
+            })
+            .collect::<Vec<_>>();
+
+        let progress_callback = Mutex::new(progress_callback);
+        missing.into_iter().par_bridge().try_for_each(
+            |(root, tile)| -> Result<(), anyhow::Error> {
+                (progress_callback.lock().unwrap())(
+                    format!("deriving {}...", self.dataset_name),
+                    sectors_processed.load(std::sync::atomic::Ordering::SeqCst),
+                    total_sectors,
+                );
+                let x = tile % root_dimensions_tiles;
+                let y = tile / root_dimensions_tiles;
+
+                let mut input_data: Vec<_> = no_data.clone();
+
+                // Load data into input_data.
+                for (i, (in_cog, &in_row_bytes)) in
+                    input_cogs.iter().zip(input_row_bytes).enumerate()
+                {
+                    for dx in -1..=1 {
+                        if dx == -1 && x == 0 || dx == 1 && x == root_dimensions_tiles - 1 {
+                            continue;
+                        }
+                        for dy in -1..=1 {
+                            if dy == -1 && y == 0 || dy == 1 && y == root_dimensions_tiles - 1 {
+                                continue;
+                            }
+                            let tile = in_cog.get(
+                                0,
+                                root.face(),
+                                0,
+                                (y as i32 + dy) as u32 * root_dimensions_tiles
+                                    + (x as i32 + dx) as u32,
+                            )?;
+                            if let Some(tile) = tile.as_ref() {
+                                for row in 0..cogbuilder::TILE_SIZE as usize {
+                                    let input_offset = (dy + 1) as usize
+                                        * in_row_bytes
+                                        * 3
+                                        * cogbuilder::TILE_SIZE as usize
+                                        + (dx + 1) as usize * in_row_bytes
+                                        + row * in_row_bytes * 3;
+
+                                    let input_row =
+                                        &mut input_data[i][input_offset..][..in_row_bytes];
+                                    let tile_row = &tile[row * in_row_bytes..][..in_row_bytes];
+                                    input_row.copy_from_slice(tile_row);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let mut output_data =
+                    vec![
+                        self.no_data_value;
+                        cogbuilder::TILE_SIZE as usize * cogbuilder::TILE_SIZE as usize * out_bands
+                    ];
+
+                g(&*input_data, &mut *output_data);
+
+                if output_data.iter().any(|&v| v != self.no_data_value) {
+                    let compressed = cogbuilder::compress_tile(bytemuck::cast_slice(&*output_data));
+                    let mut cog = out_cogs[root.face() as usize].lock().unwrap();
+                    cog.write_tile(0, tile, &compressed)?;
+                } else {
+                    out_cogs[root.face() as usize].lock().unwrap().write_nodata_tile(0, tile)?;
+                }
+
+                sectors_processed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            },
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn derive_dataset<F, G, U>(
+        &self,
+        input: &Dataset<U>,
+        progress_callback: F,
+        g: G,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        G: Fn(&[U], &mut [T]) + Sync,
+        U: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
+    {
+        assert_eq!(input.max_level, self.max_level);
+        assert_eq!(input.grid_registration, self.grid_registration);
+
+        self.derive_dataset_impl(
+            progress_callback,
+            &[bytemuck::bytes_of(&input.no_data_value)],
+            &[cogbuilder::TILE_SIZE as usize * input.bits_per_sample.len() * mem::size_of::<U>()],
+            &[CogTileCache::new(vec![input.cogs()?.into_iter().map(|c| c.1).collect()])],
+            |input, output| g(bytemuck::cast_slice(&*input[0]), output),
+        )
+    }
+
+    pub(crate) fn derive_dataset2<F, G, U, V>(
+        &self,
+        input0: &Dataset<U>,
+        input1: &Dataset<V>,
+        progress_callback: F,
+        g: G,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        G: Fn(&[U], &[V], &mut [T]) + Sync,
+        U: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
+        V: vrt_file::Scalar + Ord + Copy + bytemuck::Pod + ToString + Send + Sync + 'static,
+    {
+        assert_eq!(input0.max_level, self.max_level);
+        assert_eq!(input1.max_level, self.max_level);
+        assert_eq!(input0.grid_registration, self.grid_registration);
+        assert_eq!(input1.grid_registration, self.grid_registration);
+
+        self.derive_dataset_impl(
+            progress_callback,
+            &[bytemuck::bytes_of(&input0.no_data_value), bytemuck::bytes_of(&input1.no_data_value)],
+            &[
+                cogbuilder::TILE_SIZE as usize * input0.bits_per_sample.len() * mem::size_of::<U>(),
+                cogbuilder::TILE_SIZE as usize * input1.bits_per_sample.len() * mem::size_of::<V>(),
+            ],
+            &[
+                CogTileCache::new(vec![input0.cogs()?.into_iter().map(|c| c.1).collect()]),
+                CogTileCache::new(vec![input1.cogs()?.into_iter().map(|c| c.1).collect()]),
+            ],
+            |input, output| {
+                g(bytemuck::cast_slice(&*input[0]), bytemuck::cast_slice(&*input[1]), output)
+            },
+        )
+    }
+
+    pub(crate) fn compute_shore_distance<F>(
+        &self,
+        wbm: &Dataset<u8>,
+        progress_callback: F,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        T: From<i16>,
+    {
+        self.derive_dataset(wbm, progress_callback, |wbm, output| {
+            let mut mask = vec![0; wbm.len()];
+            for (i, &v) in wbm.iter().enumerate() {
+                mask[i] = if v == 1 || v == 2 || v == 3 { 0 } else { 255 };
+            }
+            let mut mask_img = image::GrayImage::from_raw(
+                cogbuilder::TILE_SIZE * 3,
+                cogbuilder::TILE_SIZE * 3,
+                mask,
+            )
+            .unwrap();
+
+            const BORDER: u32 = 257;
+            let mut mask_img = image::imageops::crop(
+                &mut mask_img,
+                cogbuilder::TILE_SIZE - BORDER,
+                cogbuilder::TILE_SIZE - BORDER,
+                cogbuilder::TILE_SIZE + 2 * BORDER,
+                cogbuilder::TILE_SIZE + 2 * BORDER,
+            )
+            .to_image();
+
+            if mask_img.pixels().all(|&v| v[0] == 0) {
+                return;
+            }
+
+            let negative_distance =
+                imageproc::distance_transform::euclidean_squared_distance_transform(&mask_img);
+            image::imageops::invert(&mut mask_img);
+            let positive_distance =
+                imageproc::distance_transform::euclidean_squared_distance_transform(&mask_img);
+
+            for y in 0..cogbuilder::TILE_SIZE {
+                for x in 0..cogbuilder::TILE_SIZE {
+                    let p = positive_distance.get_pixel(x + BORDER, y + BORDER)[0];
+                    let n = negative_distance.get_pixel(x + BORDER, y + BORDER)[0];
+                    output[y as usize * cogbuilder::TILE_SIZE as usize + x as usize] =
+                        T::from(if p > n { p.sqrt() * 128.0 } else { n.sqrt() * -128.0 } as i16);
+                }
+            }
+        })
+    }
+
+    pub(crate) fn compute_water_level<F>(
+        &self,
+        elevation: &Dataset<i16>,
+        water_mask: &Dataset<u8>,
+        progress_callback: F,
+    ) -> Result<(), anyhow::Error>
+    where
+        F: FnMut(String, usize, usize) + Send,
+        T: From<i16>,
+    {
+        self.derive_dataset2(
+            elevation,
+            water_mask,
+            progress_callback,
+            |elevation, water_mask, output| {
+                let dim = cogbuilder::TILE_SIZE as usize;
+                for y in 0..dim {
+                    for x in 0..dim {
+                        let px = dim + x;
+                        let py = dim + y;
+                        let elevation = elevation[py * 3 * dim + px];
+                        let water_mask = water_mask[py * 3 * dim + px];
+
+                        output[y * dim + x] =
+                            T::from(if water_mask == 1 || water_mask == 2 || water_mask == 3 {
+                                elevation
+                            } else {
+                                i16::MIN
+                            });
+                    }
+                }
+
+                // Ping-pong between the two buffers to compute a separable 3x3 max filter.
+                let mut tmp = output.to_vec();
+                for _ in 0..3 {
+                    for y in 0..dim {
+                        for x in 0..dim {
+                            tmp[y * dim + x] = output[y * dim + x]
+                                .max(output[y.saturating_sub(1) * dim + x])
+                                .max(output[(y + 1).min(dim - 1) * dim + x]);
+                        }
+                    }
+                    for y in 0..dim {
+                        for x in 0..dim {
+                            output[y * dim + x] = tmp[y * dim + x]
+                                .max(tmp[y * dim + x.saturating_sub(1)])
+                                .max(tmp[y * dim + (x + 1).min(dim - 1)]);
+                        }
+                    }
+                }
+            },
+        )
     }
 
     pub(crate) fn downsample_grid<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
@@ -508,6 +811,7 @@ where
     }
 }
 
+#[allow(unused)]
 fn crop<T: Copy>(output: &mut [T], output_resolution: usize, input: &[T], input_resolution: usize) {
     assert!(input_resolution > output_resolution);
     assert!((input_resolution - output_resolution) % 2 == 0);
@@ -520,12 +824,13 @@ fn crop<T: Copy>(output: &mut [T], output_resolution: usize, input: &[T], input_
     }
 }
 
-fn delta_encode<T: WrappingAdd + WrappingSub + Zero>(data: &mut [T]) {
+fn delta_encode<T: WrappingAdd + WrappingSub + Zero>(data: &mut [T]) -> &mut [T] {
     let mut last = T::zero();
     for v in data.iter_mut() {
         *v = v.wrapping_sub(&last);
         last = last.wrapping_add(v);
     }
+    data
 }
 
 fn compress<T: Pod + PartialEq + Zero>(data: &[T]) -> Vec<u8> {
@@ -540,11 +845,12 @@ fn compress<T: Pod + PartialEq + Zero>(data: &[T]) -> Vec<u8> {
 
 pub(crate) fn merge_datasets_to_tiles<F>(
     base_directory: PathBuf,
-    copernicus_hgt: Dataset<i16>,
-    copernicus_wbm: Dataset<u8>,
-    treecover: Dataset<u8>,
-    blue_marble: Dataset<u8>,
-    landfraction: Dataset<u8>,
+    heights_dataset: Dataset<i16>,
+    water_level_dataset: Dataset<i16>,
+    shore_distance_dataset: Dataset<i16>,
+    albedo_dataset: Dataset<u8>,
+    tree_cover_dataset: Dataset<u8>,
+    land_fraction_dataset: Dataset<u8>,
     progress_callback: F,
 ) -> Result<(), anyhow::Error>
 where
@@ -554,65 +860,70 @@ where
     let serve_directory = base_directory.join("serve");
     let (tiles_directory, existing_tiles) = scan_directory(&serve_directory, "tiles")?;
 
-    // const INPUT_BORDER_SIZE: u32 = 4;
     const TILE_INNER_RESOLUTION: u32 = 512;
     let max_level = VNode::LEVEL_CELL_76M;
-    // let min_level = VNode::LEVEL_CELL_1KM.min(max_level);
+
+    let tile_list_path = serve_directory.join("tile_list.txt.lz4");
+    let all_tiles = tile_list_path
+        .exists()
+        .then(|| crate::mapfile::MapFile::parse_tile_list(&fs::read(&tile_list_path)?))
+        .transpose()?;
 
     let mut total_tiles = 0;
     let mut missing_tiles = Vec::new();
     VNode::breadth_first(|n| {
-        let filename = format!("{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
+        if all_tiles.is_none()
+            || all_tiles.as_ref().unwrap().contains(&(n.level(), n.face(), n.x(), n.y()))
+        {
+            let filename = format!("{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
 
-        total_tiles += 1;
-        if !existing_tiles.contains(&filename) {
-            missing_tiles.push((tiles_directory.join(filename), n));
+            total_tiles += 1;
+            if !existing_tiles.contains(&filename) {
+                missing_tiles.push((tiles_directory.join(filename), n));
+            }
         }
 
         n.level() < max_level
     });
 
-    // let mut cogs = vec![
-    //     copernicus_hgt.cogs()?.into_iter(),
-    //     copernicus_wbm.cogs()?.into_iter(),
-    //     treecover.cogs()?.into_iter(),
-    //     blue_marble.cogs()?.into_iter(),
-    // ];
-    let cogs: Vec<Vec<_>> = vec![
-        copernicus_hgt.cogs()?.into_iter().map(|(_, c)| c).collect(),
-        copernicus_wbm.cogs()?.into_iter().map(|(_, c)| c).collect(),
-        treecover.cogs()?.into_iter().map(|(_, c)| c).collect(),
-        blue_marble.cogs()?.into_iter().map(|(_, c)| c).collect(),
-        landfraction.cogs()?.into_iter().map(|(_, c)| c).collect(),
-    ];
-    let num_layers = cogs.len();
-    let cog_levels: Vec<_> = cogs.iter().map(|c| c[0].levels()).collect();
-    let cogs = CogTileCache::new(cogs);
-    let grid_registration = vec![true, true, false, false, false];
-    let bytes_per_element = vec![2, 1, 1, 3, 1];
-    let leaf_border_size = vec![2, 16, 2, 2, 2];
+    // Layer indices
+    const LAYER_HEIGHTS: usize = 0;
+    const LAYER_WATER_LEVEL: usize = 1;
+    const LAYER_SHORE_DIST: usize = 2;
+    const LAYER_ALBEDO: usize = 3;
+    const LAYER_TREECOVER: usize = 4;
+    const LAYER_LAND_FRACT: usize = 5;
 
+    // Per-layer parameters
+    let cogs: Vec<Vec<_>> = vec![
+        heights_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        water_level_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        shore_distance_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        albedo_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        tree_cover_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+        land_fraction_dataset.cogs()?.into_iter().map(|(_, c)| c).collect(),
+    ];
+    let grid_registration = vec![true, true, true, false, false, false];
+    let bytes_per_element = vec![2, 2, 2, 3, 1, 1];
     let no_data_values: Vec<Vec<u8>> = [
-        bytemuck::bytes_of(&copernicus_hgt.no_data_value),
-        bytemuck::bytes_of(&copernicus_wbm.no_data_value),
-        bytemuck::bytes_of(&treecover.no_data_value),
-        bytemuck::bytes_of(&blue_marble.no_data_value),
-        bytemuck::bytes_of(&landfraction.no_data_value),
+        bytemuck::bytes_of(&heights_dataset.no_data_value),
+        bytemuck::bytes_of(&water_level_dataset.no_data_value),
+        bytemuck::bytes_of(&shore_distance_dataset.no_data_value),
+        bytemuck::bytes_of(&albedo_dataset.no_data_value),
+        bytemuck::bytes_of(&tree_cover_dataset.no_data_value),
+        bytemuck::bytes_of(&land_fraction_dataset.no_data_value),
     ]
     .into_iter()
     .map(|slice| slice.into_iter().cycle().cloned().take(1024).collect())
     .collect();
 
-    // let mut faces = Vec::new();
-    // for tiles in missing_tiles {
-    //     //let cogs: Vec<_> = cogs.iter_mut().map(|c| c.next().unwrap().1).collect();
-    //     faces.push((tiles/* , cogs*/));
-    // }
+    let num_layers = cogs.len();
+    let cog_levels: Vec<_> = cogs.iter().map(|c| c[0].levels()).collect();
+    let cogs = CogTileCache::new(cogs);
 
     let tiles_processed = AtomicUsize::new(total_tiles - missing_tiles.len());
     missing_tiles.into_par_iter().try_for_each(
         |(filename, node)| -> Result<(), anyhow::Error> {
-            //assert!(node.face() as usize == i);
             progress_callback.lock().unwrap()(
                 "Generating tiles...".to_string(),
                 tiles_processed.load(Ordering::SeqCst),
@@ -626,9 +937,8 @@ where
                         return Ok(None);
                     }
 
-                    let is_leaf = node.level() + 1 == cog_levels[layer] as u8;
-                    let border = if is_leaf { leaf_border_size[layer] } else { 2 };
                     let cog_level = cog_levels[layer] - node.level() as u32 - 1;
+                    let border = if grid_registration[layer] { 4 } else { 2 };
                     let resolution =
                         if grid_registration[layer] { 513 + 2 * border } else { 512 + 2 * border };
 
@@ -693,139 +1003,155 @@ where
                     Ok(Some(buf))
                 })
                 .collect::<Result<Vec<_>, anyhow::Error>>()?;
+            let mut layers = layers.iter_mut().map(Option::as_mut).collect::<Vec<_>>();
 
             let zip_options = zip::write::FileOptions::default()
                 .compression_method(zip::CompressionMethod::Stored);
             let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
 
             let mut compressed_layers = BTreeMap::new();
-            if node.level() + 1 == cog_levels[0] as u8 {
-                let mut heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>().to_vec();
-                let mut raw_watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>().to_vec();
+            // if node.level() + 1 == cog_levels[0] as u8 {
+            //     let mut heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>().to_vec();
+            //     let mut raw_watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>().to_vec();
 
-                let mut water_surface = heights.clone();
+            //     let mut water_surface = heights.clone();
 
-                if raw_watermask.iter().all(|&w| w != 0) {
-                    heights.iter_mut().for_each(|h| *h = -1024);
-                } else {
-                    raw_watermask
-                        .iter_mut()
-                        .for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
-                    assert_eq!(raw_watermask.len(), 545 * 545);
-                    let watermask =
-                        image::GrayImage::from_raw(513 + 32, 513 + 32, raw_watermask).unwrap();
-                    let shore_distance =
-                        imageproc::distance_transform::euclidean_squared_distance_transform(
-                            &watermask,
-                        );
-                    for y in 0..517 {
-                        for x in 0..517 {
-                            let dist: f64 =
-                                shore_distance.get_pixel(x as u32 + 14, y as u32 + 14)[0];
-                            if dist > 0.0 {
-                                heights[y * 517 + x] -= ((dist as f32).sqrt() * 4.0) as i16;
-                            }
-                        }
-                    }
-                    // for y in 0..517 {
-                    //     for x in 0..517 {
-                    //         if watermask.get_pixel(y as u32 + 14, x as u32 + 14)[0] == 1 {
-                    //             water_surface[y * 517 + x] = -9999;
-                    //         }
-                    //     }
-                    // }
-                    // for _ in 0..3 {
-                    //     for y in 0..517 {
-                    //         for x in 0..517 {
-                    //             if water_surface[y * 517 + x] == -9999 {
-                    //                 let w0 = water_surface[y * 517 + x.saturating_sub(1)];
-                    //                 let w1 = water_surface[y.saturating_sub(1) * 517 + x];
-                    //                 let w2 = water_surface[y * 517 + (x + 1).min(516)];
-                    //                 let w3 =
-                    //                     water_surface[(y + 1).min(516) * 517 + (x + 1).min(516)];
-                    //                 water_surface[y * 517 + x] = w0.max(w1).max(w2).max(w3);
-                    //             }
-                    //         }
-                    //     }
-                    // }
-                    for y in 0..517 {
-                        for x in 0..517 {
-                            if watermask.get_pixel(x as u32 + 14, y as u32 + 14)[0] == 1 {
-                                heights[y * 517 + x] = heights[y * 517 + x].max(1);
-                                //  .max(water_surface[y * 517 + x] + 1);
-                            }
-                        }
-                    }
-                }
+            //     if raw_watermask.iter().all(|&w| w != 0) {
+            //         heights.iter_mut().for_each(|h| *h = -1024);
+            //     } else {
+            //         raw_watermask
+            //             .iter_mut()
+            //             .for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
+            //         assert_eq!(raw_watermask.len(), 545 * 545);
+            //         let watermask =
+            //             image::GrayImage::from_raw(513 + 32, 513 + 32, raw_watermask).unwrap();
+            //         let shore_distance =
+            //             imageproc::distance_transform::euclidean_squared_distance_transform(
+            //                 &watermask,
+            //             );
+            //         for y in 0..517 {
+            //             for x in 0..517 {
+            //                 let dist: f64 =
+            //                     shore_distance.get_pixel(x as u32 + 14, y as u32 + 14)[0];
+            //                 if dist > 0.0 {
+            //                     heights[y * 517 + x] -= ((dist as f32).sqrt() * 4.0) as i16;
+            //                 }
+            //             }
+            //         }
+            //         // for y in 0..517 {
+            //         //     for x in 0..517 {
+            //         //         if watermask.get_pixel(y as u32 + 14, x as u32 + 14)[0] == 1 {
+            //         //             water_surface[y * 517 + x] = -9999;
+            //         //         }
+            //         //     }
+            //         // }
+            //         // for _ in 0..3 {
+            //         //     for y in 0..517 {
+            //         //         for x in 0..517 {
+            //         //             if water_surface[y * 517 + x] == -9999 {
+            //         //                 let w0 = water_surface[y * 517 + x.saturating_sub(1)];
+            //         //                 let w1 = water_surface[y.saturating_sub(1) * 517 + x];
+            //         //                 let w2 = water_surface[y * 517 + (x + 1).min(516)];
+            //         //                 let w3 =
+            //         //                     water_surface[(y + 1).min(516) * 517 + (x + 1).min(516)];
+            //         //                 water_surface[y * 517 + x] = w0.max(w1).max(w2).max(w3);
+            //         //             }
+            //         //         }
+            //         //     }
+            //         // }
+            //         for y in 0..517 {
+            //             for x in 0..517 {
+            //                 if watermask.get_pixel(x as u32 + 14, y as u32 + 14)[0] == 1 {
+            //                     heights[y * 517 + x] = heights[y * 517 + x].max(1);
+            //                     //  .max(water_surface[y * 517 + x] + 1);
+            //                 }
+            //             }
+            //         }
+            //     }
+            //     heights
+            //         .iter_mut()
+            //         .filter(|&&mut h| h > 8 || h < -8)
+            //         .for_each(|h| *h = (*h / 4) * 4);
+            //     delta_encode(&mut heights);
+            //     compressed_layers.insert("heights.lz4", compress(&heights));
+
+            //     // water_surface.iter_mut().for_each(|h| *h = (*h / 4) * 4);
+            //     // delta_encode(&mut water_surface);
+            //     // compressed_layers.insert("water_surface.lz4", compress(&water_surface));
+
+            //     // let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
+            //     // watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
+            //     // let mut cropped_watermask = vec![0; 517 * 517];
+            //     // crop(&mut cropped_watermask, 517, watermask, 521);
+            //     // delta_encode(&mut cropped_watermask);
+            //     // compressed_layers.insert("watermask.lz4", compress(&cropped_watermask));
+
+            //     let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
+            //     delta_encode(treecover);
+            //     compressed_layers.insert("treecover.lz4", compress(treecover));
+
+            //     let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
+            //     delta_encode(landfraction);
+            //     compressed_layers.insert("landfraction.lz4", compress(landfraction));
+            // } else {
+
+            let heights = layers[LAYER_HEIGHTS].take().unwrap().as_slice_mut::<i16>();
+            let water_level = layers[LAYER_WATER_LEVEL].take().unwrap().as_slice_mut::<i16>();
+            let shore_distance = layers[LAYER_SHORE_DIST].take().unwrap().as_slice_mut::<i16>();
+            let tree_cover = layers[LAYER_TREECOVER].take().unwrap().as_slice_mut::<u8>();
+            let land_fraction = layers[LAYER_LAND_FRACT].take().unwrap().as_slice_mut::<u8>();
+
+            heights.iter_mut().for_each(|h| *h = h.saturating_mul(4));
+            water_level.iter_mut().for_each(|w| *w = w.saturating_mul(4));
+
+            if node.level() < VNode::LEVEL_CELL_76M {
                 heights
                     .iter_mut()
-                    .filter(|&&mut h| h > 8 || h < -8)
-                    .for_each(|h| *h = (*h / 4) * 4);
-                delta_encode(&mut heights);
-                compressed_layers.insert("heights.lz4", compress(&heights));
-
-                // water_surface.iter_mut().for_each(|h| *h = (*h / 4) * 4);
-                // delta_encode(&mut water_surface);
-                // compressed_layers.insert("water_surface.lz4", compress(&water_surface));
-
-                // let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
-                // watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
-                // let mut cropped_watermask = vec![0; 517 * 517];
-                // crop(&mut cropped_watermask, 517, watermask, 521);
-                // delta_encode(&mut cropped_watermask);
-                // compressed_layers.insert("watermask.lz4", compress(&cropped_watermask));
-
-                let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
-                delta_encode(treecover);
-                compressed_layers.insert("treecover.lz4", compress(treecover));
-
-                let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
-                delta_encode(landfraction);
-                compressed_layers.insert("landfraction.lz4", compress(landfraction));
+                    .zip(water_level.iter())
+                    .for_each(|(h, &w)| *h = w.max((*h / 16) * 16));
             } else {
-                let heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>();
-                heights.iter_mut().for_each(|h| *h = (*h / 4) * 4);
-                delta_encode(heights);
-                compressed_layers.insert("heights.lz4", compress(heights));
+                heights.iter_mut().zip(water_level.iter()).zip(shore_distance.iter()).for_each(
+                    |((h, &w), &d)| {
+                        if d > 0 {
+                            *h = w.saturating_add(1).max((*h / 16) * 16);
+                            assert!(*h > w);
+                        } else {
+                            *h = (w.saturating_sub(1)).min((h.saturating_add(d / 4) / 16) * 16);
+                            assert!(*h < w);
+                        }
+                    },
+                );
+                compressed_layers.insert("waterlevel.lz4", compress(delta_encode(water_level)));
+            }
+            compressed_layers.insert("heights.lz4", compress(delta_encode(heights)));
+            compressed_layers.insert("treecover.lz4", compress(delta_encode(tree_cover)));
+            compressed_layers.insert("landfraction.lz4", compress(delta_encode(land_fraction)));
 
-                let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
-                watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
-                delta_encode(watermask);
-                compressed_layers.insert("watermask.lz4", compress(watermask));
+            if let Some(ref layer) = layers[LAYER_ALBEDO] {
+                if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
+                    compressed_layers.insert("albedo.basis", Vec::new());
+                } else {
+                    let mut albedo_params = basis_universal::encoding::CompressorParams::new();
+                    albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
+                    albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
+                    // albedo_params.set_generate_mipmaps(true);
+                    albedo_params.source_image_mut(0).init(layer.as_slice(), 516, 516, 3);
 
-                let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
-                delta_encode(treecover);
-                compressed_layers.insert("treecover.lz4", compress(treecover));
+                    let mut compressor = basis_universal::encoding::Compressor::new(1);
+                    unsafe { compressor.init(&albedo_params) };
+                    unsafe { compressor.process().unwrap() };
 
-                let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
-                delta_encode(landfraction);
-                compressed_layers.insert("landfraction.lz4", compress(landfraction));
-
-                if let Some(layer) = layers[3].as_mut() {
-                    if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
-                        compressed_layers.insert("albedo.basis", Vec::new());
-                    } else {
-                        let mut albedo_params = basis_universal::encoding::CompressorParams::new();
-                        albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
-                        // albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
-                        // albedo_params.set_generate_mipmaps(true);
-                        albedo_params.source_image_mut(0).init(layer.as_slice(), 516, 516, 3);
-
-                        let mut compressor = basis_universal::encoding::Compressor::new(1);
-                        unsafe { compressor.init(&albedo_params) };
-                        unsafe { compressor.process().unwrap() };
-
-                        compressed_layers.insert("albedo.basis", compressor.basis_file().to_vec());
-                    }
+                    compressed_layers.insert("albedo.basis", compressor.basis_file().to_vec());
                 }
-            };
+            }
 
             let mut all_empty = true;
             for (name, data) in compressed_layers.iter() {
+                zip.start_file(name.to_string(), zip_options)?;
+                zip.write_all(&data)?;
+
                 if !data.is_empty() {
                     all_empty = false;
-                    zip.start_file(name.to_string(), zip_options)?;
-                    zip.write_all(&data)?;
                 }
             }
             let bytes = if !all_empty { zip.finish().unwrap().into_inner() } else { Vec::new() };
@@ -839,7 +1165,6 @@ where
     )?;
 
     // Write tile list
-    let tile_list_path = serve_directory.join("tile_list.txt.lz4");
     if !tile_list_path.exists() {
         let mut list = Vec::new();
         for entry in fs::read_dir(tiles_directory)? {

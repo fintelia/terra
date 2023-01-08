@@ -90,7 +90,7 @@ impl Terrain {
         };
         landfraction.reproject_from("copernicus-wbm", 1u8, &mut progress_callback, |values| {
             values.iter_mut().for_each(|v| match v {
-                1 | 2 => *v = 0,
+                1 | 2 | 3 => *v = 0,
                 _ => *v = 255,
             })
         })?;
@@ -132,12 +132,41 @@ impl Terrain {
         blue_marble.reproject(&mut progress_callback)?;
         blue_marble.downsample_average_int(&mut progress_callback)?;
 
+        let water_level = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "water-level",
+            max_level: VNode::LEVEL_CELL_76M,
+            no_data_value: 0i16,
+            grid_registration: true,
+            bits_per_sample: vec![16],
+            signed: true,
+        };
+        water_level.compute_water_level(
+            &copernicus_hgt,
+            &copernicus_wbm,
+            &mut progress_callback,
+        )?;
+        water_level.downsample_grid(&mut progress_callback)?;
+
+        let shore_distance = generate::Dataset {
+            base_directory: dataset_directory.to_owned(),
+            dataset_name: "shore-distance",
+            max_level: VNode::LEVEL_CELL_76M,
+            no_data_value: i16::MIN,
+            grid_registration: true,
+            bits_per_sample: vec![16],
+            signed: true,
+        };
+        shore_distance.compute_shore_distance(&copernicus_wbm, &mut progress_callback)?;
+        shore_distance.downsample_grid(&mut progress_callback)?;
+
         generate::merge_datasets_to_tiles(
             dataset_directory.to_owned(),
             copernicus_hgt,
-            copernicus_wbm,
-            treecover,
+            water_level,
+            shore_distance,
             blue_marble,
+            treecover,
             landfraction,
             &mut progress_callback,
         )?;

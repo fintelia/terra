@@ -19,6 +19,7 @@ pub enum TextureFormat {
     R8,
     RG8,
     RGBA8,
+    RG16F,
     RGBA16F,
     R32,
     R32F,
@@ -37,6 +38,7 @@ impl TextureFormat {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
             TextureFormat::RGBA8 => 4,
+            TextureFormat::RG16F => 4,
             TextureFormat::RGBA16F => 8,
             TextureFormat::R32 => 4,
             TextureFormat::R32F => 4,
@@ -53,6 +55,7 @@ impl TextureFormat {
             TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
             TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::RG16F => wgpu::TextureFormat::Rg16Float,
             TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
             TextureFormat::R32 => wgpu::TextureFormat::R32Uint,
             TextureFormat::R32F => wgpu::TextureFormat::R32Float,
@@ -81,6 +84,7 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::RG16F
             | TextureFormat::RGBA16F
             | TextureFormat::R32F
             | TextureFormat::R32
@@ -95,6 +99,7 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::RG16F
             | TextureFormat::RGBA16F
             | TextureFormat::R32
             | TextureFormat::R32F
@@ -716,7 +721,7 @@ impl TileCache {
                     + h[i10] as f32 * w10
                     + h[i01] as f32 * w01
                     + h[i11] as f32 * w11)
-                    .max(0.0),
+                    .max(0.0) * 0.25,
                 CpuHeightmap::F32 { heights: h, .. } => {
                     (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0)
                 }
