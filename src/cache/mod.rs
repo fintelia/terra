@@ -5,7 +5,7 @@ mod tile;
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
 use crate::{
-    cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
+    cache::tile::NodeSlot, compute_shader::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
     quadtree::QuadTree,
 };
 use basis_universal::TranscoderTextureFormat;
@@ -425,7 +425,8 @@ impl TileCache {
 
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
 
-        let transcode_format = if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
+        let transcode_format = if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+        {
             TranscoderTextureFormat::BC7_RGBA
         } else {
             TranscoderTextureFormat::ASTC_4x4_RGBA

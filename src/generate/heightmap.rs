@@ -2,7 +2,8 @@ use anyhow::Error;
 use lru::LruCache;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Weak, Mutex, Condvar};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Condvar, Mutex, Weak};
 
 #[derive(Copy, Clone, Hash, Eq, PartialEq, Debug)]
 pub(crate) struct Sector {
@@ -18,7 +19,11 @@ struct Cache<K: Eq + std::hash::Hash + Copy, T> {
 }
 impl<K: std::hash::Hash + Eq + Copy, T> Cache<K, T> {
     fn new(capacity: usize) -> Self {
-        Self { weak: HashMap::default(), strong: LruCache::new(capacity), pending: HashSet::default() }
+        Self {
+            weak: HashMap::default(),
+            strong: LruCache::new(NonZeroUsize::new(capacity).unwrap()),
+            pending: HashSet::default(),
+        }
     }
     fn get(&mut self, n: K) -> Option<Arc<T>> {
         match self.strong.get_mut(&n) {
@@ -55,7 +60,11 @@ pub(crate) struct CogTileCache {
 }
 impl CogTileCache {
     pub fn new(cogs: Vec<Vec<cogbuilder::CogBuilder>>) -> Self {
-        Self { cache: Mutex::new(Cache::new(128)), condvars: (0..256).map(|_|Condvar::new()).collect(), cogs }
+        Self {
+            cache: Mutex::new(Cache::new(128)),
+            condvars: (0..256).map(|_| Condvar::new()).collect(),
+            cogs,
+        }
     }
 
     pub(crate) fn get(
@@ -86,15 +95,15 @@ impl CogTileCache {
         cache.mark_pending(key);
         drop(cache);
 
-        let uncompressed = match self.cogs[layer as usize][face as usize].read_tile(level as u32, tile)? {
-            Some(bytes) => Some(cogbuilder::decompress_tile(&bytes)?),
-            None => None,
-        };
+        let uncompressed =
+            match self.cogs[layer as usize][face as usize].read_tile(level as u32, tile)? {
+                Some(bytes) => Some(cogbuilder::decompress_tile(&bytes)?),
+                None => None,
+            };
         let arc = Arc::new(uncompressed);
 
         let mut cache = self.cache.lock().unwrap();
         cache.insert(key, arc.clone());
-
 
         self.condvars[hash % 256].notify_all();
         Ok(arc)

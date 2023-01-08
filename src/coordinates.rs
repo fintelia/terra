@@ -84,6 +84,7 @@ pub fn sun_direction() -> Vector3<f64> {
     ecef.normalize()
 }
 
+#[allow(unused)]
 pub fn cspace_to_polar(position: Vector3<f64>) -> Vector3<f64> {
     let p = Vector3::new(position.x, position.y, position.z).normalize();
     let latitude = f64::asin(p.z);

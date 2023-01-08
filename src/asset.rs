@@ -1,18 +1,13 @@
 use anyhow::Error;
-use bincode;
 use dirs;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use memmap::MmapMut;
-use num::ToPrimitive;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use std::borrow::Cow;
-use std::io::{BufWriter, Cursor, Read, Write};
+use std::io::{Read, Write};
 use std::ops::Drop;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     sync::Arc,
 };
 
@@ -21,9 +16,11 @@ lazy_static! {
         dirs::cache_dir().unwrap_or(PathBuf::from(".")).join("terra");
     static ref PROGRESS_BAR_STYLE: ProgressStyle = ProgressStyle::default_bar()
         .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta}")
+        .unwrap()
         .progress_chars("=> ");
     static ref PROGRESS_BAR_STYLE_BYTES: ProgressStyle = ProgressStyle::default_bar()
         .template("{msg} {bytes}/{total_bytes} [{wide_bar}] {percent}% {per_sec} {eta}")
+        .unwrap()
         .progress_chars("=> ");
 }
 
@@ -34,18 +31,15 @@ impl AssetLoadContextBuf {
     pub fn new() -> Self {
         Self { bars: Arc::new(MultiProgress::new()) }
     }
-    pub fn context<N: ToPrimitive>(
+    pub fn context(
         &mut self,
         message: impl Into<Cow<'static, str>>,
-        total: N,
+        total: u64,
     ) -> AssetLoadContext {
-        let bar = ProgressBar::new(total.to_u64().unwrap());
+        let bar = ProgressBar::new(total);
         let bar = self.bars.add(bar);
         bar.set_style(PROGRESS_BAR_STYLE.clone());
         bar.set_message(message);
-
-        let multibar = Arc::clone(&self.bars);
-        std::thread::spawn(move || multibar.join_and_clear());
 
         AssetLoadContext { inner: self, bar }
     }
@@ -56,17 +50,17 @@ pub(crate) struct AssetLoadContext<'a> {
     bar: ProgressBar,
 }
 impl<'a> AssetLoadContext<'a> {
-    pub fn set_progress<N: ToPrimitive>(&mut self, value: N) {
-        self.bar.set_position(value.to_u64().unwrap());
+    pub fn set_progress(&mut self, value: u64) {
+        self.bar.set_position(value);
     }
 
-    pub fn set_progress_and_total<N: ToPrimitive, M: ToPrimitive>(&mut self, value: N, total: M) {
-        self.bar.set_position(value.to_u64().unwrap());
-        self.bar.set_length(total.to_u64().unwrap());
+    pub fn set_progress_and_total(&mut self, value: u64, total: u64) {
+        self.bar.set_position(value);
+        self.bar.set_length(total);
     }
 
-    pub fn reset<N: ToPrimitive>(&mut self, message: impl Into<Cow<'static, str>>, total: N) {
-        let new_bar = ProgressBar::new(total.to_u64().unwrap());
+    pub fn reset(&mut self, message: impl Into<Cow<'static, str>>, total: u64) {
+        let new_bar = ProgressBar::new(total);
         let new_bar = self.inner.bars.add(new_bar);
 
         self.bar.finish_and_clear();
@@ -85,15 +79,15 @@ impl<'a> AssetLoadContext<'a> {
         self.bar.tick();
     }
 
-    pub fn increment_level<'b, N: ToPrimitive>(
+    pub fn increment_level<'b>(
         &'b mut self,
         message: impl Into<Cow<'static, str>>,
-        total: N,
+        total: u64,
     ) -> AssetLoadContext<'b>
     where
         'a: 'b,
     {
-        let bar = ProgressBar::new(total.to_u64().unwrap());
+        let bar = ProgressBar::new(total);
         let bar = self.inner.bars.add(bar);
         bar.set_style(PROGRESS_BAR_STYLE.clone());
         bar.set_message(message);
@@ -110,16 +104,17 @@ impl<'a> Drop for AssetLoadContext<'a> {
 fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, Error> {
     context.bytes_display_enabled(true);
     let ret = (|| {
-        let file_len = file.metadata()?.len() as usize;
-        let mut bytes_read = 0;
-        let mut contents = vec![0; file_len];
+        let file_len = file.metadata()?.len();
+        let mut bytes_read = 0u64;
+        let mut contents = vec![0; file_len as usize];
         context.set_progress_and_total(0, file_len);
         let mut last_progress_update = Instant::now();
         while bytes_read < file_len {
-            let buf = &mut contents[bytes_read..file_len.min(bytes_read + 32 * 1024)];
+            let buf =
+                &mut contents[bytes_read as usize..file_len.min(bytes_read + 32 * 1024) as usize];
             match file.read(buf)? {
                 0 => break,
-                n => bytes_read += n,
+                n => bytes_read += n as u64,
             }
             if last_progress_update.elapsed() > Duration::from_millis(10) {
                 context.set_progress(bytes_read);
@@ -133,14 +128,6 @@ fn read_file(context: &mut AssetLoadContext, mut file: File) -> Result<Vec<u8>, 
     ret
 }
 
-pub(crate) enum CompressionType {
-    None,
-    #[allow(unused)]
-    Snappy,
-    #[allow(unused)]
-    Lz4,
-}
-
 pub(crate) trait WebAsset {
     type Type;
 
@@ -148,9 +135,6 @@ pub(crate) trait WebAsset {
     fn filename(&self) -> String;
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error>;
 
-    fn compression(&self) -> CompressionType {
-        CompressionType::None
-    }
     fn credentials(&self) -> Option<(String, String)> {
         None
     }
@@ -161,23 +145,7 @@ pub(crate) trait WebAsset {
         let filename = TERRA_DIRECTORY.join(self.filename());
 
         if let Ok(file) = File::open(&filename) {
-            if let Ok(mut data) = read_file(context, file) {
-                match self.compression() {
-                    CompressionType::Snappy => {
-                        context.reset(format!("Decompressing {}... ", &self.filename()), 100);
-                        let mut uncompressed = Vec::new();
-                        snap::read::FrameDecoder::new(Cursor::new(data))
-                            .read_to_end(&mut uncompressed)?;
-                        data = uncompressed;
-                    }
-                    CompressionType::Lz4 => {
-                        context.reset(format!("Decompressing {}... ", &self.filename()), 100);
-                        let mut uncompressed = Vec::new();
-                        lz4::Decoder::new(Cursor::new(data))?.read_to_end(&mut uncompressed)?;
-                        data = uncompressed;
-                    }
-                    CompressionType::None => {}
-                }
+            if let Ok(data) = read_file(context, file) {
                 context.reset(format!("Parsing {}... ", &self.filename()), 100);
                 if let Ok(asset) = self.parse(context, data) {
                     return Ok(asset);
@@ -212,7 +180,7 @@ pub(crate) trait WebAsset {
             })?;
             transfer.progress_function(|t, c, _, _| {
                 if t > 0.0 {
-                    context.set_progress_and_total(c, t);
+                    context.set_progress_and_total(c as u64, t as u64);
                 }
                 true
             })?;
@@ -224,118 +192,9 @@ pub(crate) trait WebAsset {
             fs::create_dir_all(parent)?;
         }
         let mut file = File::create(&filename)?;
-        match self.compression() {
-            CompressionType::Snappy => {
-                snap::write::FrameEncoder::new(&mut file).write_all(&data)?
-            }
-            CompressionType::Lz4 => {
-                let mut writer = lz4::EncoderBuilder::new().level(9).build(&mut file)?;
-                writer.write_all(&data)?;
-                writer.finish().1?
-            }
-            CompressionType::None => file.write_all(&data)?,
-        }
+        file.write_all(&data)?;
         file.sync_all()?;
         context.reset(format!("Parsing {}... ", &self.filename()), 100);
         Ok(self.parse(context, data)?)
-    }
-}
-
-pub(crate) trait GeneratedAsset {
-    type Type: Serialize + DeserializeOwned;
-
-    fn filename(&self) -> String;
-    fn generate(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error>;
-
-    fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
-        let context =
-            &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
-        let filename = TERRA_DIRECTORY.join(self.filename());
-        if let Ok(file) = File::open(&filename) {
-            Ok(bincode::deserialize(&read_file(context, file)?)?)
-        } else {
-            context.reset(format!("Generating {}... ", &self.filename()), 100);
-            let generated = self.generate(context)?;
-            context.reset(format!("Saving {}... ", &self.filename()), 100);
-            if let Some(parent) = filename.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut file = File::create(&filename)?;
-            {
-                let mut writer = BufWriter::new(&mut file);
-                bincode::serialize_into(&mut writer, &generated)?;
-            }
-            file.sync_all()?;
-            Ok(generated)
-        }
-    }
-}
-
-pub(crate) trait MMappedAsset {
-    type Header: Serialize + DeserializeOwned;
-
-    fn filename(&self) -> String;
-    fn generate<W: Write>(
-        &self,
-        context: &mut AssetLoadContext,
-        w: W,
-    ) -> Result<Self::Header, Error>;
-
-    fn load(&self, context: &mut AssetLoadContext) -> Result<(Self::Header, MmapMut), Error> {
-        let context =
-            &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
-        let header_filename = TERRA_DIRECTORY.join(self.filename() + ".hdr");
-        let data_filename = TERRA_DIRECTORY.join(self.filename() + ".data");
-
-        if let (Ok(mut header), Ok(data)) = (
-            File::open(&header_filename),
-            OpenOptions::new().read(true).write(true).open(&data_filename),
-        ) {
-            let mut contents = Vec::new();
-            header.read_to_end(&mut contents)?;
-            let header = bincode::deserialize(&contents)?;
-            let mapping = unsafe { MmapMut::map_mut(&data)? };
-            Ok((header, mapping))
-        } else {
-            context.reset(format!("Generating {}... ", &self.filename()), 100);
-            if let Some(parent) = data_filename.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut data_file = File::create(&data_filename)?;
-            let header = self.generate(context, BufWriter::new(&mut data_file))?;
-            context.reset(format!("Saving {}... ", &self.filename()), 100);
-            data_file.sync_all()?;
-
-            let mut header_file = File::create(&header_filename)?;
-            {
-                let mut writer = BufWriter::new(&mut header_file);
-                bincode::serialize_into(&mut writer, &header)?;
-            }
-            header_file.sync_all()?;
-
-            // Open for reading this time
-            context.reset(format!("Loading {}... ", &self.filename()), 100);
-            let data_file = OpenOptions::new().read(true).write(true).open(&data_filename)?;
-            let mapping = unsafe { MmapMut::map_mut(&data_file)? };
-            Ok((header, mapping))
-        }
-    }
-}
-
-impl<H: Serialize + DeserializeOwned, A: WebAsset<Type = (H, Vec<u8>)>> MMappedAsset for A {
-    type Header = H;
-
-    fn filename(&self) -> String {
-        WebAsset::filename(self)
-    }
-
-    fn generate<W: Write>(
-        &self,
-        context: &mut AssetLoadContext,
-        mut w: W,
-    ) -> Result<Self::Header, Error> {
-        let (header, data) = WebAsset::load(self, context)?;
-        w.write_all(&data[..])?;
-        Ok(header)
     }
 }

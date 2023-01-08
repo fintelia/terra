@@ -12,9 +12,13 @@ use std::ops::Range;
 #[serde(rename_all = "PascalCase")]
 #[allow(unused)]
 struct SpeedTreeRaw {
+    #[serde(rename = "@VersionMajor")]
     version_major: u8,
+    #[serde(rename = "@VersionMinor")]
     version_minor: u8,
+    #[serde(rename = "@UserData")]
     user_data: String,
+    #[serde(rename = "@Source")]
     source: String,
     wind: Wind,
     objects: Objects,
@@ -24,10 +28,15 @@ struct SpeedTreeRaw {
 #[serde(rename_all = "PascalCase")]
 #[allow(unused)]
 struct Wind {
+    #[serde(rename = "@Bend")]
     bend: f32,
+    #[serde(rename = "@BranchAmplitude")]
     branch_amplitude: f32,
+    #[serde(rename = "@LeafAmplitude")]
     leaf_amplitude: f32,
+    #[serde(rename = "@DetailFrequency")]
     detail_frequency: f32,
+    #[serde(rename = "@GlobalHeight")]
     global_height: f32,
 }
 
@@ -35,14 +44,23 @@ struct Wind {
 #[serde(rename_all = "PascalCase")]
 #[allow(unused)]
 struct Objects {
+    #[serde(rename = "@Count")]
     count: u32,
+    #[serde(rename = "@LodNear")]
     lod_near: f32,
+    #[serde(rename = "@LodFar")]
     lod_far: f32,
+    #[serde(rename = "@BoundsMinX")]
     bounds_min_x: f32,
+    #[serde(rename = "@BoundsMinY")]
     bounds_min_y: f32,
+    #[serde(rename = "@BoundsMinZ")]
     bounds_min_z: f32,
+    #[serde(rename = "@BoundsMaxX")]
     bounds_max_x: f32,
+    #[serde(rename = "@BoundsMaxY")]
     bounds_max_y: f32,
+    #[serde(rename = "@BoundsMaxZ")]
     bounds_max_z: f32,
     #[serde(rename = "Object", default)]
     objects: Vec<Object>,
@@ -51,10 +69,11 @@ struct Objects {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 struct Object {
-    #[serde(rename = "ID")]
+    #[serde(rename = "@ID")]
     id: u32,
+    #[serde(rename = "@Name")]
     name: String,
-    #[serde(rename = "ParentID")]
+    #[serde(rename = "@ParentID")]
     parent_id: Option<u32>,
     points: Option<Points>,
     vertices: Option<Vertices>,
@@ -76,6 +95,7 @@ struct Points {
 #[serde(rename_all = "PascalCase")]
 #[allow(unused)]
 struct Vertices {
+    #[serde(rename = "@Count")]
     count: u32,
     normal_x: List<f32>,
     normal_y: List<f32>,
@@ -98,9 +118,10 @@ struct Vertices {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "PascalCase")]
 struct Triangles {
+    #[serde(rename = "@Count")]
     count: u32,
-    #[allow(unused)]
-    material: u32,
+    #[serde(rename = "@Material")]
+    _material: u32,
     point_indices: List<u32>,
     vertex_indices: List<u32>,
 }

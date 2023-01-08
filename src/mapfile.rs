@@ -1,6 +1,6 @@
 use crate::asset::TERRA_DIRECTORY;
 use crate::cache::{LayerParams, TextureFormat};
-use anyhow::{Error};
+use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use serde::{Deserialize, Serialize};
@@ -356,8 +356,7 @@ impl MapFile {
 
     pub(crate) fn parse_tile_list(encoded: &[u8]) -> Result<HashSet<(u8, u8, u32, u32)>, Error> {
         let mut remote_files = String::new();
-        lz4::Decoder::new(std::io::Cursor::new(&encoded))?
-            .read_to_string(&mut remote_files)?;
+        lz4::Decoder::new(std::io::Cursor::new(&encoded))?.read_to_string(&mut remote_files)?;
         let mut all = HashSet::new();
         for filename in remote_files.split("\n") {
             if let Ok((level, face, x, y)) =

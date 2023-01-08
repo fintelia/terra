@@ -1,9 +1,9 @@
 use crate::coordinates;
+use crate::gpu_state::GpuState;
 use crate::{
     cache::{self, PriorityCacheEntry},
     quadtree::QuadTree,
 };
-use crate::gpu_state::GpuState;
 use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
@@ -717,11 +717,14 @@ impl TileCache {
             .entry(&node)
             .and_then(|entry| Some(entry.heightmap.as_ref()?))
             .map(|h| match h {
-                CpuHeightmap::I16 { heights: h, .. } => (h[i00] as f32 * w00
-                    + h[i10] as f32 * w10
-                    + h[i01] as f32 * w01
-                    + h[i11] as f32 * w11)
-                    .max(0.0) * 0.25,
+                CpuHeightmap::I16 { heights: h, .. } => {
+                    (h[i00] as f32 * w00
+                        + h[i10] as f32 * w10
+                        + h[i01] as f32 * w01
+                        + h[i11] as f32 * w11)
+                        .max(0.0)
+                        * 0.25
+                }
                 CpuHeightmap::F32 { heights: h, .. } => {
                     (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0)
                 }

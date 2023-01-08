@@ -1,31 +1,40 @@
+use clap::{Parser, Subcommand};
 use gilrs::{Axis, Button, Gilrs};
 use planetcam::DualPlanetCam;
-use std::{path::PathBuf, time::Instant};
-use structopt::StructOpt;
+use std::time::Instant;
 use winit::{
     dpi::PhysicalPosition,
     event::{self, ElementState, MouseButton},
     event_loop::{ControlFlow, EventLoop},
 };
 
-#[derive(Debug, StructOpt)]
-struct Opt {
-    #[structopt(short, long, default_value = "8FH495PF+29")]
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long, default_value = "8FH495PF+29")]
     plus: String,
-    #[structopt(short, long, default_value = "0")]
+    #[arg(short, long, default_value = "0")]
     heading: f64,
-    #[structopt(short, long, default_value = "200000")]
+    #[arg(short, long, default_value = "200000")]
     elevation: f64,
-    #[structopt(long)]
-    generate: Option<PathBuf>,
-    #[structopt(long)]
-    download: Option<PathBuf>,
-    #[structopt(long)]
+    #[arg(long)]
     time: Option<String>,
-    #[structopt(long, default_value = "0.0")]
+    #[arg(long, default_value = "0.0")]
     timescale: f64,
-    #[structopt(long)]
+    #[arg(long)]
     server: Option<String>,
+
+    #[command(subcommand)]
+    subcommand: Option<SubcommandArgs>,
+}
+
+#[derive(Subcommand, Debug)]
+enum SubcommandArgs {
+    #[cfg(feature = "generate")]
+    Generate {
+        path: std::path::PathBuf,
+        #[arg(long)]
+        download: bool,
+    },
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -79,7 +88,7 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
-    let opt = Opt::from_args();
+    let opt = Args::parse();
     let epoch = opt
         .time
         .map(|s| {
@@ -90,7 +99,9 @@ fn main() {
                 / 1440.0
         })
         .unwrap_or(0.0);
-    if let Some(path) = opt.download {
+
+    #[cfg(feature = "generate")]
+    if let Some(SubcommandArgs::Generate { ref path, download: true }) = opt.subcommand {
         terra::download::download_bluemarble(&path).unwrap();
         terra::download::download_treecover(&path).unwrap();
         terra::download::download_copernicus_wbm(&path).unwrap();
@@ -193,35 +204,41 @@ fn main() {
     let mut z_key = false;
 
     let server = opt.server.unwrap_or_else(|| terra::DEFAULT_TILE_SERVER_URL.to_string());
-    let mut terrain = match opt.generate {
-        Some(dataset_directory) => {
-            let pb = indicatif::ProgressBar::new(100);
-            pb.set_style(
-                indicatif::ProgressStyle::default_bar()
-                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
-                    .progress_chars("=> "),
-            );
-            let mut last_message: Option<String> = None;
-            let progress_callback = |l: String, i: usize, total: usize| {
-                pb.set_length(total as u64);
-                pb.set_position(i as u64);
-                if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
-                    last_message = Some(l.clone());
-                    pb.set_message(l);
-                    pb.reset_eta();
-                }
-            };
+    let mut terrain = match opt.subcommand {
+        Some(opt2) => match opt2 {
+            #[cfg(feature = "generate")]
+            SubcommandArgs::Generate { path, .. } => {
+                let pb = indicatif::ProgressBar::new(100);
+                pb.set_style(
+                    indicatif::ProgressStyle::default_bar()
+                        .template(
+                            "{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}",
+                        )
+                        .unwrap()
+                        .progress_chars("=> "),
+                );
+                let mut last_message: Option<String> = None;
+                let progress_callback = |l: String, i: usize, total: usize| {
+                    pb.set_length(total as u64);
+                    pb.set_position(i as u64);
+                    if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
+                        last_message = Some(l.clone());
+                        pb.set_message(l);
+                        pb.reset_eta();
+                    }
+                };
 
-            runtime
-                .block_on(terra::Terrain::generate_and_new(
-                    &device,
-                    &queue,
-                    server,
-                    dataset_directory,
-                    progress_callback,
-                ))
-                .unwrap()
-        }
+                runtime
+                    .block_on(terra::Terrain::generate_and_new(
+                        &device,
+                        &queue,
+                        server,
+                        path.clone(),
+                        progress_callback,
+                    ))
+                    .unwrap()
+            }
+        },
         None => runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap(),
     };
 

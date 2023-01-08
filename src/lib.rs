@@ -10,10 +10,14 @@ extern crate lazy_static;
 mod asset;
 mod billboards;
 mod cache;
+mod compute_shader;
 mod coordinates;
+#[cfg(feature = "generate")]
 pub mod download;
+#[cfg(feature = "generate")]
 mod generate;
 mod gpu_state;
+mod load;
 mod mapfile;
 mod noise;
 mod quadtree;
@@ -28,15 +32,12 @@ use anyhow::Error;
 use billboards::Models;
 use cache::TileCache;
 use cgmath::{SquareMatrix, Vector3, Zero};
-use generate::ComputeShader;
+use compute_shader::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use quadtree::QuadTree;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use types::{InfiniteFrustum, VNode};
-
-pub use crate::generate::BLUE_MARBLE_URLS;
 
 pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
 
@@ -58,7 +59,11 @@ pub struct Terrain {
     _models: Models,
 }
 impl Terrain {
-    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(String, usize, usize) + Send>(
+    #[cfg(feature = "generate")]
+    pub async fn generate_and_new<
+        P: AsRef<std::path::Path>,
+        F: FnMut(String, usize, usize) + Send,
+    >(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         server: String,
@@ -171,7 +176,7 @@ impl Terrain {
             &mut progress_callback,
         )?;
 
-        let mapfile = Arc::new(generate::build_mapfile(server).await?);
+        let mapfile = Arc::new(load::build_mapfile(server).await?);
         generate::generate_materials(
             &*mapfile,
             dataset_directory.join("free_pbr"),
@@ -188,7 +193,7 @@ impl Terrain {
         queue: &wgpu::Queue,
         server: String,
     ) -> Result<Self, Error> {
-        let mapfile = Arc::new(generate::build_mapfile(server).await?);
+        let mapfile = Arc::new(load::build_mapfile(server).await?);
         Self::new_impl(device, queue, mapfile)
     }
 
