@@ -135,10 +135,6 @@ pub(crate) trait WebAsset {
     fn filename(&self) -> String;
     fn parse(&self, context: &mut AssetLoadContext, data: Vec<u8>) -> Result<Self::Type, Error>;
 
-    fn credentials(&self) -> Option<(String, String)> {
-        None
-    }
-
     fn load(&self, context: &mut AssetLoadContext) -> Result<Self::Type, Error> {
         let context =
             &mut context.increment_level(format!("Loading {}... ", &self.filename()), 100);
@@ -153,39 +149,9 @@ pub(crate) trait WebAsset {
             }
         }
 
-        let mut data = Vec::<u8>::new();
-        {
-            context.reset(format!("Downloading {}... ", &self.filename()), 100);
-            // Bytes display will be disabled by the reset() below, or in the event of an error,
-            // by the decrement_level() call in the outer scope.
-            context.bytes_display_enabled(true);
-
-            use curl::easy::Easy;
-            let mut easy = Easy::new();
-            easy.url(&self.url())?;
-            easy.progress(true)?;
-            easy.follow_location(true)?;
-            easy.fail_on_error(true)?;
-            if let Some((username, password)) = self.credentials() {
-                easy.cookie_file("")?;
-                easy.unrestricted_auth(true)?;
-                easy.username(&username)?;
-                easy.password(&password)?;
-            }
-            let mut transfer = easy.transfer();
-            transfer.write_function(|d| {
-                let len = d.len();
-                data.extend(d);
-                Ok(len)
-            })?;
-            transfer.progress_function(|t, c, _, _| {
-                if t > 0.0 {
-                    context.set_progress_and_total(c as u64, t as u64);
-                }
-                true
-            })?;
-            transfer.perform()?;
-        }
+        // TODO: use a streaming parser to have the progress bar refresh during download
+        context.reset(format!("Downloading {}... ", &self.filename()), 100);
+        let data = reqwest::blocking::get(self.url())?.bytes()?.to_vec();
 
         context.reset(format!("Saving {}... ", &self.filename()), 100);
         if let Some(parent) = filename.parent() {
