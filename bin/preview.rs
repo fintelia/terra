@@ -100,14 +100,6 @@ fn main() {
         })
         .unwrap_or(0.0);
 
-    #[cfg(feature = "generate")]
-    if let Some(SubcommandArgs::Generate { ref path, download: true }) = opt.subcommand {
-        terra::download::download_bluemarble(&path).unwrap();
-        terra::download::download_treecover(&path).unwrap();
-        terra::download::download_copernicus_wbm(&path).unwrap();
-        terra::download::download_copernicus_hgt(&path).unwrap();
-    }
-
     let trace_path: Option<&std::path::Path> = if cfg!(feature = "trace") {
         std::fs::create_dir_all("trace").unwrap();
         Some(std::path::Path::new("trace"))
@@ -207,7 +199,7 @@ fn main() {
     let mut terrain = match opt.subcommand {
         Some(opt2) => match opt2 {
             #[cfg(feature = "generate")]
-            SubcommandArgs::Generate { path, .. } => {
+            SubcommandArgs::Generate { path, download } => {
                 let pb = indicatif::ProgressBar::new(100);
                 pb.set_style(
                     indicatif::ProgressStyle::default_bar()
@@ -218,7 +210,7 @@ fn main() {
                         .progress_chars("=> "),
                 );
                 let mut last_message: Option<String> = None;
-                let progress_callback = |l: String, i: usize, total: usize| {
+                let mut progress_callback = |l: String, i: usize, total: usize| {
                     pb.set_length(total as u64);
                     pb.set_position(i as u64);
                     if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
@@ -227,6 +219,15 @@ fn main() {
                         pb.reset_eta();
                     }
                 };
+
+                if download {
+                    terra::download::download_bluemarble(&path, &mut progress_callback).unwrap();
+                    terra::download::download_treecover(&path, &mut progress_callback).unwrap();
+                    terra::download::download_copernicus_wbm(&path, &mut progress_callback)
+                        .unwrap();
+                    terra::download::download_copernicus_hgt(&path, &mut progress_callback)
+                        .unwrap();
+                }
 
                 runtime
                     .block_on(terra::Terrain::generate_and_new(
