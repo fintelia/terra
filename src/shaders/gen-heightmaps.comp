@@ -47,7 +47,7 @@ void main() {
 	// Bicubic Interpolation
 	x = x/2 + 2;
 	y = y/2 + 2;
-	vec2 t = vec2(gl_GlobalInvocationID.xy%2)/2.0;
+	vec2 t = vec2(gl_GlobalInvocationID.xy%uvec2(2))/2.0;
 
 
 	mat4 Binv = mat4(1, 0, -3, 2,

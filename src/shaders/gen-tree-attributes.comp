@@ -21,7 +21,7 @@ void main() {
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	vec3 texcoord3 = vec3(node.layer_origins[TREECOVER_LAYER] + texcoord * node.layer_ratios[TREECOVER_LAYER], node.layer_slots[TREECOVER_LAYER]);
-	float coverage = texture(sampler2DArray(treecover, linear), texcoord3).r;
+	float coverage = textureLod(sampler2DArray(treecover, linear), texcoord3, 0).r;
 
     vec4 output_value = vec4(0);
     if (random(gl_GlobalInvocationID.xy) < coverage) {

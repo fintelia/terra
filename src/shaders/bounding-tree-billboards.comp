@@ -28,7 +28,7 @@ struct Entry {
     vec4 padding1;
 };
 layout(std430, binding = 3) readonly buffer DataBlock {
-    Entry entries[][32*32];
+    Entry entries[];
 } tree_billboards_storage;
 
 
@@ -44,13 +44,13 @@ void main() {
 
     uint max_index = mesh_indirect.indirect[storage_slot].vertex_count / 6;
 
-    vec3 position = tree_billboards_storage.entries[storage_slot][gl_LocalInvocationID.x].position;
+    vec3 position = tree_billboards_storage.entries[storage_slot*1024 + gl_LocalInvocationID.x].position;
     min_positions[gl_LocalInvocationID.x] = position;
     max_positions[gl_LocalInvocationID.x] = position;
 
     for (int i = 32; i < 32*32; i += 32) {
         if (i + gl_LocalInvocationID.x < max_index) {
-            position = tree_billboards_storage.entries[storage_slot][gl_LocalInvocationID.x + i].position;
+            position = tree_billboards_storage.entries[storage_slot*1024 + gl_LocalInvocationID.x + i].position;
             min_positions[gl_LocalInvocationID.x] = min(min_positions[gl_LocalInvocationID.x], position);
             max_positions[gl_LocalInvocationID.x] = max(max_positions[gl_LocalInvocationID.x], position);
         }
@@ -71,7 +71,7 @@ void main() {
     max_radius2[gl_LocalInvocationID.x] = 0;
     for (int i = 0; i < 32*32; i += 32) {
         if (i + gl_LocalInvocationID.x < max_index) {
-            vec3 v = tree_billboards_storage.entries[storage_slot][gl_LocalInvocationID.x + i].position - center;
+            vec3 v = tree_billboards_storage.entries[storage_slot*1024 + gl_LocalInvocationID.x + i].position - center;
             float radius2 = dot(v, v);
             max_radius2[gl_LocalInvocationID.x] = max(max_radius2[gl_LocalInvocationID.x], radius2);
         }

@@ -3,16 +3,11 @@ use naga::{
     AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
 };
 use notify::{self, RecommendedWatcher, RecursiveMode, Watcher};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::{btree_map::Entry, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
-
-thread_local! {
-    static GLSL_COMPILER: RefCell<shaderc::Compiler>  = RefCell::new(shaderc::Compiler::new().unwrap());
-}
 
 pub enum ShaderSource {
     Inline {
@@ -61,7 +56,7 @@ impl ShaderSource {
     }
     pub(crate) fn load(
         &self,
-        stage: shaderc::ShaderKind,
+        stage: naga::ShaderStage,
     ) -> Result<wgpu::ShaderSource<'static>, anyhow::Error> {
         let (name, contents, headers, defines) = match self {
             ShaderSource::Inline { name, contents, headers, defines } => {
@@ -85,60 +80,56 @@ impl ShaderSource {
             }
         };
 
-        // eprintln!("{}", name);
         if let ShaderSource::FilesWGSL { .. } = self {
             Ok(wgpu::ShaderSource::Wgsl(contents.into()))
         } else {
-            // let mut parser = naga::front::glsl::Parser::default();
+            let mut parser = naga::front::glsl::Parser::default();
 
-            // let mut combined_source = contents.clone();
-            // for (name, header_contents) in headers.iter() {
-            //     combined_source = combined_source
-            //         .replace(&format!("\n#include \"{}\"", name), &format!("\n{}", header_contents));
-            // }
-
-            // let module = parser.parse(
-            //     &naga::front::glsl::Options {
-            //         stage: match stage {
-            //             shaderc::ShaderKind::Vertex => naga::ShaderStage::Vertex,
-            //             shaderc::ShaderKind::Fragment => naga::ShaderStage::Fragment,
-            //             shaderc::ShaderKind::Compute => naga::ShaderStage::Compute,
-            //             _ => unreachable!(),
-            //         },
-            //         defines: Default::default(),
-            //     },
-            //     &combined_source,
-            // );
-
-            // if let Err(e) = module {
-            //     for e in e {
-            //         if let Some(range) = e.meta.to_range() {
-            //             println!("ERROR: {:?} '{}'", e.kind, &combined_source[(range.start.max(30) - 30) .. range.end]);
-            //         }
-            //     }
-            // }
-
-            let mut options = shaderc::CompileOptions::new().unwrap();
-            options.set_include_callback(|f, _, _, _| match headers.get(f) {
-                Some(s) => Ok(shaderc::ResolvedInclude {
-                    resolved_name: f.to_string(),
-                    content: s.clone(),
-                }),
-                None => Err("not found".to_string()),
-            });
-            for (m, value) in defines.unwrap() {
-                options.add_macro_definition(m, Some(value));
+            let mut combined_source = contents.clone();
+            for (name, header_contents) in headers.iter() {
+                combined_source = combined_source.replace(
+                    &format!("\n#include \"{}\"", name),
+                    &format!("\n{}", header_contents),
+                );
             }
 
-            let spv: Vec<u32> = GLSL_COMPILER.with(|compiler| -> Result<_, anyhow::Error> {
-                Ok(compiler
-                    .borrow_mut()
-                    .compile_into_spirv(&contents, stage, name, "main", Some(&options))?
-                    .as_binary()
-                    .to_vec())
-            })?;
+            let defines = defines
+                .into_iter()
+                .flatten()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            let module =
+                parser.parse(&naga::front::glsl::Options { stage, defines }, &combined_source);
 
-            Ok(wgpu::ShaderSource::SpirV(spv.into()))
+            match module {
+                Err(e) => {
+                    for e in e {
+                        if let Some(range) = e.meta.to_range() {
+                            eprintln!(
+                                "ERROR: {:?} '{}'",
+                                e.kind,
+                                &combined_source[(range.start.max(30) - 30)..range.end]
+                            );
+                        } else {
+                            eprintln!("ERROR: {:?}", e.kind);
+                        }
+                    }
+                    Err(anyhow::anyhow!("Failed to parse shader"))
+                }
+                Ok(module) => {
+                    let mut validator = naga::valid::Validator::new(
+                        naga::valid::ValidationFlags::all(),
+                        naga::valid::Capabilities::all(),
+                    );
+                    match validator.validate(&module) {
+                        Err(e) => {
+                            e.emit_to_stderr_with_path(&combined_source, name);
+                            Err(anyhow::anyhow!("Failed to validate shader"))
+                        }
+                        Ok(_) => Ok(wgpu::ShaderSource::Naga(std::borrow::Cow::Owned(module))),
+                    }
+                }
+            }
         }
     }
     pub(crate) fn needs_update(&self, last_update: Instant) -> bool {
@@ -246,8 +237,8 @@ impl ShaderSet {
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             inner: ShaderSetInner::simple(
-                vertex_source.load(shaderc::ShaderKind::Vertex)?,
-                fragment_source.load(shaderc::ShaderKind::Fragment)?,
+                vertex_source.load(naga::ShaderStage::Vertex)?,
+                fragment_source.load(naga::ShaderStage::Fragment)?,
             )?,
             vertex_source: Some(vertex_source),
             fragment_source: Some(fragment_source),
@@ -257,9 +248,7 @@ impl ShaderSet {
     }
     pub fn compute_only(compute_source: ShaderSource) -> Result<Self, anyhow::Error> {
         Ok(Self {
-            inner: ShaderSetInner::compute_only(
-                compute_source.load(shaderc::ShaderKind::Compute)?,
-            )?,
+            inner: ShaderSetInner::compute_only(compute_source.load(naga::ShaderStage::Compute)?)?,
             vertex_source: None,
             fragment_source: None,
             compute_source: Some(compute_source),
@@ -289,11 +278,11 @@ impl ShaderSet {
                 Ok(self.inner =
                     match (&self.vertex_source, &self.fragment_source, &self.compute_source) {
                         (Some(ref vs), Some(ref fs), None) => ShaderSetInner::simple(
-                            vs.load(shaderc::ShaderKind::Vertex)?,
-                            fs.load(shaderc::ShaderKind::Fragment)?,
+                            vs.load(naga::ShaderStage::Vertex)?,
+                            fs.load(naga::ShaderStage::Fragment)?,
                         ),
                         (None, None, Some(ref cs)) => {
-                            ShaderSetInner::compute_only(cs.load(shaderc::ShaderKind::Compute)?)
+                            ShaderSetInner::compute_only(cs.load(naga::ShaderStage::Compute)?)
                         }
                         _ => unreachable!(),
                     }?)
@@ -316,9 +305,10 @@ impl ShaderSet {
     }
 
     pub fn vertex(&self) -> wgpu::ShaderSource {
-        match self.inner.vertex.as_ref().unwrap() {
+        match self.inner.vertex.as_ref().unwrap().clone() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
         }
     }
@@ -326,6 +316,7 @@ impl ShaderSet {
         match self.inner.fragment.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
         }
     }
@@ -333,6 +324,7 @@ impl ShaderSet {
         match self.inner.compute.as_ref().unwrap() {
             wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
+            wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
         }
     }
@@ -420,6 +412,7 @@ fn reflect_naga(
                 },
             )?,
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
+            wgpu::ShaderSource::Naga(ref m) => m.as_ref().clone(),
             _ => unreachable!(),
         };
 

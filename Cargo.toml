@@ -92,3 +92,6 @@ opt-level = 3
 [profile.release]
 debug = true
 incremental = true
+
+[patch.crates-io]
+naga = { git = "https://github.com/fintelia/naga", rev = "cd92101ef92ae73d2932fa8d1c7fb8779c9eb812" }

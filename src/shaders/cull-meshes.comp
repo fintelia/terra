@@ -10,7 +10,7 @@ layout(set = 0, binding = 1, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
 };
 
-coherent layout(std430, binding = 2) buffer IndirectBlock {
+/*coherent*/ layout(std430, binding = 2) buffer IndirectBlock {
     Indirect indirect[];
 } mesh_indirect;
 

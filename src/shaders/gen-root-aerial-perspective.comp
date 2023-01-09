@@ -27,7 +27,7 @@ void main() {
 	ivec2 iPosition = ivec2(gl_GlobalInvocationID.xy);
 	int displacements_slot = node.layer_slots[DISPLACEMENTS_LAYER];
 	vec3 texcoord = vec3(node.layer_origins[DISPLACEMENTS_LAYER] + vec2(iPosition) / 64.0 * node.layer_ratios[DISPLACEMENTS_LAYER], displacements_slot);
-	vec3 position = texture(sampler2DArray(displacements, nearest), texcoord).xyz - nodes[displacements_slot].relative_position;
+	vec3 position = textureLod(sampler2DArray(displacements, nearest), texcoord, 0).xyz - nodes[displacements_slot].relative_position;
 
     vec3 x0 = globals.camera;
 	vec3 x1 = x0 + position;

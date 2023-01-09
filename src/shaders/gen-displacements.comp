@@ -24,30 +24,32 @@ xdouble _neg(xdouble d) { return -d; }
 
 #elif SOFT_DOUBLE == 1
 
-#include "softdouble.glsl"
+// TODO: softdouble doesn't work with naga
 
-#define xdouble fp64
-#define CONST_1 _fp32_to_fp64(1.0)
-#define CONST_1_4511 _fp32_to_fp64(1.4511)
-#define CONST_1_8044 _fp32_to_fp64(1.8044)
-#define CONST_INV_0_9022 _fp32_to_fp64((1.0/0.9022))
-#define CONST_1_4511_SQUARED _fp32_to_fp64((1.4511 * 1.4511))
-#define CONST_PLANET_RADIUS _fp32_to_fp64(6371000.0)
+// #include "softdouble.glsl"
 
-// double _xdouble_to_double(xdouble d) { return uint64BitsToDouble(d.x | (uint64_t(d.y)) << 32); }
-// xdouble _double_to_xdouble(double d) { uint64_t x = doubleBitsToUint64(d); return uvec2(x & 0xffffffff, x>>32); }
+// #define xdouble fp64
+// #define CONST_1 _fp32_to_fp64(1.0)
+// #define CONST_1_4511 _fp32_to_fp64(1.4511)
+// #define CONST_1_8044 _fp32_to_fp64(1.8044)
+// #define CONST_INV_0_9022 _fp32_to_fp64((1.0/0.9022))
+// #define CONST_1_4511_SQUARED _fp32_to_fp64((1.4511 * 1.4511))
+// #define CONST_PLANET_RADIUS _fp32_to_fp64(6371000.0)
 
-float _xdouble_to_float(xdouble d) { return _fp64_to_fp32(d); }
-xdouble _float_to_xdouble(float f) { return _fp32_to_fp64(f); }
-xdouble _int_to_xdouble(int i) { return _int_to_fp64(i); }
-xdouble _sign(xdouble d) { return _fsign64(d); }
-xdouble _sqrt(xdouble d) { return _fsqrt64(d); }
-xdouble _sum(xdouble a, xdouble b) { return _fadd64(a, b); }
-xdouble _sub(xdouble a, xdouble b) { return _fadd64(a, _fneg64(b)); }
-xdouble _mul(xdouble a, xdouble b) { return _fmul64(a, b); }
-xdouble _div(xdouble a, xdouble b) { return _fdiv64(a, b); } // _double_to_xdouble(_xdouble_to_double(a) / _xdouble_to_double(b)); }
-xdouble _abs(xdouble d) { return _fabs64(d); }
-xdouble _neg(xdouble d) { return _fneg64(d); }
+// // double _xdouble_to_double(xdouble d) { return uint64BitsToDouble(d.x | (uint64_t(d.y)) << 32); }
+// // xdouble _double_to_xdouble(double d) { uint64_t x = doubleBitsToUint64(d); return uvec2(x & 0xffffffff, x>>32); }
+
+// float _xdouble_to_float(xdouble d) { return _fp64_to_fp32(d); }
+// xdouble _float_to_xdouble(float f) { return _fp32_to_fp64(f); }
+// xdouble _int_to_xdouble(int i) { return _int_to_fp64(i); }
+// xdouble _sign(xdouble d) { return _fsign64(d); }
+// xdouble _sqrt(xdouble d) { return _fsqrt64(d); }
+// xdouble _sum(xdouble a, xdouble b) { return _fadd64(a, b); }
+// xdouble _sub(xdouble a, xdouble b) { return _fadd64(a, _fneg64(b)); }
+// xdouble _mul(xdouble a, xdouble b) { return _fmul64(a, b); }
+// xdouble _div(xdouble a, xdouble b) { return _fdiv64(a, b); } // _double_to_xdouble(_xdouble_to_double(a) / _xdouble_to_double(b)); }
+// xdouble _abs(xdouble d) { return _fabs64(d); }
+// xdouble _neg(xdouble d) { return _fneg64(d); }
 
 #else
 #error SOFT_DOUBLE not defined

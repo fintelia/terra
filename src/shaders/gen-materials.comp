@@ -83,10 +83,10 @@ void main() {
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
-	vec3 balbedo = pow(texture(sampler2DArray(base_albedo, linear), texcoord3).rgb, vec3(2.2));
+	vec3 balbedo = pow(textureLod(sampler2DArray(base_albedo, linear), texcoord3, 0).rgb, vec3(2.2));
 
 	vec3 lf_texcoord3 = vec3(node.layer_origins[LAND_FRACTION_LAYER] + texcoord * node.layer_ratios[LAND_FRACTION_LAYER], node.layer_slots[LAND_FRACTION_LAYER]);
-	float water_amount = 1 - texture(sampler2DArray(land_fraction, linear), lf_texcoord3).x;
+	float water_amount = 1 - textureLod(sampler2DArray(land_fraction, linear), lf_texcoord3, 0).x;
 
 	// if (ubo.parent_slot >= 0) {
 	// 	vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
@@ -104,7 +104,7 @@ void main() {
 	// }
 
 	int lod = clamp(22 - int(node.level), 0, 10);
-	uvec2 v = ((node.coords%128) * 512 + uvec2(gl_GlobalInvocationID.xy)) % (1024 >> lod);
+	uvec2 v = ((node.coords%uvec2(128)) * 512 + uvec2(gl_GlobalInvocationID.xy)) % uvec2(1024 >> lod);
 	vec3 v1 = texelFetch(ground_albedo, ivec3(v,0), lod).rgb;
 	vec3 v2 = texelFetch(ground_albedo, ivec3(v,1), lod).rgb;
 	vec3 v3 = texelFetch(ground_albedo, ivec3(v,2), lod).rgb;
@@ -132,10 +132,10 @@ void main() {
 	// }
 
 	if (node.level < 13) {
-		float treecover_value = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
+		float treecover_value = textureLod(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER), 0).r;
 		if (node.layer_slots[TREE_ATTRIBUTES_LAYER] >= 0) {
 			vec3 tcoord = layer_to_texcoord(TREE_ATTRIBUTES_LAYER);
-			vec4 tree_attr = texture(sampler2DArray(tree_attributes, nearest), tcoord+vec3(0.5,0.5,0)/516);
+			vec4 tree_attr = textureLod(sampler2DArray(tree_attributes, nearest), tcoord+vec3(0.5,0.5,0)/516, 0);
 
 			// vec2 topdown_tcoord = (fract(tcoord.xy*516-0.5)-0.5)*0.4 + 0.5;
 			// vec4 tree_albedo = textureLod(sampler2D(topdown_albedo, linear), topdown_tcoord, 0);
