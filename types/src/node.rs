@@ -389,7 +389,7 @@ mod tests {
         let node = VNode::new(1, 1, 0, 0);
         let camera = Vector3::new(1., 0., 1.);
 
-        let p = node.priority(camera);
+        let p = node.priority(camera, (0.0, 9000.0));
         assert!(p > Priority::cutoff());
     }
 }

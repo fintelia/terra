@@ -5,9 +5,9 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-use super::{LayerMask, LayerParams, LayerType, MeshCache};
+use super::{LayerMask, LayerType, MeshCache};
 use crate::{
-    cache::{mesh::MeshGenerateUniforms, MeshType, Levels},
+    cache::{mesh::MeshGenerateUniforms, Levels, MeshType},
     gpu_state::{DrawIndexedIndirect, GpuState},
 };
 use maplit::hashmap;
@@ -33,7 +33,6 @@ pub(crate) trait GenerateTile: Send {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         state: &GpuState,
-        layers: &VecMap<LayerParams>,
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -83,7 +82,6 @@ impl GenerateTile for MeshGen {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         gpu_state: &GpuState,
-        _layers: &VecMap<LayerParams>,
         slot: usize,
         _parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -194,7 +192,6 @@ impl GenerateTile for ShaderGen {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         state: &GpuState,
-        layers: &VecMap<LayerParams>,
         slot: usize,
         parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
@@ -206,32 +203,26 @@ impl GenerateTile for ShaderGen {
         let views_needed = self.outputs() & self.parent_inputs();
         let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
         if let Some(parent_slot) = parent_slot {
-            for layer in layers.values().filter(|l| views_needed.contains_layer(l.layer_type)) {
+            for layer in LayerType::iter().filter(|l| views_needed.contains_layer(*l)) {
                 // TODO: handle subsequent images of a layer.
                 image_views.insert(
-                    format!("{}_in", layer.layer_type.name()).into(),
-                    state.tile_cache[layer.layer_type][0].0.create_view(
-                        &wgpu::TextureViewDescriptor {
-                            label: Some(&format!(
-                                "view.{}[{}]",
-                                layer.layer_type.name(),
-                                parent_slot
-                            )),
-                            base_array_layer: parent_slot as u32,
-                            array_layer_count: Some(NonZeroU32::new(1).unwrap()),
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            ..Default::default()
-                        },
-                    ),
+                    format!("{}_in", layer.name()).into(),
+                    state.tile_cache[layer][0].0.create_view(&wgpu::TextureViewDescriptor {
+                        label: Some(&format!("view.{}[{}]", layer.name(), parent_slot)),
+                        base_array_layer: parent_slot as u32,
+                        array_layer_count: Some(NonZeroU32::new(1).unwrap()),
+                        dimension: Some(wgpu::TextureViewDimension::D2),
+                        ..Default::default()
+                    }),
                 );
             }
         }
-        for layer in layers.values().filter(|l| views_needed.contains_layer(l.layer_type)) {
+        for layer in LayerType::iter().filter(|l| views_needed.contains_layer(*l)) {
             // TODO: handle subsequent images of a layer.
             image_views.insert(
-                format!("{}_out", layer.layer_type.name()).into(),
-                state.tile_cache[layer.layer_type][0].0.create_view(&wgpu::TextureViewDescriptor {
-                    label: Some(&format!("view.{}[{}]", layer.layer_type.name(), slot)),
+                format!("{}_out", layer.name()).into(),
+                state.tile_cache[layer][0].0.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some(&format!("view.{}[{}]", layer.name(), slot)),
                     base_array_layer: slot as u32,
                     array_layer_count: Some(NonZeroU32::new(1).unwrap()),
                     dimension: Some(wgpu::TextureViewDimension::D2),
@@ -361,15 +352,14 @@ impl ShaderGenBuilder {
 
 pub(crate) fn generators(
     device: &wgpu::Device,
-    layers: &VecMap<LayerParams>,
     meshes: &VecMap<MeshCache>,
     soft_float64: bool,
 ) -> Vec<Box<dyn GenerateTile>> {
-    let heightmaps_resolution = layers[LayerType::Heightmaps].texture_resolution;
-    let displacements_resolution = layers[LayerType::Displacements].texture_resolution;
-    let normals_resolution = layers[LayerType::Normals].texture_resolution;
-    let grass_canopy_resolution = layers[LayerType::GrassCanopy].texture_resolution;
-    let tree_attributes_resolution = layers[LayerType::GrassCanopy].texture_resolution;
+    let heightmaps_resolution = LayerType::Heightmaps.texture_resolution();
+    let displacements_resolution = LayerType::Displacements.texture_resolution();
+    let normals_resolution = LayerType::Normals.texture_resolution();
+    let grass_canopy_resolution = LayerType::GrassCanopy.texture_resolution();
+    let tree_attributes_resolution = LayerType::GrassCanopy.texture_resolution();
 
     vec![
         ShaderGenBuilder::new(

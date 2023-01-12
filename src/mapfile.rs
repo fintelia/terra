@@ -1,5 +1,5 @@
 use crate::asset::TERRA_DIRECTORY;
-use crate::cache::{LayerParams, TextureFormat};
+use crate::cache::TextureFormat;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::{fs, num::NonZeroU32};
 use types::VNode;
-use vec_map::VecMap;
 
 const MAX_STREAMED_LEVEL: u8 = VNode::LEVEL_CELL_76M;
 
@@ -31,13 +30,7 @@ pub(crate) struct TextureDescriptor {
     pub array_texture: bool,
 }
 
-#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct ShaderDescriptor {
-    hash: [u8; 32],
-}
-
 pub(crate) struct MapFile {
-    layers: VecMap<LayerParams>,
     _db: sled::Db,
     textures: sled::Tree,
 
@@ -46,7 +39,7 @@ pub(crate) struct MapFile {
     local_tiles: Arc<Mutex<HashSet<VNode>>>,
 }
 impl MapFile {
-    pub(crate) async fn new(layers: VecMap<LayerParams>, server: String) -> Result<Self, Error> {
+    pub(crate) async fn new(server: String) -> Result<Self, Error> {
         let directory = TERRA_DIRECTORY.join("tiles/meta");
         let db = sled::open(&directory).expect(&format!(
             "Failed to open/create sled database. Deleting the '{}' directory may fix this",
@@ -68,7 +61,6 @@ impl MapFile {
         db.insert("version", &*format!("{}", CURRENT_VERSION)).unwrap();
 
         let mapfile = Self {
-            layers,
             textures: db.open_tree("textures").unwrap(),
             _db: db,
             server,
@@ -319,10 +311,6 @@ impl MapFile {
         } else {
             false
         }
-    }
-
-    pub(crate) fn layers(&self) -> &VecMap<LayerParams> {
-        &self.layers
     }
 
     fn tile_name(node: VNode) -> String {

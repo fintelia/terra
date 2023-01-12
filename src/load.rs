@@ -1,10 +1,8 @@
 use crate::asset::{AssetLoadContext, AssetLoadContextBuf, WebAsset};
-use crate::cache::{LayerParams, LayerType, TextureFormat};
+use crate::cache::TextureFormat;
 use crate::mapfile::{MapFile, TextureDescriptor};
 use anyhow::Error;
 use basis_universal::Transcoder;
-use types::VNode;
-use vec_map::VecMap;
 
 struct WebTextureAsset {
     url: String,
@@ -74,132 +72,7 @@ impl WebAsset for WebModel {
 }
 
 pub(crate) async fn build_mapfile(server: String) -> Result<MapFile, Error> {
-    let layers: VecMap<LayerParams> = LayerType::iter()
-        .map(|layer_type| {
-            let params = match layer_type {
-                LayerType::Heightmaps => LayerParams {
-                    texture_resolution: 521,
-                    texture_border_size: 4,
-                    texture_format: &[TextureFormat::R32],
-                    grid_registration: true,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_5MM,
-                    layer_type,
-                },
-                LayerType::Displacements => LayerParams {
-                    texture_resolution: 65,
-                    texture_border_size: 0,
-                    texture_format: &[TextureFormat::RGBA32F],
-                    grid_registration: true,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_5MM,
-                    layer_type,
-                },
-                LayerType::AlbedoRoughness => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::RGBA8],
-                    grid_registration: false,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_5MM,
-                    layer_type,
-                },
-                LayerType::Normals => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::RG8],
-                    grid_registration: false,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_5MM,
-                    layer_type,
-                },
-                LayerType::GrassCanopy => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::RGBA8],
-                    grid_registration: false,
-                    min_level: VNode::LEVEL_CELL_1M,
-                    max_level: VNode::LEVEL_CELL_1M,
-                    layer_type,
-                },
-                LayerType::AerialPerspective => LayerParams {
-                    texture_resolution: 17,
-                    texture_border_size: 0,
-                    texture_format: &[TextureFormat::RGBA16F],
-                    grid_registration: true,
-                    min_level: 3,
-                    max_level: VNode::LEVEL_SIDE_610M,
-                    layer_type,
-                },
-                LayerType::BentNormals => LayerParams {
-                    texture_resolution: 513,
-                    texture_border_size: 0,
-                    texture_format: &[TextureFormat::RGBA8],
-                    grid_registration: true,
-                    min_level: VNode::LEVEL_CELL_153M,
-                    max_level: VNode::LEVEL_CELL_76M,
-                    layer_type,
-                },
-                LayerType::TreeCover => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::R8],
-                    grid_registration: false,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_76M,
-                    layer_type,
-                },
-                LayerType::BaseAlbedo => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::UASTC],
-                    grid_registration: false,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_610M,
-                    layer_type,
-                },
-                LayerType::TreeAttributes => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::RGBA8],
-                    grid_registration: false,
-                    min_level: VNode::LEVEL_CELL_10M,
-                    max_level: VNode::LEVEL_CELL_10M,
-                    layer_type,
-                },
-                LayerType::RootAerialPerspective => LayerParams {
-                    texture_resolution: 65,
-                    texture_border_size: 0,
-                    texture_format: &[TextureFormat::RGBA16F],
-                    grid_registration: true,
-                    min_level: 0,
-                    max_level: 0,
-                    layer_type,
-                },
-                LayerType::LandFraction => LayerParams {
-                    texture_resolution: 516,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::R8],
-                    grid_registration: false,
-                    min_level: 0,
-                    max_level: VNode::LEVEL_CELL_76M,
-                    layer_type,
-                },
-                LayerType::Slopes => LayerParams {
-                    texture_resolution: 517,
-                    texture_border_size: 2,
-                    texture_format: &[TextureFormat::RG16F],
-                    grid_registration: true,
-                    min_level: VNode::LEVEL_CELL_10M,
-                    max_level: VNode::LEVEL_CELL_10M,
-                    layer_type,
-                },
-            };
-            (layer_type.index(), params)
-        })
-        .collect();
-
-    let mut mapfile = MapFile::new(layers, server).await?;
+    let mut mapfile = MapFile::new(server).await?;
     let mut context = AssetLoadContextBuf::new();
     let mut context = context.context("Building Terrain...", 1);
     // generate_heightmaps(&mut mapfile, &mut context).await?;

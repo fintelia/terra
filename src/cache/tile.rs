@@ -138,23 +138,6 @@ pub(crate) struct ByteRange {
     pub length: usize,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct LayerParams {
-    /// What kind of layer this is. There can be at most one of each layer type in a file.
-    pub layer_type: LayerType,
-    /// Number of samples in each dimension, per tile.
-    pub texture_resolution: u32,
-    /// Number of samples outside the tile on each side.
-    pub texture_border_size: u32,
-    /// Format used by this layer.
-    pub texture_format: &'static [TextureFormat],
-
-    pub grid_registration: bool,
-
-    pub min_level: u8,
-    pub max_level: u8,
-}
-
 #[derive(Clone)]
 pub(super) enum CpuHeightmap {
     I16 { min: f32, max: f32, heights: Vec<i16> },
@@ -208,13 +191,12 @@ impl TileCache {
         let mut planned_heightmap_downloads = Vec::new();
         let mut pending_generate = Vec::new();
 
-        for layer in self.layers.values().filter(|l| !l.layer_type.dynamic()) {
-            for level in layer.min_level..=layer.max_level {
+        for layer in LayerType::iter().filter(|l| !l.dynamic()) {
+            for level in layer.level_range() {
                 for ref mut entry in self.levels.0[level as usize].slots_mut() {
                     if entry.priority() > Priority::cutoff() {
-                        let ty = layer.layer_type;
-                        if !entry.valid.contains_layer(ty) {
-                            if level >= layer.layer_type.streamed_levels() {
+                        if !entry.valid.contains_layer(layer) {
+                            if level >= layer.streamed_levels() {
                                 pending_generate.push(entry.node);
                             } else if !entry.streaming && self.streamer.num_inflight() < 128 {
                                 entry.streaming = true;
@@ -292,14 +274,14 @@ impl TileCache {
                 }
                 if !LayerType::iter().filter(|layer| ancestor_inputs.contains_layer(*layer)).all(
                     |layer| {
-                        if entry.node.level() < self.layers[layer].min_level {
+                        if entry.node.level() < layer.min_level() {
                             true
-                        } else if entry.node.level() <= self.layers[layer].max_level {
+                        } else if entry.node.level() <= layer.max_level() {
                             self.levels.contains_layer(entry.node, layer)
                         } else {
                             let ancestor = entry
                                 .node
-                                .find_ancestor(|node| node.level() == self.layers[layer].max_level)
+                                .find_ancestor(|node| node.level() == layer.max_level())
                                 .unwrap()
                                 .0;
                             self.levels.contains_layer(ancestor, layer)
@@ -315,7 +297,6 @@ impl TileCache {
                     device,
                     &mut encoder,
                     gpu_state,
-                    &self.layers,
                     slot,
                     parent_slot,
                     &mut uniform_data,
@@ -334,9 +315,9 @@ impl TileCache {
                 if output_mask.contains_layer(LayerType::Heightmaps)
                     && n.level() <= VNode::LEVEL_CELL_1M
                 {
-                    let bytes_per_pixel = self.layers[LayerType::Heightmaps].texture_format[0]
-                        .bytes_per_block() as u64;
-                    let resolution = self.layers[LayerType::Heightmaps].texture_resolution as u64;
+                    let bytes_per_pixel =
+                        LayerType::Heightmaps.texture_formats()[0].bytes_per_block() as u64;
+                    let resolution = LayerType::Heightmaps.texture_resolution() as u64;
                     let row_bytes = resolution * bytes_per_pixel;
                     let row_pitch = (row_bytes + 255) & !255;
 
@@ -438,27 +419,21 @@ impl TileCache {
         while let Some(tile) = self.streamer.try_complete() {
             if let Some(entry) = self.levels.0[tile.node.level() as usize].entry_mut(&tile.node) {
                 entry.streaming = false;
-                for layer_index in tile.layers.keys() {
-                    let layer = LayerType::from_index(layer_index);
-                    if tile.node.level() < self.layers[layer].min_level
-                        || tile.node.level() > self.layers[layer].max_level
-                    {
-                        continue;
+                for layer in tile.layers.keys().map(LayerType::from_index) {
+                    if layer.level_range().contains(&tile.node.level()) {
+                        entry.valid |= layer.bit_mask();
                     }
-                    entry.valid |= LayerType::from_index(layer_index).bit_mask();
                 }
 
                 let index = self.levels.get_slot(tile.node).unwrap();
                 for (layer_index, mut data) in tile.layers {
                     let layer = LayerType::from_index(layer_index);
-                    let resolution = self.resolution(layer) as usize;
+                    let resolution = layer.texture_resolution() as usize;
                     let resolution_blocks = self.resolution_blocks(layer) as usize;
-                    let bytes_per_block = self.layers[layer].texture_format[0].bytes_per_block();
+                    let bytes_per_block = layer.texture_formats()[0].bytes_per_block();
                     let row_bytes = resolution_blocks * bytes_per_block;
 
-                    if tile.node.level() < self.layers[layer].min_level
-                        || tile.node.level() > self.layers[layer].max_level
-                    {
+                    if !layer.level_range().contains(&tile.node.level()) {
                         continue;
                     }
 
@@ -524,21 +499,20 @@ impl TileCache {
         &self,
         device: &wgpu::Device,
     ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
-        self.layers
-            .iter()
-            .map(|(ty, layer)| {
-                assert!(layer.min_level <= layer.max_level);
+        LayerType::iter()
+            .map(|layer| {
+                assert!(layer.min_level() <= layer.max_level());
                 let textures = layer
-                    .texture_format
+                    .texture_formats()
                     .iter()
                     .enumerate()
                     .map(|(i, format)| {
                         let texture = device.create_texture(&wgpu::TextureDescriptor {
                             size: wgpu::Extent3d {
-                                width: layer.texture_resolution,
-                                height: layer.texture_resolution,
-                                depth_or_array_layers: (Levels::base_slot(layer.max_level + 1)
-                                    - Levels::base_slot(layer.min_level))
+                                width: layer.texture_resolution(),
+                                height: layer.texture_resolution(),
+                                depth_or_array_layers: (Levels::base_slot(layer.max_level() + 1)
+                                    - Levels::base_slot(layer.min_level()))
                                     as u32,
                             },
                             format: format.to_wgpu(device.features()),
@@ -553,24 +527,16 @@ impl TileCache {
                                 } else {
                                     wgpu::TextureUsages::empty()
                                 },
-                            label: Some(&format!(
-                                "texture.tiles.{}{}",
-                                LayerType::from_index(ty).name(),
-                                i
-                            )),
+                            label: Some(&format!("texture.tiles.{}{}", layer.name(), i)),
                         });
                         let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                            label: Some(&format!(
-                                "texture.tiles.{}{}.view",
-                                LayerType::from_index(ty).name(),
-                                i,
-                            )),
+                            label: Some(&format!("texture.tiles.{}{}.view", layer.name(), i,)),
                             ..Default::default()
                         });
                         (texture, view)
                     })
                     .collect();
-                (ty, textures)
+                (layer.index(), textures)
             })
             .collect()
     }
@@ -618,13 +584,10 @@ impl TileCache {
         visible_nodes
     }
 
-    fn resolution(&self, ty: LayerType) -> u32 {
-        self.layers[ty].texture_resolution
-    }
-    fn resolution_blocks(&self, ty: LayerType) -> u32 {
-        assert_eq!(self.layers[ty].texture_format.len(), 1);
-        let resolution = self.layers[ty].texture_resolution;
-        let block_size = self.layers[ty].texture_format[0].block_size();
+    fn resolution_blocks(&self, layer: LayerType) -> u32 {
+        assert_eq!(layer.texture_formats().len(), 1);
+        let resolution = layer.texture_resolution();
+        let block_size = layer.texture_formats()[0].block_size();
         assert_eq!(resolution % block_size, 0);
         resolution / block_size
     }
@@ -635,8 +598,8 @@ impl TileCache {
 
         let (node, x, y) = VNode::from_cspace(cspace, level);
 
-        let border = self.layers[LayerType::Heightmaps].texture_border_size as usize;
-        let resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
+        let border = LayerType::Heightmaps.texture_border_size() as usize;
+        let resolution = LayerType::Heightmaps.texture_resolution() as usize;
         let x = (x * (resolution - 2 * border - 1) as f32) + border as f32;
         let y = (y * (resolution - 2 * border - 1) as f32) + border as f32;
 

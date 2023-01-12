@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
 use std::hash::Hash;
 use std::num::NonZeroU64;
-use std::ops::{Index, IndexMut};
+use std::ops::{Index, IndexMut, RangeInclusive};
 use std::sync::Arc;
 use std::{collections::HashMap, num::NonZeroU32};
-pub(crate) use tile::{LayerParams, TextureFormat};
+pub(crate) use tile::{TextureFormat};
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
@@ -100,6 +100,99 @@ impl LayerType {
             LayerType::AerialPerspective | LayerType::RootAerialPerspective => true,
             _ => false,
         }
+    }
+    pub fn grid_registration(&self) -> bool {
+        match *self {
+            LayerType::Heightmaps => true,
+            LayerType::Displacements => true,
+            LayerType::AlbedoRoughness => false,
+            LayerType::Normals => false,
+            LayerType::GrassCanopy => false,
+            LayerType::TreeAttributes => false,
+            LayerType::AerialPerspective => true,
+            LayerType::BentNormals => true,
+            LayerType::TreeCover => false,
+            LayerType::BaseAlbedo => false,
+            LayerType::RootAerialPerspective => true,
+            LayerType::LandFraction => false,
+            LayerType::Slopes => true,
+        }
+    }
+    /// Number of samples in each dimension, per tile.
+    pub fn texture_resolution(&self) -> u32 {
+        match *self {
+            LayerType::Heightmaps => 521,
+            LayerType::Displacements => 65,
+            LayerType::AlbedoRoughness => 516,
+            LayerType::Normals => 516,
+            LayerType::GrassCanopy => 516,
+            LayerType::TreeAttributes => 516,
+            LayerType::AerialPerspective => 17,
+            LayerType::BentNormals => 513,
+            LayerType::TreeCover => 516,
+            LayerType::BaseAlbedo => 516,
+            LayerType::RootAerialPerspective => 65,
+            LayerType::LandFraction => 516,
+            LayerType::Slopes => 517,
+        }
+    }
+    /// Number of samples outside the tile on each side.
+    pub fn texture_border_size(&self) -> u32 {
+        match *self {
+            LayerType::Heightmaps => 4,
+            LayerType::Displacements => 0,
+            LayerType::AlbedoRoughness => 2,
+            LayerType::Normals => 2,
+            LayerType::GrassCanopy => 2,
+            LayerType::TreeAttributes => 2,
+            LayerType::AerialPerspective => 0,
+            LayerType::BentNormals => 0,
+            LayerType::TreeCover => 2,
+            LayerType::BaseAlbedo => 2,
+            LayerType::RootAerialPerspective => 0,
+            LayerType::LandFraction => 2,
+            LayerType::Slopes => 2,
+        }
+    }
+    pub fn texture_formats(&self) -> &'static [TextureFormat] {
+        match *self {
+            LayerType::Heightmaps => &[TextureFormat::R32],
+            LayerType::Displacements => &[TextureFormat::RGBA32F],
+            LayerType::AlbedoRoughness => &[TextureFormat::RGBA8],
+            LayerType::Normals => &[TextureFormat::RG8],
+            LayerType::GrassCanopy => &[TextureFormat::RGBA8],
+            LayerType::TreeAttributes => &[TextureFormat::RGBA8],
+            LayerType::AerialPerspective => &[TextureFormat::RGBA16F],
+            LayerType::BentNormals => &[TextureFormat::RGBA8],
+            LayerType::TreeCover => &[TextureFormat::R8],
+            LayerType::BaseAlbedo => &[TextureFormat::UASTC],
+            LayerType::RootAerialPerspective => &[TextureFormat::RGBA16F],
+            LayerType::LandFraction => &[TextureFormat::R8],
+            LayerType::Slopes => &[TextureFormat::RG16F],
+        }
+    }
+    pub fn level_range(&self) -> RangeInclusive<u8> {
+        match *self {
+            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::Displacements => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::AlbedoRoughness => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::Normals => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::GrassCanopy => VNode::LEVEL_CELL_1M..=VNode::LEVEL_CELL_1M,
+            LayerType::TreeAttributes => VNode::LEVEL_CELL_10M..=VNode::LEVEL_CELL_10M,
+            LayerType::AerialPerspective => 3..=VNode::LEVEL_SIDE_610M,
+            LayerType::BentNormals => VNode::LEVEL_CELL_153M..=VNode::LEVEL_CELL_76M,
+            LayerType::TreeCover => 0..=VNode::LEVEL_CELL_76M,
+            LayerType::BaseAlbedo => 0..=VNode::LEVEL_CELL_610M,
+            LayerType::RootAerialPerspective => 0..=0,
+            LayerType::LandFraction => 0..=VNode::LEVEL_CELL_76M,
+            LayerType::Slopes => VNode::LEVEL_CELL_10M..=VNode::LEVEL_CELL_10M,
+        }
+    }
+    pub fn min_level(&self) -> u8 {
+        *self.level_range().start()
+    }
+    pub fn max_level(&self) -> u8 {
+        *self.level_range().end()
     }
     pub fn iter() -> impl Iterator<Item = Self> {
         (0..=12).map(Self::from_index)
@@ -442,7 +535,6 @@ pub(crate) struct TileCache {
     levels: Levels,
     level_masks: Vec<LayerMask>,
 
-    layers: VecMap<LayerParams>,
     meshes: VecMap<MeshCache>,
     generators: Vec<Box<dyn GenerateTile>>,
     dynamic_generators: Vec<DynamicGenerator>,
@@ -463,8 +555,6 @@ impl TileCache {
         mapfile: Arc<MapFile>,
         mesh_layers: Vec<MeshCacheDesc>,
     ) -> Self {
-        let layers = mapfile.layers().clone();
-
         let mut index_buffer_contents = Vec::new();
 
         let mut base_slot = 0;
@@ -489,12 +579,12 @@ impl TileCache {
         let meshes = meshes.into_iter().collect();
 
         let soft_float64 = !device.features().contains(wgpu::Features::SHADER_FLOAT64);
-        let generators = generators::generators(device, &layers, &meshes, soft_float64);
+        let generators = generators::generators(device, &meshes, soft_float64);
 
         let mut level_masks = vec![LayerMask::empty(); 23];
-        for layer in layers.values() {
-            for i in layer.min_level..=layer.max_level {
-                level_masks[i as usize] |= layer.layer_type.bit_mask();
+        for layer in LayerType::iter() {
+            for i in layer.level_range() {
+                level_masks[i as usize] |= layer.bit_mask();
             }
         }
         for mesh in meshes.values() {
@@ -525,7 +615,6 @@ impl TileCache {
             free_download_buffers: Vec::new(),
             total_download_buffers: 0,
             levels: Levels(levels),
-            layers,
             meshes,
             generators,
             dynamic_generators: generators::dynamic_generators(),
@@ -603,9 +692,9 @@ impl TileCache {
 
         queue.submit(Some(command_buffer));
 
-        let heightmap_resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
+        let heightmap_resolution = LayerType::Heightmaps.texture_resolution() as usize;
         let heightmap_bytes_per_pixel =
-            self.layers[LayerType::Heightmaps].texture_format[0].bytes_per_block() as usize;
+            LayerType::Heightmaps.texture_formats()[0].bytes_per_block() as usize;
         let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
         let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
         for (node, buffer) in planned_heightmap_downloads.drain(..) {
@@ -729,8 +818,7 @@ impl TileCache {
                             let layer_slot = if !found_layers.contains_layer(layer)
                                 && (ancestor_slot.valid.contains_layer(layer)
                                     || (layer.dynamic()
-                                        && ancestor.level() >= self.layers[layer].min_level
-                                        && ancestor.level() <= self.layers[layer].max_level))
+                                        && layer.level_range().contains(&ancestor.level())))
                             {
                                 found_layers |= layer.bit_mask();
                                 layer_index
@@ -743,15 +831,15 @@ impl TileCache {
                                 continue;
                             };
 
-                            let texture_resolution = self.layers[layer].texture_resolution as f32;
-                            let texture_border = self.layers[layer].texture_border_size as f32;
-                            let texture_ratio = if self.layers[layer].grid_registration {
+                            let texture_resolution = layer.texture_resolution() as f32;
+                            let texture_border = layer.texture_border_size() as f32;
+                            let texture_ratio = if layer.grid_registration() {
                                 (texture_resolution - 2.0 * texture_border - 1.0)
                                     / texture_resolution
                             } else {
                                 (texture_resolution - 2.0 * texture_border) / texture_resolution
                             };
-                            let texture_origin = if self.layers[layer].grid_registration {
+                            let texture_origin = if layer.grid_registration() {
                                 (texture_border + 0.5) / texture_resolution
                             } else {
                                 texture_border / texture_resolution
@@ -761,9 +849,10 @@ impl TileCache {
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
                             ];
-                            data[index].layer_slots[layer_slot] = (self.levels.get_slot(ancestor).unwrap()
-                                - Levels::base_slot(self.layers[layer].min_level))
-                                as i32;
+                            data[index].layer_slots[layer_slot] =
+                                (self.levels.get_slot(ancestor).unwrap()
+                                    - Levels::base_slot(layer.min_level()))
+                                    as i32;
                             data[index].layer_ratios[layer_slot] =
                                 f32::powi(0.5, ancestor_index as i32) * texture_ratio;
                         }
