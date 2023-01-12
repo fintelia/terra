@@ -371,7 +371,7 @@ impl Terrain {
 
     fn loading_complete(&self) -> bool {
         VNode::roots().iter().copied().all(|root| {
-            self.cache.contains_all(
+            self.cache.contains_layers(
                 root,
                 LayerType::Heightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
             )

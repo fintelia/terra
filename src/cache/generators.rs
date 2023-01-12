@@ -7,7 +7,7 @@ use std::{
 
 use super::{LayerMask, LayerParams, LayerType, MeshCache};
 use crate::{
-    cache::{mesh::MeshGenerateUniforms, MeshType, TileCache},
+    cache::{mesh::MeshGenerateUniforms, MeshType, Levels},
     gpu_state::{DrawIndexedIndirect, GpuState},
 };
 use maplit::hashmap;
@@ -88,7 +88,7 @@ impl GenerateTile for MeshGen {
         _parent_slot: Option<usize>,
         uniform_data: &mut Vec<u8>,
     ) {
-        let entry = (slot - TileCache::base_slot(self.min_level)) as u32 * self.entries_per_node;
+        let entry = (slot - Levels::base_slot(self.min_level)) as u32 * self.entries_per_node;
         let uniforms = MeshGenerateUniforms {
             slot: slot as u32,
             storage_base_entry: entry,

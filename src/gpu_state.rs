@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, num::NonZeroU8};
 
 use crate::{
     billboards::Models,
-    cache::{MeshType, TileCache, LAYERS_BY_NAME},
+    cache::{MeshType, TileCache, LAYERS_BY_NAME, Levels},
     mapfile::MapFile,
 };
 use types::MAX_QUADTREE_LEVEL;
@@ -198,7 +198,7 @@ impl GpuState {
                 mapped_at_creation: false,
             }),
             frame_nodes: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 4 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
+                size: 4 * Levels::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
                 usage: wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::UNIFORM
                     | wgpu::BufferUsages::STORAGE,
@@ -206,7 +206,7 @@ impl GpuState {
                 mapped_at_creation: false,
             }),
             nodes: device.create_buffer(&wgpu::BufferDescriptor {
-                size: 1024 * TileCache::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
+                size: 1024 * Levels::base_slot(MAX_QUADTREE_LEVEL + 1) as u64,
                 usage: wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::UNIFORM
                     | wgpu::BufferUsages::STORAGE,

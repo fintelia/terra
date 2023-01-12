@@ -353,8 +353,93 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
     }
 }
 
+pub(crate) struct Levels(Vec<PriorityCache<Entry>>);
+impl Levels {
+    pub(crate) fn base_slot(level: u8) -> usize {
+        if level == 0 {
+            0
+        } else if level == 1 {
+            6
+        } else {
+            30 + SLOTS_PER_LEVEL * (level - 2) as usize
+        }
+    }
+
+    fn contains(&self, node: VNode) -> bool {
+        self.0[node.level() as usize].contains(&node)
+    }
+    fn get(&self, node: VNode) -> Option<&Entry> {
+        self.0[node.level() as usize].entry(&node)
+    }
+    fn get_mut(&mut self, node: VNode) -> Option<&mut Entry> {
+        self.0[node.level() as usize].entry_mut(&node)
+    }
+    fn get_slot(&self, node: VNode) -> Option<usize> {
+        self.0[node.level() as usize].index_of(&node).map(|i| Self::base_slot(node.level()) + i)
+    }
+
+    fn contains_layer(&self, node: VNode, ty: LayerType) -> bool {
+        self.0[node.level() as usize]
+            .entry(&node)
+            .map(|entry| entry.valid.contains_layer(ty))
+            .unwrap_or(false)
+    }
+    fn contains_layers(&self, node: VNode, layer_mask: LayerMask) -> bool {
+        self.0[node.level() as usize]
+            .entry(&node)
+            .map(|entry| (entry.valid & layer_mask) == layer_mask)
+            .unwrap_or(false)
+    }
+
+    fn update(&mut self, quadtree: &QuadTree) {
+        let mut min_priorities = Vec::new();
+        for cache in &mut self.0 {
+            for entry in cache.slots_mut() {
+                entry.priority = quadtree.node_priority(entry.node);
+            }
+            min_priorities
+                .push(cache.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none()));
+        }
+
+        let mut missing = vec![Vec::new(); self.0.len()];
+        VNode::breadth_first(|node| {
+            let priority = quadtree.node_priority(node);
+            if priority < Priority::cutoff() {
+                return false;
+            }
+            let level = node.level() as usize;
+            if !self.contains(node)
+                && (priority > min_priorities[level] || !self.0[level].is_full())
+            {
+                missing[level].push(Entry::new(node, priority));
+            }
+
+            node.level() < MAX_QUADTREE_LEVEL
+        });
+
+        for (cache, missing) in self.0.iter_mut().zip(missing.into_iter()) {
+            cache.insert(missing);
+        }
+    }
+
+    fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
+        let mut generators = GeneratorMask::empty();
+
+        if let Some(entry) = self.get(node) {
+            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
+                generators |= entry
+                    .generators
+                    .get(layer.index())
+                    .copied()
+                    .unwrap_or_else(GeneratorMask::empty);
+            }
+        }
+        generators
+    }
+}
+
 pub(crate) struct TileCache {
-    levels: Vec<PriorityCache<Entry>>,
+    levels: Levels,
     level_masks: Vec<LayerMask>,
 
     layers: VecMap<LayerParams>,
@@ -385,8 +470,8 @@ impl TileCache {
         let mut base_slot = 0;
         let mut meshes = Vec::new();
         for mut desc in mesh_layers {
-            let num_slots = (TileCache::base_slot(desc.max_level + 1)
-                - TileCache::base_slot(desc.min_level))
+            let num_slots = (Levels::base_slot(desc.max_level + 1)
+                - Levels::base_slot(desc.min_level))
                 * desc.entries_per_node;
             let index_buffer_offset = index_buffer_contents.len() as u64;
             index_buffer_contents.append(&mut desc.index_buffer);
@@ -439,7 +524,7 @@ impl TileCache {
             completed_downloads_rx: completed_rx,
             free_download_buffers: Vec::new(),
             total_download_buffers: 0,
-            levels,
+            levels: Levels(levels),
             layers,
             meshes,
             generators,
@@ -464,7 +549,7 @@ impl TileCache {
             if gen.needs_refresh() {
                 assert!(i < 32);
                 let mask = GeneratorMask::from_index(i);
-                for cache in self.levels.iter_mut() {
+                for cache in self.levels.0.iter_mut() {
                     for slot in cache.slots_mut() {
                         for (layer, generator_mask) in &slot.generators {
                             if generator_mask.intersects(mask) {
@@ -508,7 +593,7 @@ impl TileCache {
             }
         }
 
-        TileCache::update_levels(self, quadtree);
+        self.levels.update(quadtree);
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let (command_buffer, mut planned_heightmap_downloads) =
@@ -597,11 +682,11 @@ impl TileCache {
                 padding0: 0.0,
                 padding: [0; 43],
             };
-            TileCache::base_slot(self.levels.len() as u8)
+            Levels::base_slot(self.levels.0.len() as u8)
         ];
-        for (level_index, level) in self.levels.iter().enumerate() {
+        for (level_index, level) in self.levels.0.iter().enumerate() {
             for (slot_index, slot) in level.slots().into_iter().enumerate() {
-                let index = TileCache::base_slot(level_index as u8) + slot_index;
+                let index = Levels::base_slot(level_index as u8) + slot_index;
 
                 data[index].node_center = slot.node.center_wspace().into();
                 data[index].level = level_index as u32;
@@ -617,7 +702,7 @@ impl TileCache {
                 data[index].parent = slot
                     .node
                     .parent()
-                    .and_then(|(parent, _)| self.get_slot(parent))
+                    .and_then(|(parent, _)| self.levels.get_slot(parent))
                     .map(|s| s as i32)
                     .unwrap_or(-1);
 
@@ -639,9 +724,7 @@ impl TileCache {
                 let mut base_offset = cgmath::Vector2::new(0.0, 0.0);
                 let mut found_layers = LayerMask::empty();
                 for ancestor_index in 0..=level_index {
-                    if let Some(ancestor_slot) =
-                        self.levels[ancestor.level() as usize].entry(&ancestor)
-                    {
+                    if let Some(ancestor_slot) = self.levels.get(ancestor) {
                         for (layer_index, layer) in LayerType::iter().enumerate() {
                             let layer_slot = if !found_layers.contains_layer(layer)
                                 && (ancestor_slot.valid.contains_layer(layer)
@@ -678,8 +761,8 @@ impl TileCache {
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
                             ];
-                            data[index].layer_slots[layer_slot] = (self.get_slot(ancestor).unwrap()
-                                - Self::base_slot(self.layers[layer].min_level))
+                            data[index].layer_slots[layer_slot] = (self.levels.get_slot(ancestor).unwrap()
+                                - Levels::base_slot(self.layers[layer].min_level))
                                 as i32;
                             data[index].layer_ratios[layer_slot] =
                                 f32::powi(0.5, ancestor_index as i32) * texture_ratio;
@@ -698,27 +781,6 @@ impl TileCache {
         queue.write_buffer(&gpu_state.nodes, 0, bytemuck::cast_slice(&data));
     }
 
-    fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
-        let mut generators = GeneratorMask::empty();
-
-        if let Some(entry) = self.levels[node.level() as usize].entry(&node) {
-            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
-                generators |= entry
-                    .generators
-                    .get(layer.index())
-                    .copied()
-                    .unwrap_or_else(GeneratorMask::empty);
-            }
-        }
-        generators
-    }
-
-    pub fn make_gpu_tile_cache(
-        &self,
-        device: &wgpu::Device,
-    ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
-        self.make_cache_textures(device)
-    }
     pub fn make_gpu_mesh_index(&self, device: &wgpu::Device) -> wgpu::Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&self.index_buffer_contents),
@@ -764,7 +826,7 @@ impl TileCache {
                     base_entry: c.base_entry as u32,
                     entries_per_node: c.desc.entries_per_node as u32,
                     num_nodes: (c.num_entries / c.desc.entries_per_node) as u32,
-                    base_slot: TileCache::base_slot(c.desc.min_level) as u32,
+                    base_slot: Levels::base_slot(c.desc.min_level) as u32,
                     mesh_index: mesh_index as u32,
                 },
             );
@@ -797,5 +859,9 @@ impl TileCache {
         for (_, c) in &self.meshes {
             c.render_shadow(device, rpass, gpu_state);
         }
+    }
+
+    pub fn contains_layers(&self, node: VNode, layers: LayerMask) -> bool {
+        self.levels.contains_layers(node, layers)
     }
 }
