@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -126,24 +126,28 @@ fn bulk_http_download<F: FnMut(String, usize, usize) + Send>(
     let progress = AtomicProgress::new(message, progress_callback, downloads.len() as u64);
 
     let client = reqwest::blocking::ClientBuilder::new().timeout(None).build().unwrap();
-    downloads.into_iter().try_for_each(|(url, path)| -> Result<(), anyhow::Error> {
-        if path.exists() {
-            let metadata = client.head(&url).send().unwrap();
-            if let Some(size) = metadata.headers().get(reqwest::header::CONTENT_LENGTH) {
-                let size = size.to_str().unwrap().parse::<u64>().unwrap();
-                if size == std::fs::metadata(&path).unwrap().len() {
-                    progress.tick();
-                    return Ok(());
+    downloads
+        .into_iter()
+        .try_for_each(|(url, path)| -> Result<(), anyhow::Error> {
+            if path.exists() {
+                let metadata = client.head(&url).send().unwrap();
+                if let Some(size) = metadata.headers().get(reqwest::header::CONTENT_LENGTH) {
+                    let size = size.to_str().unwrap().parse::<u64>().unwrap();
+                    if size == std::fs::metadata(&path).unwrap().len() {
+                        progress.tick();
+                        return Ok(());
+                    }
                 }
             }
-        }
 
-        let contents = client.get(&url).send().unwrap().bytes().unwrap().to_vec();
-        AtomicFile::new(path, OverwriteBehavior::AllowOverwrite)
-            .write(|f| f.write_all(&contents)).unwrap();
-        progress.tick();
-        Ok(())
-    }).unwrap();
+            let contents = client.get(&url).send().unwrap().bytes().unwrap().to_vec();
+            AtomicFile::new(path, OverwriteBehavior::AllowOverwrite)
+                .write(|f| f.write_all(&contents))
+                .unwrap();
+            progress.tick();
+            Ok(())
+        })
+        .unwrap();
     Ok(())
 }
 

@@ -17,7 +17,7 @@ use std::num::NonZeroU64;
 use std::ops::{Index, IndexMut, RangeInclusive};
 use std::sync::Arc;
 use std::{collections::HashMap, num::NonZeroU32};
-pub(crate) use tile::{TextureFormat};
+pub(crate) use tile::TextureFormat;
 use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;

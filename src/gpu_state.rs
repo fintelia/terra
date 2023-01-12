@@ -2,7 +2,7 @@ use std::{borrow::Cow, collections::HashMap, num::NonZeroU8};
 
 use crate::{
     billboards::Models,
-    cache::{MeshType, TileCache, LAYERS_BY_NAME, Levels},
+    cache::{Levels, MeshType, TileCache, LAYERS_BY_NAME},
     mapfile::MapFile,
 };
 use types::MAX_QUADTREE_LEVEL;
