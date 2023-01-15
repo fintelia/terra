@@ -17,11 +17,8 @@ pub mod download;
 #[cfg(feature = "generate")]
 mod generate;
 mod gpu_state;
-mod load;
 mod mapfile;
-mod noise;
 mod quadtree;
-mod sky;
 mod speedtree_xml;
 mod srgb;
 mod stream;
@@ -59,149 +56,14 @@ pub struct Terrain {
     _models: Models,
 }
 impl Terrain {
-    #[cfg(feature = "generate")]
-    pub async fn generate_and_new<
-        P: AsRef<std::path::Path>,
-        F: FnMut(String, usize, usize) + Send,
-    >(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        server: String,
-        dataset_directory: P,
-        mut progress_callback: F,
-    ) -> Result<Self, Error> {
-        let dataset_directory = dataset_directory.as_ref();
-
-        let copernicus_hgt = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "copernicus-hgt",
-            max_level: VNode::LEVEL_CELL_76M,
-            no_data_value: 0i16,
-            grid_registration: true,
-            bits_per_sample: vec![16],
-            signed: true,
-        };
-        copernicus_hgt.reproject(&mut progress_callback)?;
-        copernicus_hgt.downsample_grid(&mut progress_callback)?;
-
-        let landfraction = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "landfraction",
-            max_level: VNode::LEVEL_CELL_38M,
-            no_data_value: 0u8,
-            grid_registration: false,
-            bits_per_sample: vec![8],
-            signed: false,
-        };
-        landfraction.reproject_from("copernicus-wbm", 1u8, &mut progress_callback, |values| {
-            values.iter_mut().for_each(|v| match v {
-                1 | 2 | 3 => *v = 0,
-                _ => *v = 255,
-            })
-        })?;
-        landfraction.downsample_average_int(&mut progress_callback)?;
-
-        let copernicus_wbm = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "copernicus-wbm",
-            max_level: VNode::LEVEL_CELL_76M,
-            no_data_value: 1u8,
-            grid_registration: true,
-            bits_per_sample: vec![8],
-            signed: false,
-        };
-        copernicus_wbm.reproject(&mut progress_callback)?;
-        copernicus_wbm.downsample_grid(&mut progress_callback)?;
-
-        let treecover = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "treecover",
-            max_level: VNode::LEVEL_CELL_76M,
-            no_data_value: 0u8,
-            grid_registration: false,
-            bits_per_sample: vec![8],
-            signed: false,
-        };
-        treecover.reproject(&mut progress_callback)?;
-        treecover.downsample_average_int(&mut progress_callback)?;
-
-        let blue_marble = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "bluemarble",
-            max_level: VNode::LEVEL_CELL_610M,
-            no_data_value: 0u8,
-            grid_registration: false,
-            bits_per_sample: vec![8, 8, 8],
-            signed: false,
-        };
-        blue_marble.reproject(&mut progress_callback)?;
-        blue_marble.downsample_average_int(&mut progress_callback)?;
-
-        let water_level = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "water-level",
-            max_level: VNode::LEVEL_CELL_76M,
-            no_data_value: 0i16,
-            grid_registration: true,
-            bits_per_sample: vec![16],
-            signed: true,
-        };
-        water_level.compute_water_level(
-            &copernicus_hgt,
-            &copernicus_wbm,
-            &mut progress_callback,
-        )?;
-        water_level.downsample_grid(&mut progress_callback)?;
-
-        let shore_distance = generate::Dataset {
-            base_directory: dataset_directory.to_owned(),
-            dataset_name: "shore-distance",
-            max_level: VNode::LEVEL_CELL_76M,
-            no_data_value: i16::MIN,
-            grid_registration: true,
-            bits_per_sample: vec![16],
-            signed: true,
-        };
-        shore_distance.compute_shore_distance(&copernicus_wbm, &mut progress_callback)?;
-        shore_distance.downsample_grid(&mut progress_callback)?;
-
-        generate::merge_datasets_to_tiles(
-            dataset_directory.to_owned(),
-            copernicus_hgt,
-            water_level,
-            shore_distance,
-            blue_marble,
-            treecover,
-            landfraction,
-            &mut progress_callback,
-        )?;
-
-        let mapfile = Arc::new(load::build_mapfile(server).await?);
-        generate::generate_materials(
-            &*mapfile,
-            dataset_directory.join("free_pbr"),
-            &mut progress_callback,
-        )
-        .await?;
-
-        Self::new_impl(device, queue, mapfile)
-    }
-
     /// Create a new Terrain object.
     pub async fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         server: String,
     ) -> Result<Self, Error> {
-        let mapfile = Arc::new(load::build_mapfile(server).await?);
-        Self::new_impl(device, queue, mapfile)
-    }
+        let mapfile = Arc::new(MapFile::new(server).await?);
 
-    fn new_impl(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        mapfile: Arc<MapFile>,
-    ) -> Result<Self, Error> {
         let mesh_layers = MeshType::iter()
             .map(|ty| match ty {
                 MeshType::Terrain => MeshCacheDesc {
@@ -308,9 +170,9 @@ impl Terrain {
             })
             .collect();
 
-        let models = Models::new()?;
+        let models = Models::new(&mapfile).await?;
         let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
-        let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models)?;
+        let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models).await?;
         let quadtree = QuadTree::new();
 
         models.render_billboards(device, queue, &gpu_state);
@@ -730,6 +592,120 @@ impl Terrain {
         }
         0.0
     }
+}
+
+#[cfg(feature = "generate")]
+pub async fn generate<P: AsRef<std::path::Path>, F: FnMut(String, usize, usize) + Send>(
+    dataset_directory: P,
+    mut progress_callback: F,
+) -> Result<(), Error> {
+    let dataset_directory = dataset_directory.as_ref();
+    std::fs::create_dir_all(dataset_directory.join("serve").join("tiles"))?;
+    std::fs::create_dir_all(dataset_directory.join("serve").join("assets"))?;
+
+    generate::textures::generate_textures(dataset_directory, &mut progress_callback)?;
+
+    let copernicus_hgt = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "copernicus-hgt",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0i16,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    copernicus_hgt.reproject(&mut progress_callback)?;
+    copernicus_hgt.downsample_grid(&mut progress_callback)?;
+
+    let landfraction = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "landfraction",
+        max_level: VNode::LEVEL_CELL_38M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    landfraction.reproject_from("copernicus-wbm", 1u8, &mut progress_callback, |values| {
+        values.iter_mut().for_each(|v| match v {
+            1 | 2 | 3 => *v = 0,
+            _ => *v = 255,
+        })
+    })?;
+    landfraction.downsample_average_int(&mut progress_callback)?;
+
+    let copernicus_wbm = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "copernicus-wbm",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 1u8,
+        grid_registration: true,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    copernicus_wbm.reproject(&mut progress_callback)?;
+    copernicus_wbm.downsample_grid(&mut progress_callback)?;
+
+    let treecover = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "treecover",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    treecover.reproject(&mut progress_callback)?;
+    treecover.downsample_average_int(&mut progress_callback)?;
+
+    let blue_marble = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "bluemarble",
+        max_level: VNode::LEVEL_CELL_610M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8, 8, 8],
+        signed: false,
+    };
+    blue_marble.reproject(&mut progress_callback)?;
+    blue_marble.downsample_average_int(&mut progress_callback)?;
+
+    let water_level = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "water-level",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0i16,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    water_level.compute_water_level(&copernicus_hgt, &copernicus_wbm, &mut progress_callback)?;
+    water_level.downsample_grid(&mut progress_callback)?;
+
+    let shore_distance = generate::Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "shore-distance",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: i16::MIN,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    shore_distance.compute_shore_distance(&copernicus_wbm, &mut progress_callback)?;
+    shore_distance.downsample_grid(&mut progress_callback)?;
+
+    generate::merge_datasets_to_tiles(
+        dataset_directory.to_owned(),
+        copernicus_hgt,
+        water_level,
+        shore_distance,
+        blue_marble,
+        treecover,
+        landfraction,
+        &mut progress_callback,
+    )?;
+
+    Ok(())
 }
 
 #[cfg(test)]

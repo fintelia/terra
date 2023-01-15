@@ -8,7 +8,6 @@ use crate::{
     cache::tile::NodeSlot, compute_shader::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
     quadtree::QuadTree,
 };
-use basis_universal::TranscoderTextureFormat;
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
@@ -165,7 +164,7 @@ impl LayerType {
             LayerType::AerialPerspective => &[TextureFormat::RGBA16F],
             LayerType::BentNormals => &[TextureFormat::RGBA8],
             LayerType::TreeCover => &[TextureFormat::R8],
-            LayerType::BaseAlbedo => &[TextureFormat::UASTC],
+            LayerType::BaseAlbedo => &[TextureFormat::RGBA8],
             LayerType::RootAerialPerspective => &[TextureFormat::RGBA16F],
             LayerType::LandFraction => &[TextureFormat::R8],
             LayerType::Slopes => &[TextureFormat::RG16F],
@@ -602,9 +601,12 @@ impl TileCache {
 
         let transcode_format = if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
         {
-            TranscoderTextureFormat::BC7_RGBA
+            wgpu::TextureFormat::Bc7RgbaUnorm
         } else {
-            TranscoderTextureFormat::ASTC_4x4_RGBA
+            wgpu::TextureFormat::Astc {
+                block: wgpu::AstcBlock::B4x4,
+                channel: wgpu::AstcChannel::Unorm,
+            }
         };
 
         Self {

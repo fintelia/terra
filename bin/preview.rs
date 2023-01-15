@@ -10,17 +10,17 @@ use winit::{
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(short, long, default_value = "8FH495PF+29")]
+    #[arg(short, long, global = true, default_value = "8FH495PF+29")]
     plus: String,
-    #[arg(short, long, default_value = "0")]
+    #[arg(long, global = true, default_value = "0")]
     heading: f64,
-    #[arg(short, long, default_value = "200000")]
+    #[arg(short, long, global = true, default_value = "200000")]
     elevation: f64,
-    #[arg(long)]
+    #[arg(long, global = true)]
     time: Option<String>,
-    #[arg(long, default_value = "0.0")]
+    #[arg(long, global = true, default_value = "0.0")]
     timescale: f64,
-    #[arg(long)]
+    #[arg(long, global = true)]
     server: Option<String>,
 
     #[command(subcommand)]
@@ -195,9 +195,8 @@ fn main() {
     let mut space_key = false;
     let mut z_key = false;
 
-    let server = opt.server.unwrap_or_else(|| terra::DEFAULT_TILE_SERVER_URL.to_string());
-    let mut terrain = match opt.subcommand {
-        Some(opt2) => match opt2 {
+    if let Some(opt2) = opt.subcommand {
+        match opt2 {
             #[cfg(feature = "generate")]
             SubcommandArgs::Generate { path, download } => {
                 let pb = indicatif::ProgressBar::new(100);
@@ -229,19 +228,13 @@ fn main() {
                         .unwrap();
                 }
 
-                runtime
-                    .block_on(terra::Terrain::generate_and_new(
-                        &device,
-                        &queue,
-                        server,
-                        path.clone(),
-                        progress_callback,
-                    ))
-                    .unwrap()
+                runtime.block_on(terra::generate(path.clone(), progress_callback)).unwrap()
             }
-        },
-        None => runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap(),
+        }
     };
+
+    let server = opt.server.unwrap_or_else(|| terra::DEFAULT_TILE_SERVER_URL.to_string());
+    let mut terrain = runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap();
 
     {
         while terrain.poll_loading_status(

@@ -1,7 +1,6 @@
-use crate::cache::TextureFormat;
 use crate::coordinates;
 use crate::generate::heightmap::CogTileCache;
-use crate::mapfile::{MapFile, TextureDescriptor};
+use crate::generate::ktx2encode::encode_ktx2;
 use aligned_buf::AlignedBuf;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
@@ -11,16 +10,21 @@ use itertools::Itertools;
 use num_traits::{WrappingAdd, WrappingSub, Zero};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, mem};
 use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use zip::ZipWriter;
 
-pub mod heightmap;
+pub(crate) mod heightmap;
+mod ktx2encode;
 mod material;
+mod noise;
+mod sky;
+pub(crate) mod textures;
 
 fn scan_directory(
     base: &Path,
@@ -705,20 +709,27 @@ where
     let max_level = VNode::LEVEL_CELL_76M;
 
     let tile_list_path = serve_directory.join("tile_list.txt.lz4");
-    let all_tiles = tile_list_path
-        .exists()
-        .then(|| crate::mapfile::MapFile::parse_tile_list(&fs::read(&tile_list_path)?))
-        .transpose()?;
+    let all_tiles: Option<HashSet<VNode>> = if tile_list_path.exists() {
+        let mut remote_files = String::new();
+        lz4::Decoder::new(std::io::Cursor::new(&fs::read(&tile_list_path)?))?
+            .read_to_string(&mut remote_files)?;
+        Some(
+            remote_files
+                .split('\n')
+                .filter_map(|f| f.strip_suffix(".raw"))
+                .map(VNode::from_str)
+                .collect::<Result<HashSet<VNode>, Error>>()?,
+        )
+    } else {
+        None
+    };
 
     let mut total_tiles = 0;
     let mut missing_tiles = Vec::new();
     VNode::breadth_first(|n| {
-        if all_tiles.is_none()
-            || all_tiles.as_ref().unwrap().contains(&(n.level(), n.face(), n.x(), n.y()))
-        {
-            let filename = format!("{}_{}_{}x{}.raw", n.level(), VFace(n.face()), n.x(), n.y());
-
+        if all_tiles.is_none() || all_tiles.as_ref().unwrap().contains(&n) {
             total_tiles += 1;
+            let filename = format!("{}.raw", n);
             if !existing_tiles.contains(&filename) {
                 missing_tiles.push((tiles_directory.join(filename), n));
             }
@@ -970,19 +981,22 @@ where
 
             if let Some(ref layer) = layers[LAYER_ALBEDO] {
                 if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
-                    compressed_layers.insert("albedo.basis", Vec::new());
+                    compressed_layers.insert("albedo.ktx2", Vec::new());
                 } else {
-                    let mut albedo_params = basis_universal::encoding::CompressorParams::new();
-                    albedo_params.set_basis_format(basis_universal::BasisTextureFormat::ETC1S);
-                    albedo_params.set_etc1s_quality_level(basis_universal::ETC1S_QUALITY_MIN);
-                    // albedo_params.set_generate_mipmaps(true);
-                    albedo_params.source_image_mut(0).init(layer.as_slice(), 516, 516, 3);
+                    let layer = layer.as_slice::<u8>();
+                    assert_eq!(layer.len(), 516 * 516 * 3);
+                    let mut albedo = vec![0; 516 * 516 * 4];
+                    for i in 0..516 * 516 {
+                        albedo[i * 4] = layer[i * 3];
+                        albedo[i * 4 + 1] = layer[i * 3 + 1];
+                        albedo[i * 4 + 2] = layer[i * 3 + 2];
+                        albedo[i * 4 + 3] = 255;
+                    }
 
-                    let mut compressor = basis_universal::encoding::Compressor::new(1);
-                    unsafe { compressor.init(&albedo_params) };
-                    unsafe { compressor.process().unwrap() };
-
-                    compressed_layers.insert("albedo.basis", compressor.basis_file().to_vec());
+                    compressed_layers.insert(
+                        "albedo.ktx2",
+                        encode_ktx2(&[albedo], 516, 516, 0, 0, ktx2::Format::R8G8B8A8_UNORM)?,
+                    );
                 }
             }
 
@@ -1024,64 +1038,6 @@ where
         AtomicFile::new(tile_list_path, OverwriteBehavior::AllowOverwrite)
             .write(|f| f.write_all(&list_compressed))?;
     }
-
-    Ok(())
-}
-
-pub(crate) async fn generate_materials<F: FnMut(String, usize, usize) + Send>(
-    mapfile: &MapFile,
-    free_pbr_directory: PathBuf,
-    mut progress_callback: F,
-) -> Result<(), Error> {
-    if mapfile.reload_texture("ground_albedo") {
-        return Ok(());
-    }
-
-    let mut albedo_params = basis_universal::encoding::CompressorParams::new();
-    albedo_params.set_basis_format(basis_universal::BasisTextureFormat::UASTC4x4);
-    albedo_params.set_generate_mipmaps(true);
-
-    let materials = [("ground", "leafy-grass2"), ("ground", "grass1"), ("rocks", "granite5")];
-
-    for (i, (group, name)) in materials.iter().enumerate() {
-        let path = free_pbr_directory.join(format!("Blender/{}-bl/{}-bl", group, name));
-
-        let mut albedo_path = None;
-        for file in std::fs::read_dir(&path)? {
-            let file = file?;
-            let filename = file.file_name();
-            let filename = filename.to_string_lossy();
-            if filename.contains("albedo") {
-                albedo_path = Some(file.path());
-            }
-        }
-
-        let mut albedo = image::open(albedo_path.unwrap())?.to_rgb8();
-        //material::high_pass_filter(&mut albedo);
-        assert_eq!(albedo.width(), 2048);
-        assert_eq!(albedo.height(), 2048);
-
-        albedo =
-            image::imageops::resize(&albedo, 1024, 1024, image::imageops::FilterType::Triangle);
-
-        albedo_params.source_image_mut(i as u32).init(&*albedo, 1024, 1024, 3);
-    }
-
-    progress_callback("Compressing ground albedo textures".to_owned(), 0, 1);
-    let mut compressor = basis_universal::encoding::Compressor::new(8);
-    unsafe { compressor.init(&albedo_params) };
-    unsafe { compressor.process().unwrap() };
-    progress_callback("Compressing ground albedo textures".to_owned(), 1, 1);
-
-    let albedo_desc = TextureDescriptor {
-        width: 1024,
-        height: 1024,
-        depth: materials.len() as u32,
-        format: TextureFormat::UASTC,
-        array_texture: true,
-    };
-
-    mapfile.write_texture("ground_albedo", albedo_desc, compressor.basis_file())?;
 
     Ok(())
 }

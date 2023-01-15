@@ -39,6 +39,61 @@ pub(crate) struct GlobalUniformBlock {
 unsafe impl bytemuck::Pod for GlobalUniformBlock {}
 unsafe impl bytemuck::Zeroable for GlobalUniformBlock {}
 
+pub(crate) fn texture_from_ktx2_bytes(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    bytes: &[u8],
+    label: &str,
+) -> Result<wgpu::Texture, anyhow::Error> {
+    let reader = ktx2::Reader::new(bytes)?;
+
+    let header = reader.header();
+    assert_eq!(header.supercompression_scheme, None);
+
+    let format = match header.format {
+        Some(ktx2::Format::R8_UNORM) => wgpu::TextureFormat::R8Unorm,
+        Some(ktx2::Format::R8G8_UNORM) => wgpu::TextureFormat::Rg8Unorm,
+        Some(ktx2::Format::R8G8B8A8_UNORM) => wgpu::TextureFormat::Rgba8Unorm,
+        Some(ktx2::Format::R32G32B32A32_SFLOAT) => wgpu::TextureFormat::Rgba32Float,
+        _ => unimplemented!("Unsupported format: {:?}", header.format),
+    };
+    let format_info = format.describe();
+    assert_eq!(format_info.block_dimensions.0, format_info.block_dimensions.1);
+
+    let data = reader.levels().flatten().copied().collect::<Vec<_>>();
+    Ok(device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some(&format!("texture.{}", label)),
+            size: wgpu::Extent3d {
+                width: header.pixel_width,
+                height: header.pixel_height,
+                depth_or_array_layers: if header.pixel_depth > 1 {
+                    header.pixel_depth
+                } else {
+                    header.layer_count.max(1) * header.face_count
+                },
+            },
+            mip_level_count: header.level_count.max(1),
+            sample_count: 1,
+            dimension: if header.pixel_depth > 1 {
+                wgpu::TextureDimension::D3
+            } else if header.pixel_height > 1 {
+                wgpu::TextureDimension::D2
+            } else {
+                wgpu::TextureDimension::D1
+            },
+            format,
+            usage: if format_info.is_compressed() {
+                wgpu::TextureUsages::TEXTURE_BINDING
+            } else {
+                wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING
+            },
+        },
+        &data,
+    ))
+}
+
 pub(crate) struct GpuState {
     pub tile_cache: VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
 
@@ -84,7 +139,7 @@ pub(crate) struct GpuState {
     shadow_sampler: wgpu::Sampler,
 }
 impl GpuState {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         mapfile: &MapFile,
@@ -99,20 +154,34 @@ impl GpuState {
             (t, view)
         };
 
+        let from_ktx2 = |(filename, bytes):  (&'static str,Vec<u8>)|
+            -> Result<(wgpu::Texture, wgpu::TextureView), anyhow::Error>
+        {
+            Ok(with_view(filename, texture_from_ktx2_bytes(device, queue, &bytes, filename)?))
+        };
+
         let (model_storage, model_indices) = models.make_buffers(device);
 
+        async fn download(mapfile: &MapFile, name: &'static str) -> (&'static str, Vec<u8>) {
+            (name, mapfile.read_asset(name).await.expect(&format!("failed to download {}", name)))
+        }
+        let (noise, sky, cloudcover, transmittance, inscattering, ground_albedo) = tokio::join!(
+            download(mapfile, "noise.ktx2"),
+            download(mapfile, "sky.ktx2"),
+            download(mapfile, "cloudcover.ktx2"),
+            download(mapfile, "transmittance.ktx2"),
+            download(mapfile, "inscattering.ktx2"),
+            download(mapfile, "ground_albedo.ktx2"),
+        );
+
         Ok(GpuState {
-            noise: with_view("noise", mapfile.read_texture(device, queue, "noise")?),
-            sky: with_view("sky", mapfile.read_texture(device, queue, "sky")?),
-            cloudcover: with_view("sky", mapfile.read_texture(device, queue, "cloudcover")?),
-            transmittance: with_view(
-                "transmittance",
-                mapfile.read_texture(device, queue, "transmittance")?,
-            ),
-            inscattering: with_view(
-                "inscattering",
-                mapfile.read_texture(device, queue, "inscattering")?,
-            ),
+            noise: from_ktx2(noise)?,
+            sky: from_ktx2(sky)?,
+            cloudcover: from_ktx2(cloudcover)?,
+            transmittance: from_ktx2(transmittance)?,
+            inscattering: from_ktx2(inscattering)?,
+            ground_albedo: from_ktx2(ground_albedo)?,
+
             skyview: with_view(
                 "skyview",
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -141,10 +210,7 @@ impl GpuState {
             topdown_normals: with_view("topdown.normals", models.make_topdown_normals(device)),
             topdown_depth: with_view("topdown.depth", models.make_topdown_depth(device)),
             topdown_ao: with_view("topdown.ao", models.make_topdown_ao(device)),
-            ground_albedo: with_view(
-                "ground_albedo",
-                mapfile.read_texture(device, queue, "ground_albedo")?,
-            ),
+
             shadowmap: with_view(
                 "shadowmap",
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -182,7 +248,21 @@ impl GpuState {
             }),
             model_storage,
             model_indices,
-            starfield: crate::sky::create_starfield(device),
+            starfield: {
+                let mut stars = vec![0.0f32; 4 * 9096];
+                bytemuck::cast_slice_mut(&mut stars)
+                    .copy_from_slice(include_bytes!("../assets/stars.bin"));
+                for star in stars.chunks_mut(4) {
+                    let (gal_lat, gal_long) = (star[0] as f64, star[1] as f64);
+                    star[0] = astro::coords::dec_frm_gal(gal_long, gal_lat) as f32;
+                    star[1] = astro::coords::asc_frm_gal(gal_long, gal_lat) as f32;
+                }
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("buffer.starfield"),
+                    contents: bytemuck::cast_slice(&stars),
+                    usage: wgpu::BufferUsages::STORAGE,
+                })
+            },
             globals: device.create_buffer(&wgpu::BufferDescriptor {
                 size: std::mem::size_of::<GlobalUniformBlock>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,

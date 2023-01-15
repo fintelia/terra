@@ -1,8 +1,6 @@
 use crate::cache::LayerType;
-// use crate::generate::heightmap::HeightmapCache;
 use crate::mapfile::MapFile;
 use anyhow::Error;
-use basis_universal::{Transcoder, TranscoderTextureFormat};
 use futures::{FutureExt, StreamExt};
 use std::io::{Cursor, Read};
 use std::sync::Arc;
@@ -30,7 +28,7 @@ pub(crate) struct TileStreamerEndpoint {
 impl TileStreamerEndpoint {
     pub(crate) fn new(
         mapfile: Arc<MapFile>,
-        transcode_format: TranscoderTextureFormat,
+        transcode_format: wgpu::TextureFormat,
     ) -> Result<Self, Error> {
         let (sender, requests) = unbounded_channel();
         let (results, receiver) = crossbeam::channel::unbounded();
@@ -83,7 +81,7 @@ impl TileStreamerEndpoint {
 struct TileStreamer {
     requests: UnboundedReceiver<(VNode, Instant)>,
     results: crossbeam::channel::Sender<TileResult>,
-    transcode_format: TranscoderTextureFormat,
+    transcode_format: wgpu::TextureFormat,
     mapfile: Arc<MapFile>,
 }
 
@@ -91,7 +89,7 @@ impl TileStreamer {
     fn parse_tile(
         node: VNode,
         bytes: &[u8],
-        transcode_format: TranscoderTextureFormat,
+        _transcode_format: wgpu::TextureFormat,
     ) -> Result<TileResult, Error> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
         let mut result =
@@ -151,15 +149,12 @@ impl TileStreamer {
         }
         result.layers.insert(LayerType::LandFraction.index(), landfraction);
 
-        if let Some(bytes) = get_file("albedo.basis")? {
+        if let Some(bytes) = get_file("albedo.ktx2")? {
             if !bytes.is_empty() {
-                let mut transcoder = Transcoder::new();
-                transcoder.prepare_transcoding(&bytes).unwrap();
-                let data = transcoder
-                    .transcode_image_level(&bytes, transcode_format, Default::default())
-                    .map_err(|e| anyhow::format_err!("corrupt albedo.basis: {:?}", e))?;
-                transcoder.end_transcoding();
-                result.layers.insert(LayerType::BaseAlbedo.index(), data);
+                result.layers.insert(
+                    LayerType::BaseAlbedo.index(),
+                    ktx2::Reader::new(bytes)?.levels().next().unwrap().to_vec(),
+                );
             } else {
                 result.layers.insert(LayerType::BaseAlbedo.index(), vec![0u8; 516 * 516 * 4]);
             }

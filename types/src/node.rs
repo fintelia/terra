@@ -1,7 +1,7 @@
 use crate::{InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
 use cgmath::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, str::FromStr};
 
 const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
 
@@ -378,6 +378,50 @@ impl std::fmt::Display for VNode {
         };
 
         write!(f, "N{}-{}-{}x{}", self.level(), face, self.x(), self.y())
+    }
+}
+
+impl FromStr for VNode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('-');
+
+        let level = parts
+            .next()
+            .and_then(|l| l.strip_prefix('N'))
+            .map(str::parse::<u8>)
+            .transpose()?
+            .filter(|&l| l <= MAX_QUADTREE_LEVEL)
+            .ok_or(anyhow::anyhow!("Invalid level"))?;
+
+        let face = match parts.next() {
+            Some("0E") => 0,
+            Some("180E") => 1,
+            Some("90E") => 2,
+            Some("90W") => 3,
+            Some("N") => 4,
+            Some("S") => 5,
+            _ => anyhow::bail!("Invalid face"),
+        };
+        let mut xy = parts.next().ok_or(anyhow::anyhow!("Invalid XY"))?.split('x');
+        let x = xy
+            .next()
+            .map(str::parse::<u32>)
+            .transpose()?
+            .filter(|&v| v <= 0x3ffffff && v < (1 << level))
+            .ok_or(anyhow::anyhow!("Bax X"))?;
+        let y = xy
+            .next()
+            .map(str::parse::<u32>)
+            .transpose()?
+            .filter(|&v| v <= 0x3ffffff && v < (1 << level))
+            .ok_or(anyhow::anyhow!("Bax Y"))?;
+
+        if parts.next().is_some() {
+            anyhow::bail!("Extra data");
+        }
+        Ok(VNode::new(level, face, x, y))
     }
 }
 
