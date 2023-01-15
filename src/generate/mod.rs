@@ -19,6 +19,7 @@ use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use zip::ZipWriter;
 
+pub(crate) mod download;
 pub(crate) mod heightmap;
 mod ktx2encode;
 mod material;

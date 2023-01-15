@@ -209,7 +209,7 @@ fn main() {
                         .progress_chars("=> "),
                 );
                 let mut last_message: Option<String> = None;
-                let mut progress_callback = |l: String, i: usize, total: usize| {
+                let progress_callback = |l: String, i: usize, total: usize| {
                     pb.set_length(total as u64);
                     pb.set_position(i as u64);
                     if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
@@ -218,17 +218,7 @@ fn main() {
                         pb.reset_eta();
                     }
                 };
-
-                if download {
-                    terra::download::download_bluemarble(&path, &mut progress_callback).unwrap();
-                    terra::download::download_treecover(&path, &mut progress_callback).unwrap();
-                    terra::download::download_copernicus_wbm(&path, &mut progress_callback)
-                        .unwrap();
-                    terra::download::download_copernicus_hgt(&path, &mut progress_callback)
-                        .unwrap();
-                }
-
-                runtime.block_on(terra::generate(path.clone(), progress_callback)).unwrap()
+                runtime.block_on(terra::generate(&path, download, progress_callback)).unwrap()
             }
         }
     };

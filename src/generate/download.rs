@@ -375,7 +375,7 @@ pub fn download_treecover<F: FnMut(String, usize, usize) + Send>(
 
     bulk_http_download(
         "Downloading treecover".to_string(),
-        include_str!("../file_list_treecover.txt")
+        include_str!("../../file_list_treecover.txt")
             .lines()
             .map(|line| {
                 let local_path = directory.join(line);

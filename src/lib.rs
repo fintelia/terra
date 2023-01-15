@@ -7,13 +7,10 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
-mod asset;
 mod billboards;
 mod cache;
 mod compute_shader;
 mod coordinates;
-#[cfg(feature = "generate")]
-pub mod download;
 #[cfg(feature = "generate")]
 mod generate;
 mod gpu_state;
@@ -597,11 +594,19 @@ impl Terrain {
 #[cfg(feature = "generate")]
 pub async fn generate<P: AsRef<std::path::Path>, F: FnMut(String, usize, usize) + Send>(
     dataset_directory: P,
+    download: bool,
     mut progress_callback: F,
 ) -> Result<(), Error> {
     let dataset_directory = dataset_directory.as_ref();
     std::fs::create_dir_all(dataset_directory.join("serve").join("tiles"))?;
     std::fs::create_dir_all(dataset_directory.join("serve").join("assets"))?;
+
+    if download {
+        generate::download::download_bluemarble(&dataset_directory, &mut progress_callback)?;
+        generate::download::download_treecover(&dataset_directory, &mut progress_callback)?;
+        generate::download::download_copernicus_wbm(&dataset_directory, &mut progress_callback)?;
+        generate::download::download_copernicus_hgt(&dataset_directory, &mut progress_callback)?;
+    }
 
     generate::textures::generate_textures(dataset_directory, &mut progress_callback)?;
 
