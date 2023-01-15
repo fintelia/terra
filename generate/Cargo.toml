@@ -1,0 +1,33 @@
+[package]
+name = "terra-generate"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+aligned-buf = { git = "https://github.com/fintelia/aligned-buf", rev = "daec48c6e868b194838b97772c9e018f259aab78" }
+anyhow = "1.0.68"
+atomicwrites = "0.3.1"
+bytemuck = { version = "1.12.3", features = ["extern_crate_alloc"] }
+cgmath = { version = "0.18.0", features = ["mint", "serde"] }
+cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "24e491e823e446c0ddacef2fb5f797952867ff0f" }
+image = "0.24.5"
+imageproc = "0.23.0"
+itertools = "0.10.5"
+ktx2 = "0.3.0"
+lindel = "0.1.1"
+lru = "0.9.0"
+lz4 = "1.24.0"
+md5 = "0.7.0"
+num-traits = "0.2.15"
+rand = "0.8.5"
+rand_distr = "0.4.3"
+rayon = "1.6.1"
+reqwest = { version = "0.11.13", features = ["blocking"] }
+rust-s3 = { version = "0.32.3", features = ["blocking", "tokio"] }
+serde = { version = "1.0.152", features = ["derive"] }
+tiff = "0.8.1"
+types = { path = "../types" }
+vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "36b53590676eb7f6e42ea62279e2facd35249cfb" }
+zip = { version = "0.6.3", features = ["deflate"], default-features = false }

@@ -4,10 +4,8 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::GenericImageView;
 
-use crate::generate::ktx2encode::encode_ktx2;
-use crate::generate::sky::{InscatteringTable, TransmittanceTable};
-
-use super::sky::LookupTableDefinition;
+use crate::ktx2encode::encode_ktx2;
+use crate::sky::{InscatteringTable, TransmittanceTable, LookupTableDefinition};
 
 fn image_to_ktx2(img: image::DynamicImage) -> Result<Vec<u8>, Error> {
     let (width, height) = img.dimensions();
@@ -22,7 +20,7 @@ fn image_to_ktx2(img: image::DynamicImage) -> Result<Vec<u8>, Error> {
     encode_ktx2(&[img_data], width, height, 0, 0, format)
 }
 
-pub(crate) fn generate_textures<F: FnMut(String, usize, usize) + Send>(
+pub fn generate_textures<F: FnMut(String, usize, usize) + Send>(
     base_directory: &Path,
     mut progress_callback: F,
 ) -> Result<(), Error> {
@@ -140,7 +138,7 @@ fn generate_noise<F: FnMut(String, usize, usize) + Send>(
 
     // wavelength = 1.0 / 256.0;
     let noise_heightmaps: Vec<_> =
-        (0..4).map(|i| crate::generate::noise::wavelet_noise(64 << i, 32 >> i)).collect();
+        (0..4).map(|i| crate::noise::wavelet_noise(64 << i, 32 >> i)).collect();
 
     let len = noise_heightmaps[0].heights.len();
     let mut contents = vec![0u8; len * 4];

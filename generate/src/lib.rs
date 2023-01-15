@@ -1,10 +1,10 @@
-use crate::coordinates;
-use crate::generate::heightmap::CogTileCache;
-use crate::generate::ktx2encode::encode_ktx2;
+use crate::heightmap::CogTileCache;
+use crate::ktx2encode::encode_ktx2;
 use aligned_buf::AlignedBuf;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use bytemuck::Pod;
+use cgmath::{InnerSpace, Vector3};
 use cogbuilder::CogBuilder;
 use itertools::Itertools;
 use num_traits::{WrappingAdd, WrappingSub, Zero};
@@ -19,13 +19,21 @@ use std::{io::Write, path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use zip::ZipWriter;
 
-pub(crate) mod download;
-pub(crate) mod heightmap;
+pub mod download;
+pub mod textures;
+
+mod heightmap;
 mod ktx2encode;
 mod material;
 mod noise;
 mod sky;
-pub(crate) mod textures;
+
+fn cspace_to_polar(position: Vector3<f64>) -> Vector3<f64> {
+    let p = Vector3::new(position.x, position.y, position.z).normalize();
+    let latitude = f64::asin(p.z);
+    let longitude = f64::atan2(p.y, p.x);
+    Vector3::new(latitude, longitude, 0.0)
+}
 
 fn scan_directory(
     base: &Path,
@@ -44,7 +52,7 @@ fn scan_directory(
     Ok((directory, existing))
 }
 
-pub(crate) struct Dataset<T> {
+pub struct Dataset<T> {
     pub base_directory: PathBuf,
     pub dataset_name: &'static str,
     pub max_level: u8,
@@ -94,14 +102,14 @@ where
         Ok(cogs)
     }
 
-    pub(crate) fn reproject<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
+    pub fn reproject<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
     where
         F: FnMut(String, usize, usize) + Send,
     {
         self.reproject_from(self.dataset_name, self.no_data_value, progress_callback, |_| {})
     }
 
-    pub(crate) fn reproject_from<F, G>(
+    pub fn reproject_from<F, G>(
         &self,
         base_dataset_name: &str,
         base_no_data: T,
@@ -181,7 +189,7 @@ where
                                 root_border_size,
                                 root_dimensions,
                             );
-                            let polar = coordinates::cspace_to_polar(cspace);
+                            let polar = cspace_to_polar(cspace);
                             let latitude = polar.x.to_degrees();
                             let longitude = polar.y.to_degrees();
                             let x = (longitude - geotransform[0]) / geotransform[1];
@@ -199,7 +207,7 @@ where
                                 root_border_size,
                                 root_dimensions,
                             );
-                            let polar = coordinates::cspace_to_polar(cspace);
+                            let polar = cspace_to_polar(cspace);
                             let latitude = polar.x.to_degrees();
                             let longitude = polar.y.to_degrees();
                             let x = (longitude - geotransform[0]) / geotransform[1];
@@ -358,7 +366,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn derive_dataset<F, G, U>(
+    pub fn derive_dataset<F, G, U>(
         &self,
         input: &Dataset<U>,
         progress_callback: F,
@@ -381,7 +389,7 @@ where
         )
     }
 
-    pub(crate) fn derive_dataset2<F, G, U, V>(
+    pub fn derive_dataset2<F, G, U, V>(
         &self,
         input0: &Dataset<U>,
         input1: &Dataset<V>,
@@ -416,7 +424,7 @@ where
         )
     }
 
-    pub(crate) fn compute_shore_distance<F>(
+    pub fn compute_shore_distance<F>(
         &self,
         wbm: &Dataset<u8>,
         progress_callback: F,
@@ -468,7 +476,7 @@ where
         })
     }
 
-    pub(crate) fn compute_water_level<F>(
+    pub fn compute_water_level<F>(
         &self,
         elevation: &Dataset<i16>,
         water_mask: &Dataset<u8>,
@@ -522,7 +530,7 @@ where
         )
     }
 
-    pub(crate) fn downsample_grid<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
+    pub fn downsample_grid<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
     where
         F: FnMut(String, usize, usize) + Send,
     {
@@ -530,7 +538,7 @@ where
         self.downsample(progress_callback, None::<fn(T, T, T, T) -> T>)
     }
 
-    pub(crate) fn downsample_average_int<F>(
+    pub fn downsample_average_int<F>(
         &self,
         progress_callback: F,
     ) -> Result<(), anyhow::Error>
@@ -546,7 +554,7 @@ where
         )
     }
 
-    pub(crate) fn downsample<F, Downsample>(
+    pub fn downsample<F, Downsample>(
         &self,
         progress_callback: F,
         downsample_func: Option<Downsample>,
@@ -689,7 +697,7 @@ fn compress<T: Pod + PartialEq + Zero>(data: &[T]) -> Vec<u8> {
     bytes
 }
 
-pub(crate) fn merge_datasets_to_tiles<F>(
+pub fn merge_datasets_to_tiles<F>(
     base_directory: PathBuf,
     heights_dataset: Dataset<i16>,
     water_level_dataset: Dataset<i16>,

@@ -33,6 +33,7 @@ futures = "0.3.25"
 gilrs = "0.10.1"
 hyper = { version = "0.14.23", features = ["http1"] }
 hyper-tls = "0.5.0"
+indicatif = {version = "0.17.2", optional = true }
 ktx2 = "0.3.0"
 lazy_static = "1.4.0"
 lz4 = "1.24.0"
@@ -45,6 +46,7 @@ quick-xml = { version = "0.27.1", features = ["serialize"] }
 rshader = { path = "rshader", features = ["dynamic_shaders"] }
 serde = { version = "1.0.152", features = ["derive"] }
 smaa = { version = "0.8.0", optional = true }
+terra-generate = { path = "generate", optional = true }
 tokio = { version = "1.24.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
@@ -52,30 +54,12 @@ wgpu = { version = "0.14.2", features = ["spirv"] }
 winit = "0.27.5"
 zip = { version = "0.6.3", features = ["deflate"], default-features = false }
 
-# Used by "generate" feature
-aligned-buf = { git = "https://github.com/fintelia/aligned-buf", rev = "daec48c6e868b194838b97772c9e018f259aab78", optional = true }
-cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "24e491e823e446c0ddacef2fb5f797952867ff0f", optional = true }
-image = { version = "0.24.5", optional = true }
-imageproc = { version = "0.23.0", optional = true }
-itertools = { version = "0.10.5", optional = true }
-lindel = { version = "0.1.1", optional = true }
-lru = { version = "0.9.0", optional = true }
-md5 = { version = "0.7.0", optional = true }
-rand = { version = "0.8.5", optional = true }
-rand_distr = { version = "0.4.3", optional = true }
-reqwest = { version = "0.11.13", features = ["blocking"] }
-rust-s3 = { version = "0.32.3", features = ["blocking", "tokio"], optional = true }
-tiff = { version = "0.8.1", optional = true }
-vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "36b53590676eb7f6e42ea62279e2facd35249cfb", optional = true }
-rayon = { version = "1.6.1", optional = true }
-indicatif = {version = "0.17.2", optional = true }
-
 [dev-dependencies]
 approx = "0.5.1"
 
 [features]
 default = ["generate"]
-generate = ["aligned-buf", "cogbuilder", "image", "imageproc", "indicatif", "itertools", "lindel", "lru", "md5", "rand", "rand_distr", "rayon", "rust-s3", "tiff", "vrt-file"]
+generate = ["indicatif", "terra-generate"]
 trace = ["wgpu/trace"]
 small-trace = ["trace"]
 soft-float64 = []

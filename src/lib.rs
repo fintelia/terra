@@ -11,8 +11,6 @@ mod billboards;
 mod cache;
 mod compute_shader;
 mod coordinates;
-#[cfg(feature = "generate")]
-mod generate;
 mod gpu_state;
 mod mapfile;
 mod quadtree;
@@ -600,6 +598,8 @@ pub async fn generate<P: AsRef<std::path::Path>, F: FnMut(String, usize, usize) 
     let dataset_directory = dataset_directory.as_ref();
     std::fs::create_dir_all(dataset_directory.join("serve").join("tiles"))?;
     std::fs::create_dir_all(dataset_directory.join("serve").join("assets"))?;
+
+    use terra_generate as generate;
 
     if download {
         generate::download::download_bluemarble(&dataset_directory, &mut progress_callback)?;
