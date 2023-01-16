@@ -28,6 +28,127 @@ mod material;
 mod noise;
 mod sky;
 
+pub async fn generate<P: AsRef<std::path::Path>, F: FnMut(String, usize, usize) + Send>(
+    dataset_directory: P,
+    download: bool,
+    mut progress_callback: F,
+) -> Result<(), Error> {
+    let dataset_directory = dataset_directory.as_ref();
+    std::fs::create_dir_all(dataset_directory.join("serve").join("tiles"))?;
+    std::fs::create_dir_all(dataset_directory.join("serve").join("assets"))?;
+
+    if download {
+        download::download_bluemarble(&dataset_directory, &mut progress_callback)?;
+        download::download_treecover(&dataset_directory, &mut progress_callback)?;
+        download::download_copernicus_wbm(&dataset_directory, &mut progress_callback)?;
+        download::download_copernicus_hgt(&dataset_directory, &mut progress_callback)?;
+    }
+
+    textures::generate_textures(dataset_directory, &mut progress_callback)?;
+
+    let copernicus_hgt = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "copernicus-hgt",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0i16,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    copernicus_hgt.reproject(&mut progress_callback)?;
+    copernicus_hgt.downsample_grid(&mut progress_callback)?;
+
+    let landfraction = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "landfraction",
+        max_level: VNode::LEVEL_CELL_38M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    landfraction.reproject_from("copernicus-wbm", 1u8, &mut progress_callback, |values| {
+        values.iter_mut().for_each(|v| match v {
+            1 | 2 | 3 => *v = 0,
+            _ => *v = 255,
+        })
+    })?;
+    landfraction.downsample_average_int(&mut progress_callback)?;
+
+    let copernicus_wbm = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "copernicus-wbm",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 1u8,
+        grid_registration: true,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    copernicus_wbm.reproject(&mut progress_callback)?;
+    copernicus_wbm.downsample_grid(&mut progress_callback)?;
+
+    let treecover = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "treecover",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8],
+        signed: false,
+    };
+    treecover.reproject(&mut progress_callback)?;
+    treecover.downsample_average_int(&mut progress_callback)?;
+
+    let blue_marble = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "bluemarble",
+        max_level: VNode::LEVEL_CELL_610M,
+        no_data_value: 0u8,
+        grid_registration: false,
+        bits_per_sample: vec![8, 8, 8],
+        signed: false,
+    };
+    blue_marble.reproject(&mut progress_callback)?;
+    blue_marble.downsample_average_int(&mut progress_callback)?;
+
+    let water_level = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "water-level",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: 0i16,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    water_level.compute_water_level(&copernicus_hgt, &copernicus_wbm, &mut progress_callback)?;
+    water_level.downsample_grid(&mut progress_callback)?;
+
+    let shore_distance = Dataset {
+        base_directory: dataset_directory.to_owned(),
+        dataset_name: "shore-distance",
+        max_level: VNode::LEVEL_CELL_76M,
+        no_data_value: i16::MIN,
+        grid_registration: true,
+        bits_per_sample: vec![16],
+        signed: true,
+    };
+    shore_distance.compute_shore_distance(&copernicus_wbm, &mut progress_callback)?;
+    shore_distance.downsample_grid(&mut progress_callback)?;
+
+    merge_datasets_to_tiles(
+        dataset_directory.to_owned(),
+        copernicus_hgt,
+        water_level,
+        shore_distance,
+        blue_marble,
+        treecover,
+        landfraction,
+        &mut progress_callback,
+    )?;
+
+    Ok(())
+}
+
 fn cspace_to_polar(position: Vector3<f64>) -> Vector3<f64> {
     let p = Vector3::new(position.x, position.y, position.z).normalize();
     let latitude = f64::asin(p.z);
@@ -538,10 +659,7 @@ where
         self.downsample(progress_callback, None::<fn(T, T, T, T) -> T>)
     }
 
-    pub fn downsample_average_int<F>(
-        &self,
-        progress_callback: F,
-    ) -> Result<(), anyhow::Error>
+    pub fn downsample_average_int<F>(&self, progress_callback: F) -> Result<(), anyhow::Error>
     where
         T: Into<u64> + TryFrom<u64>,
         F: FnMut(String, usize, usize) + Send,

@@ -218,7 +218,7 @@ fn main() {
                         pb.reset_eta();
                     }
                 };
-                runtime.block_on(terra::generate(&path, download, progress_callback)).unwrap()
+                runtime.block_on(terra_generate::generate(&path, download, progress_callback)).unwrap()
             }
         }
     };
