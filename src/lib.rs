@@ -16,7 +16,6 @@ mod gpu_state;
 mod mapfile;
 mod quadtree;
 mod speedtree_xml;
-mod srgb;
 mod stream;
 
 use crate::cache::{LayerType, MeshCacheDesc, MeshType};
