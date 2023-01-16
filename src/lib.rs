@@ -11,7 +11,6 @@ mod astro;
 mod billboards;
 mod cache;
 mod compute_shader;
-mod coordinates;
 mod gpu_state;
 mod mapfile;
 mod quadtree;

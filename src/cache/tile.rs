@@ -1,12 +1,11 @@
 use crate::cache::{self, PriorityCacheEntry};
-use crate::coordinates;
 use crate::gpu_state::GpuState;
 use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
-use types::{Priority, VNode, MAX_QUADTREE_LEVEL};
+use types::{Priority, VNode, MAX_QUADTREE_LEVEL, EARTH_RADIUS};
 use vec_map::VecMap;
 
 use super::{GeneratorMask, LayerMask, Levels, TileCache};
@@ -593,7 +592,11 @@ impl TileCache {
     }
 
     pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {
-        let ecef = coordinates::polar_to_ecef(Vector3::new(latitude, longitude, 0.0));
+        let ecef = Vector3::new(
+            EARTH_RADIUS * f64::cos(latitude) * f64::cos(longitude),
+            EARTH_RADIUS * f64::cos(latitude) * f64::sin(longitude),
+            EARTH_RADIUS * f64::sin(latitude),
+        );
         let cspace = ecef / ecef.x.abs().max(ecef.y.abs()).max(ecef.z.abs());
 
         let (node, x, y) = VNode::from_cspace(cspace, level);
