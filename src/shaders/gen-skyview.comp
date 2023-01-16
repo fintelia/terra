@@ -47,5 +47,8 @@ void main() {
     }
     output_value *= vec4(1.0 / 16.0);
 
+    if (gl_GlobalInvocationID.x == SKY_VIEW_DIMENSIONS.x - 1)
+        output_value = vec4(0, 0, 0, 1);
+
     imageStore(skyview, ivec2(gl_GlobalInvocationID.xy), output_value);
 }
