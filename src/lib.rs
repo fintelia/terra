@@ -7,6 +7,7 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
+mod astro;
 mod billboards;
 mod cache;
 mod compute_shader;
@@ -427,15 +428,15 @@ impl Terrain {
         self.generate_skyview.refresh(device, &self.gpu_state);
         self.cache.update_meshes(device, &self.gpu_state);
 
-        let sidereal_time = astro::time::mn_sidr(julian_day);
+        let sidereal_time = astro::mn_sidr(julian_day);
         self.sun_direction = {
             let n = julian_day - 2451545.0;
             let l: f64 = (280.460 + 0.9856474 * n).to_radians();
             let g: f64 = (357.528 + 0.9856003 * n).to_radians();
             let oblq_eclip = (23.439 - 0.0000004 * n).to_radians();
             let lambda = l + 1.915 * f64::sin(g) + 0.02 * f64::sin(2.0 * g);
-            let declination = astro::coords::dec_frm_ecl(lambda, 0.0, oblq_eclip);
-            let ascension = astro::coords::asc_frm_ecl(lambda, 0.0, oblq_eclip);
+            let declination = astro::dec_frm_ecl(lambda, 0.0, oblq_eclip);
+            let ascension = astro::asc_frm_ecl(lambda, 0.0, oblq_eclip);
             cgmath::Vector3::new(
                 f64::cos(declination) * f64::cos(ascension - sidereal_time),
                 f64::cos(declination) * f64::sin(ascension - sidereal_time),

@@ -61,28 +61,28 @@ pub fn warped_to_ecef(warped: Vector3<f64>) -> Vector3<f64> {
     )
 }
 
-#[allow(unused)]
-pub fn sun_direction() -> Vector3<f64> {
-    use astro::{coords, sun};
+// #[allow(unused)]
+// pub fn sun_direction() -> Vector3<f64> {
+//     use astro::{coords, sun};
 
-    let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
-    let distance = distance_au * 149597870700.0;
+//     let (ecl, distance_au) = sun::geocent_ecl_pos(180.0);
+//     let distance = distance_au * 149597870700.0;
 
-    let e = 0.40905;
-    let declination = coords::dec_frm_ecl(ecl.long, ecl.lat, e);
-    let right_ascension = coords::asc_frm_ecl(ecl.long, ecl.lat, e);
+//     let e = 0.40905;
+//     let declination = coords::dec_frm_ecl(ecl.long, ecl.lat, e);
+//     let right_ascension = coords::asc_frm_ecl(ecl.long, ecl.lat, e);
 
-    let eq_rect = Vector3::new(
-        distance * declination.cos() * right_ascension.cos(),
-        distance * declination.cos() * right_ascension.sin(),
-        distance * declination.sin(),
-    );
+//     let eq_rect = Vector3::new(
+//         distance * declination.cos() * right_ascension.cos(),
+//         distance * declination.cos() * right_ascension.sin(),
+//         distance * declination.sin(),
+//     );
 
-    // TODO: Is this conversion from equatorial coordinates to ECEF actually valid?
-    let ecef = Vector3::new(eq_rect.x, -eq_rect.y, eq_rect.z);
+//     // TODO: Is this conversion from equatorial coordinates to ECEF actually valid?
+//     let ecef = Vector3::new(eq_rect.x, -eq_rect.y, eq_rect.z);
 
-    ecef.normalize()
-}
+//     ecef.normalize()
+// }
 
 #[allow(unused)]
 pub fn cspace_to_polar(position: Vector3<f64>) -> Vector3<f64> {

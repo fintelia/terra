@@ -254,8 +254,8 @@ impl GpuState {
                     .copy_from_slice(include_bytes!("../assets/stars.bin"));
                 for star in stars.chunks_mut(4) {
                     let (gal_lat, gal_long) = (star[0] as f64, star[1] as f64);
-                    star[0] = astro::coords::dec_frm_gal(gal_long, gal_lat) as f32;
-                    star[1] = astro::coords::asc_frm_gal(gal_long, gal_lat) as f32;
+                    star[0] = crate::astro::dec_frm_gal(gal_long, gal_lat) as f32;
+                    star[1] = crate::astro::asc_frm_gal(gal_long, gal_lat) as f32;
                 }
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("buffer.starfield"),
