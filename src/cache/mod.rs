@@ -684,64 +684,16 @@ impl TileCache {
             }
         }
 
+        self.cull_shader.refresh(device, gpu_state);
+
         self.levels.update(quadtree);
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
-        let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, device, &queue, gpu_state);
-
+        let command_buffer = self.generate_tiles(device, &queue, gpu_state);
         self.write_nodes(queue, gpu_state, camera);
-
         queue.submit(Some(command_buffer));
 
-        let heightmap_resolution = LayerType::Heightmaps.texture_resolution() as usize;
-        let heightmap_bytes_per_pixel =
-            LayerType::Heightmaps.texture_formats()[0].bytes_per_block() as usize;
-        let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
-        let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
-        for (node, buffer) in planned_heightmap_downloads.drain(..) {
-            let buffer = Arc::new(buffer);
-            let completed_downloads_tx = self.completed_downloads_tx.clone();
-            buffer.clone().slice(..).map_async(wgpu::MapMode::Read, move |r| {
-                if r.is_err() {
-                    return;
-                }
-
-                let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
-                {
-                    let mapped_buffer = buffer.slice(..).get_mapped_range();
-                    for (h, b) in heights
-                        .chunks_exact_mut(heightmap_resolution)
-                        .zip(mapped_buffer.chunks_exact(heightmap_row_pitch))
-                    {
-                        bytemuck::cast_slice_mut(h).copy_from_slice(&b[..heightmap_row_bytes]);
-                    }
-                }
-                buffer.unmap();
-
-                let heights: Vec<f32> =
-                    heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
-                let (mut min, mut max) = (f32::MAX, 0.0);
-                for &h in &heights {
-                    if min < h {
-                        min = h;
-                    }
-                    if max > h {
-                        max = h;
-                    }
-                }
-
-                let _ = completed_downloads_tx.send((
-                    node,
-                    Arc::try_unwrap(buffer).unwrap(),
-                    CpuHeightmap::F32 { min, max, heights: Arc::new(heights) },
-                ));
-            });
-        }
-
-        self.download_tiles();
-
-        self.cull_shader.refresh(device, gpu_state);
+        self.tile_readback(device, queue, gpu_state);
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
