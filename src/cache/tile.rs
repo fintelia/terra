@@ -451,52 +451,6 @@ impl TileCache {
         }
     }
 
-    pub(crate) fn make_gpu_tile_cache(
-        &self,
-        device: &wgpu::Device,
-    ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
-        LayerType::iter()
-            .map(|layer| {
-                assert!(layer.min_level() <= layer.max_level());
-                let textures = layer
-                    .texture_formats()
-                    .iter()
-                    .enumerate()
-                    .map(|(i, format)| {
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            size: wgpu::Extent3d {
-                                width: layer.texture_resolution(),
-                                height: layer.texture_resolution(),
-                                depth_or_array_layers: (Levels::base_slot(layer.max_level() + 1)
-                                    - Levels::base_slot(layer.min_level()))
-                                    as u32,
-                            },
-                            format: format.to_wgpu(device.features()),
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            usage: wgpu::TextureUsages::COPY_SRC
-                                | wgpu::TextureUsages::COPY_DST
-                                | wgpu::TextureUsages::TEXTURE_BINDING
-                                | if !format.is_compressed() {
-                                    wgpu::TextureUsages::STORAGE_BINDING
-                                } else {
-                                    wgpu::TextureUsages::empty()
-                                },
-                            label: Some(&format!("texture.tiles.{}{}", layer.name(), i)),
-                        });
-                        let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                            label: Some(&format!("texture.tiles.{}{}.view", layer.name(), i,)),
-                            ..Default::default()
-                        });
-                        (texture, view)
-                    })
-                    .collect();
-                (layer.index(), textures)
-            })
-            .collect()
-    }
-
     pub fn compute_visible(&self, layer_mask: LayerMask) -> Vec<(VNode, u8)> {
         // Any node with all needed layers in cache is visible...
         let mut node_visibilities: FnvHashMap<VNode, bool> = FnvHashMap::default();

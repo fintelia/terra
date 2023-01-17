@@ -3,7 +3,7 @@ use std::{borrow::Cow, collections::HashMap, num::NonZeroU8};
 use crate::{
     billboards::Models,
     cache::{
-        layer::{MeshType, LAYERS_BY_NAME},
+        layer::{LayerType, MeshType, LAYERS_BY_NAME},
         Levels, TileCache,
     },
     mapfile::MapFile,
@@ -168,22 +168,22 @@ impl GpuState {
         async fn download(mapfile: &MapFile, name: &'static str) -> (&'static str, Vec<u8>) {
             (name, mapfile.read_asset(name).await.expect(&format!("failed to download {}", name)))
         }
-        let (noise, sky, cloudcover, transmittance, inscattering, ground_albedo) = tokio::join!(
-            download(mapfile, "noise.ktx2"),
-            download(mapfile, "sky.ktx2"),
-            download(mapfile, "cloudcover.ktx2"),
-            download(mapfile, "transmittance.ktx2"),
-            download(mapfile, "inscattering.ktx2"),
-            download(mapfile, "ground_albedo.ktx2"),
-        );
+        let (noise, sky, cloudcover, transmittance, inscattering, ground_albedo) = tokio::try_join!(
+            async { from_ktx2(download(mapfile, "noise.ktx2").await) },
+            async { from_ktx2(download(mapfile, "sky.ktx2").await) },
+            async { from_ktx2(download(mapfile, "cloudcover.ktx2").await) },
+            async { from_ktx2(download(mapfile, "transmittance.ktx2").await) },
+            async { from_ktx2(download(mapfile, "inscattering.ktx2").await) },
+            async { from_ktx2(download(mapfile, "ground_albedo.ktx2").await) },
+        )?;
 
         Ok(GpuState {
-            noise: from_ktx2(noise)?,
-            sky: from_ktx2(sky)?,
-            cloudcover: from_ktx2(cloudcover)?,
-            transmittance: from_ktx2(transmittance)?,
-            inscattering: from_ktx2(inscattering)?,
-            ground_albedo: from_ktx2(ground_albedo)?,
+            noise,
+            sky,
+            cloudcover,
+            transmittance,
+            inscattering,
+            ground_albedo,
 
             skyview: with_view(
                 "skyview",
@@ -228,7 +228,49 @@ impl GpuState {
                 }),
             ),
 
-            tile_cache: cache.make_gpu_tile_cache(device),
+            tile_cache: LayerType::iter()
+                .map(|layer| {
+                    assert!(layer.min_level() <= layer.max_level());
+                    let textures = layer
+                        .texture_formats()
+                        .iter()
+                        .enumerate()
+                        .map(|(i, format)| {
+                            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                                size: wgpu::Extent3d {
+                                    width: layer.texture_resolution(),
+                                    height: layer.texture_resolution(),
+                                    depth_or_array_layers: (Levels::base_slot(
+                                        layer.max_level() + 1,
+                                    ) - Levels::base_slot(
+                                        layer.min_level(),
+                                    ))
+                                        as u32,
+                                },
+                                format: format.to_wgpu(device.features()),
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                usage: wgpu::TextureUsages::COPY_SRC
+                                    | wgpu::TextureUsages::COPY_DST
+                                    | wgpu::TextureUsages::TEXTURE_BINDING
+                                    | if !format.is_compressed() {
+                                        wgpu::TextureUsages::STORAGE_BINDING
+                                    } else {
+                                        wgpu::TextureUsages::empty()
+                                    },
+                                label: Some(&format!("texture.tiles.{}{}", layer.name(), i)),
+                            });
+                            let view = texture.create_view(&wgpu::TextureViewDescriptor {
+                                label: Some(&format!("texture.tiles.{}{}.view", layer.name(), i,)),
+                                ..Default::default()
+                            });
+                            (texture, view)
+                        })
+                        .collect();
+                    (layer.index(), textures)
+                })
+                .collect(),
             mesh_index: cache.make_gpu_mesh_index(device),
             mesh_storage: cache.make_gpu_mesh_storage(device),
             mesh_indirect: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
