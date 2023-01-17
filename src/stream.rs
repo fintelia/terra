@@ -1,4 +1,4 @@
-use crate::cache::LayerType;
+use crate::cache::layer::LayerType;
 use crate::mapfile::MapFile;
 use anyhow::Error;
 use futures::{FutureExt, StreamExt};

@@ -16,10 +16,11 @@ mod mapfile;
 mod speedtree_xml;
 mod stream;
 
-use crate::cache::{LayerType, MeshCacheDesc, MeshType};
+use crate::cache::MeshCacheDesc;
 use crate::mapfile::MapFile;
 use anyhow::Error;
 use billboards::Models;
+use cache::layer::{LayerType, MeshType};
 use cache::TileCache;
 use cgmath::{SquareMatrix, Vector3, Zero};
 use compute_shader::ComputeShader;

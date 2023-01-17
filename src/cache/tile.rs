@@ -1,110 +1,12 @@
-use crate::cache::{self, PriorityCacheEntry};
+use crate::cache::layer::{LayerMask, LayerType};
+use crate::cache::{GeneratorMask, Levels, PriorityCacheEntry, TileCache};
 use crate::gpu_state::GpuState;
-use cache::LayerType;
 use cgmath::Vector3;
 use fnv::FnvHashMap;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
 use types::{Priority, VNode, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
-
-use super::{GeneratorMask, LayerMask, Levels, TileCache};
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub enum TextureFormat {
-    R8,
-    RG8,
-    RGBA8,
-    RG16F,
-    RGBA16F,
-    R32,
-    R32F,
-    RG32F,
-    RGBA32F,
-    SRGBA,
-    BC4,
-    BC5,
-    UASTC,
-}
-impl TextureFormat {
-    /// Returns the number of bytes in a single texel of the format. Actually reports bytes per
-    /// block for compressed formats.
-    pub fn bytes_per_block(&self) -> usize {
-        match *self {
-            TextureFormat::R8 => 1,
-            TextureFormat::RG8 => 2,
-            TextureFormat::RGBA8 => 4,
-            TextureFormat::RG16F => 4,
-            TextureFormat::RGBA16F => 8,
-            TextureFormat::R32 => 4,
-            TextureFormat::R32F => 4,
-            TextureFormat::RG32F => 8,
-            TextureFormat::RGBA32F => 16,
-            TextureFormat::SRGBA => 4,
-            TextureFormat::BC4 => 8,
-            TextureFormat::BC5 => 16,
-            TextureFormat::UASTC => 16,
-        }
-    }
-    pub fn to_wgpu(&self, wgpu_features: wgpu::Features) -> wgpu::TextureFormat {
-        match *self {
-            TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
-            TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
-            TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
-            TextureFormat::RG16F => wgpu::TextureFormat::Rg16Float,
-            TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
-            TextureFormat::R32 => wgpu::TextureFormat::R32Uint,
-            TextureFormat::R32F => wgpu::TextureFormat::R32Float,
-            TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
-            TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
-            TextureFormat::SRGBA => wgpu::TextureFormat::Rgba8UnormSrgb,
-            TextureFormat::BC4 => wgpu::TextureFormat::Bc4RUnorm,
-            TextureFormat::BC5 => wgpu::TextureFormat::Bc5RgUnorm,
-            TextureFormat::UASTC => {
-                if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
-                    wgpu::TextureFormat::Bc7RgbaUnorm
-                } else if wgpu_features.contains(wgpu::Features::TEXTURE_COMPRESSION_ASTC_LDR) {
-                    wgpu::TextureFormat::Astc {
-                        block: wgpu::AstcBlock::B4x4,
-                        channel: wgpu::AstcChannel::Unorm,
-                    }
-                } else {
-                    unreachable!("Wgpu reports no texture compression support?")
-                }
-            }
-        }
-    }
-    pub fn block_size(&self) -> u32 {
-        match *self {
-            TextureFormat::BC4 | TextureFormat::BC5 | TextureFormat::UASTC => 4,
-            TextureFormat::R8
-            | TextureFormat::RG8
-            | TextureFormat::RGBA8
-            | TextureFormat::RG16F
-            | TextureFormat::RGBA16F
-            | TextureFormat::R32F
-            | TextureFormat::R32
-            | TextureFormat::RG32F
-            | TextureFormat::RGBA32F
-            | TextureFormat::SRGBA => 1,
-        }
-    }
-    pub fn is_compressed(&self) -> bool {
-        match *self {
-            TextureFormat::BC4 | TextureFormat::BC5 | TextureFormat::UASTC => true,
-            TextureFormat::R8
-            | TextureFormat::RG8
-            | TextureFormat::RGBA8
-            | TextureFormat::RG16F
-            | TextureFormat::RGBA16F
-            | TextureFormat::R32
-            | TextureFormat::R32F
-            | TextureFormat::RG32F
-            | TextureFormat::RGBA32F
-            | TextureFormat::SRGBA => false,
-        }
-    }
-}
 
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]

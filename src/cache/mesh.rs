@@ -1,9 +1,7 @@
-use crate::{
-    cache::MeshType,
-    gpu_state::{DrawIndexedIndirect, GpuState},
-};
+use crate::gpu_state::{DrawIndexedIndirect, GpuState};
 use std::mem;
 use std::{collections::HashMap, ops::Range};
+use crate::cache::layer::MeshType;
 
 #[repr(C)]
 #[derive(Copy, Clone)]

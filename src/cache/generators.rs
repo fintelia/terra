@@ -5,9 +5,9 @@ use std::{
     num::{NonZeroU32, NonZeroU64},
 };
 
-use super::{LayerMask, LayerType, MeshCache};
+use super::{LayerMask, LayerType, MeshCache, layer::MeshType};
 use crate::{
-    cache::{mesh::MeshGenerateUniforms, Levels, MeshType},
+    cache::{mesh::MeshGenerateUniforms, Levels},
     gpu_state::{DrawIndexedIndirect, GpuState},
 };
 use maplit::hashmap;
