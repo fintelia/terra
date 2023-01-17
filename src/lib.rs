@@ -13,7 +13,6 @@ mod cache;
 mod compute_shader;
 mod gpu_state;
 mod mapfile;
-mod quadtree;
 mod speedtree_xml;
 mod stream;
 
@@ -25,7 +24,6 @@ use cache::TileCache;
 use cgmath::{SquareMatrix, Vector3, Zero};
 use compute_shader::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
-use quadtree::QuadTree;
 use std::collections::HashMap;
 use std::sync::Arc;
 use types::{InfiniteFrustum, VNode};
@@ -38,7 +36,6 @@ pub struct Terrain {
     stars_shader: rshader::ShaderSet,
     stars_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     gpu_state: GpuState,
-    quadtree: QuadTree,
     _mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
@@ -66,7 +63,28 @@ impl Terrain {
                     entries_per_node: 4,
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
-                    index_buffer: QuadTree::create_index_buffer(64),
+                    index_buffer: {
+                        let mut data = Vec::new();
+                        let resolution = 64;
+                        let half_resolution = resolution / 2;
+                        let width = resolution + 1;
+                        for k in 0..2 {
+                            for h in 0..2 {
+                                for y in 0..half_resolution {
+                                    for x in 0..half_resolution {
+                                        for offset in [0, 1, width, 1, width + 1, width].iter() {
+                                            data.push(
+                                                offset
+                                                    + ((h * half_resolution + x)
+                                                        + (k * half_resolution + y) * width),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        data
+                    },
                     render_overlapping_levels: false,
                     cull_mode: Some(wgpu::Face::Front),
                     render: rshader::ShaderSet::simple(
@@ -167,7 +185,6 @@ impl Terrain {
         let models = Models::new(&mapfile).await?;
         let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
         let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models).await?;
-        let quadtree = QuadTree::new();
 
         models.render_billboards(device, queue, &gpu_state);
 
@@ -212,7 +229,6 @@ impl Terrain {
             stars_shader,
             stars_bindgroup_pipeline: None,
             gpu_state,
-            quadtree,
             _mapfile: mapfile,
             cache,
             generate_skyview,
@@ -246,9 +262,8 @@ impl Terrain {
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
     ) -> bool {
-        self.quadtree.update_priorities(&self.cache, camera);
         if !self.loading_complete() {
-            self.cache.update(device, queue, &self.gpu_state, &mut self.quadtree, camera);
+            self.cache.update(device, queue, &self.gpu_state, camera);
             self.loading_complete()
         } else {
             true
@@ -414,11 +429,9 @@ impl Terrain {
             ));
         }
 
-        self.quadtree.update_priorities(&self.cache, camera);
-
         // Update the tile cache and then block until root tiles have been downloaded and streamed
         // to the GPU.
-        self.cache.update(device, queue, &self.gpu_state, &mut self.quadtree, camera);
+        self.cache.update(device, queue, &self.gpu_state, camera);
         while !self.poll_loading_status(device, queue, camera) {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }

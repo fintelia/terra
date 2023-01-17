@@ -6,8 +6,9 @@ pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
 use crate::{
     cache::tile::NodeSlot, compute_shader::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
-    quadtree::QuadTree,
 };
+use cgmath::Vector3;
+use fnv::FnvHashMap;
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
@@ -483,11 +484,12 @@ impl Levels {
             .unwrap_or(false)
     }
 
-    fn update(&mut self, quadtree: &QuadTree) {
+    fn update(&mut self, node_priorities: FnvHashMap<VNode, Priority>) {
         let mut min_priorities = Vec::new();
         for cache in &mut self.0 {
             for entry in cache.slots_mut() {
-                entry.priority = quadtree.node_priority(entry.node);
+                entry.priority =
+                    node_priorities.get(&entry.node).cloned().unwrap_or(Priority::none());
             }
             min_priorities
                 .push(cache.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none()));
@@ -495,7 +497,7 @@ impl Levels {
 
         let mut missing = vec![Vec::new(); self.0.len()];
         VNode::breadth_first(|node| {
-            let priority = quadtree.node_priority(node);
+            let priority = node_priorities.get(&node).cloned().unwrap_or(Priority::none());
             if priority < Priority::cutoff() {
                 return false;
             }
@@ -543,6 +545,7 @@ pub(crate) struct TileCache {
     completed_downloads_rx: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
     free_download_buffers: Vec<wgpu::Buffer>,
     total_download_buffers: usize,
+    last_camera_position: Option<mint::Point3<f64>>,
 
     index_buffer_contents: Vec<u32>,
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
@@ -625,6 +628,7 @@ impl TileCache {
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
             ),
+            last_camera_position: None,
         }
     }
 
@@ -633,7 +637,6 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
-        quadtree: &mut QuadTree,
         camera: mint::Point3<f64>,
     ) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
@@ -686,7 +689,19 @@ impl TileCache {
 
         self.cull_shader.refresh(device, gpu_state);
 
-        self.levels.update(quadtree);
+        if self.last_camera_position != Some(camera) {
+            self.last_camera_position = Some(camera);
+            let camera = Vector3::new(camera.x, camera.y, camera.z);
+
+            let mut node_priorities = FnvHashMap::default();
+            VNode::breadth_first(|node| {
+                let priority = node.priority(camera, self.get_height_range(node));
+                node_priorities.insert(node, priority);
+                priority >= Priority::cutoff() && node.level() < MAX_QUADTREE_LEVEL
+            });
+            self.levels.update(node_priorities);
+        }
+
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
         let command_buffer = self.generate_tiles(device, &queue, gpu_state);
