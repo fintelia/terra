@@ -485,9 +485,6 @@ impl GpuState {
                             "transmittance" | "inscattering" | "displacements" => {
                                 *sample_type = wgpu::TextureSampleType::Float { filterable: false }
                             }
-                            "heightmaps" | "heightmaps_in" => {
-                                *sample_type = wgpu::TextureSampleType::Uint;
-                            }
                             "shadowmap" => {
                                 *sample_type = wgpu::TextureSampleType::Depth;
                             }

@@ -9,9 +9,9 @@ pub enum TextureFormat {
     R8,
     RG8,
     RGBA8,
+    R16,
     RG16F,
     RGBA16F,
-    R32,
     R32F,
     RG32F,
     RGBA32F,
@@ -28,9 +28,9 @@ impl TextureFormat {
             TextureFormat::R8 => 1,
             TextureFormat::RG8 => 2,
             TextureFormat::RGBA8 => 4,
+            TextureFormat::R16 => 2,
             TextureFormat::RG16F => 4,
             TextureFormat::RGBA16F => 8,
-            TextureFormat::R32 => 4,
             TextureFormat::R32F => 4,
             TextureFormat::RG32F => 8,
             TextureFormat::RGBA32F => 16,
@@ -45,9 +45,9 @@ impl TextureFormat {
             TextureFormat::R8 => wgpu::TextureFormat::R8Unorm,
             TextureFormat::RG8 => wgpu::TextureFormat::Rg8Unorm,
             TextureFormat::RGBA8 => wgpu::TextureFormat::Rgba8Unorm,
+            TextureFormat::R16 => wgpu::TextureFormat::R16Unorm,
             TextureFormat::RG16F => wgpu::TextureFormat::Rg16Float,
             TextureFormat::RGBA16F => wgpu::TextureFormat::Rgba16Float,
-            TextureFormat::R32 => wgpu::TextureFormat::R32Uint,
             TextureFormat::R32F => wgpu::TextureFormat::R32Float,
             TextureFormat::RG32F => wgpu::TextureFormat::Rg32Float,
             TextureFormat::RGBA32F => wgpu::TextureFormat::Rgba32Float,
@@ -74,10 +74,10 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::R16
             | TextureFormat::RG16F
             | TextureFormat::RGBA16F
             | TextureFormat::R32F
-            | TextureFormat::R32
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
             | TextureFormat::SRGBA => 1,
@@ -89,9 +89,9 @@ impl TextureFormat {
             TextureFormat::R8
             | TextureFormat::RG8
             | TextureFormat::RGBA8
+            | TextureFormat::R16
             | TextureFormat::RG16F
             | TextureFormat::RGBA16F
-            | TextureFormat::R32
             | TextureFormat::R32F
             | TextureFormat::RG32F
             | TextureFormat::RGBA32F
@@ -228,7 +228,7 @@ impl LayerType {
     }
     pub fn texture_formats(&self) -> &'static [TextureFormat] {
         match *self {
-            LayerType::Heightmaps => &[TextureFormat::R32],
+            LayerType::Heightmaps => &[TextureFormat::R16],
             LayerType::Displacements => &[TextureFormat::RGBA32F],
             LayerType::AlbedoRoughness => &[TextureFormat::RGBA8],
             LayerType::Normals => &[TextureFormat::RG8],
@@ -245,7 +245,7 @@ impl LayerType {
     }
     pub fn level_range(&self) -> RangeInclusive<u8> {
         match *self {
-            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_10M,
             LayerType::Displacements => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::AlbedoRoughness => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::Normals => 0..=VNode::LEVEL_CELL_5MM,

@@ -160,17 +160,7 @@ impl TileStreamer {
             }
         }
 
-        let heights: Vec<_> = result
-            .heightmap
-            .iter()
-            .map(|&h| {
-                if h <= 0 {
-                    0x800000 | (((h + 4096).max(0) as u32) << 7)
-                } else {
-                    (((h as u32) + 4096) << 7).min(0x7fffff)
-                }
-            })
-            .collect();
+        let heights: Vec<_> = result.heightmap.iter().map(|&h| (h + 4096).max(0) as u16).collect();
         result
             .layers
             .insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&heights).to_vec());
@@ -207,7 +197,7 @@ impl TileStreamer {
                                     heightmap: vec![0i16; 521 * 521],
                                     layers: VecMap::new(),
                                 };
-                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0x880000u32; 521 * 521]).to_vec());
+                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0u16; 521 * 521]).to_vec());
                                 result.layers.insert(LayerType::TreeCover.index(), vec![0u8; 516 * 516]);
                                 result.layers.insert(LayerType::LandFraction.index(), vec![0u8; 516 * 516]);
                                 Ok(result)

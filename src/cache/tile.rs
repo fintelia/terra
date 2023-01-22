@@ -411,7 +411,7 @@ impl TileCache {
                     return;
                 }
 
-                let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
+                let mut heights = vec![0u16; heightmap_resolution * heightmap_resolution];
                 {
                     let mapped_buffer = buffer.slice(..).get_mapped_range();
                     for (h, b) in heights
@@ -424,7 +424,7 @@ impl TileCache {
                 buffer.unmap();
 
                 let heights: Vec<f32> =
-                    heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
+                    heights.into_iter().map(|h| h as f32 * 0.25 - 1024.0).collect();
                 let (mut min, mut max) = (f32::MAX, 0.0);
                 for &h in &heights {
                     if min < h {

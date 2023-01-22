@@ -55,15 +55,11 @@ struct GenMeshUniforms {
     uint entries_per_node;
 };
 
-float extract_height(uint encoded) {
-	return (float(encoded & 0x7fffff) * (1 / 512.0)) - 1024.0;
+float encode_height(float height) {
+	return (height + 1024.0) * (1 / 16383.75);
 }
-float extract_height_above_water(uint encoded) {
-	float height = extract_height(encoded);
-	if ((encoded & 0x800000) != 0) {
-		height = max(height, 0);
-	}
-	return height;
+float extract_height(float encoded) {
+	return encoded * 16383.75 - 1024.0;
 }
 
 const uint NUM_LAYERS = 24;

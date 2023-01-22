@@ -15,7 +15,7 @@ open-location-code = "0.1.0"
 planetcam = { path = "../planetcam" }
 terra = { path = "..", default-features = false }
 tokio = { version = "1.24.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
-wgpu = { version = "0.14.2" }
+wgpu = { version = "0.14.0" }
 winit = "0.27.5"
 terra-generate = { path = "../generate", optional = true }
 

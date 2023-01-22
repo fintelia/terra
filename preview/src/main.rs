@@ -118,7 +118,7 @@ fn main() {
         .unwrap();
 
     let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-    let surface = unsafe { instance.create_surface(&window) };
+    let surface = unsafe { instance.create_surface(&window).unwrap() };
     let adapter = runtime
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -126,7 +126,7 @@ fn main() {
             force_fallback_adapter: false,
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let swapchain_format = surface.get_supported_formats(&adapter)[0];
+    let swapchain_format = surface.get_capabilities(&adapter).formats[0];
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
@@ -134,6 +134,7 @@ fn main() {
     let mut features = wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::PUSH_CONSTANTS
+        | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
         | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
 
     if adapter.features().contains(wgpu::Features::SHADER_FLOAT64)

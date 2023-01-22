@@ -8,8 +8,8 @@ layout(binding = 0) uniform UniformBlock {
 	int slot;
 } ubo;
 
-layout(binding = 1) uniform utexture2D heightmaps_in;
-layout(r32ui, binding = 2) writeonly uniform uimage2D heightmaps_out;
+layout(binding = 1) uniform texture2D heightmaps_in;
+layout(r16, binding = 2) writeonly uniform image2D heightmaps_out;
 
 layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
@@ -91,8 +91,8 @@ void main() {
 	float n = random(uvec3(position+level_resolution/2)) - 0.5;
 	height += n * spacing * mix(0.1, 0.2, smoothstep(0.4, 0.5, slope)) * min(abs(height*0.5), 1);
 
-	uint encoded_height = uint((height + 1024) * 512.0) | (height <= 0 ? 0x800000 : 0);
+	float encoded_height = (height + 1024.0) * (1 / 16384.0);
 
 	// Write output
-	imageStore(heightmaps_out, ivec2(gl_GlobalInvocationID.xy), uvec4(encoded_height, 0, 0, 0));
+	imageStore(heightmaps_out, ivec2(gl_GlobalInvocationID.xy), vec4(encoded_height, 0, 0, 0));
 }

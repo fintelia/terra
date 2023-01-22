@@ -63,7 +63,7 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(binding = 0) uniform UniformBlock {
     int slot;
 } ubo;
-layout(binding = 1) uniform utexture2DArray heightmaps;
+layout(binding = 1) uniform texture2DArray heightmaps;
 layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
 layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
 	Node nodes[];
@@ -83,7 +83,7 @@ void main() {
     uvec2 origin = uvec2(HEIGHTMAP_BORDER);
     ivec2 position = ivec2(node.coords) * int(DISPLACEMENTS_RESOLUTION) - int(level_resolution) / 2;
 
-    float height = extract_height_above_water(texelFetch(heightmaps, ivec3(gl_GlobalInvocationID.xy * stride + HEIGHTMAP_BORDER, ubo.slot), 0).x);
+    float height = extract_height(texelFetch(heightmaps, ivec3(gl_GlobalInvocationID.xy * stride + HEIGHTMAP_BORDER, ubo.slot), 0).x);
 
     // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
     // http://jcgt.org/published/0007/02/01/paper.pdf

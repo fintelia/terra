@@ -418,7 +418,7 @@ fn reflect_naga(
 
         let _module_info = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::FLOAT64 | naga::valid::Capabilities::PUSH_CONSTANT, /*naga::valid::Capabilities::empty()*/
+            naga::valid::Capabilities::FLOAT64 | naga::valid::Capabilities::PUSH_CONSTANT | naga::valid::Capabilities::STORAGE_TEXTURE_16BIT_NORM_FORMATS, /*naga::valid::Capabilities::empty()*/
         )
         .validate(&module)?;
 
@@ -488,6 +488,7 @@ fn reflect_naga(
                                     StorageFormat::R8Unorm => wgpu::TextureFormat::R8Unorm,
                                     StorageFormat::Rg8Unorm => wgpu::TextureFormat::Rg8Unorm,
                                     StorageFormat::Rgba8Unorm => wgpu::TextureFormat::Rgba8Unorm,
+                                    StorageFormat::R16Unorm => wgpu::TextureFormat::R16Unorm,
                                     _ => unimplemented!("format {:?}", format),
                                 },
                             }
