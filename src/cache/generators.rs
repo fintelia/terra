@@ -363,14 +363,6 @@ pub(crate) fn generators(
 
     vec![
         ShaderGenBuilder::new(
-            "heightmaps".into(),
-            rshader::shader_source!("../shaders", "gen-heightmaps.comp", "declarations.glsl", "hash.glsl"),
-        )
-        .outputs(LayerType::Heightmaps.bit_mask())
-        .dimensions(heightmaps_resolution)
-        .parent_inputs(LayerType::Heightmaps.bit_mask())
-        .build(),
-        ShaderGenBuilder::new(
             "displacements".into(),
             if soft_float64 {
                 rshader::shader_source!(
@@ -387,6 +379,14 @@ pub(crate) fn generators(
         .outputs(LayerType::Displacements.bit_mask())
         .dimensions(displacements_resolution)
         .peer_inputs(LayerType::Heightmaps.bit_mask())
+        .build(),
+        ShaderGenBuilder::new(
+            "heightmaps".into(),
+            rshader::shader_source!("../shaders", "gen-heightmaps.comp", "declarations.glsl", "hash.glsl"),
+        )
+        .outputs(LayerType::Heightmaps.bit_mask())
+        .dimensions(heightmaps_resolution)
+        .parent_inputs(LayerType::Heightmaps.bit_mask())
         .build(),
         ShaderGenBuilder::new(
             "tree-attributes".into(),
