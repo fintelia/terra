@@ -24,7 +24,7 @@ layout(binding = 13) uniform sampler nearest;
 layout(binding = 14) uniform texture2DArray ground_albedo;
 layout(binding = 15) uniform texture2DArray land_fraction;
 
-layout(set = 0, binding = 12, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 12, std430) readonly buffer NodeSlots {
 	Node nodes[];
 };
 

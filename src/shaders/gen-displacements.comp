@@ -11,7 +11,7 @@ layout(binding = 0) uniform UniformBlock {
 layout(binding = 1) uniform texture2DArray heightmaps;
 layout(binding = 2) uniform texture2DArray ellipsoid;
 layout(rgba32f, binding = 3) writeonly uniform image2DArray displacements;
-layout(set = 0, binding = 4, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 4, std430) readonly buffer NodeSlots {
 	Node nodes[];
 };
 layout(set = 0, binding = 5) uniform sampler linear;
