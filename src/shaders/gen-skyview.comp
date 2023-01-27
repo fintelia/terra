@@ -15,9 +15,10 @@ layout(rgba16f, binding = 3) writeonly uniform image2D skyview;
 const ivec2 SKY_VIEW_DIMENSIONS = ivec2(128, 128);
 
 const float PI = 3.1415926535;
+const vec3 ellipsoid_to_sphere = vec3(1, 1, 1.0033640898210048);
 
 void main() {
-    vec3 camera = normalize(globals.camera);
+    vec3 camera = normalize(globals.camera * ellipsoid_to_sphere);
     vec3 sun = normalize(globals.sun_direction);
     vec3 a = normalize(cross(camera, sun));
     vec3 b = normalize(cross(camera, a));
@@ -25,7 +26,7 @@ void main() {
     vec2 uv = vec2(gl_GlobalInvocationID.xy) / (SKY_VIEW_DIMENSIONS - 1);
     uv.x = uv.x * uv.x;
 
-    float camera_distance = length(globals.camera);
+    float camera_distance = length(globals.camera * ellipsoid_to_sphere);
 	float min_theta = -PI/2 + asin(planetRadius / camera_distance);
     float max_theta = camera_distance < atmosphereRadius ? PI/2 : -PI/2 + asin(atmosphereRadius / camera_distance);
 
@@ -34,7 +35,7 @@ void main() {
 
     vec3 r = camera * sin(theta) + (a * cos(phi) + b * sin(phi)) * cos(theta);
 
-	vec3 x0 = globals.camera;
+	vec3 x0 = globals.camera * ellipsoid_to_sphere;
 	vec2 p = rsi(x0, r, atmosphereRadius);
 
     vec4 output_value = vec4(0, 0, 0, 1);

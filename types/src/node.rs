@@ -1,4 +1,7 @@
-use crate::{InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
+use crate::{
+    InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, EARTH_SEMIMAJOR_AXIS,
+    EARTH_SEMIMINOR_AXIS, MAX_QUADTREE_LEVEL,
+};
 use cgmath::*;
 use serde::{Deserialize, Serialize};
 use std::{collections::VecDeque, str::FromStr};
@@ -108,7 +111,7 @@ impl VNode {
         ROOT_SIDE_LENGTH as f64 * 2.0 / (1u32 << self.level()) as f64
     }
 
-    fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
+    pub fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
         let x = x.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * x.abs()).sqrt()) / 0.9022;
         let y = y.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * y.abs()).sqrt()) / 0.9022;
 
@@ -208,7 +211,12 @@ impl VNode {
     }
 
     pub fn center_wspace(&self) -> Vector3<f64> {
-        self.cell_position_cspace(0, 0, 0, 1).normalize() * EARTH_RADIUS
+        let normalized = self.cell_position_cspace(0, 0, 0, 1).normalize();
+        Vector3::new(
+            normalized.x * EARTH_SEMIMAJOR_AXIS,
+            normalized.y * EARTH_SEMIMAJOR_AXIS,
+            normalized.z * EARTH_SEMIMINOR_AXIS,
+        )
     }
 
     fn distance2(&self, point: Vector3<f64>, height_range: (f32, f32)) -> f64 {

@@ -293,8 +293,7 @@ impl TileCache {
         }
         let meshes = meshes.into_iter().collect();
 
-        let soft_float64 = !device.features().contains(wgpu::Features::SHADER_FLOAT64);
-        let generators = generators::generators(device, &meshes, soft_float64);
+        let generators = generators::generators(device, &meshes);
 
         let mut level_masks = vec![LayerMask::empty(); 23];
         for layer in LayerType::iter() {
@@ -450,8 +449,7 @@ impl TileCache {
                 face: 0,
                 coords: [0; 2],
                 parent: -1,
-                padding0: 0.0,
-                padding: [0; 43],
+                padding: [0; 48],
             };
             Levels::base_slot(self.levels.0.len() as u8)
         ];
@@ -459,7 +457,10 @@ impl TileCache {
             for (slot_index, slot) in level.slots().into_iter().enumerate() {
                 let index = Levels::base_slot(level_index as u8) + slot_index;
 
-                data[index].node_center = slot.node.center_wspace().into();
+                let node_center = slot.node.center_wspace();
+                data[index].node_center[0] = node_center.x as f32;
+                data[index].node_center[1] = node_center.y as f32;
+                data[index].node_center[2] = node_center.z as f32;
                 data[index].level = level_index as u32;
                 data[index].face = slot.node.face() as u32;
                 data[index].coords = [slot.node.x(), slot.node.y()];

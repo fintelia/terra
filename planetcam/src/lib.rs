@@ -68,8 +68,17 @@ impl PlanetCam {
         let lat = self.latitude.to_radians();
         let long = self.longitude.to_radians();
 
+        const A: f64 = 6378137.0;
+        const B: f64 = 6356752.314245;
+
         let up = cgmath::Vector3::new(lat.cos() * long.cos(), lat.cos() * long.sin(), lat.sin());
-        let position = up * r;
+
+        let n = A.powi(2) / (A.powi(2) * lat.cos().powi(2) + B.powi(2) * lat.sin().powi(2)).sqrt();
+        let position = cgmath::Vector3::new(
+            (n + self.height + terrain_elevation) * lat.cos() * long.cos(),
+            (n + self.height + terrain_elevation) * lat.cos() * long.sin(),
+            (n * (B / A).powi(2) + self.height + terrain_elevation) * lat.sin(),
+        );
 
         let adjusted_pitch =
             (self.pitch.to_radians() - f64::acos(6371000.0 / r)).clamp(-0.499 * PI, 0.499 * PI);

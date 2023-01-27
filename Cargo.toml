@@ -34,6 +34,7 @@ maplit = "1.0.2"
 mint = "0.5.9"
 num-traits = "0.2.15"
 quick-xml = { version = "0.27.1", features = ["serialize"] }
+rayon = "1.6.1"
 rshader = { path = "rshader", features = ["dynamic_shaders"] }
 serde = { version = "1.0.152", features = ["derive"] }
 smaa = { version = "0.8.0", optional = true }
@@ -49,7 +50,6 @@ approx = "0.5.1"
 [features]
 trace = ["wgpu/trace"]
 small-trace = ["trace"]
-soft-float64 = []
 
 [profile]
 [profile.dev]

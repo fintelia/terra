@@ -114,7 +114,7 @@ pub(crate) enum LayerType {
     BaseAlbedo = 9,
     RootAerialPerspective = 10,
     LandFraction = 11,
-    Slopes = 12,
+    Ellipsoid = 12,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -134,7 +134,7 @@ impl LayerType {
             9 => LayerType::BaseAlbedo,
             10 => LayerType::RootAerialPerspective,
             11 => LayerType::LandFraction,
-            12 => LayerType::Slopes,
+            12 => LayerType::Ellipsoid,
             _ => unreachable!(),
         }
     }
@@ -155,7 +155,7 @@ impl LayerType {
             LayerType::BaseAlbedo => "base_albedo",
             LayerType::RootAerialPerspective => "root_aerial_perspective",
             LayerType::LandFraction => "land_fraction",
-            LayerType::Slopes => "slopes",
+            LayerType::Ellipsoid => "ellipsoid",
         }
     }
     pub fn streamed_levels(&self) -> u8 {
@@ -187,7 +187,7 @@ impl LayerType {
             LayerType::BaseAlbedo => false,
             LayerType::RootAerialPerspective => true,
             LayerType::LandFraction => false,
-            LayerType::Slopes => true,
+            LayerType::Ellipsoid => true,
         }
     }
     /// Number of samples in each dimension, per tile.
@@ -205,7 +205,7 @@ impl LayerType {
             LayerType::BaseAlbedo => 516,
             LayerType::RootAerialPerspective => 65,
             LayerType::LandFraction => 516,
-            LayerType::Slopes => 517,
+            LayerType::Ellipsoid => 65,
         }
     }
     /// Number of samples outside the tile on each side.
@@ -223,7 +223,7 @@ impl LayerType {
             LayerType::BaseAlbedo => 2,
             LayerType::RootAerialPerspective => 0,
             LayerType::LandFraction => 2,
-            LayerType::Slopes => 2,
+            LayerType::Ellipsoid => 0,
         }
     }
     pub fn texture_formats(&self) -> &'static [TextureFormat] {
@@ -240,7 +240,7 @@ impl LayerType {
             LayerType::BaseAlbedo => &[TextureFormat::RGBA8],
             LayerType::RootAerialPerspective => &[TextureFormat::RGBA16F],
             LayerType::LandFraction => &[TextureFormat::R8],
-            LayerType::Slopes => &[TextureFormat::RG16F],
+            LayerType::Ellipsoid => &[TextureFormat::RGBA32F],
         }
     }
     pub fn level_range(&self) -> RangeInclusive<u8> {
@@ -257,7 +257,7 @@ impl LayerType {
             LayerType::BaseAlbedo => 0..=VNode::LEVEL_CELL_610M,
             LayerType::RootAerialPerspective => 0..=0,
             LayerType::LandFraction => 0..=VNode::LEVEL_CELL_76M,
-            LayerType::Slopes => VNode::LEVEL_CELL_10M..=VNode::LEVEL_CELL_10M,
+            LayerType::Ellipsoid => 0..=VNode::LEVEL_CELL_5MM,
         }
     }
     pub fn min_level(&self) -> u8 {

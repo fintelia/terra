@@ -5,14 +5,14 @@ use cgmath::Vector3;
 use fnv::FnvHashMap;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
-use types::{Priority, VNode, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
+use types::{Priority, VNode, MAX_QUADTREE_LEVEL, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS};
 use vec_map::VecMap;
 
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeSlot {
-    pub(super) node_center: [f64; 3],
-    pub(super) padding0: f64,
+    pub(super) node_center: [f32; 3],
+    pub(super) parent: i32,
 
     pub(super) layer_origins: [[f32; 2]; 48],
     pub(super) layer_ratios: [f32; 48],
@@ -27,8 +27,7 @@ pub(crate) struct NodeSlot {
     pub(super) level: u32,
     pub(super) coords: [u32; 2],
 
-    pub(super) parent: i32,
-    pub(super) padding: [u32; 43],
+    pub(super) padding: [u32; 48],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}
@@ -99,12 +98,13 @@ impl TileCache {
             let peer_inputs = generator.peer_inputs();
             let parent_inputs = generator.parent_inputs();
             let ancestor_inputs = generator.ancestor_inputs();
+            let max_tiles = generator.tiles_per_frame();
 
             let mut queued_slots = Vec::new();
             for level in 0..self.levels.0.len() {
                 let level_mask = self.level_masks[level];
                 for i in 0..self.levels.0[level].slots().len() {
-                    if queued_slots.len() > 16 {
+                    if queued_slots.len() > max_tiles {
                         break;
                     }
 
@@ -152,7 +152,11 @@ impl TileCache {
                     }
 
                     // Queue the generator to run
-                    queued_slots.push((i + Levels::base_slot(level as u8), parent_slot));
+                    queued_slots.push((
+                        entry.node,
+                        i + Levels::base_slot(level as u8),
+                        parent_slot,
+                    ));
 
                     // Record which generators were used to generate this tile
                     let mut generators_used = GeneratorMask::from_index(generator_index);
@@ -175,13 +179,12 @@ impl TileCache {
                 }
             }
 
-            for (slot, parent_slot) in queued_slots {
+            if !queued_slots.is_empty() {
                 generator.generate(
                     device,
                     &mut encoder,
                     gpu_state,
-                    slot,
-                    parent_slot,
+                    &queued_slots,
                     &mut uniform_data,
                 );
             }
@@ -496,9 +499,9 @@ impl TileCache {
 
     pub fn get_height(&self, latitude: f64, longitude: f64, level: u8) -> Option<f32> {
         let ecef = Vector3::new(
-            EARTH_RADIUS * f64::cos(latitude) * f64::cos(longitude),
-            EARTH_RADIUS * f64::cos(latitude) * f64::sin(longitude),
-            EARTH_RADIUS * f64::sin(latitude),
+            EARTH_SEMIMAJOR_AXIS * f64::cos(latitude) * f64::cos(longitude),
+            EARTH_SEMIMAJOR_AXIS * f64::cos(latitude) * f64::sin(longitude),
+            EARTH_SEMIMINOR_AXIS * f64::sin(latitude),
         );
         let cspace = ecef / ecef.x.abs().max(ecef.y.abs()).max(ecef.z.abs());
 

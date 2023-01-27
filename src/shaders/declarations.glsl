@@ -26,10 +26,8 @@ struct Indirect {
 };
 
 struct Node {
-    xdouble node_center_x;
-    xdouble node_center_y;
-    xdouble node_center_z;
-    xdouble padding0;
+	vec3 node_center;
+	int parent;
 
 	vec2 layer_origins[48];
 	float layer_ratios[48];
@@ -44,8 +42,7 @@ struct Node {
 	uint level;
 	uvec2 coords;
 
-	int parent;
-	uint padding[43];
+	vec4 padding[12];
 };
 
 struct GenMeshUniforms {
@@ -76,6 +73,7 @@ const uint TREECOVER_LAYER = 8;
 const uint BASE_ALBEDO_LAYER = 9;
 const uint ROOT_AERIAL_PERSPECTIVE_LAYER = 10;
 const uint LAND_FRACTION_LAYER = 11;
+const uint GEOID = 12;
 
 const uint PARENT_HEIGHTMAPS_LAYER = NUM_LAYERS + HEIGHTMAPS_LAYER;
 const uint PARENT_DISPLACEMENTS_LAYER = NUM_LAYERS + DISPLACEMENTS_LAYER;

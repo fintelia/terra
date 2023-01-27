@@ -1,6 +1,6 @@
 
-const float planetRadius = 6371000.0;
-const float atmosphereRadius = 6371000.0 + 100000.0;
+const float planetRadius = 6378137.0;
+const float atmosphereRadius = 6378137.0 + 100000.0;
 
 const vec3 rayleigh_Bs = vec3(5.8e-6, 13.5e-6, 33.1e-6);
 
