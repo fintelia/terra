@@ -63,7 +63,16 @@ pub(crate) fn texture_from_ktx2_bytes(
     let format_info = format.describe();
     assert_eq!(format_info.block_dimensions.0, format_info.block_dimensions.1);
 
-    let data = reader.levels().flatten().copied().collect::<Vec<_>>();
+    let mut layers: Vec<Vec<u8>> =
+        (0..(header.layer_count.max(1) * header.face_count)).map(|_|Vec::new()).collect();
+
+    for level in reader.levels() {
+        for (i, chunk) in level.chunks(level.len() / layers.len()).enumerate() {
+            layers[i].extend_from_slice(chunk);
+        }
+    }
+    let data: Vec<u8> = layers.into_iter().flatten().collect();
+
     Ok(device.create_texture_with_data(
         queue,
         &wgpu::TextureDescriptor {

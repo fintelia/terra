@@ -85,7 +85,7 @@ fn generate_materials<F: FnMut(String, usize, usize) + Send>(
 
     let materials = [("ground", "leafy-grass2"), ("ground", "grass1"), ("rocks", "granite5")];
 
-    let mut image_data = Vec::new();
+    let mut albedo_data = vec![Vec::new(); 11];
     for (i, (group, name)) in materials.iter().enumerate() {
         progress_callback("Generating materials".to_string(), i, materials.len());
 
@@ -109,14 +109,16 @@ fn generate_materials<F: FnMut(String, usize, usize) + Send>(
         assert_eq!(albedo.width(), 2048);
         assert_eq!(albedo.height(), 2048);
 
-        albedo =
-            image::imageops::resize(&albedo, 1024, 1024, image::imageops::FilterType::Triangle);
+        for mip in 0..=10 {
+            albedo =
+                image::imageops::resize(&albedo, 1024>>mip, 1024>>mip, image::imageops::FilterType::Triangle);
 
-        image_data.extend_from_slice(albedo.as_raw());
+            albedo_data[mip].extend_from_slice(albedo.as_raw());
+        }
     }
 
     let contents = encode_ktx2(
-        &[image_data],
+        &*albedo_data,
         1024,
         1024,
         0,
