@@ -220,14 +220,73 @@ impl VNode {
     }
 
     fn distance2(&self, point: Vector3<f64>, height_range: (f32, f32)) -> f64 {
-        let min_radius = EARTH_RADIUS + height_range.0 as f64;
-        let max_radius = EARTH_RADIUS + height_range.1 as f64;
+        const E2: f64 = 1.0
+            - (EARTH_SEMIMINOR_AXIS * EARTH_SEMIMINOR_AXIS)
+                / (EARTH_SEMIMAJOR_AXIS * EARTH_SEMIMAJOR_AXIS);
 
+        let p = (point.x * point.x + point.y * point.y).sqrt();
+
+        let mut height = 0.0;
+        let mut latitude =
+            f64::atan2(point.z * (EARTH_SEMIMAJOR_AXIS.powi(2) / EARTH_SEMIMINOR_AXIS.powi(2)), p);
+        for _ in 0..5 {
+            let n = EARTH_SEMIMAJOR_AXIS / (1.0 - E2 * latitude.sin().powi(2)).sqrt();
+            latitude = f64::atan2(point.z / p, 1.0 - E2 * n / (n + height));
+            height = p / latitude.cos() - n;
+        }
+        let longitude = f64::atan2(point.y, point.x);
+
+        let point = Vector3::new(
+            point.x - height * longitude.cos() * latitude.cos(),
+            point.y - height * longitude.sin() * latitude.cos(),
+            point.z - height * latitude.sin(),
+        );
+        // let latitude2 = f64::atan2(point.z * EARTH_SEMIMAJOR_AXIS.powi(2) / EARTH_SEMIMINOR_AXIS.powi(2), (point.x.powi(2) + point.y.powi(2)).sqrt());
+        // assert!((latitude - latitude2).abs() < 0.0000000000001);
+        // return (point.normalize().dot(self.center_wspace().normalize()).acos() * EARTH_SEMIMAJOR_AXIS).powi(2);
+
+        // let center = self.center_wspace();
+        // let delta = Vector3::new(
+        //     height * longitude.cos() * latitude.cos(),
+        //     height * longitude.sin() * latitude.cos(),
+        //     height * latitude.sin(),
+        // );
+        // let shell_point = center.add_element_wise(delta);
+
+        // println!("{} {}", height, shell_point.normalize().dot(self.center_wspace().normalize()).acos() * EARTH_SEMIMAJOR_AXIS);
+
+        // return (point.normalize().dot(shell_point.normalize()).acos() * EARTH_SEMIMAJOR_AXIS).powi(2);
+
+
+        // let point = Vector3::new(
+        //     n * latitude.cos() * longitude.cos(),
+        //     n * latitude.cos() * longitude.sin(),
+        //     n * EARTH_SEMIMINOR_AXIS.powi(2) / EARTH_SEMIMAJOR_AXIS.powi(2) * latitude.sin(),
+        // );
+
+        let min_radius = EARTH_SEMIMAJOR_AXIS + height_range.0 as f64;
+        let max_radius = EARTH_SEMIMAJOR_AXIS + height_range.1 as f64;
+
+        let point = point
+            .mul_element_wise(Vector3::new(1.0, 1.0, EARTH_SEMIMAJOR_AXIS / EARTH_SEMIMINOR_AXIS))
+            .normalize()
+            .mul_element_wise(Vector3::new(
+                EARTH_SEMIMAJOR_AXIS,
+                EARTH_SEMIMAJOR_AXIS,
+                EARTH_SEMIMAJOR_AXIS,
+            ));
+        // let point = Vector3::new(
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.cos() * longitude.cos(),
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.cos() * longitude.sin(),
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.sin(),
+        // );
+
+        let scale = Vector3::new(1.0, 1.0, EARTH_SEMIMINOR_AXIS / EARTH_SEMIMAJOR_AXIS);
         let corners = [
-            self.grid_position_cspace(0, 0, 0, 2),
-            self.grid_position_cspace(1, 0, 0, 2),
-            self.grid_position_cspace(1, 1, 0, 2),
-            self.grid_position_cspace(0, 1, 0, 2),
+            self.grid_position_cspace(0, 0, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(1, 0, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(1, 1, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(0, 1, 0, 2), //.mul_element_wise(scale),
         ];
 
         let normals = [

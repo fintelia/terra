@@ -34,7 +34,7 @@ void main() {
     vec3 ellipsoid_point = texelFetch(ellipsoid, ivec3(gl_GlobalInvocationID.xy, ubo.slot), 0).xyz;
     vec3 position = ellipsoid_point + node.node_center;
 
-    float latitude = atan(position.z * (A*A / B*B), length(position.xy));
+    float latitude = atan(position.z * A*A / (B*B), length(position.xy));
     float longitude = atan(position.y, position.x);
     vec3 normal = vec3(
         cos(latitude) * cos(longitude),

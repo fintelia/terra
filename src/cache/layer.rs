@@ -245,7 +245,7 @@ impl LayerType {
     }
     pub fn level_range(&self) -> RangeInclusive<u8> {
         match *self {
-            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_10M,
+            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_2M,
             LayerType::Displacements => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::AlbedoRoughness => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::Normals => 0..=VNode::LEVEL_CELL_5MM,

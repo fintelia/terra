@@ -511,9 +511,9 @@ pub(crate) fn generators(
             LayerType::BaseAlbedo.bit_mask()
                 | LayerType::TreeCover.bit_mask()
                 | LayerType::TreeAttributes.bit_mask()
-                | LayerType::LandFraction.bit_mask(),
+                | LayerType::LandFraction.bit_mask()
+                | LayerType::Heightmaps.bit_mask()
         )
-        .peer_inputs(LayerType::Heightmaps.bit_mask())
         .build(),
         ShaderGenBuilder::new(
             "grass-canopy".into(),
