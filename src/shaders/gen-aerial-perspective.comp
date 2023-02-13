@@ -32,17 +32,16 @@ void main() {
 	vec3 position = textureLod(sampler2DArray(displacements, nearest), texcoord, 0).xyz - nodes[displacements_slot].relative_position;
 
     vec3 x0 = globals.camera * ellipsoid_to_sphere;
-	vec3 x1 = x0 + position;
-	vec3 r = normalize(position);
+	vec3 x1 = (globals.camera + position) * ellipsoid_to_sphere;
+	vec3 r = normalize(x1 - x0);
 	vec2 p = rsi(x0, r, atmosphereRadius);
 
     vec4 output_value = vec4(0, 0, 0, 1);
 	if (p.x < p.y && p.y >= 0) {
 	    x0 += r * max(p.x, 0.0);
 	    output_value.a = precomputed_transmittance2(x1, x0).b;
-	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction);
+	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction) * vec3(1.0 / 16.0);
 	}
-    output_value *= vec4(1.0 / 16.0);
 
     imageStore(aerial_perspective, ivec3(gl_GlobalInvocationID.xy, slot - AERIAL_PERSPECTIVE_BASE_SLOT), output_value);
 }

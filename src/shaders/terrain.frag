@@ -274,7 +274,7 @@ void main() {
 	} else {
 		ap = textureLod(sampler2DArray(root_aerial_perspective, linear), layer_to_texcoord(ROOT_AERIAL_PERSPECTIVE_LAYER), 0);
 	}
-	out_color.rgb *= ap.a * 16.0;
+	out_color.rgb *= ap.a;
 	out_color.rgb += ap.rgb * 16.0;
 
 	out_color = tonemap(out_color, globals.exposure, 2.2);
