@@ -660,8 +660,8 @@ pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
     vec![
         DynamicGenerator {
             dependency_mask: LayerMask::empty(),
-            min_level: 3,
-            max_level: VNode::LEVEL_SIDE_610M,
+            min_level: LayerType::AerialPerspective.min_level(),
+            max_level: LayerType::AerialPerspective.max_level(),
             shader: ShaderSet::compute_only(rshader::shader_source!(
                 "../shaders",
                 "gen-aerial-perspective.comp",
@@ -675,8 +675,8 @@ pub(super) fn dynamic_generators() -> Vec<DynamicGenerator> {
         },
         DynamicGenerator {
             dependency_mask: LayerMask::empty(),
-            min_level: 0,
-            max_level: 0,
+            min_level: LayerType::RootAerialPerspective.min_level(),
+            max_level: LayerType::RootAerialPerspective.max_level(),
             shader: ShaderSet::compute_only(rshader::shader_source!(
                 "../shaders",
                 "gen-root-aerial-perspective.comp",
