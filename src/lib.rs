@@ -246,7 +246,7 @@ impl Terrain {
         VNode::roots().iter().copied().all(|root| {
             self.cache.contains_layers(
                 root,
-                LayerType::Heightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
+                LayerType::BaseHeightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
             )
         })
     }

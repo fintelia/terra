@@ -5,7 +5,7 @@ use cgmath::Vector3;
 use fnv::FnvHashMap;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
-use types::{Priority, VNode, MAX_QUADTREE_LEVEL, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS};
+use types::{Priority, VNode, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
 
 #[derive(Copy, Clone)]
@@ -94,23 +94,23 @@ impl TileCache {
 
         let mut uniform_data = Vec::new();
         for (generator_index, generator) in self.generators.iter_mut().enumerate() {
+            let inputs = generator.inputs();
             let outputs = generator.outputs();
-            let peer_inputs = generator.peer_inputs();
-            let parent_inputs = generator.parent_inputs();
-            let ancestor_inputs = generator.ancestor_inputs();
             let max_tiles = generator.tiles_per_frame();
 
             let mut queued_slots = Vec::new();
             for level in 0..self.levels.0.len() {
                 let level_mask = self.level_masks[level];
+                let peer_inputs = inputs & level_mask;
+                let ancestor_inputs = inputs & !level_mask;
                 for i in 0..self.levels.0[level].slots().len() {
                     if queued_slots.len() > max_tiles {
                         break;
                     }
 
                     let entry = &self.levels.0[level].slots()[i];
-                    let parent_slot = entry.node.parent().and_then(|p| self.levels.get_slot(p.0));
-                    let parent_entry = entry.node.parent().and_then(|p| self.levels.get(p.0));
+                    // let parent_slot = entry.node.parent().and_then(|p| self.levels.get_slot(p.0));
+                    // let parent_entry = entry.node.parent().and_then(|p| self.levels.get(p.0));
 
                     if entry.priority() < Priority::cutoff() {
                         continue;
@@ -121,32 +121,33 @@ impl TileCache {
                     if peer_inputs & !entry.valid != LayerMask::empty() {
                         continue; // missing peer inputs
                     }
-                    if level == 0 && generator.parent_inputs() != LayerMask::empty() {
-                        continue; // generator doesn't work on root nodes
-                    }
-                    if level > 0
-                        && (parent_entry.is_none()
-                            || parent_inputs & !parent_entry.as_ref().unwrap().valid
-                                != LayerMask::empty())
-                    {
-                        continue; // missing parent inputs
-                    }
-                    if !LayerType::iter()
-                        .filter(|layer| ancestor_inputs.contains_layer(*layer))
-                        .all(|layer| {
-                            if entry.node.level() < layer.min_level() {
-                                true
-                            } else if entry.node.level() <= layer.max_level() {
-                                self.levels.contains_layer(entry.node, layer)
-                            } else {
-                                let ancestor = entry
-                                    .node
-                                    .find_ancestor(|node| node.level() == layer.max_level())
-                                    .unwrap()
-                                    .0;
-                                self.levels.contains_layer(ancestor, layer)
-                            }
-                        })
+                    // if level == 0 && generator.parent_inputs() != LayerMask::empty() {
+                    //     continue; // generator doesn't work on root nodes
+                    // }
+                    // if level > 0
+                    //     && (parent_entry.is_none()
+                    //         || parent_inputs & !parent_entry.as_ref().unwrap().valid
+                    //             != LayerMask::empty())
+                    // {
+                    //     continue; // missing parent inputs
+                    // }
+                    if ancestor_inputs != LayerMask::empty()
+                        && !LayerType::iter()
+                            .filter(|layer| ancestor_inputs.contains_layer(*layer))
+                            .all(|layer| {
+                                if entry.node.level() < layer.min_level() {
+                                    true
+                                } else if entry.node.level() <= layer.max_level() {
+                                    self.levels.contains_layer(entry.node, layer)
+                                } else {
+                                    let ancestor = entry
+                                        .node
+                                        .find_ancestor(|node| node.level() == layer.max_level())
+                                        .unwrap()
+                                        .0;
+                                    self.levels.contains_layer(ancestor, layer)
+                                }
+                            })
                     {
                         continue; // missing ancestor inputs
                     }
@@ -155,16 +156,19 @@ impl TileCache {
                     queued_slots.push((
                         entry.node,
                         i + Levels::base_slot(level as u8),
-                        parent_slot,
+                        // parent_slot,
                     ));
 
                     // Record which generators were used to generate this tile
                     let mut generators_used = GeneratorMask::from_index(generator_index);
                     generators_used |= self.levels.generator_dependencies(entry.node, peer_inputs);
-                    if parent_entry.is_some() {
-                        generators_used |= self
-                            .levels
-                            .generator_dependencies(entry.node.parent().unwrap().0, parent_inputs);
+                    // if parent_entry.is_some() {
+                    //     generators_used |= self
+                    //         .levels
+                    //         .generator_dependencies(entry.node.parent().unwrap().0, parent_inputs);
+                    // }
+                    if ancestor_inputs != LayerMask::empty() {
+                        generators_used |= GeneratorMask::all();
                     }
 
                     // Update the tile entry
@@ -341,18 +345,18 @@ impl TileCache {
         });
 
         let mut planned_heightmap_downloads = Vec::new();
-        for level in (LayerType::Heightmaps.streamed_levels() + 1)..=VNode::LEVEL_CELL_1M {
+        for level in (LayerType::BaseHeightmaps.streamed_levels() + 1)..=VNode::LEVEL_CELL_1M {
             for (i, entry) in self.levels.0[level as usize].slots().iter().enumerate() {
                 if self.free_download_buffers.is_empty() && self.total_download_buffers == 64 {
                     break;
                 }
                 if entry.priority >= Priority::cutoff()
-                    && entry.valid.contains_layer(LayerType::Heightmaps)
+                    && entry.valid.contains_layer(LayerType::BaseHeightmaps)
                     && entry.heightmap.is_none()
                 {
                     let bytes_per_pixel =
-                        LayerType::Heightmaps.texture_formats()[0].bytes_per_block() as u64;
-                    let resolution = LayerType::Heightmaps.texture_resolution() as u64;
+                        LayerType::BaseHeightmaps.texture_formats()[0].bytes_per_block() as u64;
+                    let resolution = LayerType::BaseHeightmaps.texture_resolution() as u64;
                     let row_bytes = resolution * bytes_per_pixel;
                     let row_pitch = (row_bytes + 255) & !255;
 
@@ -370,7 +374,7 @@ impl TileCache {
                     });
                     encoder.copy_texture_to_buffer(
                         wgpu::ImageCopyTexture {
-                            texture: &gpu_state.tile_cache[LayerType::Heightmaps][0].0,
+                            texture: &gpu_state.tile_cache[LayerType::BaseHeightmaps][0].0,
                             mip_level: 0,
                             origin: wgpu::Origin3d {
                                 x: 0,
@@ -401,9 +405,9 @@ impl TileCache {
 
         queue.submit(Some(encoder.finish()));
 
-        let heightmap_resolution = LayerType::Heightmaps.texture_resolution() as usize;
+        let heightmap_resolution = LayerType::BaseHeightmaps.texture_resolution() as usize;
         let heightmap_bytes_per_pixel =
-            LayerType::Heightmaps.texture_formats()[0].bytes_per_block() as usize;
+            LayerType::BaseHeightmaps.texture_formats()[0].bytes_per_block() as usize;
         let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
         let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
         for (node, buffer) in planned_heightmap_downloads.drain(..) {
@@ -507,8 +511,8 @@ impl TileCache {
 
         let (node, x, y) = VNode::from_cspace(cspace, level);
 
-        let border = LayerType::Heightmaps.texture_border_size() as usize;
-        let resolution = LayerType::Heightmaps.texture_resolution() as usize;
+        let border = LayerType::BaseHeightmaps.texture_border_size() as usize;
+        let resolution = LayerType::BaseHeightmaps.texture_resolution() as usize;
         let x = (x * (resolution - 2 * border - 1) as f32) + border as f32;
         let y = (y * (resolution - 2 * border - 1) as f32) + border as f32;
 

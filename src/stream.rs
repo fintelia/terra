@@ -163,10 +163,10 @@ impl TileStreamer {
         let heights: Vec<_> = result.heightmap.iter().map(|&h| (h + 4096).max(0) as u16).collect();
         result
             .layers
-            .insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&heights).to_vec());
+            .insert(LayerType::BaseHeightmaps.index(), bytemuck::cast_slice(&heights).to_vec());
 
         if node.level() == 0 {
-            assert!(result.layers.contains_key(LayerType::Heightmaps.index()));
+            assert!(result.layers.contains_key(LayerType::BaseHeightmaps.index()));
             assert!(result.layers.contains_key(LayerType::TreeCover.index()));
             assert!(result.layers.contains_key(LayerType::LandFraction.index()));
             assert!(result.layers.contains_key(LayerType::BaseAlbedo.index()));
@@ -197,7 +197,7 @@ impl TileStreamer {
                                     heightmap: vec![0i16; 521 * 521],
                                     layers: VecMap::new(),
                                 };
-                                result.layers.insert(LayerType::Heightmaps.index(), bytemuck::cast_slice(&vec![0u16; 521 * 521]).to_vec());
+                                result.layers.insert(LayerType::BaseHeightmaps.index(), bytemuck::cast_slice(&vec![0u16; 521 * 521]).to_vec());
                                 result.layers.insert(LayerType::TreeCover.index(), vec![0u8; 516 * 516]);
                                 result.layers.insert(LayerType::LandFraction.index(), vec![0u8; 516 * 516]);
                                 Ok(result)

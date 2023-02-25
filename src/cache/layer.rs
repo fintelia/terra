@@ -102,7 +102,7 @@ impl TextureFormat {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum LayerType {
-    Heightmaps = 0,
+    BaseHeightmaps = 0,
     Displacements = 1,
     AlbedoRoughness = 2,
     Normals = 3,
@@ -115,6 +115,7 @@ pub(crate) enum LayerType {
     RootAerialPerspective = 10,
     LandFraction = 11,
     Ellipsoid = 12,
+    Heightmaps = 13,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -122,7 +123,7 @@ impl LayerType {
     }
     pub fn from_index(i: usize) -> Self {
         match i {
-            0 => LayerType::Heightmaps,
+            0 => LayerType::BaseHeightmaps,
             1 => LayerType::Displacements,
             2 => LayerType::AlbedoRoughness,
             3 => LayerType::Normals,
@@ -135,6 +136,7 @@ impl LayerType {
             10 => LayerType::RootAerialPerspective,
             11 => LayerType::LandFraction,
             12 => LayerType::Ellipsoid,
+            13 => LayerType::Heightmaps,
             _ => unreachable!(),
         }
     }
@@ -143,7 +145,7 @@ impl LayerType {
     }
     pub fn name(&self) -> &'static str {
         match *self {
-            LayerType::Heightmaps => "heightmaps",
+            LayerType::BaseHeightmaps => "base_heightmaps",
             LayerType::Displacements => "displacements",
             LayerType::AlbedoRoughness => "albedo",
             LayerType::Normals => "normals",
@@ -156,11 +158,12 @@ impl LayerType {
             LayerType::RootAerialPerspective => "root_aerial_perspective",
             LayerType::LandFraction => "land_fraction",
             LayerType::Ellipsoid => "ellipsoid",
+            LayerType::Heightmaps => "heightmaps",
         }
     }
     pub fn streamed_levels(&self) -> u8 {
         match *self {
-            LayerType::Heightmaps => VNode::LEVEL_CELL_76M + 1,
+            LayerType::BaseHeightmaps => VNode::LEVEL_CELL_76M + 1,
             LayerType::BaseAlbedo => VNode::LEVEL_CELL_610M + 1,
             LayerType::TreeCover => VNode::LEVEL_CELL_76M + 1,
             LayerType::LandFraction => VNode::LEVEL_CELL_76M + 1,
@@ -175,7 +178,7 @@ impl LayerType {
     }
     pub fn grid_registration(&self) -> bool {
         match *self {
-            LayerType::Heightmaps => true,
+            LayerType::BaseHeightmaps => true,
             LayerType::Displacements => true,
             LayerType::AlbedoRoughness => false,
             LayerType::Normals => false,
@@ -188,12 +191,13 @@ impl LayerType {
             LayerType::RootAerialPerspective => true,
             LayerType::LandFraction => false,
             LayerType::Ellipsoid => true,
+            LayerType::Heightmaps => true,
         }
     }
     /// Number of samples in each dimension, per tile.
     pub fn texture_resolution(&self) -> u32 {
         match *self {
-            LayerType::Heightmaps => 521,
+            LayerType::BaseHeightmaps => 521,
             LayerType::Displacements => 65,
             LayerType::AlbedoRoughness => 516,
             LayerType::Normals => 516,
@@ -206,12 +210,13 @@ impl LayerType {
             LayerType::RootAerialPerspective => 65,
             LayerType::LandFraction => 516,
             LayerType::Ellipsoid => 65,
+            LayerType::Heightmaps => 521,
         }
     }
     /// Number of samples outside the tile on each side.
     pub fn texture_border_size(&self) -> u32 {
         match *self {
-            LayerType::Heightmaps => 4,
+            LayerType::BaseHeightmaps => 4,
             LayerType::Displacements => 0,
             LayerType::AlbedoRoughness => 2,
             LayerType::Normals => 2,
@@ -224,11 +229,12 @@ impl LayerType {
             LayerType::RootAerialPerspective => 0,
             LayerType::LandFraction => 2,
             LayerType::Ellipsoid => 0,
+            LayerType::Heightmaps => 4,
         }
     }
     pub fn texture_formats(&self) -> &'static [TextureFormat] {
         match *self {
-            LayerType::Heightmaps => &[TextureFormat::R16],
+            LayerType::BaseHeightmaps => &[TextureFormat::R16],
             LayerType::Displacements => &[TextureFormat::RGBA32F],
             LayerType::AlbedoRoughness => &[TextureFormat::RGBA8],
             LayerType::Normals => &[TextureFormat::RG8],
@@ -241,23 +247,25 @@ impl LayerType {
             LayerType::RootAerialPerspective => &[TextureFormat::RGBA16F],
             LayerType::LandFraction => &[TextureFormat::R8],
             LayerType::Ellipsoid => &[TextureFormat::RGBA32F],
+            LayerType::Heightmaps => &[TextureFormat::R16],
         }
     }
     pub fn level_range(&self) -> RangeInclusive<u8> {
         match *self {
-            LayerType::Heightmaps => 0..=VNode::LEVEL_CELL_2M,
+            LayerType::BaseHeightmaps => 0..=VNode::LEVEL_CELL_76M,
             LayerType::Displacements => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::AlbedoRoughness => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::Normals => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::GrassCanopy => VNode::LEVEL_CELL_1M..=VNode::LEVEL_CELL_1M,
             LayerType::TreeAttributes => VNode::LEVEL_CELL_10M..=VNode::LEVEL_CELL_10M,
-            LayerType::AerialPerspective => 3..=VNode::LEVEL_SIDE_610M,
+            LayerType::AerialPerspective => 3..=VNode::LEVEL_CELL_2M,
             LayerType::BentNormals => VNode::LEVEL_CELL_153M..=VNode::LEVEL_CELL_76M,
             LayerType::TreeCover => 0..=VNode::LEVEL_CELL_76M,
             LayerType::BaseAlbedo => 0..=VNode::LEVEL_CELL_610M,
             LayerType::RootAerialPerspective => 0..=0,
             LayerType::LandFraction => 0..=VNode::LEVEL_CELL_76M,
             LayerType::Ellipsoid => 0..=VNode::LEVEL_CELL_5MM,
+            LayerType::Heightmaps => VNode::LEVEL_CELL_38M..=VNode::LEVEL_CELL_5M,
         }
     }
     pub fn min_level(&self) -> u8 {
@@ -267,7 +275,7 @@ impl LayerType {
         *self.level_range().end()
     }
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..=12).map(Self::from_index)
+        (0..=13).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {

@@ -39,7 +39,7 @@ struct Indirects {
 
 let NUM_LAYERS: u32 = 24u;
 
-let HEIGHTMAPS_LAYER: u32 = 0u;
+let BASE_HEIGHTMAPS_LAYER: u32 = 0u;
 let DISPLACEMENTS_LAYER: u32 = 1u;
 let ALBEDO_LAYER: u32 = 2u;
 let NORMALS_LAYER: u32 = 3u;

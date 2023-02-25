@@ -42,6 +42,9 @@ impl GeneratorMask {
     pub fn intersects(&self, other: Self) -> bool {
         self.0.get() & other.0.get() != Self::VALID
     }
+    pub fn all() -> Self {
+        Self(NonZeroU32::new(0xffffffff).unwrap())
+    }
 }
 impl std::ops::BitOr for GeneratorMask {
     type Output = Self;
