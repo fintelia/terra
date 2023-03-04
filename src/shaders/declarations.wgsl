@@ -55,7 +55,7 @@ let PARENT_NORMALS_LAYER: u32 = 27u;
 let PARENT_GRASS_CANOPY_LAYER: u32 = 28u;
 let PARENT_TREE_ATTRIBUTES_LAYER: u32 = 30u;
 
-let GRASS_BASE_SLOT: u32 = 574u;//30 + (19 - 2) * 32;
+let GRASS_BASE_SLOT: u32 = 540u;//30 + (19 - 2) * 30;
 
 fn hash(x: u32) -> u32 {
     var xx = x;

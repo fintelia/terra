@@ -25,7 +25,7 @@ use self::tile::Entry;
 use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
 use self::{generators::GenerateTile, tile::CpuHeightmap};
 
-const SLOTS_PER_LEVEL: usize = 32;
+const SLOTS_PER_LEVEL: usize = 30;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) struct GeneratorMask(NonZeroU32);
