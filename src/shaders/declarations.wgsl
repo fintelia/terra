@@ -1,19 +1,22 @@
 
 struct Node {
-    node_center: array<vec2<u32>, 4>,
+    node_center: vec3<f32>,
+    parent: u32,
 
     layer_origins: array<vec2<f32>, 48>,
     layer_ratios: array<f32, 48>,
     layer_slots: array<i32, 48>,
+
 	relative_position: vec3<f32>,
 	min_distance: f32,
+
 	mesh_valid_mask: array<u32, 4>,
+
     face: u32,
 	level: u32,
     coords: vec2<u32>,
 
-    parent: i32,
-	padding2: array<u32, 43>,
+	padding2: array<vec4<u32>, 12>,
 };
 struct Nodes {
     entries: array<Node>,
