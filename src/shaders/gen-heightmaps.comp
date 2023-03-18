@@ -66,7 +66,7 @@ float compute_height(ivec2 v) {
 	float spacing = 19545.9832 / float(1 << (base_heights_level+1));
 
 	float n = random(uvec2(v)) - 0.5;
-	float delta = n * spacing * mix(0.1, 0.2, smoothstep(0.4, 0.5, height_slope.y / spacing)) * min(abs(height_slope.x*0.5), 1);
+	float delta = n * spacing * mix(0.03, 0.2, smoothstep(0.4, 0.5, height_slope.y / spacing)) * min(abs(height_slope.x*0.5), 1);
 
 	// Make sure seams match.
 	if (min(v.x, v.y) < 0 || max(v.x, v.y) >= HEIGHTMAP_INNER_RESOLUTION << (base_heights_level+1))
