@@ -11,11 +11,12 @@ layout(binding = 0) uniform UniformBlock {
 layout(binding = 1) uniform texture2DArray heightmaps;
 layout(binding = 2) uniform texture2DArray base_heightmaps;
 layout(binding = 3) uniform texture2DArray ellipsoid;
-layout(rgba32f, binding = 4) writeonly uniform image2DArray displacements;
-layout(set = 0, binding = 5, std430) readonly buffer NodeSlots {
+layout(binding = 4) uniform texture2DArray waterlevel;
+layout(rgba32f, binding = 5) writeonly uniform image2DArray displacements;
+layout(set = 0, binding = 6, std430) readonly buffer NodeSlots {
 	Node nodes[];
 };
-layout(set = 0, binding = 6) uniform sampler linear;
+layout(set = 0, binding = 7) uniform sampler linear;
 
 const float A = 6378137.0;
 const float B = 6356752.314245;
@@ -37,7 +38,14 @@ void main() {
             vec3(node.layer_origins[BASE_HEIGHTMAPS_LAYER] + texcoord * node.layer_ratios[BASE_HEIGHTMAPS_LAYER],
                 node.layer_slots[BASE_HEIGHTMAPS_LAYER]), 0).x);
     }
-    height = max(height, 0.0);
+
+    float waterlevel_value = 0;
+    if (node.layer_slots[WATERLEVEL_LAYER] >= 0) {
+        waterlevel_value = extract_height(textureLod(sampler2DArray(waterlevel, linear),
+            vec3(node.layer_origins[WATERLEVEL_LAYER] + texcoord * node.layer_ratios[WATERLEVEL_LAYER],
+                node.layer_slots[WATERLEVEL_LAYER]), 0).x);
+    }
+    height = max(height, waterlevel_value);
 
     vec3 ellipsoid_point = texelFetch(ellipsoid, ivec3(gl_GlobalInvocationID.xy, ubo.slot), 0).xyz;
     vec3 position = ellipsoid_point + node.node_center;

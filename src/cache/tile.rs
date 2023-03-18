@@ -273,6 +273,7 @@ impl TileCache {
                 let index = self.levels.get_slot(tile.node).unwrap();
                 for (layer_index, mut data) in tile.layers {
                     let layer = LayerType::from_index(layer_index);
+                    let index = index - Levels::base_slot(layer.min_level());
                     assert_eq!(layer.texture_formats().len(), 1);
                     let resolution = layer.texture_resolution() as usize;
                     let block_size = layer.texture_formats()[0].block_size() as usize;

@@ -21,11 +21,12 @@ layout(binding = 9) uniform texture2DArray tree_attributes;
 layout(binding = 10) uniform texture2DArray ground_albedo;
 layout(binding = 11) uniform texture2DArray land_fraction;
 layout(binding = 12) uniform texture2DArray heightmaps;
-layout(binding = 13) uniform texture2D topdown_albedo;
-layout(binding = 14) uniform texture2D topdown_normals;
-layout(binding = 15) uniform sampler nearest;
+layout(binding = 13) uniform texture2DArray waterlevel;
+layout(binding = 14) uniform texture2D topdown_albedo;
+layout(binding = 15) uniform texture2D topdown_normals;
+layout(binding = 16) uniform sampler nearest;
 
-layout(set = 0, binding = 16, std430) readonly buffer NodeSlots {
+layout(set = 0, binding = 17, std430) readonly buffer NodeSlots {
 	Node nodes[];
 };
 
@@ -154,8 +155,11 @@ void main() {
 	// float h11 = extract_height(texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x);
 	// float height = dot(vec4(0.25), vec4(h00, h10, h01, h11));
 
-	bool is_water = height <= 0;
-	if (is_water)
+	if (node.layer_slots[WATERLEVEL_LAYER] >= 0) {
+		float waterlevel_value = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_to_texcoord(WATERLEVEL_LAYER), 0).x);
+		water_amount = smoothstep(waterlevel_value, waterlevel_value - 1.5, height);
+	}
+	if (water_amount > 0.5)
 		normal = vec3(0,1,0);
 	// if (!is_water) {
 	// 	float spacing = 19545.9832 / float(1 << node.level);
@@ -210,12 +214,12 @@ void main() {
 
 	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, 0.25);
 
-	if (water_amount > 0.5) {
-		albedo_roughness.a = 0.2;
-		albedo_roughness.rgb = vec3(0,0,0.5);
-		// float negative_depth = min(h00 + h10 + h01 + h11, 0);
-		// albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
-	}
+	// if (water_amount > 0.5) {
+	// 	albedo_roughness.a = 0.2;
+	// 	albedo_roughness.rgb = vec3(0,0,0.5);
+	// 	// float negative_depth = min(h00 + h10 + h01 + h11, 0);
+	// 	// albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
+	// }
 
 	if (node.level < 13) {
 		float treecover_value = textureLod(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER), 0).r;
@@ -235,13 +239,10 @@ void main() {
 	// 	}
 	}
 
-	if (node.level > 8)
-		water_amount = step(height, 0);
+	// if (node.level > 8)
+	// 	water_amount = step(height, 0);
 
-	// if (node.level > MAX_HEIGHTMAP_LEVEL)
-	// 	albedo_roughness.rgb = vec3(fract(height/100));
-
-	albedo_roughness = mix(albedo_roughness, vec4(0,.00,.0,.4), water_amount);
+	albedo_roughness = mix(albedo_roughness, vec4(.01, .03, .05, .2), water_amount);
 
 	imageStore(normals, out_pos, vec4(normal.xz*0.5+0.5, 0.0, 0.0));
 	imageStore(albedo, out_pos, albedo_roughness);

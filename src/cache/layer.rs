@@ -116,6 +116,7 @@ pub(crate) enum LayerType {
     LandFraction = 11,
     Ellipsoid = 12,
     Heightmaps = 13,
+    WaterLevel = 14,
 }
 impl LayerType {
     pub fn index(&self) -> usize {
@@ -137,6 +138,7 @@ impl LayerType {
             11 => LayerType::LandFraction,
             12 => LayerType::Ellipsoid,
             13 => LayerType::Heightmaps,
+            14 => LayerType::WaterLevel,
             _ => unreachable!(),
         }
     }
@@ -159,6 +161,7 @@ impl LayerType {
             LayerType::LandFraction => "land_fraction",
             LayerType::Ellipsoid => "ellipsoid",
             LayerType::Heightmaps => "heightmaps",
+            LayerType::WaterLevel => "waterlevel",
         }
     }
     pub fn streamed_levels(&self) -> u8 {
@@ -167,6 +170,7 @@ impl LayerType {
             LayerType::BaseAlbedo => VNode::LEVEL_CELL_610M + 1,
             LayerType::TreeCover => VNode::LEVEL_CELL_76M + 1,
             LayerType::LandFraction => VNode::LEVEL_CELL_76M + 1,
+            LayerType::WaterLevel => 1,
             _ => 0,
         }
     }
@@ -192,6 +196,7 @@ impl LayerType {
             LayerType::LandFraction => false,
             LayerType::Ellipsoid => true,
             LayerType::Heightmaps => true,
+            LayerType::WaterLevel => true,
         }
     }
     /// Number of samples in each dimension, per tile.
@@ -211,6 +216,7 @@ impl LayerType {
             LayerType::LandFraction => 516,
             LayerType::Ellipsoid => 65,
             LayerType::Heightmaps => 521,
+            LayerType::WaterLevel => 521,
         }
     }
     /// Number of samples outside the tile on each side.
@@ -230,6 +236,7 @@ impl LayerType {
             LayerType::LandFraction => 2,
             LayerType::Ellipsoid => 0,
             LayerType::Heightmaps => 4,
+            LayerType::WaterLevel => 4,
         }
     }
     pub fn texture_formats(&self) -> &'static [TextureFormat] {
@@ -248,6 +255,7 @@ impl LayerType {
             LayerType::LandFraction => &[TextureFormat::R8],
             LayerType::Ellipsoid => &[TextureFormat::RGBA32F],
             LayerType::Heightmaps => &[TextureFormat::R16],
+            LayerType::WaterLevel => &[TextureFormat::R16],
         }
     }
     pub fn level_range(&self) -> RangeInclusive<u8> {
@@ -266,6 +274,8 @@ impl LayerType {
             LayerType::LandFraction => 0..=VNode::LEVEL_CELL_76M,
             LayerType::Ellipsoid => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::Heightmaps => VNode::LEVEL_CELL_38M..=VNode::LEVEL_CELL_5M,
+            LayerType::WaterLevel => VNode::LEVEL_CELL_76M..=VNode::LEVEL_CELL_76M,
+
         }
     }
     pub fn min_level(&self) -> u8 {
@@ -275,7 +285,7 @@ impl LayerType {
         *self.level_range().end()
     }
     pub fn iter() -> impl Iterator<Item = Self> {
-        (0..=13).map(Self::from_index)
+        (0..=14).map(Self::from_index)
     }
 }
 impl<T> Index<LayerType> for VecMap<T> {

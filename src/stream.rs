@@ -119,6 +119,21 @@ impl TileStreamer {
             }
         }
 
+        if let Some(compressed) = get_file("waterlevel.lz4")? {
+            let mut waterlevel = vec![0i16; 521 * 521];
+            if !compressed.is_empty() {
+                lz4::Decoder::new(Cursor::new(compressed))?
+                    .read_exact(bytemuck::cast_slice_mut(&mut waterlevel))?;
+                let mut prev = 0;
+                for i in 0..waterlevel.len() {
+                    waterlevel[i] = waterlevel[i].wrapping_add(prev);
+                    prev = waterlevel[i];
+                }
+            }
+            let waterlevel: Vec<_> = waterlevel.iter().map(|&h| (h + 4096).max(0) as u16).collect();
+            result.layers.insert(LayerType::WaterLevel.index(), bytemuck::cast_slice(&waterlevel).to_vec());
+        }
+
         let mut treecover = vec![0u8; 516 * 516];
         if let Some(compressed) = get_file("treecover.lz4")? {
             if !compressed.is_empty() {
