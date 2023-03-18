@@ -281,7 +281,7 @@ impl VNode {
         //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.sin(),
         // );
 
-        let scale = Vector3::new(1.0, 1.0, EARTH_SEMIMINOR_AXIS / EARTH_SEMIMAJOR_AXIS);
+        // let scale = Vector3::new(1.0, 1.0, EARTH_SEMIMINOR_AXIS / EARTH_SEMIMAJOR_AXIS);
         let corners = [
             self.grid_position_cspace(0, 0, 0, 2), //.mul_element_wise(scale),
             self.grid_position_cspace(1, 0, 0, 2), //.mul_element_wise(scale),
