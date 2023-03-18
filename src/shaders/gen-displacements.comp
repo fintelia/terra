@@ -31,19 +31,16 @@ void main() {
     float height;
     if (node.layer_slots[HEIGHTMAPS_LAYER] >= 0) {
         height = extract_height(textureLod(sampler2DArray(heightmaps, linear),
-            vec3(node.layer_origins[HEIGHTMAPS_LAYER] + texcoord * node.layer_ratios[HEIGHTMAPS_LAYER],
-                node.layer_slots[HEIGHTMAPS_LAYER]), 0).x);
+            layer_texcoord(node.layer_extents[HEIGHTMAPS_LAYER], texcoord, node.layer_slots[HEIGHTMAPS_LAYER]), 0).x);
     } else {
         height = extract_height(textureLod(sampler2DArray(base_heightmaps, linear),
-            vec3(node.layer_origins[BASE_HEIGHTMAPS_LAYER] + texcoord * node.layer_ratios[BASE_HEIGHTMAPS_LAYER],
-                node.layer_slots[BASE_HEIGHTMAPS_LAYER]), 0).x);
+            layer_texcoord(node.layer_extents[BASE_HEIGHTMAPS_LAYER], texcoord, node.layer_slots[BASE_HEIGHTMAPS_LAYER]), 0).x);
     }
 
     float waterlevel_value = 0;
     if (node.layer_slots[WATERLEVEL_LAYER] >= 0) {
         waterlevel_value = extract_height(textureLod(sampler2DArray(waterlevel, linear),
-            vec3(node.layer_origins[WATERLEVEL_LAYER] + texcoord * node.layer_ratios[WATERLEVEL_LAYER],
-                node.layer_slots[WATERLEVEL_LAYER]), 0).x);
+            layer_texcoord(node.layer_extents[WATERLEVEL_LAYER], texcoord, node.layer_slots[WATERLEVEL_LAYER]), 0).x);
     }
     height = max(height, waterlevel_value);
 

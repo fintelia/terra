@@ -29,8 +29,7 @@ struct Node {
 	vec3 node_center;
 	int parent;
 
-	vec2 layer_origins[48];
-	float layer_ratios[48];
+	vec4 layer_extents[48];
 	int layer_slots[48];
 
 	vec3 relative_position;
@@ -41,8 +40,6 @@ struct Node {
 	uint face;
 	uint level;
 	uvec2 coords;
-
-	vec4 padding[12];
 };
 
 struct GenMeshUniforms {
@@ -57,6 +54,10 @@ float encode_height(float height) {
 }
 float extract_height(float encoded) {
 	return encoded * 16383.75 - 1024.0;
+}
+
+vec3 layer_texcoord(vec4 extents, vec2 texcoord, int slot) {
+	return vec3(mix(extents.xy, extents.zw, texcoord), slot);
 }
 
 const uint NUM_LAYERS = 24;

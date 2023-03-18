@@ -3,8 +3,7 @@ struct Node {
     node_center: vec3<f32>,
     parent: u32,
 
-    layer_origins: array<vec2<f32>, 48>,
-    layer_ratios: array<f32, 48>,
+    layer_extents: array<vec4<f32>, 48>,
     layer_slots: array<i32, 48>,
 
 	relative_position: vec3<f32>,
@@ -15,8 +14,6 @@ struct Node {
     face: u32,
 	level: u32,
     coords: vec2<u32>,
-
-	padding2: array<vec4<u32>, 12>,
 };
 struct Nodes {
     entries: array<Node>,
@@ -82,4 +79,8 @@ fn extract_normal(n: vec2<f32>) -> vec3<f32> {
     let n = n * 2.0 - vec2<f32>(1.0);
 	let y = sqrt(max(1.0 - dot(n, n), 0.0));
 	return normalize(vec3<f32>(n.x, y, n.y));
+}
+
+fn layer_texcoord(extents: vec4<f32>, texcoord: vec2<f32>) -> vec2<f32> {
+	return mix(extents.xy, extents.zw, texcoord);
 }

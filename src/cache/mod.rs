@@ -442,9 +442,8 @@ impl TileCache {
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
                 node_center: [0.0; 3],
-                layer_origins: [[0.0; 2]; 48],
+                layer_extents: [[0.0; 4]; 48],
                 layer_slots: [-1; 48],
-                layer_ratios: [0.0; 48],
                 relative_position: [0.0; 3],
                 min_distance: 0.0,
                 mesh_valid_mask: [0; 4],
@@ -452,7 +451,6 @@ impl TileCache {
                 face: 0,
                 coords: [0; 2],
                 parent: -1,
-                padding: [0; 48],
             };
             Levels::base_slot(self.levels.0.len() as u8)
         ];
@@ -531,16 +529,17 @@ impl TileCache {
                                 texture_border / texture_resolution
                             };
 
-                            data[index].layer_origins[layer_slot] = [
+                            let extent = f32::powi(0.5, ancestor_index as i32);
+                            data[index].layer_extents[layer_slot] = [
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
+                                texture_origin + texture_ratio * (base_offset.x + extent),
+                                texture_origin + texture_ratio * (base_offset.y + extent),
                             ];
                             data[index].layer_slots[layer_slot] =
                                 (self.levels.get_slot(ancestor).unwrap()
                                     - Levels::base_slot(layer.min_level()))
                                     as i32;
-                            data[index].layer_ratios[layer_slot] =
-                                f32::powi(0.5, ancestor_index as i32) * texture_ratio;
                         }
                     }
 

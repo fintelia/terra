@@ -38,10 +38,6 @@ vec3 extract_normal(vec2 n) {
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
 }
-vec3 layer_to_texcoord(uint layer, vec2 coordinates) {
-	Node node = nodes[slot];
-	return vec3(node.layer_origins[layer] + coordinates * node.layer_ratios[layer], node.layer_slots[layer]);
-}
 
 float mip_map_level(in vec2 texture_coordinate)
 {

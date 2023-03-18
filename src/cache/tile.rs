@@ -14,8 +14,7 @@ pub(crate) struct NodeSlot {
     pub(super) node_center: [f32; 3],
     pub(super) parent: i32,
 
-    pub(super) layer_origins: [[f32; 2]; 48],
-    pub(super) layer_ratios: [f32; 48],
+    pub(super) layer_extents: [[f32; 4]; 48],
     pub(super) layer_slots: [i32; 48],
 
     pub(super) relative_position: [f32; 3],
@@ -26,8 +25,6 @@ pub(crate) struct NodeSlot {
     pub(super) face: u32,
     pub(super) level: u32,
     pub(super) coords: [u32; 2],
-
-    pub(super) padding: [u32; 48],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}
