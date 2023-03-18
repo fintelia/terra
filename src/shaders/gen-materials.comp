@@ -208,8 +208,7 @@ void main() {
 	else
 		albedo_roughness = vec4(v2, .8);
 
-	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, smoothstep(5, 13, node.level) * 0.25);
-	// albedo_roughness.rgb *= balbedo;
+	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, 0.25);
 
 	if (water_amount > 0.5) {
 		albedo_roughness.a = 0.2;
