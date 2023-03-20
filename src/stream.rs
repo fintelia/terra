@@ -130,7 +130,7 @@ impl TileStreamer {
                     prev = waterlevel[i];
                 }
             }
-            let waterlevel: Vec<_> = waterlevel.iter().map(|&h| (h + 4096).max(0) as u16).collect();
+            let waterlevel: Vec<_> = waterlevel.iter().map(|&h| (h as i32 + 4096).max(0) as u16).collect();
             result.layers.insert(LayerType::WaterLevel.index(), bytemuck::cast_slice(&waterlevel).to_vec());
         }
 
@@ -175,7 +175,7 @@ impl TileStreamer {
             }
         }
 
-        let heights: Vec<_> = result.heightmap.iter().map(|&h| (h + 4096).max(0) as u16).collect();
+        let heights: Vec<_> = result.heightmap.iter().map(|&h| (h as i32 + 4096).max(0) as u16).collect();
         result
             .layers
             .insert(LayerType::BaseHeightmaps.index(), bytemuck::cast_slice(&heights).to_vec());

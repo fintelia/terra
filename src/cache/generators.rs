@@ -439,7 +439,11 @@ pub(crate) fn generators(
             "displacements".into(),
             rshader::shader_source!("../shaders", "gen-displacements.comp", "declarations.glsl"),
         )
-        .inputs(LayerType::BaseHeightmaps.bit_mask() | LayerType::Heightmaps.bit_mask())
+        .inputs(
+            LayerType::BaseHeightmaps.bit_mask()
+                | LayerType::Heightmaps.bit_mask()
+                | LayerType::WaterLevel.bit_mask(),
+        )
         .outputs(LayerType::Displacements.bit_mask())
         .dimensions(displacements_resolution)
         .build(),
@@ -452,7 +456,11 @@ pub(crate) fn generators(
                 "hash.glsl"
             ),
         )
-        .inputs(LayerType::TreeCover.bit_mask())
+        .inputs(
+            LayerType::TreeCover.bit_mask()
+                | LayerType::Heightmaps.bit_mask()
+                | LayerType::WaterLevel.bit_mask(),
+        )
         .outputs(LayerType::TreeAttributes.bit_mask())
         .dimensions(tree_attributes_resolution)
         .build(),
@@ -471,7 +479,8 @@ pub(crate) fn generators(
                 | LayerType::TreeAttributes.bit_mask()
                 | LayerType::LandFraction.bit_mask()
                 | LayerType::BaseHeightmaps.bit_mask()
-                | LayerType::Heightmaps.bit_mask(),
+                | LayerType::Heightmaps.bit_mask()
+                | LayerType::WaterLevel.bit_mask(),
         )
         .outputs(LayerType::Normals.bit_mask() | LayerType::AlbedoRoughness.bit_mask())
         .dimensions(normals_resolution)
@@ -485,7 +494,11 @@ pub(crate) fn generators(
                 "hash.glsl"
             ),
         )
-        .inputs(LayerType::Normals.bit_mask())
+        .inputs(
+            LayerType::Normals.bit_mask()
+                | LayerType::Heightmaps.bit_mask()
+                | LayerType::WaterLevel.bit_mask(),
+        )
         .outputs(LayerType::GrassCanopy.bit_mask())
         .dimensions(grass_canopy_resolution)
         .build(),
@@ -588,7 +601,7 @@ pub(crate) fn generators(
             ],
             dimensions: vec![(16, 16, 1), (16, 1, 1)],
             bindgroup_pipeline: vec![None, None],
-            inputs: LayerType::Displacements.bit_mask(),
+            inputs: LayerType::Displacements.bit_mask() | LayerType::TreeAttributes.bit_mask(),
             outputs: MeshType::TreeBillboards.bit_mask(),
             name: "tree-billboards-mesh".to_string(),
             min_level: meshes[MeshType::TreeBillboards].desc.min_level,

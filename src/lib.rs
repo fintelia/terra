@@ -550,7 +550,7 @@ impl Terrain {
                 sun_direction: self.sun_direction.into(),
                 screen_height: frame_size.1 as f32,
                 sidereal_time: self.sidereal_time,
-                exposure: 1.0 / (f32::powf(2.0, 15.0) * 1.2),
+                exposure: 1.0 / (f32::powf(2.0, 17.0) * 1.2),
                 _padding: [0.0; 2],
             }),
         );

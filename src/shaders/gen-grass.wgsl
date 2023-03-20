@@ -66,7 +66,7 @@ fn main(
     let albedo_value = read_texture(ALBEDO_LAYER, global_id).xyz;
     let canopy = read_texture(GRASS_CANOPY_LAYER, global_id);
 
-    if (normal.y < 0.95) {
+    if (normal.y < 0.95 || canopy.w <= rnd1) {
         return;
     }
 

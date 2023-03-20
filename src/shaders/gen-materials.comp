@@ -33,6 +33,9 @@ layout(set = 0, binding = 17, std430) readonly buffer NodeSlots {
 const uint BASE_ALBEDO_BORDER = 2;
 const uint BASE_ALBEDO_INNER_RESOLUTION = 512;
 
+const uint MATERIAL_BORDER = 2;
+const uint MATERIAL_INNER_RESOLUTION = 512;
+
 const uint NORMALS_BORDER = 2;
 
 vec3 layer_to_texcoord(uint layer) {
@@ -202,12 +205,12 @@ void main() {
 		albedo_roughness = vec4(v3, 0.8);
 	else if (height < 2)
 		albedo_roughness = vec4(.2, .2, .15, .8);
-	else if (normal.y < 0.95)
+	else if (normal.y < 0.95 + 0.03 * noise_value.w)
 		albedo_roughness = vec4(vec3(0.06), 0.8);
-	else if (height > 100 && normal.y < 0.99)
-		albedo_roughness = vec4(v1, .8);
-	else
-		albedo_roughness = vec4(v2, .8);
+	else {
+		float g = smoothstep(0.97, 0.99, normal.y + 0.02 * noise_value.w) * smoothstep(90, 100, height);
+		albedo_roughness = vec4(mix(v1, v2, g), .8);
+	}
 
 	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, 0.25);
 
