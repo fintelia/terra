@@ -9,3 +9,6 @@ edition = "2021"
 cgmath = "0.18.0"
 geo = "0.24.1"
 mint = "0.5.9"
+
+[dev-dependencies]
+approx = "0.5.1"

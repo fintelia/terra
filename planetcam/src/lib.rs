@@ -180,7 +180,7 @@ impl DualPlanetCam {
 
 #[cfg(test)]
 mod tests {
-    use cgmath::{assert_abs_diff_eq, assert_relative_eq, MetricSpace};
+    use cgmath::{assert_abs_diff_eq, MetricSpace};
     use geo::prelude::HaversineDestination;
 
     use crate::PlanetCam;
