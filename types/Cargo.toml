@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.68"
+anyhow = "1.0.70"
 cgmath = { version = "0.18.0", features = ["serde"] }
 lazy_static = "1.4.0"
-serde = { version = "1.0.118", features = ["derive"] }
+serde = { version = "1.0.158", features = ["derive"] }

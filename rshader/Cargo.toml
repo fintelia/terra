@@ -10,11 +10,11 @@ categories = ["game-engines", "rendering"]
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.68"
-bytemuck = "1.12.3"
+anyhow = "1.0.70"
+bytemuck = "1.13.1"
 lazy_static = "1.4.0"
 naga = { version = "0.11.0", features = ["spv-in", "glsl-in", "wgsl-in", "span"] }
-notify = "5.0.0"
+notify = "5.1.0"
 wgpu = { version = "0.15.1", features = ["spirv"] }
 
 [features]

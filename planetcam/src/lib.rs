@@ -20,8 +20,11 @@ impl PlanetCam {
 
         let start = geo::Point::new(self.longitude, self.latitude);
         let end = start.haversine_destination(self.bearing, meters);
-        let new_bearing =
-            if meters > 0.0 { end.bearing(start) + 180.0 } else { end.bearing(start) };
+        let new_bearing = if meters > 0.0 {
+            end.haversine_bearing(start) + 180.0
+        } else {
+            end.haversine_bearing(start)
+        };
 
         assert_eq!(start.y(), self.latitude);
         assert_eq!(start.x(), self.longitude);
@@ -37,8 +40,11 @@ impl PlanetCam {
 
         let start = geo::Point::new(self.longitude, self.latitude);
         let end = start.haversine_destination(self.bearing + 90.0, meters);
-        let new_bearing =
-            if meters > 0.0 { end.bearing(start) + 90.0 } else { end.bearing(start) - 90.0 };
+        let new_bearing = if meters > 0.0 {
+            end.haversine_bearing(start) + 90.0
+        } else {
+            end.haversine_bearing(start) - 90.0
+        };
 
         self.latitude = end.y().min(89.999).max(-89.999);
         self.longitude = end.x();

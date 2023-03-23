@@ -5,18 +5,18 @@ edition = "2021"
 
 [dependencies]
 cgmath = { version = "0.18.0", features = ["mint"] }
-chrono = "0.4.23"
-clap = { version = "4.0.32", features = ["derive"] }
+chrono = "0.4.24"
+clap = { version = "4.1.11", features = ["derive"] }
 env_logger = "0.10.0"
 gilrs = "0.10.1"
-indicatif = {version = "0.17.2", optional = true }
+indicatif = {version = "0.17.3", optional = true }
 mint = "0.5.9"
 open-location-code = "0.1.0"
 planetcam = { path = "../planetcam" }
 terra = { path = "..", default-features = false }
-tokio = { version = "1.24.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+tokio = { version = "1.26.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 wgpu = { version = "0.15.1" }
-winit = "0.27.5"
+winit = "0.28.3"
 terra-generate = { path = "../generate", optional = true }
 
 [features]

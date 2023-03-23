@@ -17,15 +17,15 @@ members = ["generate", "planetcam", "preview", "rshader", "types"]
 default-members = [".", "preview"]
 
 [dependencies]
-anyhow = "1.0.68"
-atomicwrites = "0.3.1"
-bytemuck = { version = "1.12.3", features = ["extern_crate_alloc"] }
+anyhow = "1.0.70"
+atomicwrites = "0.4.0"
+bytemuck = { version = "1.13.1", features = ["extern_crate_alloc"] }
 cgmath = { version = "0.18.0", features = ["mint", "serde"] }
 crossbeam = "0.8.2"
-dirs = "4.0.0"
+dirs = "5.0.0"
 fnv = "1.0.7"
-futures = "0.3.25"
-hyper = { version = "0.14.23", features = ["http1"] }
+futures = "0.3.27"
+hyper = { version = "0.14.25", features = ["http1"] }
 hyper-tls = "0.5.0"
 ktx2 = "0.3.0"
 lazy_static = "1.4.0"
@@ -33,16 +33,16 @@ lz4 = "1.24.0"
 maplit = "1.0.2"
 mint = "0.5.9"
 num-traits = "0.2.15"
-quick-xml = { version = "0.27.1", features = ["serialize"] }
-rayon = "1.6.1"
+quick-xml = { version = "0.28.1", features = ["serialize"] }
+rayon = "1.7.0"
 rshader = { path = "rshader", features = ["dynamic_shaders"] }
-serde = { version = "1.0.152", features = ["derive"] }
-smaa = { version = "0.8.0", optional = true }
-tokio = { version = "1.24.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+serde = { version = "1.0.158", features = ["derive"] }
+smaa = { version = "0.9.0", optional = true }
+tokio = { version = "1.26.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = { version = "0.15.1", features = ["spirv"] }
-zip = { version = "0.6.3", features = ["deflate"], default-features = false }
+zip = { version = "0.6.4", features = ["deflate"], default-features = false }
 
 [dev-dependencies]
 approx = "0.5.1"
