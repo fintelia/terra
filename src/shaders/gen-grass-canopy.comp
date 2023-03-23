@@ -34,8 +34,8 @@ void main() {
 	vec3 normal = extract_normal(texelFetch(normals, ivec3(gl_GlobalInvocationID.xy, ubo.slot), 0).xy);
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
-	float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), layer_texcoord(node.layer_extents[HEIGHTMAPS_LAYER], texcoord, node.layer_slots[HEIGHTMAPS_LAYER]), 0).x);
-    float water_surface = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_texcoord(node.layer_extents[WATERLEVEL_LAYER], texcoord, node.layer_slots[WATERLEVEL_LAYER]),0).x);
+	float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), layer_texcoord(node.layers[HEIGHTMAPS_LAYER], texcoord), 0).x);
+    float water_surface = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_texcoord(node.layers[WATERLEVEL_LAYER], texcoord),0).x);
 
     vec3 r3 = vec3(random(uvec3(gl_GlobalInvocationID.xy, 2)),
                    random(uvec3(gl_GlobalInvocationID.xy, 3)),

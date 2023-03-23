@@ -214,21 +214,21 @@ vec3 extract_normal(vec2 n) {
 
 vec3 layer_to_texcoord(uint layer) {
 	Node node = nodes[instance];
-	return layer_texcoord(node.layer_extents[layer], texcoord, node.layer_slots[layer]);
+	return layer_texcoord(node.layers[layer], texcoord);
 }
 
 void main() {
 	Node node = nodes[instance];
 
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
-	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
+	if (node.layers[PARENT_NORMALS_LAYER].slot >= 0) {
 		vec3 pn = extract_normal(textureLod(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER), 0).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
 	vec4 albedo_roughness = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER));
-	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
+	if (node.layers[PARENT_ALBEDO_LAYER].slot >= 0) {
 		vec4 parent_albedo_roughness = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0);
 		albedo_roughness = mix(parent_albedo_roughness, albedo_roughness, morph);
 	}
@@ -262,13 +262,13 @@ void main() {
 						vec3(100000.0)) * (1-shadow);
 
 	float ambient_strength = max(0, dot(normal, globals.sun_direction)) * max(0, tex_normal.y);
-	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
+	if (node.layers[BENT_NORMALS_LAYER].slot >= 0)
 		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * ambient_strength;
 	else
 		out_color.rgb += 15000 * albedo_roughness.rgb * ambient_strength;
 
 	vec4 ap;
-	if (node.layer_slots[AERIAL_PERSPECTIVE_LAYER] >= 0) {
+	if (node.layers[AERIAL_PERSPECTIVE_LAYER].slot >= 0) {
 		ap = textureLod(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER), 0);
 	} else {
 		ap = textureLod(sampler2DArray(root_aerial_perspective, linear), layer_to_texcoord(ROOT_AERIAL_PERSPECTIVE_LAYER), 0);

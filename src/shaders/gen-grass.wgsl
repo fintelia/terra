@@ -24,8 +24,8 @@ struct Entries {
 fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
 	var node = nodes.entries[ubo.slot];
     let texcoord = vec2<f32>(global_id.xy) / 128.0;
-    let texcoord = layer_texcoord(node.layer_extents[layer], texcoord);
-    let array_index = node.layer_slots[layer];
+    let texcoord = layer_texcoord(node.layers[layer], texcoord);
+    let array_index = node.layers[layer].slot;
 
     let l = layer % NUM_LAYERS;
     if (l == ALBEDO_LAYER) {            return textureSampleLevel(albedo, linearsamp, texcoord, array_index, 0.0); }
@@ -72,8 +72,8 @@ fn main(
 
     // Sample displacements texture at random offset (rnd1, rnd).
     let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
-    let stexcoord = layer_texcoord(node.layer_extents[DISPLACEMENTS_LAYER], texcoord);
-    let array_index = node.layer_slots[DISPLACEMENTS_LAYER];
+    let stexcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], texcoord);
+    let array_index = node.layers[DISPLACEMENTS_LAYER].slot;
     let dimensions = textureDimensions(displacements);
     let stexcoord = max(stexcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
     let f = fract(stexcoord);

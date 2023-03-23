@@ -22,11 +22,11 @@ void main() {
 	Node node = nodes[ubo.slot];
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
-	vec3 texcoord3 = layer_texcoord(node.layer_extents[TREECOVER_LAYER], texcoord, node.layer_slots[TREECOVER_LAYER]);
+	vec3 texcoord3 = layer_texcoord(node.layers[TREECOVER_LAYER], texcoord);
 	float coverage = textureLod(sampler2DArray(treecover, linear), texcoord3, 0).r;
 
-	float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), layer_texcoord(node.layer_extents[HEIGHTMAPS_LAYER], texcoord, node.layer_slots[HEIGHTMAPS_LAYER]), 0).x);
-    float water_surface = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_texcoord(node.layer_extents[WATERLEVEL_LAYER], texcoord, node.layer_slots[WATERLEVEL_LAYER]),0).x);
+	float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), layer_texcoord(node.layers[HEIGHTMAPS_LAYER], texcoord), 0).x);
+    float water_surface = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_texcoord(node.layers[WATERLEVEL_LAYER], texcoord),0).x);
 
     vec4 output_value = vec4(0);
     if (random(gl_GlobalInvocationID.xy) < coverage && height > water_surface) {

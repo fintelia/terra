@@ -11,11 +11,10 @@ use vec_map::VecMap;
 #[derive(Copy, Clone)]
 #[repr(C, align(4))]
 pub(crate) struct NodeSlot {
+    pub(super) layers: [(f32, f32, f32, i32); 48],
+
     pub(super) node_center: [f32; 3],
     pub(super) parent: i32,
-
-    pub(super) layer_extents: [[f32; 4]; 48],
-    pub(super) layer_slots: [i32; 48],
 
     pub(super) relative_position: [f32; 3],
     pub(super) min_distance: f32,
@@ -25,6 +24,8 @@ pub(crate) struct NodeSlot {
     pub(super) face: u32,
     pub(super) level: u32,
     pub(super) coords: [u32; 2],
+
+    pub(super) padding: [u32; 48],
 }
 unsafe impl bytemuck::Pod for NodeSlot {}
 unsafe impl bytemuck::Zeroable for NodeSlot {}

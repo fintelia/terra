@@ -25,12 +25,17 @@ struct Indirect {
     uint base_instance;
 };
 
+struct Layer {
+	vec2 origin;
+	float ratio;
+	int slot;
+};
+
 struct Node {
+	Layer layers[48];
+
 	vec3 node_center;
 	int parent;
-
-	vec4 layer_extents[48];
-	int layer_slots[48];
 
 	vec3 relative_position;
 	float min_distance;
@@ -40,6 +45,8 @@ struct Node {
 	uint face;
 	uint level;
 	uvec2 coords;
+
+	vec4 padding[12];
 };
 
 struct GenMeshUniforms {
@@ -56,8 +63,8 @@ float extract_height(float encoded) {
 	return encoded * 16383.75 - 1024.0;
 }
 
-vec3 layer_texcoord(vec4 extents, vec2 texcoord, int slot) {
-	return vec3(mix(extents.xy, extents.zw, texcoord), slot);
+vec3 layer_texcoord(Layer layer, vec2 texcoord) {
+	return vec3(layer.origin + layer.ratio * texcoord, layer.slot);
 }
 
 const uint NUM_LAYERS = 24;

@@ -1,7 +1,7 @@
 pub(crate) mod generators;
+pub(crate) mod layer;
 mod mesh;
 mod tile;
-pub(crate) mod layer;
 
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
@@ -20,7 +20,7 @@ use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 
-use self::layer::{LayerType, LayerMask};
+use self::layer::{LayerMask, LayerType};
 use self::tile::Entry;
 use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
 use self::{generators::GenerateTile, tile::CpuHeightmap};
@@ -442,8 +442,7 @@ impl TileCache {
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
                 node_center: [0.0; 3],
-                layer_extents: [[0.0; 4]; 48],
-                layer_slots: [-1; 48],
+                layers: [(0.0, 0.0, 0.0, -1); 48],
                 relative_position: [0.0; 3],
                 min_distance: 0.0,
                 mesh_valid_mask: [0; 4],
@@ -451,6 +450,7 @@ impl TileCache {
                 face: 0,
                 coords: [0; 2],
                 parent: -1,
+                padding: [0; 48],
             };
             Levels::base_slot(self.levels.0.len() as u8)
         ];
@@ -529,17 +529,14 @@ impl TileCache {
                                 texture_border / texture_resolution
                             };
 
-                            let extent = f32::powi(0.5, ancestor_index as i32);
-                            data[index].layer_extents[layer_slot] = [
+                            data[index].layers[layer_slot] = (
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
-                                texture_origin + texture_ratio * (base_offset.x + extent),
-                                texture_origin + texture_ratio * (base_offset.y + extent),
-                            ];
-                            data[index].layer_slots[layer_slot] =
+                                f32::powi(0.5, ancestor_index as i32) * texture_ratio,
                                 (self.levels.get_slot(ancestor).unwrap()
                                     - Levels::base_slot(layer.min_level()))
-                                    as i32;
+                                    as i32,
+                            );
                         }
                     }
 

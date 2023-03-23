@@ -41,5 +41,5 @@ void main() {
         }
     }
 
-    imageStore(bent_normals, ivec3(gl_GlobalInvocationID.xy, node.layer_slots[BENT_NORMALS_LAYER]), value);
+    imageStore(bent_normals, ivec3(gl_GlobalInvocationID.xy, node.layers[BENT_NORMALS_LAYER].slot), value);
 }

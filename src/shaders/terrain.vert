@@ -44,22 +44,21 @@ void main() {
 
 	ivec2 iPosition = ivec2((gl_VertexIndex) % (resolution+1),
 							(gl_VertexIndex) / (resolution+1)) + ivec2(base_origin);
-
-	int displacements_slot = node.layer_slots[DISPLACEMENTS_LAYER];
-	vec3 texcoord = layer_texcoord(node.layer_extents[DISPLACEMENTS_LAYER], vec2(iPosition)/64.0, displacements_slot);
+	int displacements_slot = node.layers[DISPLACEMENTS_LAYER].slot;
+	vec3 texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], vec2(iPosition)/64.0);
 	vec3 position = sample_displacements(texcoord) - nodes[displacements_slot].relative_position;
 
 	float morph = 1 - smoothstep(0.9, 1, length(position) / node.min_distance);
 	vec2 nPosition = mix(vec2((iPosition / 2) * 2), vec2(iPosition), morph);
 
 	if (morph < 1.0) {
-		int parent_displacements_slot = node.layer_slots[PARENT_DISPLACEMENTS_LAYER];
+		int parent_displacements_slot = node.layers[PARENT_DISPLACEMENTS_LAYER].slot;
 		if (parent_displacements_slot >= 0) {
-			vec3 ptexcoord = layer_texcoord(node.layer_extents[PARENT_DISPLACEMENTS_LAYER], vec2((iPosition/2)*2)/64.0, parent_displacements_slot);
+			vec3 ptexcoord = layer_texcoord(node.layers[PARENT_DISPLACEMENTS_LAYER], vec2((iPosition/2)*2)/64.0);
 			vec3 displacement = sample_displacements(ptexcoord) - nodes[parent_displacements_slot].relative_position;
 			position = mix(displacement, position, morph);
 		} else {
-			vec3 itexcoord = layer_texcoord(node.layer_extents[DISPLACEMENTS_LAYER], vec2((iPosition/2)*2)/64.0, displacements_slot);
+			vec3 itexcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], vec2((iPosition/2)*2)/64.0);
 			vec3 displacement = sample_displacements(itexcoord) - nodes[displacements_slot].relative_position;
 			position = mix(displacement, position, morph);
 		}

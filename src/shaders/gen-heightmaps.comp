@@ -118,7 +118,7 @@ void main() {
 	for (uint i = index; i < SIZE*SIZE; i += 256){
 		uvec2 uv = uvec2(i%SIZE, i/SIZE);
 		base_heights[uv.x][uv.y] = extract_height(texelFetch(base_heightmaps,
-			ivec3(ancestor_coords + uv, node.layer_slots[BASE_HEIGHTMAPS_LAYER]), 0).x);
+			ivec3(ancestor_coords + uv, node.layers[BASE_HEIGHTMAPS_LAYER].slot), 0).x);
 	}
 	barrier();
 
@@ -130,6 +130,6 @@ void main() {
 	// Compute and write height.
 	float height = compute_height(workgroup_origin + ivec2(gl_LocalInvocationID.xy));
 	float encoded_height = (height + 1024.0) * (1 / 16384.0);
-	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, node.layer_slots[HEIGHTMAPS_LAYER]), 
+	imageStore(heightmaps, ivec3(gl_GlobalInvocationID.xy, node.layers[HEIGHTMAPS_LAYER].slot),
 		vec4(encoded_height, 0, 0, 0));
 }
