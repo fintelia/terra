@@ -101,6 +101,7 @@ pub(crate) fn texture_from_ktx2_bytes(
             } else {
                 wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING
             },
+            view_formats: &[],
         },
         &data,
     ))
@@ -205,6 +206,7 @@ impl GpuState {
                     usage: wgpu::TextureUsages::STORAGE_BINDING
                         | wgpu::TextureUsages::TEXTURE_BINDING,
                     label: Some("texture.skyview"),
+                    view_formats: &[],
                 }),
             ),
             models_albedo: with_view("models.albedo", models.make_models_albedo(device, queue)?),
@@ -234,6 +236,7 @@ impl GpuState {
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | wgpu::TextureUsages::TEXTURE_BINDING,
                     label: Some("texture.shadowmap"),
+                    view_formats: &[],
                 }),
             ),
 
@@ -269,6 +272,7 @@ impl GpuState {
                                         wgpu::TextureUsages::empty()
                                     },
                                 label: Some(&format!("texture.tiles.{}{}", layer.name(), i)),
+                                view_formats: &[],
                             });
                             let view = texture.create_view(&wgpu::TextureViewDescriptor {
                                 label: Some(&format!("texture.tiles.{}{}.view", layer.name(), i,)),

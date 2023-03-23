@@ -79,6 +79,7 @@ impl Models {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
         }
     }
     pub fn make_billboards_albedo(&self, device: &wgpu::Device) -> wgpu::Texture {
@@ -250,6 +251,7 @@ impl Models {
         // Billboards
         for base_array_layer in 0..1 {
             let view_desc = wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer,
                 array_layer_count: Some(NonZeroU32::new(1).unwrap()),
                 ..Default::default()
@@ -271,6 +273,7 @@ impl Models {
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             });
             let depth_view = depth.create_view(&Default::default());
 
@@ -358,6 +361,7 @@ impl Models {
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             });
             let depth_view = depth.create_view(&Default::default());
 

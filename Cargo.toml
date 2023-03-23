@@ -41,7 +41,7 @@ smaa = { version = "0.8.0", optional = true }
 tokio = { version = "1.24.1", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
-wgpu = { version = "0.14.0", features = ["spirv"] }
+wgpu = { version = "0.15.1", features = ["spirv"] }
 zip = { version = "0.6.3", features = ["deflate"], default-features = false }
 
 [dev-dependencies]
@@ -62,12 +62,3 @@ opt-level = 3
 debug = true
 incremental = true
 
-[patch.crates-io]
-naga = { path = "../naga" } #{ git = "https://github.com/fintelia/naga", rev = "7431546951ff7d4d6493e82ae30a12755d1fda79" }
-wgpu = { path = "../wgpu/wgpu" }
-
-[patch."https://github.com/gfx-rs/naga"]
-naga = { path = "../naga" }
-
-[patch."https://github.com/gfx-rs/wgpu-core"]
-wgpu-core = { path = "../wgpu/wgpu-core" }

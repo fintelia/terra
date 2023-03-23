@@ -36,18 +36,20 @@ fn main(
     let rnd4 = random3(vec3<f32>(vec2<f32>(index), 4.0));
     let rnd5 = random3(vec3<f32>(vec2<f32>(index), 5.0));
 
-    let texcoord = vec2<f32>(global_id.xy) / 128.0;
-    let texcoord = layer_texcoord(node.layers[TREE_ATTRIBUTES_LAYER], texcoord);
-    let array_index = node.layers[TREE_ATTRIBUTES_LAYER].slot;
-    let tree_attr = textureSampleLevel(tree_attributes, nearest, texcoord, array_index, 0.0);
+    let tree_attr = textureSampleLevel(
+        tree_attributes,
+        nearest,
+        layer_texcoord(node.layers[TREE_ATTRIBUTES_LAYER], vec2<f32>(global_id.xy) / 128.0), 
+        node.layers[TREE_ATTRIBUTES_LAYER].slot,
+        0.0
+    );
 
     if (tree_attr.a == 0.0) {
         return;
     }
 
     // Sample displacements texture at random offset (rnd1, rnd).
-    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
-    let texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], texcoord);
+    let texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0);
     let array_index = node.layers[DISPLACEMENTS_LAYER].slot;
     let dimensions = textureDimensions(displacements);
     let stexcoord = max(texcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));

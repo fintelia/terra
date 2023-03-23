@@ -4,7 +4,7 @@
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std430) readonly buffer NodeSlots {
+layout(set = 0, binding = 1, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 layout(set = 0, binding = 8) uniform texture2DArray displacements;

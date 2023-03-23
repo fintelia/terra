@@ -59,6 +59,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
             label: None,
         })
         .create_view(&Default::default())
@@ -79,6 +80,7 @@ fn configure_surface(
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: Vec::new(),
         },
     );
 }
@@ -117,7 +119,10 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
     let surface = unsafe { instance.create_surface(&window).unwrap() };
     let adapter = runtime
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -213,7 +218,9 @@ fn main() {
                         pb.reset_eta();
                     }
                 };
-                runtime.block_on(terra_generate::generate(&path, download, progress_callback)).unwrap()
+                runtime
+                    .block_on(terra_generate::generate(&path, download, progress_callback))
+                    .unwrap()
             }
         }
     };

@@ -29,7 +29,7 @@ layout(set = 0, binding = 4) uniform texture2DArray displacements;
 layout(set = 0, binding = 5) uniform texture2DArray normals;
 layout(set = 0, binding = 6) uniform texture2DArray albedo;
 layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
-layout(set = 0, binding = 8, std430) readonly buffer Nodes {
+layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 

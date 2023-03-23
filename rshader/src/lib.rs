@@ -80,8 +80,26 @@ impl ShaderSource {
             }
         };
 
-        if let ShaderSource::FilesWGSL { .. } = self {
-            Ok(wgpu::ShaderSource::Wgsl(contents.into()))
+        if let ShaderSource::FilesWGSL { name, .. } = self {
+            match naga::front::wgsl::parse_str(&contents) {
+                Err(e) => {
+                    e.emit_to_stderr_with_path(&contents, name);
+                    Err(anyhow::anyhow!("Failed to parse shader"))
+                }
+                Ok(module) => {
+                    let mut validator = naga::valid::Validator::new(
+                        naga::valid::ValidationFlags::all(),
+                        naga::valid::Capabilities::all(),
+                    );
+                    match validator.validate(&module) {
+                        Err(e) => {
+                            e.emit_to_stderr_with_path(&contents, name);
+                            Err(anyhow::anyhow!("Failed to validate shader"))
+                        }
+                        Ok(_) => Ok(wgpu::ShaderSource::Wgsl(contents.into())),
+                    }
+                }
+            }
         } else {
             let mut parser = naga::front::glsl::Parser::default();
 

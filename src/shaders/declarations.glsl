@@ -40,7 +40,7 @@ struct Node {
 	vec3 relative_position;
 	float min_distance;
 
-	uint mesh_valid_mask[4];
+	uvec4 mesh_valid_mask;
 
 	uint face;
 	uint level;

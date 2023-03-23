@@ -13,9 +13,9 @@ edition = "2021"
 anyhow = "1.0.68"
 bytemuck = "1.12.3"
 lazy_static = "1.4.0"
-naga = { version = "0.10.0", features = ["spv-in", "glsl-in", "wgsl-in", "span"] }
+naga = { version = "0.11.0", features = ["spv-in", "glsl-in", "wgsl-in", "span"] }
 notify = "5.0.0"
-wgpu = { version = "0.14", features = ["spirv"] }
+wgpu = { version = "0.15.1", features = ["spirv"] }
 
 [features]
 default = []

@@ -26,7 +26,7 @@ layout(binding = 14) uniform texture2D topdown_albedo;
 layout(binding = 15) uniform texture2D topdown_normals;
 layout(binding = 16) uniform sampler nearest;
 
-layout(set = 0, binding = 17, std430) readonly buffer NodeSlots {
+layout(set = 0, binding = 17, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 

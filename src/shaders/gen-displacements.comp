@@ -13,7 +13,7 @@ layout(binding = 2) uniform texture2DArray base_heightmaps;
 layout(binding = 3) uniform texture2DArray ellipsoid;
 layout(binding = 4) uniform texture2DArray waterlevel;
 layout(rgba32f, binding = 5) writeonly uniform image2DArray displacements;
-layout(set = 0, binding = 6, std430) readonly buffer NodeSlots {
+layout(set = 0, binding = 6, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 layout(set = 0, binding = 7) uniform sampler linear;

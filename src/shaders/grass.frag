@@ -7,7 +7,7 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0) uniform UniformBlock {
 	Globals globals;
 };
-layout(set = 0, binding = 8, std430) readonly buffer NodeBlock {
+layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 

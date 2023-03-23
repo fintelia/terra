@@ -23,8 +23,7 @@ struct Entries {
 
 fn read_texture(layer: u32, global_id: vec3<u32>) -> vec4<f32> {
 	var node = nodes.entries[ubo.slot];
-    let texcoord = vec2<f32>(global_id.xy) / 128.0;
-    let texcoord = layer_texcoord(node.layers[layer], texcoord);
+    let texcoord = layer_texcoord(node.layers[layer], vec2<f32>(global_id.xy) / 128.0);
     let array_index = node.layers[layer].slot;
 
     let l = layer % NUM_LAYERS;
@@ -71,11 +70,10 @@ fn main(
     }
 
     // Sample displacements texture at random offset (rnd1, rnd).
-    let texcoord = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0;
-    let stexcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], texcoord);
+    let texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0);
     let array_index = node.layers[DISPLACEMENTS_LAYER].slot;
     let dimensions = textureDimensions(displacements);
-    let stexcoord = max(stexcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
+    let stexcoord = max(texcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
     let f = fract(stexcoord);
     let base_coords = vec2<i32>(stexcoord - f);
     let i00 = textureLoad(displacements, base_coords, array_index, 0);
