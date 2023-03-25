@@ -94,11 +94,12 @@ fn main() {
     let epoch = opt
         .time
         .map(|s| {
-            chrono::NaiveTime::parse_from_str(&s, "%-H:%M")
-                .unwrap()
-                .signed_duration_since(chrono::NaiveTime::from_hms_opt(12, 0, 0).unwrap())
-                .num_minutes() as f64
-                / 1440.0
+            let t = time::Time::parse(
+                &s,
+                time::macros::format_description!("[hour]:[minute]:[second]"),
+            )
+            .unwrap();
+            t.hour() as f64 / 24.0 + t.minute() as f64 / 1440.0 + t.second() as f64 / 86400.0 - 0.5
         })
         .unwrap_or(0.0);
 

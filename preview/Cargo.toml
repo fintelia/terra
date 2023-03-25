@@ -4,20 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-cgmath = { version = "0.18.0", features = ["mint"] }
-chrono = "0.4.24"
+cgmath = { version = "0.18.0", features = ["mint"], git = "https://github.com/rustgd/cgmath", rev = "d5e765db61cf9039cb625a789a59ddf6b6ab2337" }
 clap = { version = "4.1.11", features = ["derive"] }
 env_logger = "0.10.0"
 gilrs = "0.10.1"
 indicatif = {version = "0.17.3", optional = true }
 mint = "0.5.9"
-open-location-code = "0.1.0"
+open-location-code = {version = "0.2.0", git = "https://github.com/fintelia/open-location-code", rev = "07a4dd0d8fc08619979707c985728c4fd07dacae" }
 planetcam = { path = "../planetcam" }
 terra = { path = "..", default-features = false }
 tokio = { version = "1.26.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
 wgpu = { version = "0.15.1" }
-winit = "0.28.3"
+winit = {version = "0.28.3", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
 terra-generate = { path = "../generate", optional = true }
+time = { version = "0.3.20", features = ["parsing", "macros"] }
 
 [features]
 default = ["generate"]

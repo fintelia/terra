@@ -20,7 +20,7 @@ default-members = [".", "preview"]
 anyhow = "1.0.70"
 atomicwrites = "0.4.0"
 bytemuck = { version = "1.13.1", features = ["extern_crate_alloc"] }
-cgmath = { version = "0.18.0", features = ["mint", "serde"] }
+cgmath = { version = "0.18.0", features = ["mint", "serde"], git = "https://github.com/rustgd/cgmath", rev = "d5e765db61cf9039cb625a789a59ddf6b6ab2337" }
 crossbeam = "0.8.2"
 dirs = "5.0.0"
 fnv = "1.0.7"

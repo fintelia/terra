@@ -10,7 +10,7 @@ aligned-buf = { git = "https://github.com/fintelia/aligned-buf", rev = "daec48c6
 anyhow = "1.0.70"
 atomicwrites = "0.4.0"
 bytemuck = { version = "1.13.1", features = ["extern_crate_alloc"] }
-cgmath = { version = "0.18.0", features = ["mint", "serde"] }
+cgmath = { version = "0.18.0", features = ["mint", "serde"], git = "https://github.com/rustgd/cgmath", rev = "d5e765db61cf9039cb625a789a59ddf6b6ab2337" }
 cogbuilder = { git = "https://github.com/fintelia/cogbuilder", rev = "24e491e823e446c0ddacef2fb5f797952867ff0f" }
 image = "0.24.5"
 imageproc = "0.23.0"
@@ -29,7 +29,7 @@ rust-s3 = { version = "0.32.3", features = ["blocking", "tokio"] }
 serde = { version = "1.0.158", features = ["derive"] }
 tiff = "0.9.0"
 types = { path = "../types" }
-vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "36b53590676eb7f6e42ea62279e2facd35249cfb" }
+vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "6109f7f07561da1285f4a4c0c8cbbaf06b24381f" }
 zip = { version = "0.6.4", features = ["deflate"], default-features = false }
 
 [dev-dependencies]
