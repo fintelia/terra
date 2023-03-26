@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, num::NonZeroU8};
+use std::{borrow::Cow, collections::HashMap, io::Cursor, num::NonZeroU8};
 
 use crate::{
     billboards::Models,
@@ -51,7 +51,7 @@ pub(crate) fn texture_from_ktx2_bytes(
     let reader = ktx2::Reader::new(bytes)?;
 
     let header = reader.header();
-    assert_eq!(header.supercompression_scheme, None);
+    assert_eq!(header.supercompression_scheme, Some(ktx2::SupercompressionScheme::Zstandard));
 
     let format = match header.format {
         Some(ktx2::Format::R8_UNORM) => wgpu::TextureFormat::R8Unorm,
@@ -64,9 +64,10 @@ pub(crate) fn texture_from_ktx2_bytes(
     assert_eq!(format_info.block_dimensions.0, format_info.block_dimensions.1);
 
     let mut layers: Vec<Vec<u8>> =
-        (0..(header.layer_count.max(1) * header.face_count)).map(|_|Vec::new()).collect();
+        (0..(header.layer_count.max(1) * header.face_count)).map(|_| Vec::new()).collect();
 
     for level in reader.levels() {
+        let level = zstd::decode_all(Cursor::new(level))?;
         for (i, chunk) in level.chunks(level.len() / layers.len()).enumerate() {
             layers[i].extend_from_slice(chunk);
         }

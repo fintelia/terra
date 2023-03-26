@@ -1,4 +1,5 @@
 use anyhow::Error;
+use bytemuck::Pod;
 use ktx2::Format;
 
 pub(crate) fn encode_ktx2(
@@ -10,7 +11,7 @@ pub(crate) fn encode_ktx2(
     format: ktx2::Format,
 ) -> Result<Vec<u8>, Error> {
     let samples: u16 = match format {
-        Format::R8_UNORM | Format::R32_SFLOAT => 1,
+        Format::R8_UNORM | Format::R16_UNORM | Format::R32_SFLOAT => 1,
         Format::R8G8_UNORM | Format::R32G32_SFLOAT => 2,
         Format::R8G8B8A8_UNORM | Format::R32G32B32A32_SFLOAT => 4,
         Format::BC1_RGB_UNORM_BLOCK
@@ -22,6 +23,7 @@ pub(crate) fn encode_ktx2(
     };
     let (compressed, bytes_per_block) = match format {
         Format::R8_UNORM | Format::R8G8_UNORM | Format::R8G8B8A8_UNORM => (false, samples),
+        Format::R16_UNORM => (false, 2 * samples),
         Format::R32_SFLOAT | Format::R32G32_SFLOAT | Format::R32G32B32A32_SFLOAT => {
             (false, 4 * samples)
         }
@@ -46,7 +48,7 @@ pub(crate) fn encode_ktx2(
     contents.extend_from_slice(&layers.to_le_bytes());
     contents.extend_from_slice(&1u32.to_le_bytes()); // faces
     contents.extend_from_slice(&levels.to_le_bytes()); // levels
-    contents.extend_from_slice(&0u32.to_le_bytes()); // supercompressionScheme
+    contents.extend_from_slice(&2u32.to_le_bytes()); // supercompressionScheme = zstd
 
     contents.extend_from_slice(&(80 + 24 * levels).to_le_bytes());
     contents.extend_from_slice(&dfd_size.to_le_bytes());
@@ -54,15 +56,17 @@ pub(crate) fn encode_ktx2(
     contents.extend_from_slice(&0u32.to_le_bytes()); // kvdByteLength
     contents.extend_from_slice(&0u64.to_le_bytes()); // sgdByteOffset
     contents.extend_from_slice(&0u64.to_le_bytes()); // sgdByteLength
-
-    let mut offset = (80 + 24 * levels + dfd_size) as u64;
-
     assert_eq!(contents.len(), 80);
+
+    let mut compressed_image_slices = Vec::new();
+    let mut offset = (80 + 24 * levels + dfd_size) as u64;
     for image_slice in image_slices {
+        let compressed = zstd::encode_all(std::io::Cursor::new(image_slice), 10).unwrap();
         contents.extend_from_slice(&offset.to_le_bytes());
+        contents.extend_from_slice(&(compressed.len() as u64).to_le_bytes());
         contents.extend_from_slice(&(image_slice.len() as u64).to_le_bytes());
-        contents.extend_from_slice(&(image_slice.len() as u64).to_le_bytes());
-        offset += image_slice.len() as u64;
+        offset += compressed.len() as u64;
+        compressed_image_slices.push(compressed);
     }
 
     assert_eq!(contents.len(), 80 + 24 * levels as usize);
@@ -96,6 +100,16 @@ pub(crate) fn encode_ktx2(
                 contents.extend_from_slice(&[0; 4]); // samplePosition[0..3]
                 contents.extend_from_slice(&0u32.to_le_bytes()); // sampleLower
                 contents.extend_from_slice(&255u32.to_le_bytes()); // sampleUpper
+            }
+        }
+        Format::R16_UNORM => {
+            for i in 0..samples {
+                contents.extend_from_slice(&(i as u16 * 8).to_le_bytes()); // bitOffset
+                contents.push(15); // bitLength
+                contents.push(if i == 3 { 0x1F } else { i as u8 }); // channelType + F[loat] + S[igned] + E[ponent] + L[inear]
+                contents.extend_from_slice(&[0; 4]); // samplePosition[0..3]
+                contents.extend_from_slice(&0u32.to_le_bytes()); // sampleLower
+                contents.extend_from_slice(&65535u32.to_le_bytes()); // sampleUpper
             }
         }
         Format::R32_SFLOAT | Format::R32G32_SFLOAT | Format::R32G32B32A32_SFLOAT => {
@@ -137,9 +151,18 @@ pub(crate) fn encode_ktx2(
     }
 
     assert_eq!(contents.len(), 80 + 24 * levels as usize + dfd_size as usize);
-    for image_slice in image_slices {
-        contents.extend_from_slice(image_slice);
+    for image_slice in compressed_image_slices {
+        contents.extend_from_slice(&image_slice);
     }
 
     Ok(contents)
+}
+
+pub(crate) fn encode_ktx2_simple<T: Pod>(
+    data: &[T],
+    width: u32,
+    height: u32,
+    format: ktx2::Format,
+) -> Result<Vec<u8>, Error> {
+    encode_ktx2(&[bytemuck::cast_slice(data).to_vec()], width, height, 0, 0, format)
 }

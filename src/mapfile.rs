@@ -2,7 +2,7 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Write, Cursor};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -20,9 +20,9 @@ pub(crate) struct MapFile {
 impl MapFile {
     pub(crate) async fn new(server: String) -> Result<Self, Error> {
         // Download file list if necessary.
-        let file_list_path = TERRA_DIRECTORY.join("tile_list.txt.lz4");
+        let file_list_path = TERRA_DIRECTORY.join("tile_list.txt.zstd");
         let file_list_encoded = if !file_list_path.exists() {
-            let contents = Self::download(&server, "tile_list.txt.lz4").await?;
+            let contents = Self::download(&server, "tile_list.txt.zstd").await?;
             if server.starts_with("http://") || server.starts_with("https://") {
                 tokio::fs::write(&file_list_path, &contents).await?;
             }
@@ -32,9 +32,8 @@ impl MapFile {
         };
 
         // Parse file list to learn all files available from the remote.
-        let mut remote_files = String::new();
-        lz4::Decoder::new(std::io::Cursor::new(&file_list_encoded))?
-            .read_to_string(&mut remote_files)?;
+        let remote_files =
+            String::from_utf8(zstd::decode_all(Cursor::new(&file_list_encoded))?)?;
         let remote_tiles = remote_files
             .split('\n')
             .filter_map(|f| f.strip_suffix(".raw"))

@@ -18,7 +18,6 @@ itertools = "0.10.5"
 ktx2 = "0.3.0"
 lindel = "0.1.1"
 lru = "0.10.0"
-lz4 = "1.24.0"
 md5 = "0.7.0"
 num-traits = "0.2.15"
 rand = "0.8.5"
@@ -31,6 +30,7 @@ tiff = "0.9.0"
 types = { path = "../types" }
 vrt-file = { git = "https://github.com/fintelia/vrt-file", rev = "6109f7f07561da1285f4a4c0c8cbbaf06b24381f" }
 zip = { version = "0.6.4", features = ["deflate"], default-features = false }
+zstd = "0.12.3"
 
 [dev-dependencies]
 approx = "0.5.1"

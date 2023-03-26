@@ -29,7 +29,6 @@ hyper = { version = "0.14.25", features = ["http1"] }
 hyper-tls = "0.5.0"
 ktx2 = "0.3.0"
 lazy_static = "1.4.0"
-lz4 = "1.24.0"
 maplit = "1.0.2"
 mint = "0.5.9"
 num-traits = "0.2.15"
@@ -43,6 +42,7 @@ types = { path = "types" }
 vec_map = { version = "0.8.2", features = ["serde"] }
 wgpu = { version = "0.15.1", features = ["spirv"] }
 zip = { version = "0.6.4", features = ["deflate"], default-features = false }
+zstd = "0.12.3"
 
 [dev-dependencies]
 approx = "0.5.1"

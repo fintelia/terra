@@ -38,7 +38,7 @@ pub(crate) struct ByteRange {
 
 #[derive(Clone)]
 pub(super) enum CpuHeightmap {
-    I16 { min: f32, max: f32, heights: Vec<i16> },
+    U16 { min: f32, max: f32, heights: Vec<u16> },
     F32 { min: f32, max: f32, heights: Arc<Vec<f32>> },
 }
 
@@ -261,6 +261,15 @@ impl TileCache {
 
         while let Some(tile) = self.streamer.try_complete() {
             if let Some(entry) = self.levels.0[tile.node.level() as usize].entry_mut(&tile.node) {
+                // Extract heightmap
+                let mut heights = vec![0u16; 521 * 521];
+                bytemuck::cast_slice_mut(&mut heights)
+                    .copy_from_slice(&tile.layers[LayerType::BaseHeightmaps.index()]);
+                let min = *heights.iter().min().unwrap() as f32 * 0.25 + 1024.0;
+                let max = *heights.iter().max().unwrap() as f32 * 0.25 + 1024.0;
+
+                // Update entry
+                entry.heightmap = Some(CpuHeightmap::U16 { min, max, heights });
                 entry.streaming = false;
                 for layer in tile.layers.keys().map(LayerType::from_index) {
                     if layer.level_range().contains(&tile.node.level()) {
@@ -268,6 +277,7 @@ impl TileCache {
                     }
                 }
 
+                // Upload layers
                 let index = self.levels.get_slot(tile.node).unwrap();
                 for (layer_index, mut data) in tile.layers {
                     let layer = LayerType::from_index(layer_index);
@@ -321,13 +331,6 @@ impl TileCache {
                             depth_or_array_layers: 1,
                         },
                     );
-                }
-
-                if let Some(entry) = self.levels.0[tile.node.level() as usize].entry_mut(&tile.node)
-                {
-                    let min = *tile.heightmap.iter().min().unwrap() as f32;
-                    let max = *tile.heightmap.iter().max().unwrap() as f32;
-                    entry.heightmap = Some(CpuHeightmap::I16 { min, max, heights: tile.heightmap });
                 }
             }
         }
@@ -529,14 +532,13 @@ impl TileCache {
             .entry(&node)
             .and_then(|entry| Some(entry.heightmap.as_ref()?))
             .map(|h| match h {
-                CpuHeightmap::I16 { heights: h, .. } => {
-                    (h[i00] as f32 * w00
-                        + h[i10] as f32 * w10
-                        + h[i01] as f32 * w01
-                        + h[i11] as f32 * w11)
-                        .max(0.0)
-                        * 0.25
-                }
+                CpuHeightmap::U16 { heights: h, .. } => ((h[i00] as f32 * w00
+                    + h[i10] as f32 * w10
+                    + h[i01] as f32 * w01
+                    + h[i11] as f32 * w11)
+                    * 0.25
+                    - 1024.0)
+                    .max(0.0),
                 CpuHeightmap::F32 { heights: h, .. } => {
                     (h[i00] * w00 + h[i10] * w10 + h[i01] * w01 + h[i11] * w11).max(0.0)
                 }
@@ -547,7 +549,7 @@ impl TileCache {
     pub fn get_height_range(&self, node: VNode) -> (f32, f32) {
         let mut node = Some(node);
         while let Some(n) = node {
-            if let Some(CpuHeightmap::I16 { min, max, .. } | CpuHeightmap::F32 { min, max, .. }) =
+            if let Some(CpuHeightmap::U16 { min, max, .. } | CpuHeightmap::F32 { min, max, .. }) =
                 self.levels.0[n.level() as usize]
                     .entry(&n)
                     .and_then(|entry| Some(entry.heightmap.as_ref()?))

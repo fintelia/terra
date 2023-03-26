@@ -1,21 +1,19 @@
 use crate::heightmap::CogTileCache;
-use crate::ktx2encode::encode_ktx2;
+use crate::ktx2encode::encode_ktx2_simple;
 use aligned_buf::AlignedBuf;
 use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
-use bytemuck::Pod;
 use cgmath::{InnerSpace, Vector3};
 use cogbuilder::CogBuilder;
 use itertools::Itertools;
-use num_traits::{WrappingAdd, WrappingSub, Zero};
 use rayon::prelude::*;
 use std::collections::{BTreeMap, HashSet};
-use std::io::{Cursor, Read};
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, mem};
-use std::{io::Write, path::Path, sync::Mutex};
+use std::{path::Path, sync::Mutex};
 use types::{VFace, VNode};
 use zip::ZipWriter;
 
@@ -796,25 +794,6 @@ fn crop<T: Copy>(output: &mut [T], output_resolution: usize, input: &[T], input_
     }
 }
 
-fn delta_encode<T: WrappingAdd + WrappingSub + Zero>(data: &mut [T]) -> &mut [T] {
-    let mut last = T::zero();
-    for v in data.iter_mut() {
-        *v = v.wrapping_sub(&last);
-        last = last.wrapping_add(v);
-    }
-    data
-}
-
-fn compress<T: Pod + PartialEq + Zero>(data: &[T]) -> Vec<u8> {
-    let mut bytes = Vec::<u8>::new();
-    if data.iter().any(|&h| h != T::zero()) {
-        let mut e = lz4::EncoderBuilder::new().level(1).build(&mut bytes).unwrap();
-        e.write_all(&bytemuck::cast_slice(data)).unwrap();
-        e.finish().0;
-    }
-    bytes
-}
-
 pub fn merge_datasets_to_tiles<F>(
     base_directory: PathBuf,
     heights_dataset: Dataset<i16>,
@@ -835,11 +814,10 @@ where
     const TILE_INNER_RESOLUTION: u32 = 512;
     let max_level = VNode::LEVEL_CELL_76M;
 
-    let tile_list_path = serve_directory.join("tile_list.txt.lz4");
+    let tile_list_path = serve_directory.join("tile_list.txt.zstd");
     let all_tiles: Option<HashSet<VNode>> = if tile_list_path.exists() {
-        let mut remote_files = String::new();
-        lz4::Decoder::new(std::io::Cursor::new(&fs::read(&tile_list_path)?))?
-            .read_to_string(&mut remote_files)?;
+        let remote_files =
+            String::from_utf8(zstd::decode_all(Cursor::new(&fs::read(&tile_list_path)?))?)?;
         Some(
             remote_files
                 .split('\n')
@@ -988,106 +966,22 @@ where
                 .compression_method(zip::CompressionMethod::Stored);
             let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
 
-            let mut compressed_layers = BTreeMap::new();
-            // if node.level() + 1 == cog_levels[0] as u8 {
-            //     let mut heights = layers[0].as_mut().unwrap().as_slice_mut::<i16>().to_vec();
-            //     let mut raw_watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>().to_vec();
-
-            //     let mut water_surface = heights.clone();
-
-            //     if raw_watermask.iter().all(|&w| w != 0) {
-            //         heights.iter_mut().for_each(|h| *h = -1024);
-            //     } else {
-            //         raw_watermask
-            //             .iter_mut()
-            //             .for_each(|w| *w = if *w == 0 || *w == 3 { 1 } else { 0 });
-            //         assert_eq!(raw_watermask.len(), 545 * 545);
-            //         let watermask =
-            //             image::GrayImage::from_raw(513 + 32, 513 + 32, raw_watermask).unwrap();
-            //         let shore_distance =
-            //             imageproc::distance_transform::euclidean_squared_distance_transform(
-            //                 &watermask,
-            //             );
-            //         for y in 0..517 {
-            //             for x in 0..517 {
-            //                 let dist: f64 =
-            //                     shore_distance.get_pixel(x as u32 + 14, y as u32 + 14)[0];
-            //                 if dist > 0.0 {
-            //                     heights[y * 517 + x] -= ((dist as f32).sqrt() * 4.0) as i16;
-            //                 }
-            //             }
-            //         }
-            //         // for y in 0..517 {
-            //         //     for x in 0..517 {
-            //         //         if watermask.get_pixel(y as u32 + 14, x as u32 + 14)[0] == 1 {
-            //         //             water_surface[y * 517 + x] = -9999;
-            //         //         }
-            //         //     }
-            //         // }
-            //         // for _ in 0..3 {
-            //         //     for y in 0..517 {
-            //         //         for x in 0..517 {
-            //         //             if water_surface[y * 517 + x] == -9999 {
-            //         //                 let w0 = water_surface[y * 517 + x.saturating_sub(1)];
-            //         //                 let w1 = water_surface[y.saturating_sub(1) * 517 + x];
-            //         //                 let w2 = water_surface[y * 517 + (x + 1).min(516)];
-            //         //                 let w3 =
-            //         //                     water_surface[(y + 1).min(516) * 517 + (x + 1).min(516)];
-            //         //                 water_surface[y * 517 + x] = w0.max(w1).max(w2).max(w3);
-            //         //             }
-            //         //         }
-            //         //     }
-            //         // }
-            //         for y in 0..517 {
-            //             for x in 0..517 {
-            //                 if watermask.get_pixel(x as u32 + 14, y as u32 + 14)[0] == 1 {
-            //                     heights[y * 517 + x] = heights[y * 517 + x].max(1);
-            //                     //  .max(water_surface[y * 517 + x] + 1);
-            //                 }
-            //             }
-            //         }
-            //     }
-            //     heights
-            //         .iter_mut()
-            //         .filter(|&&mut h| h > 8 || h < -8)
-            //         .for_each(|h| *h = (*h / 4) * 4);
-            //     delta_encode(&mut heights);
-            //     compressed_layers.insert("heights.lz4", compress(&heights));
-
-            //     // water_surface.iter_mut().for_each(|h| *h = (*h / 4) * 4);
-            //     // delta_encode(&mut water_surface);
-            //     // compressed_layers.insert("water_surface.lz4", compress(&water_surface));
-
-            //     // let watermask = layers[1].as_mut().unwrap().as_slice_mut::<u8>();
-            //     // watermask.iter_mut().for_each(|h| *h = h.wrapping_sub(1));
-            //     // let mut cropped_watermask = vec![0; 517 * 517];
-            //     // crop(&mut cropped_watermask, 517, watermask, 521);
-            //     // delta_encode(&mut cropped_watermask);
-            //     // compressed_layers.insert("watermask.lz4", compress(&cropped_watermask));
-
-            //     let treecover = layers[2].as_mut().unwrap().as_slice_mut::<u8>();
-            //     delta_encode(treecover);
-            //     compressed_layers.insert("treecover.lz4", compress(treecover));
-
-            //     let landfraction = layers[4].as_mut().unwrap().as_slice_mut::<u8>();
-            //     delta_encode(landfraction);
-            //     compressed_layers.insert("landfraction.lz4", compress(landfraction));
-            // } else {
-
-            let heights = layers[LAYER_HEIGHTS].take().unwrap().as_slice_mut::<i16>();
-            let water_level = layers[LAYER_WATER_LEVEL].take().unwrap().as_slice_mut::<i16>();
+            let heights = layers[LAYER_HEIGHTS].take().unwrap().as_slice::<i16>();
+            let water_level = layers[LAYER_WATER_LEVEL].take().unwrap().as_slice::<i16>();
             let shore_distance = layers[LAYER_SHORE_DIST].take().unwrap().as_slice_mut::<i16>();
             let tree_cover = layers[LAYER_TREECOVER].take().unwrap().as_slice_mut::<u8>();
             let land_fraction = layers[LAYER_LAND_FRACT].take().unwrap().as_slice_mut::<u8>();
 
-            heights.iter_mut().for_each(|h| *h = h.saturating_mul(4));
-            water_level.iter_mut().for_each(|w| *w = w.saturating_mul(4));
+            let encode_height = |h: i16| ((h as i32 + 1024) * 4).max(0).min(u16::MAX as i32) as u16;
+            let mut heights = heights.iter().copied().map(encode_height).collect_vec();
+            let water_level = water_level.iter().copied().map(encode_height).collect_vec();
 
+            let mut compressed_layers = BTreeMap::new();
             if node.level() < VNode::LEVEL_CELL_76M {
                 heights
                     .iter_mut()
                     .zip(water_level.iter())
-                    .for_each(|(h, &w)| *h = w.max((*h / 16) * 16));
+                    .for_each(|(h, &w)| *h = w.max(*h / 16 * 16));
             } else {
                 heights.iter_mut().zip(water_level.iter()).zip(shore_distance.iter()).for_each(
                     |((h, &w), &d)| {
@@ -1095,16 +989,45 @@ where
                             *h = w.saturating_add(1).max((*h / 16) * 16);
                             assert!(*h > w);
                         } else {
-                            *h = (w.saturating_sub(1)).min((h.saturating_add(d / 4) / 16) * 16);
+                            *h = (w.saturating_sub(1))
+                                .min((h.saturating_sub((-d / 4) as u16) / 16) * 16);
                             assert!(*h < w);
                         }
                     },
                 );
-                compressed_layers.insert("waterlevel.lz4", compress(delta_encode(water_level)));
+                compressed_layers.insert(
+                    "waterlevel.ktx2",
+                    if water_level.iter().all(|&w| w == 0) {
+                        Vec::new()
+                    } else {
+                        encode_ktx2_simple(&water_level, 521, 521, ktx2::Format::R16_UNORM)?
+                    },
+                );
             }
-            compressed_layers.insert("heights.lz4", compress(delta_encode(heights)));
-            compressed_layers.insert("treecover.lz4", compress(delta_encode(tree_cover)));
-            compressed_layers.insert("landfraction.lz4", compress(delta_encode(land_fraction)));
+            compressed_layers.insert(
+                "heights.ktx2",
+                if heights.iter().all(|&h| h == 0) {
+                    Vec::new()
+                } else {
+                    encode_ktx2_simple(&heights, 521, 521, ktx2::Format::R16_UNORM)?
+                },
+            );
+            compressed_layers.insert(
+                "treecover.ktx2",
+                if tree_cover.iter().all(|&t| t == 0) {
+                    Vec::new()
+                } else {
+                    encode_ktx2_simple(tree_cover, 516, 516, ktx2::Format::R8_UNORM)?
+                },
+            );
+            compressed_layers.insert(
+                "landfraction.ktx2",
+                if land_fraction.iter().all(|&l| l == 0) {
+                    Vec::new()
+                } else {
+                    encode_ktx2_simple(land_fraction, 516, 516, ktx2::Format::R8_UNORM)?
+                },
+            );
 
             if let Some(ref layer) = layers[LAYER_ALBEDO] {
                 if layer.as_slice::<u8>().iter().all(|v| *v == 0) {
@@ -1122,7 +1045,7 @@ where
 
                     compressed_layers.insert(
                         "albedo.ktx2",
-                        encode_ktx2(&[albedo], 516, 516, 0, 0, ktx2::Format::R8G8B8A8_UNORM)?,
+                        encode_ktx2_simple(&albedo, 516, 516, ktx2::Format::R8G8B8A8_UNORM)?,
                     );
                 }
             }
@@ -1158,12 +1081,11 @@ where
             }
         }
         list.sort();
-        let mut list_compressed = Vec::new();
-        let mut e = lz4::EncoderBuilder::new().level(9).build(&mut list_compressed).unwrap();
-        e.write_all(&list.join("\n").into_bytes()).unwrap();
-        e.finish().0;
+        let bytes = list.join("\n").into_bytes();
+        let compressed = zstd::encode_all(Cursor::new(&bytes), 10)?;
+        assert_eq!(&zstd::decode_all(Cursor::new(&compressed)).unwrap(), &bytes);
         AtomicFile::new(tile_list_path, OverwriteBehavior::AllowOverwrite)
-            .write(|f| f.write_all(&list_compressed))?;
+            .write(|f| f.write_all(&compressed))?;
     }
 
     Ok(())

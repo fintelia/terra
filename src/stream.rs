@@ -15,14 +15,13 @@ use zip::result::ZipError;
 #[derive(Debug)]
 pub(crate) struct TileResult {
     pub node: VNode,
-    pub heightmap: Vec<i16>,
     pub layers: VecMap<Vec<u8>>,
 }
 
 pub(crate) struct TileStreamerEndpoint {
     sender: UnboundedSender<(VNode, Instant)>,
     receiver: crossbeam::channel::Receiver<TileResult>,
-    join_handle: Option<thread::JoinHandle<Result<(), Error>>>,
+    join_handle: Option<thread::JoinHandle<()>>,
     num_inflight: usize,
 }
 impl TileStreamerEndpoint {
@@ -49,6 +48,7 @@ impl TileStreamerEndpoint {
                 }
                 .run(),
             )
+            .unwrap();
         }));
 
         Ok(Self { sender, receiver, join_handle, num_inflight: 0 })
@@ -57,8 +57,8 @@ impl TileStreamerEndpoint {
     pub(crate) fn request_tile(&mut self, node: VNode) {
         if let Err(_) = self.sender.send((node, Instant::now())) {
             // The worker thread has panicked (we still have the sender open, so that cannot be why
-            // it exited). Join it to see what the panic message was.
-            self.join_handle.take().unwrap().join().unwrap().expect("TileStreamer panicked");
+            // it exited).
+            self.join_handle.take().unwrap().join().unwrap();
             unreachable!("TileStreamer exited without panicking");
         }
         self.num_inflight += 1;
@@ -92,8 +92,7 @@ impl TileStreamer {
         _transcode_format: wgpu::TextureFormat,
     ) -> Result<TileResult, Error> {
         let mut zip = zip::ZipArchive::new(Cursor::new(bytes))?;
-        let mut result =
-            TileResult { node, heightmap: vec![0i16; 521 * 521], layers: VecMap::new() };
+        let mut result = TileResult { node, layers: VecMap::new() };
 
         let mut get_file = |name| -> Result<Option<Vec<u8>>, Error> {
             match zip.by_name(name) {
@@ -107,78 +106,44 @@ impl TileStreamer {
             }
         };
 
-        if let Some(compressed) = get_file("heights.lz4")? {
-            if !compressed.is_empty() {
-                lz4::Decoder::new(Cursor::new(compressed))?
-                    .read_exact(bytemuck::cast_slice_mut(&mut result.heightmap))?;
-                let mut prev = 0;
-                for i in 0..result.heightmap.len() {
-                    result.heightmap[i] = result.heightmap[i].wrapping_add(prev);
-                    prev = result.heightmap[i];
-                }
-            }
-        }
-
-        if let Some(compressed) = get_file("waterlevel.lz4")? {
-            let mut waterlevel = vec![0i16; 521 * 521];
-            if !compressed.is_empty() {
-                lz4::Decoder::new(Cursor::new(compressed))?
-                    .read_exact(bytemuck::cast_slice_mut(&mut waterlevel))?;
-                let mut prev = 0;
-                for i in 0..waterlevel.len() {
-                    waterlevel[i] = waterlevel[i].wrapping_add(prev);
-                    prev = waterlevel[i];
-                }
-            }
-            let waterlevel: Vec<_> = waterlevel.iter().map(|&h| (h as i32 + 4096).max(0) as u16).collect();
-            result.layers.insert(LayerType::WaterLevel.index(), bytemuck::cast_slice(&waterlevel).to_vec());
-        }
-
-        let mut treecover = vec![0u8; 516 * 516];
-        if let Some(compressed) = get_file("treecover.lz4")? {
-            if !compressed.is_empty() {
-                lz4::Decoder::new(Cursor::new(compressed))?
-                    .read_exact(bytemuck::cast_slice_mut(&mut treecover))?;
-                let mut prev = 0;
-                for i in 0..treecover.len() {
-                    treecover[i] = treecover[i].wrapping_add(prev);
-                    prev = treecover[i];
-                }
-            }
-        }
-        result.layers.insert(LayerType::TreeCover.index(), treecover);
-
-        let mut landfraction = vec![0u8; 516 * 516];
-        if let Some(compressed) = get_file("landfraction.lz4")? {
-            if !compressed.is_empty() {
-                lz4::Decoder::new(Cursor::new(compressed))?
-                    .read_exact(bytemuck::cast_slice_mut(&mut landfraction))?;
-                let mut prev = 0;
-                for i in 0..landfraction.len() {
-                    landfraction[i] = landfraction[i].wrapping_add(prev);
-                    prev = landfraction[i];
-                }
-            }
-        } else {
-            assert!(node.level() > 0);
-        }
-        result.layers.insert(LayerType::LandFraction.index(), landfraction);
-
-        if let Some(bytes) = get_file("albedo.ktx2")? {
-            if !bytes.is_empty() {
-                result.layers.insert(
-                    LayerType::BaseAlbedo.index(),
-                    ktx2::Reader::new(bytes)?.levels().next().unwrap().to_vec(),
-                );
+        let decode_nonempty = |bytes: Vec<u8>| -> Result<Option<Vec<u8>>, Error> {
+            if bytes.is_empty() {
+                Ok(None)
             } else {
-                result.layers.insert(LayerType::BaseAlbedo.index(), vec![0u8; 516 * 516 * 4]);
+                Ok(Some(zstd::decode_all(Cursor::new(
+                    &ktx2::Reader::new(bytes)?.levels().next().expect("ktx2 has no levels"),
+                ))?))
             }
-        }
+        };
 
-        let heights: Vec<_> = result.heightmap.iter().map(|&h| (h as i32 + 4096).max(0) as u16).collect();
-        result
-            .layers
-            .insert(LayerType::BaseHeightmaps.index(), bytemuck::cast_slice(&heights).to_vec());
+        result.layers.insert(
+            LayerType::BaseHeightmaps.index(),
+            decode_nonempty(get_file("heights.ktx2")?.expect("layer missing"))?
+                .unwrap_or_else(|| vec![0u8; 521 * 521 * 2]),
+        );
+        result.layers.insert(
+            LayerType::TreeCover.index(),
+            decode_nonempty(get_file("treecover.ktx2")?.expect("layer missing"))?
+                .unwrap_or_else(|| vec![0u8; 516 * 516]),
+        );
+        result.layers.insert(
+            LayerType::LandFraction.index(),
+            decode_nonempty(get_file("landfraction.ktx2")?.expect("layer missing"))?
+                .unwrap_or_else(|| vec![0u8; 516 * 516]),
+        );
+
+        if let Some(bytes) = get_file("waterlevel.ktx2")? {
+            result.layers.insert(
+                LayerType::WaterLevel.index(),
+                decode_nonempty(bytes)?.unwrap_or_else(|| vec![0u8; 521 * 521 * 2]),
+            );
+        }
+        if let Some(bytes) = get_file("albedo.ktx2")? {
+            result.layers.insert(
+                LayerType::BaseAlbedo.index(),
+                decode_nonempty(bytes)?.unwrap_or_else(|| vec![0u8; 516 * 516 * 4]),
+            );
+        }
 
         if node.level() == 0 {
             assert!(result.layers.contains_key(LayerType::BaseHeightmaps.index()));
@@ -209,7 +174,6 @@ impl TileStreamer {
                             None => {
                                 let mut result = TileResult {
                                     node,
-                                    heightmap: vec![0i16; 521 * 521],
                                     layers: VecMap::new(),
                                 };
                                 result.layers.insert(LayerType::BaseHeightmaps.index(), bytemuck::cast_slice(&vec![0u16; 521 * 521]).to_vec());
