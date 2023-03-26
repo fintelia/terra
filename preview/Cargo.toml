@@ -14,7 +14,7 @@ open-location-code = {version = "0.2.0", git = "https://github.com/fintelia/open
 planetcam = { path = "../planetcam" }
 terra = { path = "..", default-features = false }
 tokio = { version = "1.26.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
-wgpu = { version = "0.15.1" }
+wgpu = "0.15.1"
 winit = {version = "0.28.3", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
 terra-generate = { path = "../generate", optional = true }
 time = { version = "0.3.20", features = ["parsing", "macros"] }

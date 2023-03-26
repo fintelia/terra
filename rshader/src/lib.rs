@@ -324,7 +324,6 @@ impl ShaderSet {
 
     pub fn vertex(&self) -> wgpu::ShaderSource {
         match self.inner.vertex.as_ref().unwrap().clone() {
-            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
             wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
@@ -332,7 +331,6 @@ impl ShaderSet {
     }
     pub fn fragment(&self) -> wgpu::ShaderSource {
         match self.inner.fragment.as_ref().unwrap() {
-            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
             wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
@@ -340,7 +338,6 @@ impl ShaderSet {
     }
     pub fn compute(&self) -> wgpu::ShaderSource {
         match self.inner.compute.as_ref().unwrap() {
-            wgpu::ShaderSource::SpirV(s) => wgpu::ShaderSource::SpirV(s.clone()),
             wgpu::ShaderSource::Wgsl(w) => wgpu::ShaderSource::Wgsl(w.clone()),
             wgpu::ShaderSource::Naga(w) => wgpu::ShaderSource::Naga(w.clone()),
             _ => unreachable!(),
@@ -421,14 +418,6 @@ fn reflect_naga(
     let mut workgroup_size = None;
     for stage in stages.iter() {
         let module = match stage {
-            wgpu::ShaderSource::SpirV(s) => naga::front::spv::parse_u8_slice(
-                bytemuck::cast_slice(s),
-                &naga::front::spv::Options {
-                    adjust_coordinate_space: false,
-                    strict_capabilities: false,
-                    block_ctx_dump_prefix: None,
-                },
-            )?,
             wgpu::ShaderSource::Wgsl(w) => naga::front::wgsl::parse_str(w)?,
             wgpu::ShaderSource::Naga(ref m) => m.as_ref().clone(),
             _ => unreachable!(),
