@@ -821,7 +821,7 @@ where
         Some(
             remote_files
                 .split('\n')
-                .filter_map(|f| f.strip_suffix(".raw"))
+                .filter_map(|f| f.strip_suffix(".zip"))
                 .map(VNode::from_str)
                 .collect::<Result<HashSet<VNode>, Error>>()?,
         )
@@ -834,7 +834,7 @@ where
     VNode::breadth_first(|n| {
         if all_tiles.is_none() || all_tiles.as_ref().unwrap().contains(&n) {
             total_tiles += 1;
-            let filename = format!("{}.raw", n);
+            let filename = format!("{}.zip", n);
             if !existing_tiles.contains(&filename) {
                 missing_tiles.push((tiles_directory.join(filename), n));
             }
@@ -1082,7 +1082,7 @@ where
         }
         list.sort();
         let bytes = list.join("\n").into_bytes();
-        let compressed = zstd::encode_all(Cursor::new(&bytes), 10)?;
+        let compressed = zstd::encode_all(Cursor::new(&bytes), 12)?;
         assert_eq!(&zstd::decode_all(Cursor::new(&compressed)).unwrap(), &bytes);
         AtomicFile::new(tile_list_path, OverwriteBehavior::AllowOverwrite)
             .write(|f| f.write_all(&compressed))?;

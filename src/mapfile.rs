@@ -36,7 +36,7 @@ impl MapFile {
             String::from_utf8(zstd::decode_all(Cursor::new(&file_list_encoded))?)?;
         let remote_tiles = remote_files
             .split('\n')
-            .filter_map(|f| f.strip_suffix(".raw"))
+            .filter_map(|f| f.strip_suffix(".zip"))
             .map(VNode::from_str)
             .collect::<Result<HashSet<VNode>, Error>>()?;
 
@@ -44,14 +44,14 @@ impl MapFile {
     }
 
     pub(crate) async fn read_tile(&self, node: VNode) -> Result<Option<Vec<u8>>, Error> {
-        let filename = TERRA_DIRECTORY.join("tiles").join(&format!("{}.raw", node));
+        let filename = TERRA_DIRECTORY.join("tiles").join(&format!("{}.zip", node));
         if filename.exists() {
             Ok(Some(tokio::fs::read(&filename).await?))
         } else {
             if !self.remote_tiles.lock().unwrap().contains(&node) {
                 return Ok(None);
             }
-            let contents = Self::download(&self.server, &format!("tiles/{}.raw", node)).await?;
+            let contents = Self::download(&self.server, &format!("tiles/{}.zip", node)).await?;
             if self.server.starts_with("http://") || self.server.starts_with("https://") {
                 if let Some(parent) = filename.parent() {
                     fs::create_dir_all(parent)?;

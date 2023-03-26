@@ -61,7 +61,7 @@ pub(crate) fn encode_ktx2(
     let mut compressed_image_slices = Vec::new();
     let mut offset = (80 + 24 * levels + dfd_size) as u64;
     for image_slice in image_slices {
-        let compressed = zstd::encode_all(std::io::Cursor::new(image_slice), 10).unwrap();
+        let compressed = zstd::encode_all(std::io::Cursor::new(image_slice), 12).unwrap();
         contents.extend_from_slice(&offset.to_le_bytes());
         contents.extend_from_slice(&(compressed.len() as u64).to_le_bytes());
         contents.extend_from_slice(&(image_slice.len() as u64).to_le_bytes());
