@@ -8,7 +8,7 @@ use crate::{
     },
     mapfile::MapFile,
 };
-use types::MAX_QUADTREE_LEVEL;
+use terra_types::MAX_QUADTREE_LEVEL;
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 

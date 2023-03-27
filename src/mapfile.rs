@@ -6,7 +6,7 @@ use std::io::{Write, Cursor};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use types::VNode;
+use terra_types::VNode;
 
 lazy_static! {
     static ref TERRA_DIRECTORY: PathBuf =

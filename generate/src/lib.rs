@@ -14,7 +14,7 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{fs, mem};
 use std::{path::Path, sync::Mutex};
-use types::{VFace, VNode};
+use terra_types::{VFace, VNode};
 use zip::ZipWriter;
 
 pub mod download;

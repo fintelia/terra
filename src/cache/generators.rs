@@ -13,7 +13,7 @@ use cgmath::InnerSpace;
 use maplit::hashmap;
 use rayon::prelude::*;
 use rshader::{ShaderSet, ShaderSource};
-use types::{VNode, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS};
+use terra_types::{VNode, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 

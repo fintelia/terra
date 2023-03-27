@@ -1,7 +1,7 @@
 use std::{ops::{RangeInclusive, Index, IndexMut}, num::NonZeroU32, collections::HashMap};
 
 use serde::{Serialize, Deserialize};
-use types::VNode;
+use terra_types::VNode;
 use vec_map::VecMap;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

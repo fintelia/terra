@@ -18,6 +18,7 @@ wgpu = "0.15.1"
 winit = {version = "0.28.3", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
 terra-generate = { path = "../generate", optional = true }
 time = { version = "0.3.20", features = ["parsing", "macros"] }
+zstd = { version = "0.12", features = ["pkg-config"] }
 
 [features]
 default = ["generate"]

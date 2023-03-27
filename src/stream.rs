@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Instant;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use types::VNode;
+use terra_types::VNode;
 use vec_map::VecMap;
 use zip::result::ZipError;
 

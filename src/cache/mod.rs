@@ -16,7 +16,7 @@ use std::hash::Hash;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 use std::{collections::HashMap, num::NonZeroU32};
-use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
+use terra_types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 

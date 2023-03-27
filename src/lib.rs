@@ -27,7 +27,7 @@ use compute_shader::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{InfiniteFrustum, VNode};
+use terra_types::{InfiniteFrustum, VNode};
 
 pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra2.fintelia.io/";
 

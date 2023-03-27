@@ -5,7 +5,7 @@ use cgmath::Vector3;
 use fnv::FnvHashMap;
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, sync::Arc};
-use types::{Priority, VNode, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS, MAX_QUADTREE_LEVEL};
+use terra_types::{Priority, VNode, EARTH_SEMIMAJOR_AXIS, EARTH_SEMIMINOR_AXIS, MAX_QUADTREE_LEVEL};
 use vec_map::VecMap;
 
 #[derive(Copy, Clone)]
