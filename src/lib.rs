@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::{InfiniteFrustum, VNode};
 
-pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra.fintelia.io/file/terra-tiles/";
+pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra2.fintelia.io/";
 
 pub struct Terrain {
     sky_shader: rshader::ShaderSet,
