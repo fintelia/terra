@@ -257,7 +257,6 @@ impl VNode {
 
         // return (point.normalize().dot(shell_point.normalize()).acos() * EARTH_SEMIMAJOR_AXIS).powi(2);
 
-
         // let point = Vector3::new(
         //     n * latitude.cos() * longitude.cos(),
         //     n * latitude.cos() * longitude.sin(),
