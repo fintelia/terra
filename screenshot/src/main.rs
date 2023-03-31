@@ -58,6 +58,8 @@ async fn main() {
         dx12_shader_compiler: wgpu::Dx12Compiler::default(),
     });
     let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions::default()).await.unwrap();
+    println!("features = {:?}", adapter.features());
+    println!("limits = {:?}", adapter.limits());
     let (device, queue) = adapter
         .request_device(
             &wgpu::DeviceDescriptor {
