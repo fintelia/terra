@@ -2,7 +2,7 @@ use anyhow::Error;
 use atomicwrites::{AtomicFile, OverwriteBehavior};
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Write, Cursor};
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -32,8 +32,7 @@ impl MapFile {
         };
 
         // Parse file list to learn all files available from the remote.
-        let remote_files =
-            String::from_utf8(zstd::decode_all(Cursor::new(&file_list_encoded))?)?;
+        let remote_files = String::from_utf8(zstd::decode_all(Cursor::new(&file_list_encoded))?)?;
         let remote_tiles = remote_files
             .split('\n')
             .filter_map(|f| f.strip_suffix(".zip"))

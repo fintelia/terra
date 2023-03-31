@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{ Read, Cursor},
+    io::{Cursor, Read},
     num::NonZeroU32,
 };
 
@@ -10,9 +10,9 @@ use wgpu::util::DeviceExt;
 use zip::ZipArchive;
 
 use crate::{
-    gpu_state::{GpuState, texture_from_ktx2_bytes},
-    speedtree_xml::{parse_xml, SpeedTreeModel},
+    gpu_state::{texture_from_ktx2_bytes, GpuState},
     mapfile::MapFile,
+    speedtree_xml::{parse_xml, SpeedTreeModel},
 };
 
 const RESOLUTION: u32 = 256;

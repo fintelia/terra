@@ -5,7 +5,7 @@ use atomicwrites::{AtomicFile, OverwriteBehavior};
 use image::GenericImageView;
 
 use crate::ktx2encode::encode_ktx2;
-use crate::sky::{InscatteringTable, TransmittanceTable, LookupTableDefinition};
+use crate::sky::{InscatteringTable, LookupTableDefinition, TransmittanceTable};
 
 fn image_to_ktx2(img: image::DynamicImage) -> Result<Vec<u8>, Error> {
     let (width, height) = img.dimensions();
@@ -110,8 +110,12 @@ fn generate_materials<F: FnMut(String, usize, usize) + Send>(
         assert_eq!(albedo.height(), 2048);
 
         for mip in 0..=10 {
-            albedo =
-                image::imageops::resize(&albedo, 1024>>mip, 1024>>mip, image::imageops::FilterType::Triangle);
+            albedo = image::imageops::resize(
+                &albedo,
+                1024 >> mip,
+                1024 >> mip,
+                image::imageops::FilterType::Triangle,
+            );
 
             albedo_data[mip].extend_from_slice(albedo.as_raw());
         }

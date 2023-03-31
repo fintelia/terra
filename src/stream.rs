@@ -6,9 +6,9 @@ use std::io::{Cursor, Read};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
+use terra_types::VNode;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use terra_types::VNode;
 use vec_map::VecMap;
 use zip::result::ZipError;
 

@@ -1,6 +1,10 @@
-use std::{ops::{RangeInclusive, Index, IndexMut}, num::NonZeroU32, collections::HashMap};
+use std::{
+    collections::HashMap,
+    num::NonZeroU32,
+    ops::{Index, IndexMut, RangeInclusive},
+};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use terra_types::VNode;
 use vec_map::VecMap;
 
@@ -275,7 +279,6 @@ impl LayerType {
             LayerType::Ellipsoid => 0..=VNode::LEVEL_CELL_5MM,
             LayerType::Heightmaps => VNode::LEVEL_CELL_38M..=VNode::LEVEL_CELL_5M,
             LayerType::WaterLevel => VNode::LEVEL_CELL_76M..=VNode::LEVEL_CELL_76M,
-
         }
     }
     pub fn min_level(&self) -> u8 {

@@ -56,7 +56,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
                         bind_group_layouts: [&bind_group_layout][..].into(),
                         push_constant_ranges: &[],
                         label: Some(&format!("pipeline.{}.layout", self.name)),
-                   })),
+                    })),
                     module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
                         label: Some(&format!("shader.{}", self.name)),
                         source: self.shader.compute(),
