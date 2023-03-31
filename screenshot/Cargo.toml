@@ -1,0 +1,20 @@
+[package]
+name = "terra-screenshot"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cgmath = { version = "0.18.0", features = ["mint"], git = "https://github.com/rustgd/cgmath", rev = "d5e765db61cf9039cb625a789a59ddf6b6ab2337" }
+clap = { version = "4.1.11", features = ["derive"] }
+env_logger = "0.10.0"
+futures-intrusive = "0.5.0"
+image = "0.24.6"
+mint = "0.5.9"
+num = "0.4.0"
+open-location-code = {version = "0.2.0", git = "https://github.com/fintelia/open-location-code", rev = "07a4dd0d8fc08619979707c985728c4fd07dacae" }
+planetcam = { path = "../planetcam" }
+pollster = "0.3.0"
+terra = { path = "..", default-features = false }
+time = { version = "0.3.20", features = ["parsing", "macros"] }
+tokio = { version = "1.26.0", features = ["fs", "macros", "sync", "rt", "rt-multi-thread", "io-util"] }
+wgpu = "0.15.1"

@@ -62,3 +62,31 @@ jobs:
           command: fmt
           args: --all -- --check
 
+  screenshot:
+    name: Screenshot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libegl-dev libudev-dev
+      - shell: bash
+        run: |
+          set -e
+          mkdir -p swiftshader
+          curl -LsSf https://github.com/gfx-rs/ci-build/releases/latest/download/swiftshader-linux-x86_64.tar.xz | tar -xf - -C swiftshader
+          echo "LD_LIBRARY_PATH=$PWD/swiftshader" >> $GITHUB_ENV
+      - uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: -p terra-screenshot -- -o capture.png
+      - name: Upload screenshot
+        uses: actions/upload-artifact@v2
+        with:
+          name: screenshots
+          path: |
+            capture.png
