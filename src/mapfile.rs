@@ -19,6 +19,9 @@ pub(crate) struct MapFile {
 }
 impl MapFile {
     pub(crate) async fn new(server: String) -> Result<Self, Error> {
+        // Create cache directory if necessary.
+        fs::create_dir_all(&*TERRA_DIRECTORY)?;
+
         // Download file list if necessary.
         let file_list_path = TERRA_DIRECTORY.join("tile_list.txt.zstd");
         let file_list_encoded = if !file_list_path.exists() {
