@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow = { version = "1.0", features = ["backtrace"] }
 cgmath = { version = "0.18.0", features = ["mint"], git = "https://github.com/rustgd/cgmath", rev = "d5e765db61cf9039cb625a789a59ddf6b6ab2337" }
 clap = { version = "4.1.11", features = ["derive"] }
 env_logger = "0.10.0"
