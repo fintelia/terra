@@ -77,7 +77,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl-dev libudev-dev libegl1-mesa \
             libgl1-mesa-dri libxcb-xfixes0-dev mesa-vulkan-drivers \
-            libvulkan1 vulkan-tools vulkan-utils vulkan-validationlayers
+            libvulkan1 vulkan-tools vulkan-validationlayers
       - name: Check Vulkan
         run: |
           ls /usr/share/vulkan/icd.d/
