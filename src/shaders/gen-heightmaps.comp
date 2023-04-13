@@ -4,8 +4,8 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 0) uniform UniformBlock {
-	int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
 layout(binding = 1) uniform texture2DArray base_heightmaps;
@@ -100,7 +100,7 @@ void upscale_heights(ivec2 base) {
 const uint MAX_STREAMED_HEIGHTMAP_LEVEL = 8;
 
 void main() {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 
 	int upscale_levels = int(node.level - MAX_BASE_HEIGHTMAP_LEVEL);
 	ivec2 workgroup_origin = ivec2(node.coords * HEIGHTMAP_INNER_RESOLUTION + gl_WorkGroupID.xy * 16) - ivec2(HEIGHTMAP_BORDER);

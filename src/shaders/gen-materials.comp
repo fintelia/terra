@@ -4,8 +4,8 @@
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 0) uniform UniformBlock {
-	int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
 layout(rg8, binding = 1) writeonly uniform image2DArray normals;
@@ -39,7 +39,7 @@ const uint MATERIAL_INNER_RESOLUTION = 512;
 const uint NORMALS_BORDER = 2;
 
 vec3 layer_to_texcoord(uint layer) {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	return layer_texcoord(node.layers[layer], texcoord);
 }
@@ -48,10 +48,8 @@ shared float heights[20][20];
 shared vec3 slopes[18][18];
 
 void main() {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 
-	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ivec2(HEIGHTMAP_BORDER - NORMALS_BORDER), ubo.slot);
-	ivec3 out_pos = ivec3(gl_GlobalInvocationID.xy, ubo.slot);
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 
 	vec3 balbedo = pow(textureLod(sampler2DArray(base_albedo, linear), layer_to_texcoord(BASE_ALBEDO_LAYER), 0).rgb, vec3(2.2));
@@ -244,6 +242,6 @@ void main() {
 
 	albedo_roughness = mix(albedo_roughness, vec4(.01, .03, .05, .2), water_amount);
 
-	imageStore(normals, out_pos, vec4(normal.xz*0.5+0.5, 0.0, 0.0));
-	imageStore(albedo, out_pos, albedo_roughness);
+	imageStore(normals, ivec3(gl_GlobalInvocationID.xy, node.layers[NORMALS_LAYER].slot), vec4(normal.xz*0.5+0.5, 0.0, 0.0));
+	imageStore(albedo, ivec3(gl_GlobalInvocationID.xy, node.layers[ALBEDO_LAYER].slot), albedo_roughness);
 }

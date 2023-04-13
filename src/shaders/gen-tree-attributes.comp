@@ -7,8 +7,8 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0, std140) readonly buffer Nodes {
 	Node nodes[];
 };
-layout(binding = 1) uniform UniformBlock {
-	int slot;
+layout(binding = 1) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
 layout(binding = 2) uniform texture2DArray treecover;
@@ -19,7 +19,7 @@ layout(binding = 5) uniform texture2DArray waterlevel;
 layout(rgba8, binding = 6) writeonly uniform image2DArray tree_attributes;
 
 void main() {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	vec3 texcoord3 = layer_texcoord(node.layers[TREECOVER_LAYER], texcoord);
@@ -36,5 +36,5 @@ void main() {
         output_value = vec4(x, y, seed, 1 / 255.0);
     }
 
-	imageStore(tree_attributes, ivec3(gl_GlobalInvocationID.xy, ubo.slot - TREE_ATTRIBUTES_BASE_SLOT), output_value);
+	imageStore(tree_attributes, ivec3(gl_GlobalInvocationID.xy, node.layers[TREE_ATTRIBUTES_LAYER].slot), output_value);
 }

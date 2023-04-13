@@ -7,8 +7,8 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0, std140) readonly buffer Nodes {
 	Node nodes[];
 };
-layout(binding = 1) uniform UniformBlock {
-	int slot;
+layout(binding = 1) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
 layout(binding = 2) uniform sampler linear;
@@ -27,11 +27,11 @@ vec3 extract_normal(vec2 n) {
 }
 
 void main() {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 
 	vec4 value = vec4(0);
 
-	vec3 normal = extract_normal(texelFetch(normals, ivec3(gl_GlobalInvocationID.xy, ubo.slot), 0).xy);
+	vec3 normal = extract_normal(texelFetch(normals, ivec3(gl_GlobalInvocationID.xy, node.layers[NORMALS_LAYER].slot), 0).xy);
 
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 	float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), layer_texcoord(node.layers[HEIGHTMAPS_LAYER], texcoord), 0).x);
@@ -44,5 +44,5 @@ void main() {
 	if(normal.y > 0.97 && height > water_surface + r3.x*.1 + 2.1)
 		value = vec4(r3 * vec3(.1,.5,.2) + vec3(0,.2,0), 1);
 
-    imageStore(grass_canopy, ivec3(gl_GlobalInvocationID.xy, ubo.slot - GRASS_CANOPY_BASE_SLOT), value);
+    imageStore(grass_canopy, ivec3(gl_GlobalInvocationID.xy, node.layers[GRASS_CANOPY_LAYER].slot), value);
 }

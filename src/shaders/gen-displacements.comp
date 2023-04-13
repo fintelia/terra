@@ -5,8 +5,8 @@ layout(local_size_x = 8, local_size_y = 8) in;
 #include "declarations.glsl"
 
 
-layout(binding = 0) uniform UniformBlock {
-    int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+    int slots[];
 } ubo;
 layout(binding = 1) uniform texture2DArray heightmaps;
 layout(binding = 2) uniform texture2DArray base_heightmaps;
@@ -25,7 +25,7 @@ void main() {
     if (max(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) > DISPLACEMENTS_INNER_RESOLUTION)
         return;
 
-    Node node = nodes[ubo.slot];
+    Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
     vec2 texcoord = vec2(gl_GlobalInvocationID) / float(DISPLACEMENTS_INNER_RESOLUTION);
 
     float height;
@@ -44,7 +44,7 @@ void main() {
     }
     height = max(height, waterlevel_value);
 
-    vec3 ellipsoid_point = texelFetch(ellipsoid, ivec3(gl_GlobalInvocationID.xy, ubo.slot), 0).xyz;
+    vec3 ellipsoid_point = texelFetch(ellipsoid, ivec3(gl_GlobalInvocationID.xy, node.layers[ELLIPSOID_LAYER].slot), 0).xyz;
     vec3 position = ellipsoid_point + node.node_center;
 
     float latitude = atan(position.z * A*A / (B*B), length(position.xy));
@@ -55,6 +55,6 @@ void main() {
         sin(latitude)
     );
 
-    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.slot);
+    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, node.layers[DISPLACEMENTS_LAYER].slot);
     imageStore(displacements, pos, vec4(ellipsoid_point + normal * height, 0.0));
 }

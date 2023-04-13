@@ -81,7 +81,7 @@ const uint TREECOVER_LAYER = 8;
 const uint BASE_ALBEDO_LAYER = 9;
 const uint ROOT_AERIAL_PERSPECTIVE_LAYER = 10;
 const uint LAND_FRACTION_LAYER = 11;
-const uint GEOID = 12;
+const uint ELLIPSOID_LAYER = 12;
 const uint HEIGHTMAPS_LAYER = 13;
 const uint WATERLEVEL_LAYER = 14;
 

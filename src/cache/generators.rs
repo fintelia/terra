@@ -183,52 +183,52 @@ impl GenerateTile for ShaderGen {
         nodes: &[(VNode, usize)],
         uniform_data: &mut Vec<u8>,
     ) {
+        assert!(nodes.len() < 1024 / mem::size_of::<u32>());
+        let uniform_offset = uniform_data.len();
         for (_, slot) in nodes {
-            let uniform_offset = uniform_data.len();
             uniform_data.extend_from_slice(bytemuck::bytes_of(&(*slot as u32)));
-            uniform_data.resize(uniform_offset + 256, 0);
-
-            if self.bindgroup_pipeline.is_none() {
-                let (bind_group, bind_group_layout) = state.bind_group_for_shader(
-                    device,
-                    &self.shader,
-                    hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &state.generate_uniforms,
-                        offset: 0,
-                        size: Some(NonZeroU64::new(4).unwrap()),
-                    }))],
-                    HashMap::new(), // image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
-                    &format!("generate.{}", self.name),
-                );
-
-                let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        bind_group_layouts: [&bind_group_layout][..].into(),
-                        push_constant_ranges: &[],
-                        label: None,
-                    })),
-                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                        label: Some(&format!("shader.generate.{}", self.name)),
-                        source: self.shader.compute().into(),
-                    }),
-                    entry_point: "main",
-                    label: Some(&format!("pipeline.generate.{}", self.name)),
-                });
-                self.bindgroup_pipeline = Some((bind_group, pipeline));
-            }
-
-            let workgroup_size = self.shader.workgroup_size();
-            let (bindgroup, pipeline) = self.bindgroup_pipeline.as_ref().unwrap();
-            let mut cpass =
-                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-            cpass.set_pipeline(pipeline);
-            cpass.set_bind_group(0, bindgroup, &[uniform_offset as u32]);
-            cpass.dispatch_workgroups(
-                (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
-                (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
-                1,
-            );
         }
+        uniform_data.resize(uniform_offset + 1024, 0);
+
+        if self.bindgroup_pipeline.is_none() {
+            let (bind_group, bind_group_layout) = state.bind_group_for_shader(
+                device,
+                &self.shader,
+                hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &state.generate_uniforms,
+                    offset: 0,
+                    size: NonZeroU64::new(1024),
+                }))],
+                HashMap::new(),
+                &format!("generate.{}", self.name),
+            );
+
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    bind_group_layouts: [&bind_group_layout][..].into(),
+                    push_constant_ranges: &[],
+                    label: None,
+                })),
+                module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some(&format!("shader.generate.{}", self.name)),
+                    source: self.shader.compute().into(),
+                }),
+                entry_point: "main",
+                label: Some(&format!("pipeline.generate.{}", self.name)),
+            });
+            self.bindgroup_pipeline = Some((bind_group, pipeline));
+        }
+
+        let workgroup_size = self.shader.workgroup_size();
+        let (bindgroup, pipeline) = self.bindgroup_pipeline.as_ref().unwrap();
+        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+        cpass.set_pipeline(pipeline);
+        cpass.set_bind_group(0, bindgroup, &[uniform_offset as u32]);
+        cpass.dispatch_workgroups(
+            (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
+            (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
+            nodes.len() as u32,
+        );
     }
 }
 
