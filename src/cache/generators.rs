@@ -183,12 +183,12 @@ impl GenerateTile for ShaderGen {
         nodes: &[(VNode, usize)],
         uniform_data: &mut Vec<u8>,
     ) {
-        assert!(nodes.len() < 1024 / mem::size_of::<u32>());
+        assert!(nodes.len() < 4096 / mem::size_of::<u32>());
         let uniform_offset = uniform_data.len();
         for (_, slot) in nodes {
             uniform_data.extend_from_slice(bytemuck::bytes_of(&(*slot as u32)));
         }
-        uniform_data.resize(uniform_offset + 1024, 0);
+        uniform_data.resize(uniform_offset + 4096, 0);
 
         if self.bindgroup_pipeline.is_none() {
             let (bind_group, bind_group_layout) = state.bind_group_for_shader(

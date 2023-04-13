@@ -347,13 +347,7 @@ impl TileCache {
         }
     }
 
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        gpu_state: &GpuState,
-        camera: mint::Point3<f64>,
-    ) {
+    fn refresh_shaders(&mut self, device: &wgpu::Device, gpu_state: &GpuState) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
                 assert!(i < 32);
@@ -403,7 +397,9 @@ impl TileCache {
         }
 
         self.cull_shader.refresh(device, gpu_state);
+    }
 
+    fn update_priorities(&mut self, camera: mint::Point3<f64>) {
         if self.last_camera_position != Some(camera) {
             self.last_camera_position = Some(camera);
             let camera = Vector3::new(camera.x, camera.y, camera.z);
@@ -416,14 +412,20 @@ impl TileCache {
             });
             self.levels.update(node_priorities);
         }
+    }
 
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
+    ) {
+        self.refresh_shaders(device, gpu_state);
+        self.update_priorities(camera);
         self.upload_tiles(queue, &gpu_state.tile_cache);
-
-        let command_buffer = self.generate_tiles(device, &queue, gpu_state);
-        self.write_nodes(queue, gpu_state, camera);
-        queue.submit(Some(command_buffer));
-
-        self.tile_readback(device, queue, gpu_state);
+        self.generate_tiles(device, queue, gpu_state, camera);
+        self.readback_tiles(device, queue, gpu_state);
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {

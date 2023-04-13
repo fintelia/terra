@@ -87,7 +87,8 @@ impl TileCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         gpu_state: &GpuState,
-    ) -> wgpu::CommandBuffer {
+        camera: mint::Point3<f64>,
+    ) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("encoder.tiles.generate"),
         });
@@ -196,7 +197,9 @@ impl TileCache {
 
         assert!(uniform_data.len() <= 256 * 1024);
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
-        encoder.finish()
+        let command_buffer = encoder.finish();
+        self.write_nodes(queue, gpu_state, camera);
+        queue.submit(Some(command_buffer));
     }
 
     pub fn run_dynamic_generators(
@@ -241,7 +244,7 @@ impl TileCache {
         queue.write_buffer(&gpu_state.generate_uniforms, 0, &uniform_data);
     }
 
-    pub(super) fn upload_tiles(
+    pub(crate) fn upload_tiles(
         &mut self,
         queue: &wgpu::Queue,
         textures: &VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>>,
@@ -338,7 +341,7 @@ impl TileCache {
         }
     }
 
-    pub(super) fn tile_readback(
+    pub(super) fn readback_tiles(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
