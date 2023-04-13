@@ -414,6 +414,51 @@ impl TileCache {
         }
     }
 
+    pub fn wait_for_uploads<F: FnMut(f32)>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
+        mut progress_callback: F,
+    ) {
+        self.refresh_shaders(device, gpu_state);
+        self.update_priorities(camera);
+        self.upload_tiles(queue, &gpu_state.tile_cache);
+
+        let total: usize = (0..self.levels.0.len())
+            .flat_map(|level| self.levels.0[level].slots())
+            .filter(|e| e.priority() >= Priority::cutoff())
+            .count();
+
+        loop {
+            let missing: usize = (0..self.levels.0.len() as u8)
+                .map(|level| {
+                    let mask = LayerType::iter()
+                        .filter(|l| {
+                            level >= l.min_level() && level < l.min_level() + l.streamed_levels()
+                        })
+                        .fold(LayerMask::empty(), |a, b| (a | b.bit_mask()));
+                    self.levels.0[level as usize]
+                        .slots()
+                        .iter()
+                        .filter(|e| {
+                            e.priority() >= Priority::cutoff()
+                                && !e.valid & mask != LayerMask::empty()
+                        })
+                        .count()
+                })
+                .sum();
+            progress_callback((total - missing) as f32 * 100.0 / total as f32);
+            if missing == 0 {
+                break;
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            self.upload_tiles(queue, &gpu_state.tile_cache);
+        }
+    }
+
     pub fn update(
         &mut self,
         device: &wgpu::Device,

@@ -242,33 +242,20 @@ impl Terrain {
         })
     }
 
-    fn loading_complete(&self) -> bool {
-        VNode::roots().iter().copied().all(|root| {
-            self.cache.contains_layers(
-                root,
-                LayerType::BaseHeightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
-            )
-        })
-    }
-
-    /// Returns whether initial map file streaming has completed for tiles in the vicinity of
+    /// Continuously polls until file streaming has completed for tiles in the vicinity of
     /// `camera`.
     ///
     /// Terra cannot render any terrain until all root tiles have been downloaded and streamed to
     /// the GPU. This function returns whether those tiles have been streamed, and also initiates
     /// streaming of more detailed tiles for the indicated camera position.
-    pub fn poll_loading_status(
+    pub fn poll_loading_status<F: FnMut(f32)>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
-    ) -> bool {
-        if !self.loading_complete() {
-            self.cache.update(device, queue, &self.gpu_state, camera);
-            self.loading_complete()
-        } else {
-            true
-        }
+        progress_callback: F,
+    ) {
+        self.cache.wait_for_uploads(device, queue, &self.gpu_state, camera, progress_callback)
     }
 
     /// Update the terrain.
@@ -430,11 +417,17 @@ impl Terrain {
             ));
         }
 
-        // Update the tile cache and then block until root tiles have been downloaded and streamed
-        // to the GPU.
         self.cache.update(device, queue, &self.gpu_state, camera);
-        while !self.poll_loading_status(device, queue, camera) {
+
+        // Block until root tiles have been downloaded and streamed to the GPU.
+        while !VNode::roots().iter().copied().all(|root| {
+            self.cache.contains_layers(
+                root,
+                LayerType::BaseHeightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
+            )
+        }) {
             std::thread::sleep(std::time::Duration::from_millis(10));
+            self.cache.update(device, queue, &self.gpu_state, camera);
         }
 
         self.generate_skyview.refresh(device, &self.gpu_state);

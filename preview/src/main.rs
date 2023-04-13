@@ -230,14 +230,24 @@ fn main() {
     let mut terrain = runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap();
 
     {
-        while terrain.poll_loading_status(
+        let pb = indicatif::ProgressBar::new(100);
+        pb.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
+                .unwrap()
+                .progress_chars("=> "),
+        );
+        pb.set_length(100);
+        pb.set_message("Streaming tiles");
+        terrain.poll_loading_status(
             &device,
             &queue,
             camera.anchored_position_view(0.0).0.into(),
-        ) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+            |n| pb.set_position(n as u64),
+        );
+        pb.finish_and_clear();
     }
+
     let mut last_time = None;
     let start_time = std::time::Instant::now();
     window.set_visible(true);

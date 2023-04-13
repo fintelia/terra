@@ -8,7 +8,7 @@ cgmath = { version = "0.18.0", features = ["mint"], git = "https://github.com/ru
 clap = { version = "4.1.11", features = ["derive"] }
 env_logger = "0.10.0"
 gilrs = "0.10.1"
-indicatif = {version = "0.17.3", optional = true }
+indicatif = "0.17.3"
 mint = "0.5.9"
 open-location-code = {version = "0.2.0", git = "https://github.com/fintelia/open-location-code", rev = "07a4dd0d8fc08619979707c985728c4fd07dacae" }
 planetcam = { path = "../planetcam" }
@@ -21,4 +21,4 @@ time = { version = "0.3.20", features = ["parsing", "macros"] }
 
 [features]
 default = ["generate"]
-generate = ["terra-generate", "indicatif"]
+generate = ["terra-generate"]
