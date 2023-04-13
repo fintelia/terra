@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use naga::{
     AddressSpace, ImageClass, ImageDimension, ScalarKind, StorageAccess, StorageFormat, TypeInner,
+    WithSpan,
 };
 use notify::{self, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
@@ -122,15 +123,9 @@ impl ShaderSource {
             match module {
                 Err(e) => {
                     for e in e {
-                        if let Some(range) = e.meta.to_range() {
-                            eprintln!(
-                                "ERROR: {:?} '{}'",
-                                e.kind,
-                                &combined_source[(range.start.max(30) - 30)..range.end]
-                            );
-                        } else {
-                            eprintln!("ERROR: {:?}", e.kind);
-                        }
+                        WithSpan::new(&e)
+                            .with_span(e.meta, "")
+                            .emit_to_stderr_with_path(&combined_source, &name);
                     }
                     Err(anyhow::anyhow!("Failed to parse shader"))
                 }
