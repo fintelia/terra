@@ -154,8 +154,7 @@ impl GenerateTile for MeshGen {
 
 struct ShaderGen {
     shader: ShaderSet,
-    bind_group: Option<wgpu::BindGroup>,
-    pipeline: Option<wgpu::ComputePipeline>,
+    bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::ComputePipeline)>,
     dimensions: u32,
     inputs: LayerMask,
     outputs: LayerMask,
@@ -170,8 +169,7 @@ impl GenerateTile for ShaderGen {
     }
     fn needs_refresh(&mut self) -> bool {
         if self.shader.refresh() {
-            self.pipeline = None;
-            self.bind_group = None;
+            self.bindgroup_pipeline = None;
             true
         } else {
             false
@@ -190,101 +188,46 @@ impl GenerateTile for ShaderGen {
             uniform_data.extend_from_slice(bytemuck::bytes_of(&(*slot as u32)));
             uniform_data.resize(uniform_offset + 256, 0);
 
-            // let views_needed = self.outputs() & self.parent_inputs();
-            // let mut image_views: HashMap<Cow<str>, _> = HashMap::new();
-            // if let Some(parent_slot) = parent_slot {
-            //     for layer in LayerType::iter().filter(|l| views_needed.contains_layer(*l)) {
-            //         // TODO: handle subsequent images of a layer.
-            //         image_views.insert(
-            //             format!("{}_in", layer.name()).into(),
-            //             state.tile_cache[layer][0].0.create_view(&wgpu::TextureViewDescriptor {
-            //                 label: Some(&format!("view.{}[{}]", layer.name(), parent_slot)),
-            //                 base_array_layer: *parent_slot as u32,
-            //                 array_layer_count: Some(NonZeroU32::new(1).unwrap()),
-            //                 dimension: Some(wgpu::TextureViewDimension::D2),
-            //                 ..Default::default()
-            //             }),
-            //         );
-            //     }
-            // }
-            // for layer in LayerType::iter().filter(|l| views_needed.contains_layer(*l)) {
-            //     // TODO: handle subsequent images of a layer.
-            //     image_views.insert(
-            //         format!("{}_out", layer.name()).into(),
-            //         state.tile_cache[layer][0].0.create_view(&wgpu::TextureViewDescriptor {
-            //             label: Some(&format!("view.{}[{}]", layer.name(), slot)),
-            //             base_array_layer: *slot as u32,
-            //             array_layer_count: Some(NonZeroU32::new(1).unwrap()),
-            //             dimension: Some(wgpu::TextureViewDimension::D2),
-            //             ..Default::default()
-            //         }),
-            //     );
-            // }
+            if self.bindgroup_pipeline.is_none() {
+                let (bind_group, bind_group_layout) = state.bind_group_for_shader(
+                    device,
+                    &self.shader,
+                    hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &state.generate_uniforms,
+                        offset: 0,
+                        size: Some(NonZeroU64::new(4).unwrap()),
+                    }))],
+                    HashMap::new(), // image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
+                    &format!("generate.{}", self.name),
+                );
+
+                let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        bind_group_layouts: [&bind_group_layout][..].into(),
+                        push_constant_ranges: &[],
+                        label: None,
+                    })),
+                    module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                        label: Some(&format!("shader.generate.{}", self.name)),
+                        source: self.shader.compute().into(),
+                    }),
+                    entry_point: "main",
+                    label: Some(&format!("pipeline.generate.{}", self.name)),
+                });
+                self.bindgroup_pipeline = Some((bind_group, pipeline));
+            }
 
             let workgroup_size = self.shader.workgroup_size();
-
-            if self.bind_group.is_some() && self.pipeline.is_some() {
-                let mut cpass =
-                    encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-                cpass.set_pipeline(self.pipeline.as_ref().unwrap());
-                cpass.set_bind_group(
-                    0,
-                    self.bind_group.as_ref().unwrap(),
-                    &[uniform_offset as u32],
-                );
-                cpass.dispatch_workgroups(
-                    (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
-                    (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
-                    1,
-                );
-            } else {
-                let (bind_group, bind_group_layout) = state.bind_group_for_shader(
-                device,
-                &self.shader,
-                hashmap!["ubo".into() => (true, wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &state.generate_uniforms,
-                    offset: 0,
-                    size: Some(NonZeroU64::new(4).unwrap()),
-                }))],
-                HashMap::new(), // image_views.iter().map(|(n, v)| (n.clone(), v)).collect(),
-                &format!("generate.{}", self.name),
+            let (bindgroup, pipeline) = self.bindgroup_pipeline.as_ref().unwrap();
+            let mut cpass =
+                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
+            cpass.set_pipeline(pipeline);
+            cpass.set_bind_group(0, bindgroup, &[uniform_offset as u32]);
+            cpass.dispatch_workgroups(
+                (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
+                (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
+                1,
             );
-
-                if self.pipeline.is_none() {
-                    self.pipeline =
-                        Some(device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                            layout: Some(&device.create_pipeline_layout(
-                                &wgpu::PipelineLayoutDescriptor {
-                                    bind_group_layouts: [&bind_group_layout][..].into(),
-                                    push_constant_ranges: &[],
-                                    label: None,
-                                },
-                            )),
-                            module: &device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                                label: Some(&format!("shader.generate.{}", self.name)),
-                                source: self.shader.compute().into(),
-                            }),
-                            entry_point: "main",
-                            label: Some(&format!("pipeline.generate.{}", self.name)),
-                        }));
-                }
-
-                {
-                    let mut cpass =
-                        encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: None });
-                    cpass.set_pipeline(&self.pipeline.as_ref().unwrap());
-                    cpass.set_bind_group(0, &bind_group, &[uniform_offset as u32]);
-                    cpass.dispatch_workgroups(
-                        (self.dimensions + workgroup_size[0] - 1) / workgroup_size[0],
-                        (self.dimensions + workgroup_size[1] - 1) / workgroup_size[1],
-                        1,
-                    );
-                }
-
-                // if image_views.is_empty() {
-                self.bind_group = Some(bind_group);
-                // }
-            }
         }
     }
 }
@@ -322,8 +265,7 @@ impl ShaderGenBuilder {
         Box::new(ShaderGen {
             name: self.name,
             shader: ShaderSet::compute_only(self.shader).unwrap(),
-            bind_group: None,
-            pipeline: None,
+            bindgroup_pipeline: None,
             inputs: self.inputs,
             outputs: self.outputs,
             dimensions: self.dimensions,
