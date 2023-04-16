@@ -13,7 +13,7 @@ version = "0.3.0"
 resolver = "2"
 
 [workspace]
-members = ["generate", "planetcam", "preview", "rshader", "types"]
+members = ["generate", "planetcam", "preview", "rshader", "types", "screenshot"]
 default-members = [".", "preview"]
 
 [dependencies]
