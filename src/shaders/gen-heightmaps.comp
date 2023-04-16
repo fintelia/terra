@@ -115,6 +115,7 @@ void main() {
 		base_heights_level = MAX_BASE_HEIGHTMAP_LEVEL;
 		base_heights_origin = ancestor_origin + ivec2(ancestor_coords);
 	}
+	barrier();
 	for (uint i = index; i < SIZE*SIZE; i += 256){
 		uvec2 uv = uvec2(i%SIZE, i/SIZE);
 		base_heights[uv.x][uv.y] = extract_height(texelFetch(base_heightmaps,
