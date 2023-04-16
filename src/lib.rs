@@ -1,8 +1,4 @@
 //! Terra is a large scale terrain generation and rendering library built on top of wgpu.
-#![cfg_attr(test, feature(test))]
-
-#[cfg(test)]
-extern crate test;
 
 #[macro_use]
 extern crate lazy_static;
