@@ -29,6 +29,15 @@ jobs:
       - uses: actions-rs/cargo@v1
         with:
           command: check
+          args: --all-targets
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p terra-preview --features generate
+      - uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -p terra-preview --features smaa
 
   test:
     name: Test Suite
@@ -61,4 +70,3 @@ jobs:
         with:
           command: fmt
           args: --all -- --check
-
