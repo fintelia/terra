@@ -1,7 +1,10 @@
-use crate::{InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, MAX_QUADTREE_LEVEL};
+use crate::{
+    InfiniteFrustum, Priority, EARTH_CIRCUMFERENCE, EARTH_RADIUS, EARTH_SEMIMAJOR_AXIS,
+    EARTH_SEMIMINOR_AXIS, MAX_QUADTREE_LEVEL,
+};
 use cgmath::*;
 use serde::{Deserialize, Serialize};
-use std::collections::VecDeque;
+use std::{collections::VecDeque, str::FromStr};
 
 const ROOT_SIDE_LENGTH: f32 = (EARTH_CIRCUMFERENCE * 0.25) as f32;
 
@@ -108,7 +111,7 @@ impl VNode {
         ROOT_SIDE_LENGTH as f64 * 2.0 / (1u32 << self.level()) as f64
     }
 
-    fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
+    pub fn fspace_to_cspace(&self, x: f64, y: f64) -> Vector3<f64> {
         let x = x.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * x.abs()).sqrt()) / 0.9022;
         let y = y.signum() * (1.4511 - (1.4511 * 1.4511 - 1.8044 * y.abs()).sqrt()) / 0.9022;
 
@@ -208,18 +211,81 @@ impl VNode {
     }
 
     pub fn center_wspace(&self) -> Vector3<f64> {
-        self.cell_position_cspace(0, 0, 0, 1).normalize() * EARTH_RADIUS
+        let normalized = self.cell_position_cspace(0, 0, 0, 1).normalize();
+        Vector3::new(
+            normalized.x * EARTH_SEMIMAJOR_AXIS,
+            normalized.y * EARTH_SEMIMAJOR_AXIS,
+            normalized.z * EARTH_SEMIMINOR_AXIS,
+        )
     }
 
     fn distance2(&self, point: Vector3<f64>, height_range: (f32, f32)) -> f64 {
-        let min_radius = EARTH_RADIUS + height_range.0 as f64;
-        let max_radius = EARTH_RADIUS + height_range.1 as f64;
+        const E2: f64 = 1.0
+            - (EARTH_SEMIMINOR_AXIS * EARTH_SEMIMINOR_AXIS)
+                / (EARTH_SEMIMAJOR_AXIS * EARTH_SEMIMAJOR_AXIS);
 
+        let p = (point.x * point.x + point.y * point.y).sqrt();
+
+        let mut height = 0.0;
+        let mut latitude =
+            f64::atan2(point.z * (EARTH_SEMIMAJOR_AXIS.powi(2) / EARTH_SEMIMINOR_AXIS.powi(2)), p);
+        for _ in 0..5 {
+            let n = EARTH_SEMIMAJOR_AXIS / (1.0 - E2 * latitude.sin().powi(2)).sqrt();
+            latitude = f64::atan2(point.z / p, 1.0 - E2 * n / (n + height));
+            height = p / latitude.cos() - n;
+        }
+        let longitude = f64::atan2(point.y, point.x);
+
+        let point = Vector3::new(
+            point.x - height * longitude.cos() * latitude.cos(),
+            point.y - height * longitude.sin() * latitude.cos(),
+            point.z - height * latitude.sin(),
+        );
+        // let latitude2 = f64::atan2(point.z * EARTH_SEMIMAJOR_AXIS.powi(2) / EARTH_SEMIMINOR_AXIS.powi(2), (point.x.powi(2) + point.y.powi(2)).sqrt());
+        // assert!((latitude - latitude2).abs() < 0.0000000000001);
+        // return (point.normalize().dot(self.center_wspace().normalize()).acos() * EARTH_SEMIMAJOR_AXIS).powi(2);
+
+        // let center = self.center_wspace();
+        // let delta = Vector3::new(
+        //     height * longitude.cos() * latitude.cos(),
+        //     height * longitude.sin() * latitude.cos(),
+        //     height * latitude.sin(),
+        // );
+        // let shell_point = center.add_element_wise(delta);
+
+        // println!("{} {}", height, shell_point.normalize().dot(self.center_wspace().normalize()).acos() * EARTH_SEMIMAJOR_AXIS);
+
+        // return (point.normalize().dot(shell_point.normalize()).acos() * EARTH_SEMIMAJOR_AXIS).powi(2);
+
+        // let point = Vector3::new(
+        //     n * latitude.cos() * longitude.cos(),
+        //     n * latitude.cos() * longitude.sin(),
+        //     n * EARTH_SEMIMINOR_AXIS.powi(2) / EARTH_SEMIMAJOR_AXIS.powi(2) * latitude.sin(),
+        // );
+
+        let min_radius = EARTH_SEMIMAJOR_AXIS + height_range.0 as f64;
+        let max_radius = EARTH_SEMIMAJOR_AXIS + height_range.1 as f64;
+
+        let point = point
+            .mul_element_wise(Vector3::new(1.0, 1.0, EARTH_SEMIMAJOR_AXIS / EARTH_SEMIMINOR_AXIS))
+            .normalize()
+            .mul_element_wise(Vector3::new(
+                EARTH_SEMIMAJOR_AXIS,
+                EARTH_SEMIMAJOR_AXIS,
+                EARTH_SEMIMAJOR_AXIS,
+            ));
+        // let point = Vector3::new(
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.cos() * longitude.cos(),
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.cos() * longitude.sin(),
+        //     (EARTH_SEMIMAJOR_AXIS + height) * latitude.sin(),
+        // );
+
+        // let scale = Vector3::new(1.0, 1.0, EARTH_SEMIMINOR_AXIS / EARTH_SEMIMAJOR_AXIS);
         let corners = [
-            self.grid_position_cspace(0, 0, 0, 2),
-            self.grid_position_cspace(1, 0, 0, 2),
-            self.grid_position_cspace(1, 1, 0, 2),
-            self.grid_position_cspace(0, 1, 0, 2),
+            self.grid_position_cspace(0, 0, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(1, 0, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(1, 1, 0, 2), //.mul_element_wise(scale),
+            self.grid_position_cspace(0, 1, 0, 2), //.mul_element_wise(scale),
         ];
 
         let normals = [
@@ -381,6 +447,50 @@ impl std::fmt::Display for VNode {
     }
 }
 
+impl FromStr for VNode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.split('-');
+
+        let level = parts
+            .next()
+            .and_then(|l| l.strip_prefix('N'))
+            .map(str::parse::<u8>)
+            .transpose()?
+            .filter(|&l| l <= MAX_QUADTREE_LEVEL)
+            .ok_or(anyhow::anyhow!("Invalid level"))?;
+
+        let face = match parts.next() {
+            Some("0E") => 0,
+            Some("180E") => 1,
+            Some("90E") => 2,
+            Some("90W") => 3,
+            Some("N") => 4,
+            Some("S") => 5,
+            _ => anyhow::bail!("Invalid face"),
+        };
+        let mut xy = parts.next().ok_or(anyhow::anyhow!("Invalid XY"))?.split('x');
+        let x = xy
+            .next()
+            .map(str::parse::<u32>)
+            .transpose()?
+            .filter(|&v| v <= 0x3ffffff && v < (1 << level))
+            .ok_or(anyhow::anyhow!("Bax X"))?;
+        let y = xy
+            .next()
+            .map(str::parse::<u32>)
+            .transpose()?
+            .filter(|&v| v <= 0x3ffffff && v < (1 << level))
+            .ok_or(anyhow::anyhow!("Bax Y"))?;
+
+        if parts.next().is_some() {
+            anyhow::bail!("Extra data");
+        }
+        Ok(VNode::new(level, face, x, y))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,7 +499,7 @@ mod tests {
         let node = VNode::new(1, 1, 0, 0);
         let camera = Vector3::new(1., 0., 1.);
 
-        let p = node.priority(camera);
+        let p = node.priority(camera, (0.0, 9000.0));
         assert!(p > Priority::cutoff());
     }
 }

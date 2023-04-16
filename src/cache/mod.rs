@@ -1,217 +1,31 @@
-pub mod generators;
+pub(crate) mod generators;
+pub(crate) mod layer;
 mod mesh;
 mod tile;
 
 pub(crate) use crate::cache::mesh::{MeshCache, MeshCacheDesc};
 use crate::stream::TileStreamerEndpoint;
 use crate::{
-    cache::tile::NodeSlot, generate::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
-    quadtree::QuadTree,
+    cache::tile::NodeSlot, compute_shader::ComputeShader, gpu_state::GpuState, mapfile::MapFile,
 };
+use cgmath::Vector3;
+use fnv::FnvHashMap;
 use maplit::hashmap;
-use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
 use std::hash::Hash;
 use std::num::NonZeroU64;
-use std::ops::{Index, IndexMut};
 use std::sync::Arc;
 use std::{collections::HashMap, num::NonZeroU32};
-pub(crate) use tile::{LayerParams, TextureFormat};
-use types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
+use terra_types::{Priority, VNode, MAX_QUADTREE_LEVEL, NODE_OFFSETS};
 use vec_map::VecMap;
 use wgpu::util::DeviceExt;
 
+use self::layer::{LayerMask, LayerType};
 use self::tile::Entry;
 use self::{generators::DynamicGenerator, mesh::CullMeshUniforms};
 use self::{generators::GenerateTile, tile::CpuHeightmap};
 
-const SLOTS_PER_LEVEL: usize = 32;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum LayerType {
-    Heightmaps = 0,
-    Displacements = 1,
-    AlbedoRoughness = 2,
-    Normals = 3,
-    GrassCanopy = 4,
-    TreeAttributes = 5,
-    AerialPerspective = 6,
-    BentNormals = 7,
-    TreeCover = 8,
-    BaseAlbedo = 9,
-    RootAerialPerspective = 10,
-}
-impl LayerType {
-    pub fn index(&self) -> usize {
-        *self as usize
-    }
-    pub fn from_index(i: usize) -> Self {
-        match i {
-            0 => LayerType::Heightmaps,
-            1 => LayerType::Displacements,
-            2 => LayerType::AlbedoRoughness,
-            3 => LayerType::Normals,
-            4 => LayerType::GrassCanopy,
-            5 => LayerType::TreeAttributes,
-            6 => LayerType::AerialPerspective,
-            7 => LayerType::BentNormals,
-            8 => LayerType::TreeCover,
-            9 => LayerType::BaseAlbedo,
-            10 => LayerType::RootAerialPerspective,
-            _ => unreachable!(),
-        }
-    }
-    pub fn bit_mask(&self) -> LayerMask {
-        (*self).into()
-    }
-    pub fn name(&self) -> &'static str {
-        match *self {
-            LayerType::Heightmaps => "heightmaps",
-            LayerType::Displacements => "displacements",
-            LayerType::AlbedoRoughness => "albedo",
-            LayerType::Normals => "normals",
-            LayerType::GrassCanopy => "grass_canopy",
-            LayerType::TreeAttributes => "tree_attributes",
-            LayerType::AerialPerspective => "aerial_perspective",
-            LayerType::BentNormals => "bent_normals",
-            LayerType::TreeCover => "treecover",
-            LayerType::BaseAlbedo => "base_albedo",
-            LayerType::RootAerialPerspective => "root_aerial_perspective",
-        }
-    }
-    pub fn streamed_levels(&self) -> u8 {
-        match *self {
-            LayerType::Heightmaps => VNode::LEVEL_CELL_76M + 1,
-            LayerType::BaseAlbedo => VNode::LEVEL_CELL_610M + 1,
-            LayerType::TreeCover => VNode::LEVEL_CELL_76M + 1,
-            _ => 0,
-        }
-    }
-    pub fn dynamic(&self) -> bool {
-        match *self {
-            LayerType::AerialPerspective | LayerType::RootAerialPerspective => true,
-            _ => false,
-        }
-    }
-    pub fn iter() -> impl Iterator<Item = Self> {
-        (0..=10).map(Self::from_index)
-    }
-}
-impl<T> Index<LayerType> for VecMap<T> {
-    type Output = T;
-    fn index(&self, i: LayerType) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-impl<T> IndexMut<LayerType> for VecMap<T> {
-    fn index_mut(&mut self, i: LayerType) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) enum MeshType {
-    Terrain = 0,
-    Grass = 1,
-    TreeBillboards = 2,
-}
-impl MeshType {
-    pub fn bit_mask(&self) -> LayerMask {
-        (*self).into()
-    }
-    pub fn name(&self) -> &'static str {
-        match *self {
-            MeshType::Terrain => "terrain",
-            MeshType::Grass => "grass",
-            MeshType::TreeBillboards => "tree_billboards",
-        }
-    }
-    fn from_index(i: usize) -> Self {
-        match i {
-            0 => MeshType::Terrain,
-            1 => MeshType::Grass,
-            2 => MeshType::TreeBillboards,
-            _ => unreachable!(),
-        }
-    }
-    pub fn iter() -> impl Iterator<Item = Self> {
-        (0..=2).map(Self::from_index)
-    }
-}
-impl<T> Index<MeshType> for VecMap<T> {
-    type Output = T;
-    fn index(&self, i: MeshType) -> &Self::Output {
-        &self[i as usize]
-    }
-}
-impl<T> IndexMut<MeshType> for VecMap<T> {
-    fn index_mut(&mut self, i: MeshType) -> &mut Self::Output {
-        &mut self[i as usize]
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub(crate) struct LayerMask(NonZeroU32);
-impl LayerMask {
-    const VALID: u32 = 0x80000000;
-
-    pub fn empty() -> Self {
-        Self(NonZeroU32::new(Self::VALID).unwrap())
-    }
-    pub fn contains_layer(&self, t: LayerType) -> bool {
-        assert!((t as usize) < 16);
-        self.0.get() & (1 << (t as usize)) != 0
-    }
-    pub fn contains_mesh(&self, t: MeshType) -> bool {
-        assert!((t as usize) < 8);
-        self.0.get() & (1 << (t as usize + 16)) != 0
-    }
-}
-impl From<LayerType> for LayerMask {
-    fn from(t: LayerType) -> Self {
-        assert!((t as usize) < 16);
-        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize))).unwrap())
-    }
-}
-impl From<MeshType> for LayerMask {
-    fn from(t: MeshType) -> Self {
-        assert!((t as usize) < 8);
-        Self(NonZeroU32::new(Self::VALID | (1 << (t as usize + 16))).unwrap())
-    }
-}
-impl std::ops::BitOr for LayerMask {
-    type Output = Self;
-    fn bitor(self, rhs: Self) -> Self {
-        Self(self.0 | rhs.0)
-    }
-}
-impl std::ops::BitOrAssign for LayerMask {
-    fn bitor_assign(&mut self, rhs: Self) {
-        self.0 |= rhs.0;
-    }
-}
-impl std::ops::BitAnd for LayerMask {
-    type Output = Self;
-    fn bitand(self, rhs: Self) -> Self {
-        Self(NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap())
-    }
-}
-impl std::ops::BitAndAssign for LayerMask {
-    fn bitand_assign(&mut self, rhs: Self) {
-        self.0 = NonZeroU32::new(Self::VALID | (self.0.get() & rhs.0.get())).unwrap();
-    }
-}
-impl std::ops::Not for LayerMask {
-    type Output = Self;
-    fn not(self) -> Self {
-        Self(NonZeroU32::new(Self::VALID | !self.0.get()).unwrap())
-    }
-}
-
-lazy_static! {
-    pub(crate) static ref LAYERS_BY_NAME: HashMap<&'static str, LayerType> =
-        LayerType::iter().map(|t| (t.name(), t)).collect();
-}
+const SLOTS_PER_LEVEL: usize = 30;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub(crate) struct GeneratorMask(NonZeroU32);
@@ -227,6 +41,9 @@ impl GeneratorMask {
     }
     pub fn intersects(&self, other: Self) -> bool {
         self.0.get() & other.0.get() != Self::VALID
+    }
+    pub fn all() -> Self {
+        Self(NonZeroU32::new(0xffffffff).unwrap())
     }
 }
 impl std::ops::BitOr for GeneratorMask {
@@ -345,11 +162,96 @@ impl<T: PriorityCacheEntry> PriorityCache<T> {
     }
 }
 
+pub(crate) struct Levels(Vec<PriorityCache<Entry>>);
+impl Levels {
+    pub(crate) fn base_slot(level: u8) -> usize {
+        if level == 0 {
+            0
+        } else if level == 1 {
+            6
+        } else {
+            30 + SLOTS_PER_LEVEL * (level - 2) as usize
+        }
+    }
+
+    fn contains(&self, node: VNode) -> bool {
+        self.0[node.level() as usize].contains(&node)
+    }
+    fn get(&self, node: VNode) -> Option<&Entry> {
+        self.0[node.level() as usize].entry(&node)
+    }
+    fn get_mut(&mut self, node: VNode) -> Option<&mut Entry> {
+        self.0[node.level() as usize].entry_mut(&node)
+    }
+    fn get_slot(&self, node: VNode) -> Option<usize> {
+        self.0[node.level() as usize].index_of(&node).map(|i| Self::base_slot(node.level()) + i)
+    }
+
+    fn contains_layer(&self, node: VNode, ty: LayerType) -> bool {
+        self.0[node.level() as usize]
+            .entry(&node)
+            .map(|entry| entry.valid.contains_layer(ty))
+            .unwrap_or(false)
+    }
+    fn contains_layers(&self, node: VNode, layer_mask: LayerMask) -> bool {
+        self.0[node.level() as usize]
+            .entry(&node)
+            .map(|entry| (entry.valid & layer_mask) == layer_mask)
+            .unwrap_or(false)
+    }
+
+    fn update(&mut self, node_priorities: FnvHashMap<VNode, Priority>) {
+        let mut min_priorities = Vec::new();
+        for cache in &mut self.0 {
+            for entry in cache.slots_mut() {
+                entry.priority =
+                    node_priorities.get(&entry.node).cloned().unwrap_or(Priority::none());
+            }
+            min_priorities
+                .push(cache.slots().iter().map(|s| s.priority).min().unwrap_or(Priority::none()));
+        }
+
+        let mut missing = vec![Vec::new(); self.0.len()];
+        VNode::breadth_first(|node| {
+            let priority = node_priorities.get(&node).cloned().unwrap_or(Priority::none());
+            if priority < Priority::cutoff() {
+                return false;
+            }
+            let level = node.level() as usize;
+            if !self.contains(node)
+                && (priority > min_priorities[level] || !self.0[level].is_full())
+            {
+                missing[level].push(Entry::new(node, priority));
+            }
+
+            node.level() < MAX_QUADTREE_LEVEL
+        });
+
+        for (cache, missing) in self.0.iter_mut().zip(missing.into_iter()) {
+            cache.insert(missing);
+        }
+    }
+
+    fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
+        let mut generators = GeneratorMask::empty();
+
+        if let Some(entry) = self.get(node) {
+            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
+                generators |= entry
+                    .generators
+                    .get(layer.index())
+                    .copied()
+                    .unwrap_or_else(GeneratorMask::empty);
+            }
+        }
+        generators
+    }
+}
+
 pub(crate) struct TileCache {
-    levels: Vec<PriorityCache<Entry>>,
+    levels: Levels,
     level_masks: Vec<LayerMask>,
 
-    layers: VecMap<LayerParams>,
     meshes: VecMap<MeshCache>,
     generators: Vec<Box<dyn GenerateTile>>,
     dynamic_generators: Vec<DynamicGenerator>,
@@ -359,6 +261,7 @@ pub(crate) struct TileCache {
     completed_downloads_rx: crossbeam::channel::Receiver<(VNode, wgpu::Buffer, CpuHeightmap)>,
     free_download_buffers: Vec<wgpu::Buffer>,
     total_download_buffers: usize,
+    last_camera_position: Option<mint::Point3<f64>>,
 
     index_buffer_contents: Vec<u32>,
     cull_shader: ComputeShader<mesh::CullMeshUniforms>,
@@ -370,15 +273,13 @@ impl TileCache {
         mapfile: Arc<MapFile>,
         mesh_layers: Vec<MeshCacheDesc>,
     ) -> Self {
-        let layers = mapfile.layers().clone();
-
         let mut index_buffer_contents = Vec::new();
 
         let mut base_slot = 0;
         let mut meshes = Vec::new();
         for mut desc in mesh_layers {
-            let num_slots = (TileCache::base_slot(desc.max_level + 1)
-                - TileCache::base_slot(desc.min_level))
+            let num_slots = (Levels::base_slot(desc.max_level + 1)
+                - Levels::base_slot(desc.min_level))
                 * desc.entries_per_node;
             let index_buffer_offset = index_buffer_contents.len() as u64;
             index_buffer_contents.append(&mut desc.index_buffer);
@@ -395,13 +296,12 @@ impl TileCache {
         }
         let meshes = meshes.into_iter().collect();
 
-        let soft_float64 = !device.features().contains(wgpu::Features::SHADER_FLOAT64);
-        let generators = generators::generators(device, &layers, &meshes, soft_float64);
+        let generators = generators::generators(device, &meshes);
 
         let mut level_masks = vec![LayerMask::empty(); 23];
-        for layer in layers.values() {
-            for i in layer.min_level..=layer.max_level {
-                level_masks[i as usize] |= layer.layer_type.bit_mask();
+        for layer in LayerType::iter() {
+            for i in layer.level_range() {
+                level_masks[i as usize] |= layer.bit_mask();
             }
         }
         for mesh in meshes.values() {
@@ -417,15 +317,24 @@ impl TileCache {
 
         let (completed_tx, completed_rx) = crossbeam::channel::unbounded();
 
+        let transcode_format = if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+        {
+            wgpu::TextureFormat::Bc7RgbaUnorm
+        } else {
+            wgpu::TextureFormat::Astc {
+                block: wgpu::AstcBlock::B4x4,
+                channel: wgpu::AstcChannel::Unorm,
+            }
+        };
+
         Self {
-            streamer: TileStreamerEndpoint::new(mapfile).unwrap(),
+            streamer: TileStreamerEndpoint::new(mapfile, transcode_format).unwrap(),
             level_masks,
             completed_downloads_tx: completed_tx,
             completed_downloads_rx: completed_rx,
             free_download_buffers: Vec::new(),
             total_download_buffers: 0,
-            levels,
-            layers,
+            levels: Levels(levels),
             meshes,
             generators,
             dynamic_generators: generators::dynamic_generators(),
@@ -434,23 +343,16 @@ impl TileCache {
                 rshader::shader_source!("../shaders", "cull-meshes.comp", "declarations.glsl"),
                 "cull-meshes".to_owned(),
             ),
+            last_camera_position: None,
         }
     }
 
-    pub fn update(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        gpu_state: &GpuState,
-        mapfile: &MapFile,
-        quadtree: &mut QuadTree,
-        camera: mint::Point3<f64>,
-    ) {
+    fn refresh_shaders(&mut self, device: &wgpu::Device, gpu_state: &GpuState) {
         for (i, gen) in self.generators.iter_mut().enumerate() {
             if gen.needs_refresh() {
                 assert!(i < 32);
                 let mask = GeneratorMask::from_index(i);
-                for cache in self.levels.iter_mut() {
+                for cache in self.levels.0.iter_mut() {
                     for slot in cache.slots_mut() {
                         for (layer, generator_mask) in &slot.generators {
                             if generator_mask.intersects(mask) {
@@ -494,64 +396,81 @@ impl TileCache {
             }
         }
 
-        TileCache::update_levels(self, quadtree);
+        self.cull_shader.refresh(device, gpu_state);
+    }
+
+    fn update_priorities(&mut self, camera: mint::Point3<f64>) {
+        if self.last_camera_position != Some(camera) {
+            self.last_camera_position = Some(camera);
+            let camera = Vector3::new(camera.x, camera.y, camera.z);
+
+            let mut node_priorities = FnvHashMap::default();
+            VNode::breadth_first(|node| {
+                let priority = node.priority(camera, self.get_height_range(node));
+                node_priorities.insert(node, priority);
+                priority >= Priority::cutoff() && node.level() < MAX_QUADTREE_LEVEL
+            });
+            self.levels.update(node_priorities);
+        }
+    }
+
+    pub fn wait_for_uploads<F: FnMut(f32)>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
+        mut progress_callback: F,
+    ) {
+        self.refresh_shaders(device, gpu_state);
+        self.update_priorities(camera);
         self.upload_tiles(queue, &gpu_state.tile_cache);
 
-        let (command_buffer, mut planned_heightmap_downloads) =
-            TileCache::generate_tiles(self, mapfile, device, &queue, gpu_state);
+        let total: usize = (0..self.levels.0.len())
+            .flat_map(|level| self.levels.0[level].slots())
+            .filter(|e| e.priority() >= Priority::cutoff())
+            .count();
 
-        self.write_nodes(queue, gpu_state, camera);
+        loop {
+            let missing: usize = (0..self.levels.0.len() as u8)
+                .map(|level| {
+                    let mask = LayerType::iter()
+                        .filter(|l| {
+                            level >= l.min_level() && level < l.min_level() + l.streamed_levels()
+                        })
+                        .fold(LayerMask::empty(), |a, b| (a | b.bit_mask()));
+                    self.levels.0[level as usize]
+                        .slots()
+                        .iter()
+                        .filter(|e| {
+                            e.priority() >= Priority::cutoff()
+                                && !e.valid & mask != LayerMask::empty()
+                        })
+                        .count()
+                })
+                .sum();
+            progress_callback((total - missing) as f32 * 100.0 / total as f32);
+            if missing == 0 {
+                break;
+            }
 
-        queue.submit(Some(command_buffer));
-
-        let heightmap_resolution = self.layers[LayerType::Heightmaps].texture_resolution as usize;
-        let heightmap_bytes_per_pixel =
-            self.layers[LayerType::Heightmaps].texture_format[0].bytes_per_block() as usize;
-        let heightmap_row_bytes = heightmap_resolution * heightmap_bytes_per_pixel;
-        let heightmap_row_pitch = (heightmap_row_bytes + 255) & !255;
-        for (node, buffer) in planned_heightmap_downloads.drain(..) {
-            let buffer = Arc::new(buffer);
-            let completed_downloads_tx = self.completed_downloads_tx.clone();
-            buffer.clone().slice(..).map_async(wgpu::MapMode::Read, move |r| {
-                if r.is_err() {
-                    return;
-                }
-
-                let mut heights = vec![0u32; heightmap_resolution * heightmap_resolution];
-                {
-                    let mapped_buffer = buffer.slice(..).get_mapped_range();
-                    for (h, b) in heights
-                        .chunks_exact_mut(heightmap_resolution)
-                        .zip(mapped_buffer.chunks_exact(heightmap_row_pitch))
-                    {
-                        bytemuck::cast_slice_mut(h).copy_from_slice(&b[..heightmap_row_bytes]);
-                    }
-                }
-                buffer.unmap();
-
-                let heights: Vec<f32> =
-                    heights.into_iter().map(|h| ((h & 0x7fffff) as f32 / 512.0) - 1024.0).collect();
-                let (mut min, mut max) = (f32::MAX, 0.0);
-                for &h in &heights {
-                    if min < h {
-                        min = h;
-                    }
-                    if max > h {
-                        max = h;
-                    }
-                }
-
-                let _ = completed_downloads_tx.send((
-                    node,
-                    Arc::try_unwrap(buffer).unwrap(),
-                    CpuHeightmap::F32 { min, max, heights: Arc::new(heights) },
-                ));
-            });
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            self.upload_tiles(queue, &gpu_state.tile_cache);
         }
+    }
 
-        self.download_tiles();
-
-        self.cull_shader.refresh(device, gpu_state);
+    pub fn update(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gpu_state: &GpuState,
+        camera: mint::Point3<f64>,
+    ) {
+        self.refresh_shaders(device, gpu_state);
+        self.update_priorities(camera);
+        self.upload_tiles(queue, &gpu_state.tile_cache);
+        self.generate_tiles(device, queue, gpu_state, camera);
+        self.readback_tiles(device, queue, gpu_state);
     }
 
     fn write_nodes(&self, queue: &wgpu::Queue, gpu_state: &GpuState, camera: mint::Point3<f64>) {
@@ -570,9 +489,7 @@ impl TileCache {
         let mut data: Vec<NodeSlot> = vec![
             NodeSlot {
                 node_center: [0.0; 3],
-                layer_origins: [[0.0; 2]; 48],
-                layer_slots: [-1; 48],
-                layer_ratios: [0.0; 48],
+                layers: [(0.0, 0.0, 0.0, -1); 48],
                 relative_position: [0.0; 3],
                 min_distance: 0.0,
                 mesh_valid_mask: [0; 4],
@@ -580,16 +497,18 @@ impl TileCache {
                 face: 0,
                 coords: [0; 2],
                 parent: -1,
-                padding0: 0.0,
-                padding: [0; 43],
+                padding: [0; 48],
             };
-            TileCache::base_slot(self.levels.len() as u8)
+            Levels::base_slot(self.levels.0.len() as u8)
         ];
-        for (level_index, level) in self.levels.iter().enumerate() {
+        for (level_index, level) in self.levels.0.iter().enumerate() {
             for (slot_index, slot) in level.slots().into_iter().enumerate() {
-                let index = TileCache::base_slot(level_index as u8) + slot_index;
+                let index = Levels::base_slot(level_index as u8) + slot_index;
 
-                data[index].node_center = slot.node.center_wspace().into();
+                let node_center = slot.node.center_wspace();
+                data[index].node_center[0] = node_center.x as f32;
+                data[index].node_center[1] = node_center.y as f32;
+                data[index].node_center[2] = node_center.z as f32;
                 data[index].level = level_index as u32;
                 data[index].face = slot.node.face() as u32;
                 data[index].coords = [slot.node.x(), slot.node.y()];
@@ -603,7 +522,7 @@ impl TileCache {
                 data[index].parent = slot
                     .node
                     .parent()
-                    .and_then(|(parent, _)| self.get_slot(parent))
+                    .and_then(|(parent, _)| self.levels.get_slot(parent))
                     .map(|s| s as i32)
                     .unwrap_or(-1);
 
@@ -625,15 +544,12 @@ impl TileCache {
                 let mut base_offset = cgmath::Vector2::new(0.0, 0.0);
                 let mut found_layers = LayerMask::empty();
                 for ancestor_index in 0..=level_index {
-                    if let Some(ancestor_slot) =
-                        self.levels[ancestor.level() as usize].entry(&ancestor)
-                    {
+                    if let Some(ancestor_slot) = self.levels.get(ancestor) {
                         for (layer_index, layer) in LayerType::iter().enumerate() {
                             let layer_slot = if !found_layers.contains_layer(layer)
                                 && (ancestor_slot.valid.contains_layer(layer)
                                     || (layer.dynamic()
-                                        && ancestor.level() >= self.layers[layer].min_level
-                                        && ancestor.level() <= self.layers[layer].max_level))
+                                        && layer.level_range().contains(&ancestor.level())))
                             {
                                 found_layers |= layer.bit_mask();
                                 layer_index
@@ -646,29 +562,28 @@ impl TileCache {
                                 continue;
                             };
 
-                            let texture_resolution = self.layers[layer].texture_resolution as f32;
-                            let texture_border = self.layers[layer].texture_border_size as f32;
-                            let texture_ratio = if self.layers[layer].grid_registration {
+                            let texture_resolution = layer.texture_resolution() as f32;
+                            let texture_border = layer.texture_border_size() as f32;
+                            let texture_ratio = if layer.grid_registration() {
                                 (texture_resolution - 2.0 * texture_border - 1.0)
                                     / texture_resolution
                             } else {
                                 (texture_resolution - 2.0 * texture_border) / texture_resolution
                             };
-                            let texture_origin = if self.layers[layer].grid_registration {
+                            let texture_origin = if layer.grid_registration() {
                                 (texture_border + 0.5) / texture_resolution
                             } else {
                                 texture_border / texture_resolution
                             };
 
-                            data[index].layer_origins[layer_slot] = [
+                            data[index].layers[layer_slot] = (
                                 texture_origin + texture_ratio * base_offset.x,
                                 texture_origin + texture_ratio * base_offset.y,
-                            ];
-                            data[index].layer_slots[layer_slot] = (self.get_slot(ancestor).unwrap()
-                                - Self::base_slot(self.layers[layer].min_level))
-                                as i32;
-                            data[index].layer_ratios[layer_slot] =
-                                f32::powi(0.5, ancestor_index as i32) * texture_ratio;
+                                f32::powi(0.5, ancestor_index as i32) * texture_ratio,
+                                (self.levels.get_slot(ancestor).unwrap()
+                                    - Levels::base_slot(layer.min_level()))
+                                    as i32,
+                            );
                         }
                     }
 
@@ -684,27 +599,6 @@ impl TileCache {
         queue.write_buffer(&gpu_state.nodes, 0, bytemuck::cast_slice(&data));
     }
 
-    fn generator_dependencies(&self, node: VNode, mask: LayerMask) -> GeneratorMask {
-        let mut generators = GeneratorMask::empty();
-
-        if let Some(entry) = self.levels[node.level() as usize].entry(&node) {
-            for layer in LayerType::iter().filter(|layer| mask.contains_layer(*layer)) {
-                generators |= entry
-                    .generators
-                    .get(layer.index())
-                    .copied()
-                    .unwrap_or_else(GeneratorMask::empty);
-            }
-        }
-        generators
-    }
-
-    pub fn make_gpu_tile_cache(
-        &self,
-        device: &wgpu::Device,
-    ) -> VecMap<Vec<(wgpu::Texture, wgpu::TextureView)>> {
-        self.make_cache_textures(device)
-    }
     pub fn make_gpu_mesh_index(&self, device: &wgpu::Device) -> wgpu::Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             contents: bytemuck::cast_slice(&self.index_buffer_contents),
@@ -750,7 +644,7 @@ impl TileCache {
                     base_entry: c.base_entry as u32,
                     entries_per_node: c.desc.entries_per_node as u32,
                     num_nodes: (c.num_entries / c.desc.entries_per_node) as u32,
-                    base_slot: TileCache::base_slot(c.desc.min_level) as u32,
+                    base_slot: Levels::base_slot(c.desc.min_level) as u32,
                     mesh_index: mesh_index as u32,
                 },
             );
@@ -783,5 +677,9 @@ impl TileCache {
         for (_, c) in &self.meshes {
             c.render_shadow(device, rpass, gpu_state);
         }
+    }
+
+    pub fn contains_layers(&self, node: VNode, layers: LayerMask) -> bool {
+        self.levels.contains_layers(node, layers)
     }
 }

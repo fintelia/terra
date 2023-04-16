@@ -10,15 +10,12 @@ categories = ["game-engines", "rendering"]
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.33"
-bytemuck = "1.7.0"
-generic-array = "0.14.4"
+anyhow = "1.0.70"
+bytemuck = "1.13.1"
 lazy_static = "1.4.0"
-naga = { version = "0.9.0", features = ["spv-in", "glsl-in", "wgsl-in"] }
-notify = "5.0.0-pre.15"
-shaderc = "0.7.0"
-spirv_headers = "1.4.2"
-wgpu = { version = "0.13.1", features = ["spirv"] }
+naga = { version = "0.11.0", features = ["glsl-in", "wgsl-in", "span"] }
+notify = "5.1.0"
+wgpu = { version = "0.15.1", features = ["naga"] }
 
 [features]
 default = []

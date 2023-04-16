@@ -58,7 +58,7 @@ You can also pass `--help` to see some other command line options.
 
 ### System Requirements
 
-* Windows or Linux operating system (Terra may work on MacOS with the 'soft-float64' feature enabled, but this hasn't been tested)
+* Windows or Linux operating system (Terra may work on MacOS but this hasn't been tested)
 * A fast internet connection
 * GPU with 2+ GB of VRAM
 

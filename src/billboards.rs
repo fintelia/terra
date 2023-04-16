@@ -1,35 +1,22 @@
 use std::{
     collections::HashMap,
-    fs::File,
-    io::{BufReader, Read},
+    io::{Cursor, Read},
     num::NonZeroU32,
 };
 
 use anyhow::Error;
-use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
+//use basis_universal::{TranscodeParameters, Transcoder, TranscoderTextureFormat};
 use wgpu::util::DeviceExt;
 use zip::ZipArchive;
 
 use crate::{
-    asset::TERRA_DIRECTORY,
-    cache::TextureFormat,
-    gpu_state::GpuState,
+    gpu_state::{texture_from_ktx2_bytes, GpuState},
+    mapfile::MapFile,
     speedtree_xml::{parse_xml, SpeedTreeModel},
 };
 
 const RESOLUTION: u32 = 256;
 const FRAMES_PER_SIDE: u32 = 6;
-
-// #[derive(Copy, Clone, Debug, Default)]
-// #[repr(C)]
-// struct Vertex {
-//     position: [f32; 3],
-//     texcoord_u: f32,
-//     normal: [f32; 3],
-//     texcoord_v: f32,
-// }
-// unsafe impl bytemuck::Pod for Vertex {}
-// unsafe impl bytemuck::Zeroable for Vertex {}
 
 pub(crate) struct Models {
     tree: SpeedTreeModel,
@@ -37,15 +24,14 @@ pub(crate) struct Models {
     albedo_texture: Vec<u8>,
 }
 impl Models {
-    pub fn new() -> Result<Self, Error> {
-        let file = BufReader::new(File::open(TERRA_DIRECTORY.join("Oak_English_Sapling.zip"))?);
-        let mut zip = ZipArchive::new(file)?;
+    pub async fn new(mapfile: &MapFile) -> Result<Self, Error> {
+        let file = mapfile.read_asset("Oak_English_Sapling.xml.zip").await?;
+        let mut zip = ZipArchive::new(Cursor::new(file))?;
 
         let mut contents = String::new();
         zip.by_name("Oak_English_Sapling.xml")?.read_to_string(&mut contents)?;
 
-        let mut albedo_texture = Vec::new();
-        zip.by_name("Oak_English_Sapling_Color.basis")?.read_to_end(&mut albedo_texture)?;
+        let albedo_texture = mapfile.read_asset("Oak_English_Sapling_Color.ktx2").await?;
 
         let tree = parse_xml(&contents).unwrap();
         let shader = rshader::ShaderSet::simple(
@@ -77,34 +63,7 @@ impl Models {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<wgpu::Texture, Error> {
-        let mut transcoder = Transcoder::new();
-        transcoder.prepare_transcoding(&self.albedo_texture).unwrap();
-
-        let transcoded = transcoder
-            .transcode_image_level(
-                &self.albedo_texture,
-                if device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC) {
-                    TranscoderTextureFormat::BC7_RGBA
-                } else {
-                    TranscoderTextureFormat::ASTC_4x4_RGBA
-                },
-                TranscodeParameters { image_index: 0, level_index: 0, ..Default::default() },
-            )
-            .unwrap();
-
-        Ok(device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d { width: 4096, height: 4096, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: TextureFormat::UASTC.to_wgpu(device.features()),
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            },
-            &transcoded,
-        ))
+        texture_from_ktx2_bytes(device, queue, &self.albedo_texture, "model_albedo")
     }
 
     fn default_billboard_desc() -> wgpu::TextureDescriptor<'static> {
@@ -120,6 +79,7 @@ impl Models {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
         }
     }
     pub fn make_billboards_albedo(&self, device: &wgpu::Device) -> wgpu::Texture {
@@ -235,34 +195,22 @@ impl Models {
                 targets: &[
                     Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::REPLACE,
-                            alpha: wgpu::BlendComponent::REPLACE,
-                        }),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                     Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba8Snorm,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::REPLACE,
-                            alpha: wgpu::BlendComponent::REPLACE,
-                        }),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                     Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::R16Float,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::REPLACE,
-                            alpha: wgpu::BlendComponent::REPLACE,
-                        }),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                     Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::R8Unorm,
-                        blend: Some(wgpu::BlendState {
-                            color: wgpu::BlendComponent::REPLACE,
-                            alpha: wgpu::BlendComponent::REPLACE,
-                        }),
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
@@ -291,6 +239,7 @@ impl Models {
         // Billboards
         for base_array_layer in 0..1 {
             let view_desc = wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer,
                 array_layer_count: Some(NonZeroU32::new(1).unwrap()),
                 ..Default::default()
@@ -312,6 +261,7 @@ impl Models {
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             });
             let depth_view = depth.create_view(&Default::default());
 
@@ -399,6 +349,7 @@ impl Models {
                 format: wgpu::TextureFormat::Depth32Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             });
             let depth_view = depth.create_view(&Default::default());
 

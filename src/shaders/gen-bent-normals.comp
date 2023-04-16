@@ -4,28 +4,29 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(binding = 0) uniform UniformBlock {
-	int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
-layout(binding = 1) uniform utexture2DArray heightmaps;
+layout(binding = 1) uniform texture2DArray heightmaps;
 layout(rgba8, binding = 2) writeonly uniform image2DArray bent_normals;
 
-layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 3, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
 shared float heights[16][16];
 
 void main() {
-    ivec3 base_pos = ivec3(ivec2(gl_GlobalInvocationID.xy + HEIGHTMAP_BORDER - 4), ubo.slot);
-    heights[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = extract_height_above_water(texelFetch(heightmaps, base_pos, 0).x);
-    heights[gl_LocalInvocationID.x+8][gl_LocalInvocationID.y] = extract_height_above_water(texelFetch(heightmaps, base_pos+ivec3(8,0,0), 0).x);
-    heights[gl_LocalInvocationID.x][gl_LocalInvocationID.y+8] = extract_height_above_water(texelFetch(heightmaps, base_pos+ivec3(0,8,0), 0).x);
-    heights[gl_LocalInvocationID.x+8][gl_LocalInvocationID.y+8] = extract_height_above_water(texelFetch(heightmaps, base_pos+ivec3(8,8,0), 0).x);
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
+
+    ivec3 base_pos = ivec3(ivec2(gl_GlobalInvocationID.xy + HEIGHTMAP_BORDER - 4), node.layers[HEIGHTMAPS_LAYER].slot);
+    heights[gl_LocalInvocationID.x][gl_LocalInvocationID.y] = extract_height(texelFetch(heightmaps, base_pos, 0).x);
+    heights[gl_LocalInvocationID.x+8][gl_LocalInvocationID.y] = extract_height(texelFetch(heightmaps, base_pos+ivec3(8,0,0), 0).x);
+    heights[gl_LocalInvocationID.x][gl_LocalInvocationID.y+8] = extract_height(texelFetch(heightmaps, base_pos+ivec3(0,8,0), 0).x);
+    heights[gl_LocalInvocationID.x+8][gl_LocalInvocationID.y+8] = extract_height(texelFetch(heightmaps, base_pos+ivec3(8,8,0), 0).x);
     barrier();
 
-	Node node = nodes[ubo.slot];
 	float spacing = 19545.9832 / float(1 << node.level);
 
     vec4 value = vec4(1);
@@ -41,5 +42,5 @@ void main() {
         }
     }
 
-    imageStore(bent_normals, ivec3(gl_GlobalInvocationID.xy, node.layer_slots[BENT_NORMALS_LAYER]), value);
+    imageStore(bent_normals, ivec3(gl_GlobalInvocationID.xy, node.layers[BENT_NORMALS_LAYER].slot), value);
 }

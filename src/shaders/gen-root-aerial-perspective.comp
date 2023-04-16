@@ -6,10 +6,10 @@ layout(local_size_x = 8, local_size_y = 8) in;
 layout(set = 0, binding = 0, std140) uniform GlobalsBlock {
 	Globals globals;
 };
-layout(set = 0, binding = 1, std430) /*readonly*/ buffer NodeBlock {
+layout(set = 0, binding = 1, std140) readonly buffer Nodes {
     Node nodes[];
 };
-layout(binding = 2, std430) /*readonly*/ buffer UniformBlock {
+layout(binding = 2, std430) readonly buffer UniformBlock {
 	uint node_list[1024];
 } ubo;
 
@@ -20,27 +20,28 @@ layout(rgba16f, binding = 6) writeonly uniform image2DArray root_aerial_perspect
 
 #include "atmosphere.glsl"
 
+const vec3 ellipsoid_to_sphere = vec3(1, 1, 1.0033640898210048);
+
 void main() {
 	uint slot = ubo.node_list[gl_GlobalInvocationID.z];
 	Node node = nodes[slot];
 
 	ivec2 iPosition = ivec2(gl_GlobalInvocationID.xy);
-	int displacements_slot = node.layer_slots[DISPLACEMENTS_LAYER];
-	vec3 texcoord = vec3(node.layer_origins[DISPLACEMENTS_LAYER] + vec2(iPosition) / 64.0 * node.layer_ratios[DISPLACEMENTS_LAYER], displacements_slot);
-	vec3 position = texture(sampler2DArray(displacements, nearest), texcoord).xyz - nodes[displacements_slot].relative_position;
+	vec3 texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], vec2(iPosition) / 64.0);
+	vec3 position = textureLod(sampler2DArray(displacements, nearest), texcoord, 0).xyz
+		- nodes[node.layers[DISPLACEMENTS_LAYER].slot].relative_position;
 
-    vec3 x0 = globals.camera;
-	vec3 x1 = x0 + position;
-	vec3 r = normalize(position);
+    vec3 x0 = globals.camera * ellipsoid_to_sphere;
+	vec3 x1 = (globals.camera + position) * ellipsoid_to_sphere;
+	vec3 r = normalize(x1 - x0);
 	vec2 p = rsi(x0, r, atmosphereRadius);
 
     vec4 output_value = vec4(0, 0, 0, 1);
 	if (p.x < p.y && p.y >= 0) {
 	    x0 += r * max(p.x, 0.0);
 	    output_value.a = precomputed_transmittance2(x1, x0).b;
-	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction);
+	    output_value.rgb = atmosphere(x0, x1, globals.sun_direction) * vec3(1.0 / 16.0);
 	}
-    output_value *= vec4(1.0 / 16.0);
 
     imageStore(root_aerial_perspective, ivec3(gl_GlobalInvocationID.xy, slot), output_value);
 }

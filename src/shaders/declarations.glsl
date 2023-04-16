@@ -25,27 +25,28 @@ struct Indirect {
     uint base_instance;
 };
 
-struct Node {
-    xdouble node_center_x;
-    xdouble node_center_y;
-    xdouble node_center_z;
-    xdouble padding0;
+struct Layer {
+	vec2 origin;
+	float ratio;
+	int slot;
+};
 
-	vec2 layer_origins[48];
-	float layer_ratios[48];
-	int layer_slots[48];
+struct Node {
+	Layer layers[48];
+
+	vec3 node_center;
+	int parent;
 
 	vec3 relative_position;
 	float min_distance;
 
-	uint mesh_valid_mask[4];
+	uvec4 mesh_valid_mask;
 
 	uint face;
 	uint level;
 	uvec2 coords;
 
-	int parent;
-	uint padding[43];
+	vec4 padding[12];
 };
 
 struct GenMeshUniforms {
@@ -55,20 +56,20 @@ struct GenMeshUniforms {
     uint entries_per_node;
 };
 
-float extract_height(uint encoded) {
-	return (float(encoded & 0x7fffff) * (1 / 512.0)) - 1024.0;
+float encode_height(float height) {
+	return (height + 1024.0) * (1 / 16383.75);
 }
-float extract_height_above_water(uint encoded) {
-	float height = extract_height(encoded);
-	if ((encoded & 0x800000) != 0) {
-		height = max(height, 0);
-	}
-	return height;
+float extract_height(float encoded) {
+	return encoded * 16383.75 - 1024.0;
+}
+
+vec3 layer_texcoord(Layer layer, vec2 texcoord) {
+	return vec3(layer.origin + layer.ratio * texcoord, layer.slot);
 }
 
 const uint NUM_LAYERS = 24;
 
-const uint HEIGHTMAPS_LAYER = 0;
+const uint BASE_HEIGHTMAPS_LAYER = 0;
 const uint DISPLACEMENTS_LAYER = 1;
 const uint ALBEDO_LAYER = 2;
 const uint NORMALS_LAYER = 3;
@@ -79,23 +80,32 @@ const uint BENT_NORMALS_LAYER = 7;
 const uint TREECOVER_LAYER = 8;
 const uint BASE_ALBEDO_LAYER = 9;
 const uint ROOT_AERIAL_PERSPECTIVE_LAYER = 10;
+const uint LAND_FRACTION_LAYER = 11;
+const uint ELLIPSOID_LAYER = 12;
+const uint HEIGHTMAPS_LAYER = 13;
+const uint WATERLEVEL_LAYER = 14;
 
-const uint PARENT_HEIGHTMAPS_LAYER = NUM_LAYERS + HEIGHTMAPS_LAYER;
+const uint PARENT_BASE_HEIGHTMAPS_LAYER = NUM_LAYERS + BASE_HEIGHTMAPS_LAYER;
 const uint PARENT_DISPLACEMENTS_LAYER = NUM_LAYERS + DISPLACEMENTS_LAYER;
 const uint PARENT_ALBEDO_LAYER = NUM_LAYERS + ALBEDO_LAYER;
 const uint PARENT_NORMALS_LAYER = NUM_LAYERS + NORMALS_LAYER;
 const uint PARENT_GRASS_CANOPY_LAYER = NUM_LAYERS + GRASS_CANOPY_LAYER;
 const uint PARENT_TREE_ATTRIBUTES_LAYER = NUM_LAYERS + TREE_ATTRIBUTES_LAYER;
 const uint PARENT_AERIAL_PERSPECTIVE_LAYER = NUM_LAYERS + AERIAL_PERSPECTIVE_LAYER;
-const uint PARENT_TREECOVER_LAYER = 8;
+const uint PARENT_TREECOVER_LAYER = NUM_LAYERS + TREECOVER_LAYER;
 
-const uint TREE_ATTRIBUTES_BASE_SLOT = 30 + (11 - 2) * 32;
-const uint GRASS_BASE_SLOT = 30 + (19 - 2) * 32;
-const uint TREE_BILLBOARDS_BASE_SLOT = 30 + (13 - 2) * 32;
-const uint AERIAL_PERSPECTIVE_BASE_SLOT = 30 + 32;
+const uint SLOTS_PER_LAYER = 30;
+const uint TREE_ATTRIBUTES_BASE_SLOT = 30 + (11 - 2) * SLOTS_PER_LAYER;
+const uint GRASS_CANOPY_BASE_SLOT = 30 + (14 - 2) * SLOTS_PER_LAYER;
+const uint GRASS_BASE_SLOT = 30 + (19 - 2) * SLOTS_PER_LAYER;
+const uint TREE_BILLBOARDS_BASE_SLOT = 30 + (13 - 2) * SLOTS_PER_LAYER;
+const uint AERIAL_PERSPECTIVE_BASE_SLOT = 30 + SLOTS_PER_LAYER;
 
 const uint HEIGHTMAP_INNER_RESOLUTION = 512;
 const uint HEIGHTMAP_BORDER = 4;
 const uint HEIGHTMAP_RESOLUTION = 521;
 
-const uint MAX_HEIGHTMAP_LEVEL = 19;
+const uint DISPLACEMENTS_INNER_RESOLUTION = 64;
+
+const uint MAX_BASE_HEIGHTMAP_LEVEL = 8;
+const uint MAX_HEIGHTMAP_LEVEL = 12;

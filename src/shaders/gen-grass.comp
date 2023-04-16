@@ -29,7 +29,7 @@ layout(set = 0, binding = 4) uniform texture2DArray displacements;
 layout(set = 0, binding = 5) uniform texture2DArray normals;
 layout(set = 0, binding = 6) uniform texture2DArray albedo;
 layout(set = 0, binding = 7) uniform texture2DArray grass_canopy;
-layout(set = 0, binding = 8, std430) readonly buffer Nodes {
+layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
@@ -40,9 +40,8 @@ vec3 extract_normal(vec2 n) {
 }
 
 vec3 layer_to_texcoord(uint layer) {
-	Node node = nodes[ubo.slot];
     vec2 texcoord = (vec2(gl_GlobalInvocationID.xy) /*+ r*/) / 128.0;
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_ratios[layer], node.layer_slots[layer]);
+	return layer_texcoord(nodes[ubo.slot].layers[layer], texcoord);
 }
 
 #define BILINEAR(r, img, v) { \

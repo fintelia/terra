@@ -7,7 +7,7 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0) uniform UniformBlock {
 	Globals globals;
 };
-layout(set = 0, binding = 8, std430) readonly buffer NodeBlock {
+layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
@@ -29,7 +29,7 @@ layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 color;
 layout(location = 2) in vec2 texcoord;
 layout(location = 3) in vec3 normal;
-layout(location = 4) flat in uint slot;
+layout(location = 4) flat sample in uint slot;
 layout(location = 5) in vec3 right;
 layout(location = 6) in vec3 up;
 
@@ -37,10 +37,6 @@ vec3 extract_normal(vec2 n) {
 	n = n * 2.0 - vec2(1.0);
 	float y = sqrt(max(1.0 - dot(n, n),0));
 	return normalize(vec3(n.x, y, n.y));
-}
-vec3 layer_to_texcoord(uint layer, vec2 coordinates) {
-	Node node = nodes[slot];
-	return vec3(node.layer_origins[layer] + coordinates * node.layer_ratios[layer], node.layer_slots[layer]);
 }
 
 float mip_map_level(in vec2 texture_coordinate)

@@ -5,7 +5,7 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
 
-layout(set = 0, binding = 8, std430) readonly buffer NodeSlots {
+layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
@@ -18,7 +18,7 @@ struct Entry {
     vec4 padding1;
 };
 layout(std430, binding = 2) readonly buffer DataBlock {
-    Entry entries[][32*32];
+    Entry entries[];
 } tree_billboards_storage;
 
 layout(set = 0, binding = 3) uniform sampler linear;
@@ -28,7 +28,7 @@ layout(location = 0) out vec3 position;
 layout(location = 1) out vec3 color;
 layout(location = 2) out vec2 texcoord;
 layout(location = 3) out vec3 normal;
-layout(location = 4) out uint slot;
+layout(location = 4) flat sample out uint slot;
 layout(location = 5) out vec3 right;
 layout(location = 6) out vec3 up;
 
@@ -47,7 +47,7 @@ void main() {
     slot = gl_InstanceIndex / 16;
 
     Node node = nodes[slot];
-    Entry entry = tree_billboards_storage.entries[(slot - TREE_BILLBOARDS_BASE_SLOT) * 16 + gl_InstanceIndex % 16][entry_index];
+    Entry entry = tree_billboards_storage.entries[((slot - TREE_BILLBOARDS_BASE_SLOT) * 16 + gl_InstanceIndex % 16) * 1024 + entry_index];
     position = entry.position - node.relative_position;
 
     up = normalize(position + globals.camera);

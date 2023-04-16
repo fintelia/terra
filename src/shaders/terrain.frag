@@ -7,7 +7,7 @@ layout(early_fragment_tests) in;
 layout(set = 0, binding = 0, std140) uniform UniformBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std430) readonly buffer NodeBlock {
+layout(set = 0, binding = 1, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 layout(set = 0, binding = 2) uniform sampler linear;
@@ -20,8 +20,8 @@ layout(set = 0, binding = 7) uniform texture2DArray root_aerial_perspective;
 layout(set = 0, binding = 9) uniform texture2DArray aerial_perspective;
 layout(set = 0, binding = 10) uniform sampler nearest;
 layout(set = 0, binding = 11) uniform texture2DArray bent_normals;
-layout(set = 0, binding = 12) uniform texture2D shadowmap;
-layout(set = 0, binding = 13) uniform samplerShadow shadow_sampler;
+// layout(set = 0, binding = 12) uniform texture2D shadowmap;
+// layout(set = 0, binding = 13) uniform samplerShadow shadow_sampler;
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texcoord;
@@ -98,10 +98,9 @@ vec3 debug_overlay(vec3 color) {
 	// if(fract(length(position)/1024) < 0.05)
 	// 	color = vec3(1);
 
-	// vec3 line_color = vec3(.5,0,0);
  	// vec2 grid = abs(fract(i_position + 0.5) - 0.5) / fwidth(i_position);
 	// float line = min(grid.x, grid.y);
-	// color = mix(color, line_color, 1.3* smoothstep(1, 0, line));
+	// color = mix(color, vec3(.5), 1.3* smoothstep(1, 0, line));
 
 	// if (any(lessThan(0.5 - abs(0.5 - fract(position.xz / side_length)), vec2(0.01))))
 	// 	color = mix(color, vec3(0.1), 0.3);
@@ -215,21 +214,21 @@ vec3 extract_normal(vec2 n) {
 
 vec3 layer_to_texcoord(uint layer) {
 	Node node = nodes[instance];
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_ratios[layer], node.layer_slots[layer]);
+	return layer_texcoord(node.layers[layer], texcoord);
 }
 
 void main() {
 	Node node = nodes[instance];
 
 	vec3 tex_normal = extract_normal(texture(sampler2DArray(normals, linear), layer_to_texcoord(NORMALS_LAYER)).xy);
-	if (node.layer_slots[PARENT_NORMALS_LAYER] >= 0) {
+	if (node.layers[PARENT_NORMALS_LAYER].slot >= 0) {
 		vec3 pn = extract_normal(textureLod(sampler2DArray(normals, linear), layer_to_texcoord(PARENT_NORMALS_LAYER), 0).xy);
 		tex_normal = mix(pn, tex_normal, morph);
 	}
 	vec3 bent_normal = mat3(tangent, normal, bitangent) * tex_normal;
 
 	vec4 albedo_roughness = texture(sampler2DArray(albedo, linear), layer_to_texcoord(ALBEDO_LAYER));
-	if (node.layer_slots[PARENT_ALBEDO_LAYER] >= 0) {
+	if (node.layers[PARENT_ALBEDO_LAYER].slot >= 0) {
 		vec4 parent_albedo_roughness = textureLod(sampler2DArray(albedo, linear), layer_to_texcoord(PARENT_ALBEDO_LAYER), 0);
 		albedo_roughness = mix(parent_albedo_roughness, albedo_roughness, morph);
 	}
@@ -245,13 +244,13 @@ void main() {
 	// }
 
 	float shadow = 0;
-	vec4 proj_position = globals.shadow_view_proj * vec4(position, 1);
-	//proj_position.xyz /= proj_position.w;
-	vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
-	if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
-		float depth = proj_position.z - 4.0 / 102400.0;
-		shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
-	}
+	// vec4 proj_position = globals.shadow_view_proj * vec4(position, 1);
+	// //proj_position.xyz /= proj_position.w;
+	// vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
+	// if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
+	// 	float depth = proj_position.z - 4.0 / 102400.0;
+	// 	shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
+	// }
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,
@@ -263,18 +262,18 @@ void main() {
 						vec3(100000.0)) * (1-shadow);
 
 	float ambient_strength = max(0, dot(normal, globals.sun_direction)) * max(0, tex_normal.y);
-	if (node.layer_slots[BENT_NORMALS_LAYER] >= 0)
+	if (node.layers[BENT_NORMALS_LAYER].slot >= 0)
 		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * ambient_strength;
 	else
 		out_color.rgb += 15000 * albedo_roughness.rgb * ambient_strength;
 
 	vec4 ap;
-	if (node.layer_slots[AERIAL_PERSPECTIVE_LAYER] >= 0) {
+	if (node.layers[AERIAL_PERSPECTIVE_LAYER].slot >= 0) {
 		ap = textureLod(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER), 0);
 	} else {
 		ap = textureLod(sampler2DArray(root_aerial_perspective, linear), layer_to_texcoord(ROOT_AERIAL_PERSPECTIVE_LAYER), 0);
 	}
-	out_color.rgb *= ap.a * 16.0;
+	out_color.rgb *= ap.a;
 	out_color.rgb += ap.rgb * 16.0;
 
 	out_color = tonemap(out_color, globals.exposure, 2.2);

@@ -6,11 +6,11 @@ layout(local_size_x = 64) in;
 layout(set = 0, binding = 0, std140) uniform GlobalBlock {
     Globals globals;
 };
-layout(set = 0, binding = 1, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 1, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
-coherent layout(std430, binding = 2) buffer IndirectBlock {
+/*coherent*/ layout(std430, binding = 2) buffer IndirectBlock {
     Indirect indirect[];
 } mesh_indirect;
 

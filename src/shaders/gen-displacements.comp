@@ -1,147 +1,60 @@
 #version 450 core
 
-#if SOFT_DOUBLE == 0
-
-#define xdouble double
-#define CONST_1 1.0
-#define CONST_1_4511 1.4511
-#define CONST_1_8044 1.8044
-#define CONST_INV_0_9022 (1.0/0.9022)
-#define CONST_1_4511_SQUARED (1.4511 * 1.4511)
-#define CONST_PLANET_RADIUS 6371000.0
-
-float _xdouble_to_float(xdouble d) { return float(d); }
-xdouble _float_to_xdouble(float f) { return double(f); }
-xdouble _int_to_xdouble(int i) { return double(i); }
-xdouble _sign(xdouble d) { return sign(d); }
-xdouble _sqrt(xdouble d) { return sqrt(d); }
-xdouble _sum(xdouble a, xdouble b) { return a + b; }
-xdouble _sub(xdouble a, xdouble b) { return a - b; }
-xdouble _mul(xdouble a, xdouble b) { return a * b; }
-xdouble _div(xdouble a, xdouble b) { return a / b; }
-xdouble _abs(xdouble d) { return abs(d); }
-xdouble _neg(xdouble d) { return -d; }
-
-#elif SOFT_DOUBLE == 1
-
-#include "softdouble.glsl"
-
-#define xdouble fp64
-#define CONST_1 _fp32_to_fp64(1.0)
-#define CONST_1_4511 _fp32_to_fp64(1.4511)
-#define CONST_1_8044 _fp32_to_fp64(1.8044)
-#define CONST_INV_0_9022 _fp32_to_fp64((1.0/0.9022))
-#define CONST_1_4511_SQUARED _fp32_to_fp64((1.4511 * 1.4511))
-#define CONST_PLANET_RADIUS _fp32_to_fp64(6371000.0)
-
-// double _xdouble_to_double(xdouble d) { return uint64BitsToDouble(d.x | (uint64_t(d.y)) << 32); }
-// xdouble _double_to_xdouble(double d) { uint64_t x = doubleBitsToUint64(d); return uvec2(x & 0xffffffff, x>>32); }
-
-float _xdouble_to_float(xdouble d) { return _fp64_to_fp32(d); }
-xdouble _float_to_xdouble(float f) { return _fp32_to_fp64(f); }
-xdouble _int_to_xdouble(int i) { return _int_to_fp64(i); }
-xdouble _sign(xdouble d) { return _fsign64(d); }
-xdouble _sqrt(xdouble d) { return _fsqrt64(d); }
-xdouble _sum(xdouble a, xdouble b) { return _fadd64(a, b); }
-xdouble _sub(xdouble a, xdouble b) { return _fadd64(a, _fneg64(b)); }
-xdouble _mul(xdouble a, xdouble b) { return _fmul64(a, b); }
-xdouble _div(xdouble a, xdouble b) { return _fdiv64(a, b); } // _double_to_xdouble(_xdouble_to_double(a) / _xdouble_to_double(b)); }
-xdouble _abs(xdouble d) { return _fabs64(d); }
-xdouble _neg(xdouble d) { return _fneg64(d); }
-
-#else
-#error SOFT_DOUBLE not defined
-#endif
-
 layout(local_size_x = 8, local_size_y = 8) in;
 
 #include "declarations.glsl"
 
 
-layout(binding = 0) uniform UniformBlock {
-    int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+    int slots[];
 } ubo;
-layout(binding = 1) uniform utexture2DArray heightmaps;
-layout(rgba32f, binding = 2) writeonly uniform image2DArray displacements;
-layout(set = 0, binding = 3, std430) /*readonly*/ buffer NodeSlots {
+layout(binding = 1) uniform texture2DArray heightmaps;
+layout(binding = 2) uniform texture2DArray base_heightmaps;
+layout(binding = 3) uniform texture2DArray ellipsoid;
+layout(binding = 4) uniform texture2DArray waterlevel;
+layout(rgba32f, binding = 5) writeonly uniform image2DArray displacements;
+layout(set = 0, binding = 6, std140) readonly buffer Nodes {
 	Node nodes[];
 };
+layout(set = 0, binding = 7) uniform sampler linear;
 
-
-const uint DISPLACEMENTS_RESOLUTION = 64;
+const float A = 6378137.0;
+const float B = 6356752.314245;
 
 void main() {
-    if (max(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) > DISPLACEMENTS_RESOLUTION)
+    if (max(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y) > DISPLACEMENTS_INNER_RESOLUTION)
         return;
 
-    Node node = nodes[ubo.slot];
+    Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
+    vec2 texcoord = vec2(gl_GlobalInvocationID) / float(DISPLACEMENTS_INNER_RESOLUTION);
 
-    uint level_resolution = DISPLACEMENTS_RESOLUTION << node.level;
-    uint stride = HEIGHTMAP_INNER_RESOLUTION / DISPLACEMENTS_RESOLUTION;
-    uvec2 origin = uvec2(HEIGHTMAP_BORDER);
-    ivec2 position = ivec2(node.coords) * int(DISPLACEMENTS_RESOLUTION) - int(level_resolution) / 2;
-
-    float height = extract_height_above_water(texelFetch(heightmaps, ivec3(gl_GlobalInvocationID.xy * stride + HEIGHTMAP_BORDER, ubo.slot), 0).x);
-
-    // See "Cube-to-sphere Projections for ProceduralTexturing and Beyond"
-    // http://jcgt.org/published/0007/02/01/paper.pdf
-
-    xdouble facePosition_x = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.x) + position.x)),
-                                  _float_to_xdouble(1.0 / level_resolution));
-    xdouble facePosition_y = _mul(_int_to_xdouble(2 * (int(gl_GlobalInvocationID.y) + position.y)),
-                                  _float_to_xdouble(1.0 / level_resolution));
-
-    xdouble warpedPosition_x = _mul(_mul(_sign(facePosition_x),
-                                        _sub(CONST_1_4511,
-                                              _sqrt(_sub(CONST_1_4511_SQUARED,
-                                                           _mul(CONST_1_8044, _abs(facePosition_x)))))),
-                                        CONST_INV_0_9022);
-
-    xdouble warpedPosition_y = _mul(_mul(_sign(facePosition_y),
-                                        _sub(CONST_1_4511,
-                                              _sqrt(_sub(CONST_1_4511_SQUARED,
-                                                           _mul(CONST_1_8044, _abs(facePosition_y)))))),
-                                        CONST_INV_0_9022);
-
-    xdouble warpedPosition_x2 = _mul(warpedPosition_x, warpedPosition_x);
-    xdouble warpedPosition_y2 = _mul(warpedPosition_y, warpedPosition_y);
-
-    xdouble cubePosition_z = _div(_sum(CONST_PLANET_RADIUS, _float_to_xdouble(max(height,0))),
-                                  _sqrt(_sum(warpedPosition_x2, _sum(warpedPosition_y2, CONST_1))));
-    xdouble cubePosition_x = _mul(warpedPosition_x, cubePosition_z);
-    xdouble cubePosition_y = _mul(warpedPosition_y, cubePosition_z);
-
-    xdouble relativePosition_x, relativePosition_y, relativePosition_z;
-    if(node.face == 0) {
-        relativePosition_x = _sub((cubePosition_z), node.node_center_x);
-        relativePosition_y = _sub((cubePosition_x), node.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_y), node.node_center_z);
-    } else if(node.face == 1) {
-        relativePosition_x = _sub(_neg(cubePosition_z), node.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_x), node.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_y), node.node_center_z);
-    } else if(node.face == 2) {
-        relativePosition_x = _sub((cubePosition_x), node.node_center_x);
-        relativePosition_y = _sub((cubePosition_z), node.node_center_y);
-        relativePosition_z = _sub((cubePosition_y), node.node_center_z);
-    } else if(node.face == 3) {
-        relativePosition_x = _sub(_neg(cubePosition_x), node.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_z), node.node_center_y);
-        relativePosition_z = _sub((cubePosition_y), node.node_center_z);
-    } else if(node.face == 4) {
-        relativePosition_x = _sub((cubePosition_x), node.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_y), node.node_center_y);
-        relativePosition_z = _sub((cubePosition_z), node.node_center_z);
-    } else if(node.face == 5) {
-        relativePosition_x = _sub(_neg(cubePosition_x), node.node_center_x);
-        relativePosition_y = _sub(_neg(cubePosition_y), node.node_center_y);
-        relativePosition_z = _sub(_neg(cubePosition_z), node.node_center_z);
+    float height;
+    if (node.layers[HEIGHTMAPS_LAYER].slot >= 0) {
+        height = extract_height(textureLod(sampler2DArray(heightmaps, linear),
+            layer_texcoord(node.layers[HEIGHTMAPS_LAYER], texcoord), 0).x);
+    } else {
+        height = extract_height(textureLod(sampler2DArray(base_heightmaps, linear),
+            layer_texcoord(node.layers[BASE_HEIGHTMAPS_LAYER], texcoord), 0).x);
     }
 
-    vec3 relativePosition = vec3(_xdouble_to_float(relativePosition_x),
-                                 _xdouble_to_float(relativePosition_y),
-                                 _xdouble_to_float(relativePosition_z));
+    float waterlevel_value = 0;
+    if (node.layers[WATERLEVEL_LAYER].slot >= 0) {
+        waterlevel_value = extract_height(textureLod(sampler2DArray(waterlevel, linear),
+            layer_texcoord(node.layers[WATERLEVEL_LAYER], texcoord), 0).x);
+    }
+    height = max(height, waterlevel_value);
 
-    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, ubo.slot);
-    imageStore(displacements, pos, vec4(relativePosition, 0.0));
+    vec3 ellipsoid_point = texelFetch(ellipsoid, ivec3(gl_GlobalInvocationID.xy, node.layers[ELLIPSOID_LAYER].slot), 0).xyz;
+    vec3 position = ellipsoid_point + node.node_center;
+
+    float latitude = atan(position.z * A*A / (B*B), length(position.xy));
+    float longitude = atan(position.y, position.x);
+    vec3 normal = vec3(
+        cos(latitude) * cos(longitude),
+        cos(latitude) * sin(longitude),
+        sin(latitude)
+    );
+
+    ivec3 pos = ivec3(gl_GlobalInvocationID.xy, node.layers[DISPLACEMENTS_LAYER].slot);
+    imageStore(displacements, pos, vec4(ellipsoid_point + normal * height, 0.0));
 }

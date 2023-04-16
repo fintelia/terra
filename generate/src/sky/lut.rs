@@ -24,7 +24,7 @@ pub(crate) trait LookupTableDefinition: Sync {
             .chunks(1000)
             .enumerate()
             .flat_map(|(i, chunk)| {
-                context.set_progress(i);
+                context.set_progress(i as u64);
                 chunk
                     .into_par_iter()
                     .map(|i| {
@@ -64,29 +64,3 @@ impl LookupTable {
         self.data[x + y * self.size[0] as usize]
     }
 }
-// pub struct GpuLookupTable<R: gfx::Resources> {
-//     pub(crate) texture_view: handle::ShaderResourceView<R, [f32; 4]>,
-
-//     #[allow(unused)]
-//     pub(crate) texture: handle::Texture<R, format::R32_G32_B32_A32>,
-// }
-// impl<R: gfx::Resources> GpuLookupTable<R> {
-//     pub fn new<F: gfx::Factory<R>>(factory: &mut F, table: &LookupTable) -> Result<Self, Error> {
-//         let kind = match table.size {
-//             [x, 1, 1] => Kind::D1(x),
-//             [x, y, 1] => Kind::D2(x, y, AaMode::Single),
-//             [x, y, z] => Kind::D3(x, y, z),
-//         };
-
-//         let (texture, texture_view) = factory.create_texture_immutable::<format::Rgba32F>(
-//             kind,
-//             Mipmap::Provided,
-//             &[gfx::memory::cast_slice(&table.data[..])],
-//         )?;
-
-//         Ok(Self {
-//             texture_view,
-//             texture,
-//         })
-//     }
-// }

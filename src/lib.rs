@@ -7,37 +7,29 @@ extern crate test;
 #[macro_use]
 extern crate lazy_static;
 
-mod asset;
+mod astro;
 mod billboards;
 mod cache;
-mod coordinates;
-pub mod download;
-mod generate;
+mod compute_shader;
 mod gpu_state;
 mod mapfile;
-mod noise;
-mod quadtree;
-mod sky;
 mod speedtree_xml;
-mod srgb;
 mod stream;
 
-use crate::cache::{LayerType, MeshCacheDesc, MeshType};
-use crate::generate::MapFileBuilder;
+use crate::cache::MeshCacheDesc;
 use crate::mapfile::MapFile;
 use anyhow::Error;
 use billboards::Models;
+use cache::layer::{LayerType, MeshType};
 use cache::TileCache;
 use cgmath::{SquareMatrix, Vector3, Zero};
-use generate::ComputeShader;
+use compute_shader::ComputeShader;
 use gpu_state::{GlobalUniformBlock, GpuState};
-use quadtree::QuadTree;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
-use types::{InfiniteFrustum, VNode};
+use terra_types::{InfiniteFrustum, VNode};
 
-pub use crate::generate::BLUE_MARBLE_URLS;
+pub const DEFAULT_TILE_SERVER_URL: &str = "https://terra2.fintelia.io/";
 
 pub struct Terrain {
     sky_shader: rshader::ShaderSet,
@@ -45,8 +37,7 @@ pub struct Terrain {
     stars_shader: rshader::ShaderSet,
     stars_bindgroup_pipeline: Option<(wgpu::BindGroup, wgpu::RenderPipeline)>,
     gpu_state: GpuState,
-    quadtree: QuadTree,
-    mapfile: Arc<MapFile>,
+    _mapfile: Arc<MapFile>,
     cache: TileCache,
     generate_skyview: ComputeShader<()>,
     view_proj: mint::ColumnMatrix4<f32>,
@@ -57,137 +48,14 @@ pub struct Terrain {
     _models: Models,
 }
 impl Terrain {
-    pub async fn generate_and_new<P: AsRef<Path>, F: FnMut(String, usize, usize) + Send>(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        dataset_directory: P,
-        mut progress_callback: F,
-    ) -> Result<Self, Error> {
-        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
-
-        let dataset_directory = dataset_directory.as_ref();
-
-        // generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _, _, _>(
-        //     dataset_directory.to_owned(),
-        //     "treecover",
-        //     VNode::LEVEL_CELL_76M,
-        //     &mut progress_callback,
-        //     false,
-        //     terrain::dem::make_treecover_raster_cache(&dataset_directory.join("treecover"), 12),
-        //     &|a, b, c, d| ((u16::from(a) + u16::from(b) + u16::from(c) + u16::from(d)) / 4) as u8,
-        //     &|t| (t * (255.0 / 100.0)) as u8,
-        //     0,
-        // )
-        // .await?;
-
-        // generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _, _>(
-        //     dataset_directory.to_owned(),
-        //     "nasadem",
-        //     VNode::LEVEL_CELL_76M,
-        //     &mut progress_callback,
-        //     false,
-        //     vrt_file::VrtFile::new(&dataset_directory.join("nasadem/merged.vrt"))?,
-        //     //terrain::dem::make_nasadem_raster_cache(&dataset_directory.join("nasadem"), 64),
-        //     &|_, _, _, _| 0,
-        //     &|t| t as i16,
-        //     i16::MIN,
-        // )?;
-
-        generate::reproject_dataset::<i16, tiff::encoder::colortype::GrayI16, _, _>(
-            dataset_directory.to_owned(),
-            "copernicus-hgt",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            true,
-            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-hgt/merged.vrt"), 1)?,
-            &|_, _, _, _| 0,
-            0,
-        )?;
-
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
-            dataset_directory.to_owned(),
-            "copernicus-wbm",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("copernicus-wbm/merged.vrt"), 1)?,
-            &|a, b, c, d| {
-                let mut counts = [0; 4];
-                counts[a as usize] += 1;
-                counts[b as usize] += 1;
-                counts[c as usize] += 1;
-                counts[d as usize] += 1;
-                counts.iter().cloned().enumerate().max_by_key(|&(i, count)| (count, i)).unwrap().0
-                    as u8
-            },
-            1,
-        )?;
-
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::Gray8, _, _>(
-            dataset_directory.to_owned(),
-            "treecover",
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("treecover/merged.vrt"), 1)?,
-            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
-            0,
-        )?;
-
-        generate::reproject_dataset::<u8, tiff::encoder::colortype::RGB8, _, _>(
-            dataset_directory.to_owned(),
-            "bluemarble",
-            VNode::LEVEL_CELL_305M,
-            &mut progress_callback,
-            false,
-            vrt_file::VrtFile::new(&dataset_directory.join("bluemarble/merged.vrt"), 3)?,
-            &|a, b, c, d| ((a as u16 + b as u16 + c as u16 + d as u16) / 4) as u8,
-            1,
-        )?;
-
-        generate::merge_datasets_to_tiles::<i16, tiff::encoder::colortype::GrayI16, _>(
-            dataset_directory.to_owned(),
-            VNode::LEVEL_CELL_76M,
-            &mut progress_callback,
-            true,
-        )
-        .await?;
-
-        // generate::generate_heightmaps(
-        //     &*mapfile,
-        //     dataset_directory.join("ETOPO1_Ice_c_geotiff.zip"),
-        //     dataset_directory.join("nasadem"),
-        //     dataset_directory.join("nasadem_reprojected"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
-        // generate::generate_albedos(
-        //     &*mapfile,
-        //     dataset_directory.join("bluemarble"),
-        //     &mut progress_callback,
-        // )
-        // .await?;
-        generate::generate_materials(
-            &*mapfile,
-            dataset_directory.join("free_pbr"),
-            &mut progress_callback,
-        )
-        .await?;
-
-        Self::new_impl(device, queue, mapfile)
-    }
-
     /// Create a new Terrain object.
-    pub async fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Self, Error> {
-        let mapfile = Arc::new(MapFileBuilder::new().await.build().await?);
-        Self::new_impl(device, queue, mapfile)
-    }
-
-    fn new_impl(
+    pub async fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        mapfile: Arc<MapFile>,
+        server: String,
     ) -> Result<Self, Error> {
+        let mapfile = Arc::new(MapFile::new(server).await?);
+
         let mesh_layers = MeshType::iter()
             .map(|ty| match ty {
                 MeshType::Terrain => MeshCacheDesc {
@@ -196,7 +64,28 @@ impl Terrain {
                     entries_per_node: 4,
                     min_level: 0,
                     max_level: VNode::LEVEL_CELL_5MM,
-                    index_buffer: QuadTree::create_index_buffer(64),
+                    index_buffer: {
+                        let mut data = Vec::new();
+                        let resolution = 64;
+                        let half_resolution = resolution / 2;
+                        let width = resolution + 1;
+                        for k in 0..2 {
+                            for h in 0..2 {
+                                for y in 0..half_resolution {
+                                    for x in 0..half_resolution {
+                                        for offset in [0, 1, width, 1, width + 1, width].iter() {
+                                            data.push(
+                                                offset
+                                                    + ((h * half_resolution + x)
+                                                        + (k * half_resolution + y) * width),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        data
+                    },
                     render_overlapping_levels: false,
                     cull_mode: Some(wgpu::Face::Front),
                     render: rshader::ShaderSet::simple(
@@ -294,10 +183,9 @@ impl Terrain {
             })
             .collect();
 
-        let models = Models::new()?;
+        let models = Models::new(&mapfile).await?;
         let cache = TileCache::new(device, Arc::clone(&mapfile), mesh_layers);
-        let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models)?;
-        let quadtree = QuadTree::new();
+        let gpu_state = GpuState::new(device, queue, &mapfile, &cache, &models).await?;
 
         models.render_billboards(device, queue, &gpu_state);
 
@@ -342,8 +230,7 @@ impl Terrain {
             stars_shader,
             stars_bindgroup_pipeline: None,
             gpu_state,
-            quadtree,
-            mapfile,
+            _mapfile: mapfile,
             cache,
             generate_skyview,
             view_proj: cgmath::Matrix4::zero().into(),
@@ -355,41 +242,20 @@ impl Terrain {
         })
     }
 
-    fn loading_complete(&self) -> bool {
-        VNode::roots().iter().copied().all(|root| {
-            self.cache.contains_all(
-                root,
-                LayerType::Heightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
-            )
-        })
-    }
-
-    /// Returns whether initial map file streaming has completed for tiles in the vicinity of
+    /// Continuously polls until file streaming has completed for tiles in the vicinity of
     /// `camera`.
     ///
     /// Terra cannot render any terrain until all root tiles have been downloaded and streamed to
     /// the GPU. This function returns whether those tiles have been streamed, and also initiates
     /// streaming of more detailed tiles for the indicated camera position.
-    pub fn poll_loading_status(
+    pub fn poll_loading_status<F: FnMut(f32)>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         camera: mint::Point3<f64>,
-    ) -> bool {
-        self.quadtree.update_priorities(&self.cache, camera);
-        if !self.loading_complete() {
-            self.cache.update(
-                device,
-                queue,
-                &self.gpu_state,
-                &self.mapfile,
-                &mut self.quadtree,
-                camera,
-            );
-            self.loading_complete()
-        } else {
-            true
-        }
+        progress_callback: F,
+    ) {
+        self.cache.wait_for_uploads(device, queue, &self.gpu_state, camera, progress_callback)
     }
 
     /// Update the terrain.
@@ -551,34 +417,31 @@ impl Terrain {
             ));
         }
 
-        self.quadtree.update_priorities(&self.cache, camera);
+        self.cache.update(device, queue, &self.gpu_state, camera);
 
-        // Update the tile cache and then block until root tiles have been downloaded and streamed
-        // to the GPU.
-        self.cache.update(
-            device,
-            queue,
-            &self.gpu_state,
-            &self.mapfile,
-            &mut self.quadtree,
-            camera,
-        );
-        while !self.poll_loading_status(device, queue, camera) {
+        // Block until root tiles have been downloaded and streamed to the GPU.
+        while !VNode::roots().iter().copied().all(|root| {
+            self.cache.contains_layers(
+                root,
+                LayerType::BaseHeightmaps.bit_mask() | LayerType::BaseAlbedo.bit_mask(),
+            )
+        }) {
             std::thread::sleep(std::time::Duration::from_millis(10));
+            self.cache.update(device, queue, &self.gpu_state, camera);
         }
 
         self.generate_skyview.refresh(device, &self.gpu_state);
         self.cache.update_meshes(device, &self.gpu_state);
 
-        let sidereal_time = astro::time::mn_sidr(julian_day);
+        let sidereal_time = astro::mn_sidr(julian_day);
         self.sun_direction = {
             let n = julian_day - 2451545.0;
             let l: f64 = (280.460 + 0.9856474 * n).to_radians();
             let g: f64 = (357.528 + 0.9856003 * n).to_radians();
             let oblq_eclip = (23.439 - 0.0000004 * n).to_radians();
             let lambda = l + 1.915 * f64::sin(g) + 0.02 * f64::sin(2.0 * g);
-            let declination = astro::coords::dec_frm_ecl(lambda, 0.0, oblq_eclip);
-            let ascension = astro::coords::asc_frm_ecl(lambda, 0.0, oblq_eclip);
+            let declination = astro::dec_frm_ecl(lambda, 0.0, oblq_eclip);
+            let ascension = astro::asc_frm_ecl(lambda, 0.0, oblq_eclip);
             cgmath::Vector3::new(
                 f64::cos(declination) * f64::cos(ascension - sidereal_time),
                 f64::cos(declination) * f64::sin(ascension - sidereal_time),
@@ -680,7 +543,7 @@ impl Terrain {
                 sun_direction: self.sun_direction.into(),
                 screen_height: frame_size.1 as f32,
                 sidereal_time: self.sidereal_time,
-                exposure: 1.0 / (f32::powf(2.0, 15.0) * 1.2),
+                exposure: 1.0 / (f32::powf(2.0, 17.0) * 1.2),
                 _padding: [0.0; 2],
             }),
         );

@@ -2,10 +2,10 @@
 #include "declarations.glsl"
 #include "hash.glsl"
 
-layout(local_size_x = 4, local_size_y = 4) in;
+layout(local_size_x = 16, local_size_y = 16) in;
 
-layout(binding = 0) uniform UniformBlock {
-	int slot;
+layout(binding = 0) readonly buffer UniformBlock {
+	int slots[];
 } ubo;
 
 layout(rg8, binding = 1) writeonly uniform image2DArray normals;
@@ -14,59 +14,158 @@ layout(rgba8, binding = 2) writeonly uniform image2DArray albedo;
 layout(binding = 3) uniform sampler linear;
 layout(binding = 4) uniform sampler linear_wrap;
 layout(binding = 5) uniform texture2D noise;
-layout(binding = 6) uniform utexture2DArray heightmaps;
+layout(binding = 6) uniform texture2DArray base_heightmaps;
 layout(binding = 7) uniform texture2DArray base_albedo;
 layout(binding = 8) uniform texture2DArray treecover;
 layout(binding = 9) uniform texture2DArray tree_attributes;
-layout(binding = 10) uniform texture2D topdown_albedo;
-layout(binding = 11) uniform texture2D topdown_normals;
-layout(binding = 13) uniform sampler nearest;
-layout(binding = 14) uniform texture2DArray ground_albedo;
+layout(binding = 10) uniform texture2DArray ground_albedo;
+layout(binding = 11) uniform texture2DArray land_fraction;
+layout(binding = 12) uniform texture2DArray heightmaps;
+layout(binding = 13) uniform texture2DArray waterlevel;
+layout(binding = 14) uniform texture2D topdown_albedo;
+layout(binding = 15) uniform texture2D topdown_normals;
+layout(binding = 16) uniform sampler nearest;
 
-layout(set = 0, binding = 12, std430) /*readonly*/ buffer NodeSlots {
+layout(set = 0, binding = 17, std140) readonly buffer Nodes {
 	Node nodes[];
 };
-
-shared vec2 group_normals[16];
 
 const uint BASE_ALBEDO_BORDER = 2;
 const uint BASE_ALBEDO_INNER_RESOLUTION = 512;
 
+const uint MATERIAL_BORDER = 2;
+const uint MATERIAL_INNER_RESOLUTION = 512;
+
 const uint NORMALS_BORDER = 2;
 
 vec3 layer_to_texcoord(uint layer) {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
-	return vec3(node.layer_origins[layer] + texcoord * node.layer_ratios[layer], node.layer_slots[layer]);
+	return layer_texcoord(node.layers[layer], texcoord);
 }
 
+shared float heights[20][20];
+shared vec3 slopes[18][18];
+
 void main() {
-	Node node = nodes[ubo.slot];
+	Node node = nodes[ubo.slots[gl_GlobalInvocationID.z]];
 
-	ivec3 in_pos = ivec3(gl_GlobalInvocationID.xy + ivec2(HEIGHTMAP_BORDER - NORMALS_BORDER), ubo.slot);
-	ivec3 out_pos = ivec3(gl_GlobalInvocationID.xy, ubo.slot);
+	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
 
-	uint e00 = texelFetch(heightmaps, in_pos, 0).x;
-	uint e10 = texelFetch(heightmaps, in_pos + ivec3(1,0,0), 0).x;
-	uint e01 = texelFetch(heightmaps, in_pos + ivec3(0,1,0), 0).x;
-	uint e11 = texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x;
+	vec3 balbedo = pow(textureLod(sampler2DArray(base_albedo, linear), layer_to_texcoord(BASE_ALBEDO_LAYER), 0).rgb, vec3(2.2));
+	float water_amount = 1 - textureLod(sampler2DArray(land_fraction, linear), layer_to_texcoord(LAND_FRACTION_LAYER), 0).x;
 
-	bool is_water = dot((uvec4(e00, e10, e01, e11) & uvec4(0x800000)) >> 23, uvec4(1)) > 2;
-
-	float h00 = extract_height(e00);
-	float h10 = extract_height(e10);
-	float h01 = extract_height(e01);
-	float h11 = extract_height(e11);
-
+	float height = 0;
 	vec3 normal = vec3(0,1,0);
-	if (!is_water) {
+	if (node.level <= MAX_BASE_HEIGHTMAP_LEVEL) {
+		vec3 hm_texcoord3 = layer_to_texcoord(BASE_HEIGHTMAPS_LAYER);
+		height = extract_height(textureLod(sampler2DArray(base_heightmaps, linear), hm_texcoord3, 0).x);
+		float height_xplus = extract_height(textureLodOffset(sampler2DArray(base_heightmaps, linear), hm_texcoord3, 0, ivec2(1,0)).x);
+		float height_yplus = extract_height(textureLodOffset(sampler2DArray(base_heightmaps, linear), hm_texcoord3, 0, ivec2(0,1)).x);
 		float spacing = 19545.9832 / float(1 << node.level);
-		normal = vec3(h10 + h11 - h00 - h01,
-						2.0 * spacing,
-						-1.0 * (h01 + h11 - h00 - h10));
-		normal = normalize(normal);
+		normal = normalize(vec3(height_xplus - height, spacing, height_yplus - height));
+	} else if (node.level <= MAX_HEIGHTMAP_LEVEL) {
+		vec3 h_texcoord3 = layer_to_texcoord(HEIGHTMAPS_LAYER);
+		height = extract_height(textureLod(sampler2DArray(heightmaps, linear), h_texcoord3, 0).x);
+		float height_xplus = extract_height(textureLodOffset(sampler2DArray(heightmaps, linear), h_texcoord3, 0, ivec2(1,0)).x);
+		float height_yplus = extract_height(textureLodOffset(sampler2DArray(heightmaps, linear), h_texcoord3, 0, ivec2(0,1)).x);
+		float spacing = 19545.9832 / float(1 << node.level);
+		normal = normalize(vec3(height_xplus - height, spacing, height_yplus - height));
+	} else {
+		const float spacing = 19545.9832 / float(1 << MAX_HEIGHTMAP_LEVEL);
+
+		int upscale_levels = int(node.level - MAX_HEIGHTMAP_LEVEL);
+
+		uvec2 base_uv = uvec2(HEIGHTMAP_BORDER-2) + uvec2((node.coords & ((1<<upscale_levels)-1)) * HEIGHTMAP_INNER_RESOLUTION + gl_WorkGroupID.xy*16) >> upscale_levels;
+		uint index = gl_LocalInvocationID.x * 16 + gl_LocalInvocationID.y;
+
+		// vec2 full_uv = hm_texcoord3.xy * HEIGHTMAP_RESOLUTION;
+		// base_uv = uvec2(floor((full_uv - vec2(HEIGHTMAP_BORDER)) /  16) * 16 + vec2(HEIGHTMAP_BORDER));
+
+		for (uint i = index; i < 20*20; i += 256){
+			uvec2 uv = uvec2(i%20, i/20);
+			heights[uv.x][uv.y] = extract_height(texelFetch(heightmaps,
+				ivec3(base_uv + uv, node.layers[HEIGHTMAPS_LAYER].slot), 0).x);
+		}
+		barrier();
+
+		for (uint i = index; i < 18*18; i += 256) {
+			uint x = i%18;
+			uint y = i/18;
+			slopes[x+1][y+1] = vec3(
+				heights[x+1][y] - heights[x-1][y],
+				heights[x][y+1] - heights[x][y-1],
+				heights[x+1][y+1] - heights[x-1][y] - heights[x][y-1] + heights[x][y])
+			 * vec3(0.5);
+		}
+		barrier();
+
+		vec2 full_uv = vec2(HEIGHTMAP_BORDER) + vec2((node.coords & ((1<<upscale_levels)-1)) * HEIGHTMAP_INNER_RESOLUTION + gl_GlobalInvocationID.xy) * exp2(-upscale_levels);
+		uint x = uint(floor(full_uv.x)) - base_uv.x;
+		uint y = uint(floor(full_uv.y)) - base_uv.y;
+		vec2 uv = fract(full_uv);
+
+		const mat4 M = transpose(mat4(
+			-.5, 1.5, -1.5, .5,
+			1, -2.5, 2, -.5,
+			-.5, 0, .5, 0,
+			0, 1, 0, 0
+		));
+
+		vec2 slope = vec2(0);
+		//vec4 xweights = vec4(0,1-uv.x,uv.x,0);
+		//vec4 yweights = vec4(0,1-uv.y,uv.y,0);
+		// vec4 xweights = vec4(1, uv.x, uv.x*uv.x, uv.x*uv.x*uv.x) * M;
+		// vec4 yweights = vec4(1, uv.y, uv.y*uv.y, uv.y*uv.y*uv.y) * M;
+		vec4 xweights = vec4(uv.x*uv.x*uv.x, uv.x*uv.x, uv.x, 1) * M;
+		vec4 yweights = vec4(uv.y*uv.y*uv.y, uv.y*uv.y, uv.y, 1) * M;
+		for (int i = 0; i <= 3; i++) {
+			for (int j = 0; j <= 3; j++) {
+				float weight = xweights[i] * yweights[j];
+				height += heights[x+i-1][y+j-1] * weight;
+				slope += slopes[x+i][y+j].xy * weight;
+			}
+		}
+
+		normal = normalize(vec3(slope.x, spacing, slope.y));
+		// height = heights[x][y];
+		// if (dot(yweights, vec4(1)) < 1e-6)
+		// 	height = 0;
+
+		//height = heights[gl_GlobalInvocationID.x%20][gl_GlobalInvocationID.y%20];
+		//height = extract_height(texelFetch(heightmaps, ivec3(ivec2(full_uv), node.layers[HEIGHTMAPS_LAYER].slot), 0).x);
+		//imageStore(albedo, out_pos, vec4(full_uv/HEIGHTMAP_RESOLUTION, 0, 1));
+		// imageStore(albedo, out_pos, vec4(0,0, 0, 1));
+		// return;
 	}
-	float height = dot(vec4(0.25), vec4(h00, h10, h01, h11));
+
+
+
+
+	// vec4 h00 = textureGatherOffset(sampler2DArray(heightmaps, linear), hm_texcoord3, ivec2(-1));
+	// //float height = extract_height(textureLod(sampler2DArray(heightmaps, linear), hm_texcoord3, 0).x);
+	// height = h00;
+
+
+	// float h00 = extract_height(texelFetch(heightmaps, in_pos, 0).x);
+	// float h10 = extract_height(texelFetch(heightmaps, in_pos + ivec3(1,0,0), 0).x);
+	// float h01 = extract_height(texelFetch(heightmaps, in_pos + ivec3(0,1,0), 0).x);
+	// float h11 = extract_height(texelFetch(heightmaps, in_pos + ivec3(1,1,0), 0).x);
+	// float height = dot(vec4(0.25), vec4(h00, h10, h01, h11));
+
+	if (node.layers[WATERLEVEL_LAYER].slot >= 0) {
+		float waterlevel_value = extract_height(textureLod(sampler2DArray(waterlevel, linear), layer_to_texcoord(WATERLEVEL_LAYER), 0).x);
+		water_amount = smoothstep(waterlevel_value, waterlevel_value - 1.5, height);
+	}
+	if (water_amount > 0.5)
+		normal = vec3(0,1,0);
+	// if (!is_water) {
+	// 	float spacing = 19545.9832 / float(1 << node.level);
+	// 	normal = vec3(h10 + h11 - h00 - h01,
+	// 					2.0 * spacing,
+	// 					-1.0 * (h01 + h11 - h00 - h10));
+	// 	normal = normalize(normal);
+	// }
 
 	vec4 noise_value = vec4(0.5);//texture(sampler2D(noise, linear_wrap), vec2(world_pos.xy*.0001));
 
@@ -78,10 +177,6 @@ void main() {
 	albedo_roughness.rgb = mix(vec3(.03,.02,0), vec3(0,.1,0), grass);
 
 	albedo_roughness.rgb = mix(albedo_roughness.rgb, vec3(0.02), rock);
-
-	vec2 texcoord = vec2(gl_GlobalInvocationID.xy-1.5) / vec2(512);
-	vec3 texcoord3 = vec3(node.layer_origins[BASE_ALBEDO_LAYER] + texcoord * node.layer_ratios[BASE_ALBEDO_LAYER], node.layer_slots[BASE_ALBEDO_LAYER]);
-	vec3 balbedo = texture(sampler2DArray(base_albedo, linear), texcoord3).rgb;
 
 	// if (ubo.parent_slot >= 0) {
 	// 	vec2 nv = guassian_random(gl_GlobalInvocationID.xy);
@@ -99,50 +194,54 @@ void main() {
 	// }
 
 	int lod = clamp(22 - int(node.level), 0, 10);
-	uvec2 v = ((node.coords%128) * 512 + uvec2(gl_GlobalInvocationID.xy)) % (1024 >> lod);
+	uvec2 v = ((node.coords%uvec2(128)) * 512 + uvec2(gl_GlobalInvocationID.xy)) % uvec2(1024 >> lod);
 	vec3 v1 = texelFetch(ground_albedo, ivec3(v,0), lod).rgb;
 	vec3 v2 = texelFetch(ground_albedo, ivec3(v,1), lod).rgb;
-	vec3 v3 = texelFetch(ground_albedo, ivec3(v,2), lod).rgb;
+	vec3 v3 = texelFetch(ground_albedo, ivec3(v,2), lod).rgb; // rock
 
-	if (is_water)
-		albedo_roughness = vec4(0, .2, 5, 0.4);
-	else if (smoothstep(2000, 3000, height) > 1 - normal.y)
-		albedo_roughness = vec4(.2, .2, .2, 0.8);
+	if (smoothstep(2000, 3000, height) > 1 - normal.y && false)
+		albedo_roughness = vec4(v3, 0.8);
 	else if (height < 2)
 		albedo_roughness = vec4(.2, .2, .15, .8);
-	else if (normal.y < 0.9)
-		albedo_roughness = vec4(vec3(0.06), 0.8);//vec4(v3, .8);//
-	else if (height > 100 && normal.y < 0.99)
-		albedo_roughness = vec4(v2, .8);//vec4(0, 0.1, .01, 0.8);//
-	else
-		albedo_roughness = vec4(v1, .8);//vec4(0, 0.06, .015, 0.8);//
+	else if (normal.y < 0.95 + 0.03 * noise_value.w)
+		albedo_roughness = vec4(vec3(0.06), 0.8);
+	else {
+		float g = smoothstep(0.97, 0.99, normal.y + 0.02 * noise_value.w) * smoothstep(90, 100, height);
+		albedo_roughness = vec4(mix(v1, v2, g), .8);
+	}
 
-	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, smoothstep(5, 13, node.level) * 0.5);
+	albedo_roughness.rgb = mix(balbedo, albedo_roughness.rgb, 0.25);
 
-	// if (is_water) {
-	// 	albedo_roughness.a = 0.4;
-	// 	float negative_depth = min(h00 + h10 + h01 + h11, 0);
-	// 	albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
+	// if (water_amount > 0.5) {
+	// 	albedo_roughness.a = 0.2;
+	// 	albedo_roughness.rgb = vec3(0,0,0.5);
+	// 	// float negative_depth = min(h00 + h10 + h01 + h11, 0);
+	// 	// albedo_roughness.rgb = mix(vec3(0,.03,.2), albedo_roughness.rgb, exp(negative_depth * vec3(5,.5,.5)));
 	// }
 
 	if (node.level < 13) {
-		float treecover_value = texture(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER)).r;
-		if (node.layer_slots[TREE_ATTRIBUTES_LAYER] >= 0) {
-			vec3 tcoord = layer_to_texcoord(TREE_ATTRIBUTES_LAYER);
-			vec4 tree_attr = texture(sampler2DArray(tree_attributes, nearest), tcoord+vec3(0.5,0.5,0)/516);
+		float treecover_value = textureLod(sampler2DArray(treecover, linear), layer_to_texcoord(TREECOVER_LAYER), 0).r;
+	// 	if (node.layers[TREE_ATTRIBUTES_LAYER].slot >= 0) {
+	// 		vec3 tcoord = layer_to_texcoord(TREE_ATTRIBUTES_LAYER);
+	// 		vec4 tree_attr = textureLod(sampler2DArray(tree_attributes, nearest), tcoord+vec3(0.5,0.5,0)/516, 0);
 
-			// vec2 topdown_tcoord = (fract(tcoord.xy*516-0.5)-0.5)*0.4 + 0.5;
-			// vec4 tree_albedo = textureLod(sampler2D(topdown_albedo, linear), topdown_tcoord, 0);
+	// 		// vec2 topdown_tcoord = (fract(tcoord.xy*516-0.5)-0.5)*0.4 + 0.5;
+	// 		// vec4 tree_albedo = textureLod(sampler2D(topdown_albedo, linear), topdown_tcoord, 0);
 
-			float tree_amount = tree_attr.a > 0 ? 1 : 0;
-			albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), tree_amount);
-			normal = normalize(mix(normal, vec3(0,1,0),tree_amount));
-		} else {
+	// 		float tree_amount = tree_attr.a > 0 ? 1 : 0;
+	// 		albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), tree_amount);
+	// 		normal = normalize(mix(normal, vec3(0,1,0),tree_amount));
+	// 	} else {
 			normal = normalize(mix(normal, vec3(0,1,0),treecover_value));
 			albedo_roughness = mix(albedo_roughness, vec4(0.035,0.045,0.0,0.4), min(treecover_value, 1));
-		}
+	// 	}
 	}
 
-	imageStore(normals, out_pos, vec4(normal.xz*0.5+0.5, 0.0, 0.0));
-	imageStore(albedo, out_pos, albedo_roughness);
+	// if (node.level > 8)
+	// 	water_amount = step(height, 0);
+
+	albedo_roughness = mix(albedo_roughness, vec4(.01, .03, .05, .2), water_amount);
+
+	imageStore(normals, ivec3(gl_GlobalInvocationID.xy, node.layers[NORMALS_LAYER].slot), vec4(normal.xz*0.5+0.5, 0.0, 0.0));
+	imageStore(albedo, ivec3(gl_GlobalInvocationID.xy, node.layers[ALBEDO_LAYER].slot), albedo_roughness);
 }

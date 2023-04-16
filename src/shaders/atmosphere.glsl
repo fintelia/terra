@@ -1,6 +1,6 @@
 
-const float planetRadius = 6371000.0;
-const float atmosphereRadius = 6371000.0 + 100000.0;
+const float planetRadius = 6378137.0;
+const float atmosphereRadius = 6378137.0 + 100000.0;
 
 const vec3 rayleigh_Bs = vec3(5.8e-6, 13.5e-6, 33.1e-6);
 
@@ -136,7 +136,7 @@ vec3 precomputed_transmittance(float r, float mu) {
 		u_mu = uu * hp;
 	}
 
-	return texture(sampler2D(transmittance, nearest), (vec2(u_r, u_mu) * (size-1) + 0.5) / size).rgb;
+	return textureLod(sampler2D(transmittance, nearest), (vec2(u_r, u_mu) * (size-1) + 0.5) / size, 0).rgb;
 }
 
 vec3 precomputed_transmittance2(vec3 x, vec3 y) {
@@ -166,8 +166,8 @@ vec3 precomputed_transmittance2(vec3 x, vec3 y) {
 		u_mu2 = hp * pow(max(mu2_horizon - mu2, 0) / (1.0 + mu2_horizon), 0.2);
 	}
 
-	vec3 t1 = texture(sampler2D(transmittance, nearest), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size).rgb;
-	vec3 t2 = texture(sampler2D(transmittance, nearest), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size).rgb;
+	vec3 t1 = textureLod(sampler2D(transmittance, nearest), (vec2(u_r1, u_mu1) * (size-1) + 0.5) / size, 0).rgb;
+	vec3 t2 = textureLod(sampler2D(transmittance, nearest), (vec2(u_r2, u_mu2) * (size-1) + 0.5) / size, 0).rgb;
 
 	return t2 / t1;
 }

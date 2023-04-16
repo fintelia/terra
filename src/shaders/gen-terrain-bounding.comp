@@ -23,11 +23,11 @@ void main() {
     uint mesh_slot = ubo.mesh_base_entry + gl_WorkGroupID.x;
 
     ivec2 origin = ivec2(gl_WorkGroupID.x % 2, gl_WorkGroupID.x / 2) * 32;
-    vec3 center = texture(sampler2DArray(displacements, nearest), vec3((origin.x + 16+0.5) / 65.0, (origin.y+16+0.5) / 65.0, ubo.slot)).xyz;
+    vec3 center = textureLod(sampler2DArray(displacements, nearest), vec3((origin.x + 16+0.5) / 65.0, (origin.y+16+0.5) / 65.0, ubo.slot), 0).xyz;
 
     max_radius2[gl_LocalInvocationID.x] = 0.0;
     for (int i = 0; i < 33; i++) {
-        vec3 p = texture(sampler2DArray(displacements, nearest), vec3((origin.x + i+0.5) / 65.0, (origin.y + gl_LocalInvocationID.x+0.5) / 65.0, ubo.slot)).xyz;
+        vec3 p = textureLod(sampler2DArray(displacements, nearest), vec3((origin.x + i+0.5) / 65.0, (origin.y + gl_LocalInvocationID.x+0.5) / 65.0, ubo.slot), 0).xyz;
         vec3 v = p - center;
         max_radius2[gl_LocalInvocationID.x] = max(max_radius2[gl_LocalInvocationID.x], dot(v, v));
     }

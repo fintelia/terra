@@ -10,7 +10,6 @@ pub(crate) struct ComputeShader<U> {
     name: String,
     _phantom: std::marker::PhantomData<U>,
 }
-#[allow(unused)]
 impl<U: bytemuck::Pod> ComputeShader<U> {
     pub fn new(shader: rshader::ShaderSource, name: String) -> Self {
         Self {
@@ -75,7 +74,7 @@ impl<U: bytemuck::Pod> ComputeShader<U> {
         &self,
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
-        state: &GpuState,
+        _state: &GpuState,
         dimensions: (u32, u32, u32),
         uniforms: &U,
     ) {

@@ -1,29 +1,40 @@
+use clap::{Parser, Subcommand};
 use gilrs::{Axis, Button, Gilrs};
 use planetcam::DualPlanetCam;
-use std::{path::PathBuf, time::Instant};
-use structopt::StructOpt;
+use std::time::Instant;
 use winit::{
     dpi::PhysicalPosition,
     event::{self, ElementState, MouseButton},
     event_loop::{ControlFlow, EventLoop},
 };
 
-#[derive(Debug, StructOpt)]
-struct Opt {
-    #[structopt(short, long, default_value = "8FH495PF+29")]
+#[derive(Parser, Debug)]
+struct Args {
+    #[arg(short, long, global = true, default_value = "8FH495PF+29")]
     plus: String,
-    #[structopt(short, long, default_value = "0")]
+    #[arg(long, global = true, default_value = "0")]
     heading: f64,
-    #[structopt(short, long, default_value = "200000")]
+    #[arg(short, long, global = true, default_value = "200000")]
     elevation: f64,
-    #[structopt(long)]
-    generate: Option<PathBuf>,
-    #[structopt(long)]
-    download: Option<PathBuf>,
-    #[structopt(long)]
+    #[arg(long, global = true)]
     time: Option<String>,
-    #[structopt(long, default_value = "0.0")]
+    #[arg(long, global = true, default_value = "0.0")]
     timescale: f64,
+    #[arg(long, global = true)]
+    server: Option<String>,
+
+    #[command(subcommand)]
+    subcommand: Option<SubcommandArgs>,
+}
+
+#[derive(Subcommand, Debug)]
+enum SubcommandArgs {
+    #[cfg(feature = "generate")]
+    Generate {
+        path: std::path::PathBuf,
+        #[arg(long)]
+        download: bool,
+    },
 }
 
 fn compute_projection_matrix(width: f32, height: f32) -> cgmath::Matrix4<f32> {
@@ -48,6 +59,7 @@ fn make_depth_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Te
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
             label: None,
         })
         .create_view(&Default::default())
@@ -67,6 +79,8 @@ fn configure_surface(
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo, // disable vsync by switching to Mailbox,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: Vec::new(),
         },
     );
 }
@@ -76,23 +90,18 @@ fn main() {
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
 
-    let opt = Opt::from_args();
+    let opt = Args::parse();
     let epoch = opt
         .time
         .map(|s| {
-            chrono::NaiveTime::parse_from_str(&s, "%-H:%M")
-                .unwrap()
-                .signed_duration_since(chrono::NaiveTime::from_hms(12, 0, 0))
-                .num_minutes() as f64
-                / 1440.0
+            let t = time::Time::parse(
+                &s,
+                time::macros::format_description!("[hour]:[minute]:[second]"),
+            )
+            .unwrap();
+            t.hour() as f64 / 24.0 + t.minute() as f64 / 1440.0 + t.second() as f64 / 86400.0 - 0.5
         })
         .unwrap_or(0.0);
-    if let Some(path) = opt.download {
-        terra::download::download_bluemarble(&path).unwrap();
-        terra::download::download_treecover(&path).unwrap();
-        terra::download::download_copernicus_wbm(&path).unwrap();
-        terra::download::download_copernicus_hgt(&path).unwrap();
-    }
 
     let trace_path: Option<&std::path::Path> = if cfg!(feature = "trace") {
         std::fs::create_dir_all("trace").unwrap();
@@ -111,8 +120,11 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
-    let surface = unsafe { instance.create_surface(&window) };
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        ..Default::default()
+    });
+    let surface = unsafe { instance.create_surface(&window).unwrap() };
     let adapter = runtime
         .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -120,21 +132,16 @@ fn main() {
             force_fallback_adapter: false,
         }))
         .expect("Unable to create compatible wgpu adapter");
-    let swapchain_format = surface.get_supported_formats(&adapter)[0];
+    let swapchain_format = surface.get_capabilities(&adapter).formats[0];
 
     // Terra requires support for BC texture compression.
     assert!(adapter.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC));
     assert!(adapter.features().contains(wgpu::Features::PUSH_CONSTANTS));
-    let mut features = wgpu::Features::TEXTURE_COMPRESSION_BC
+    let features = wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::PUSH_CONSTANTS
+        | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
         | adapter.features() & wgpu::Features::MULTI_DRAW_INDIRECT;
-
-    if adapter.features().contains(wgpu::Features::SHADER_FLOAT64)
-        && !cfg!(feature = "soft-float64")
-    {
-        features |= wgpu::Features::SHADER_FLOAT64
-    }
 
     let (device, queue) = runtime
         .block_on(adapter.request_device(
@@ -189,46 +196,58 @@ fn main() {
     let mut space_key = false;
     let mut z_key = false;
 
-    let mut terrain = match opt.generate {
-        Some(dataset_directory) => {
-            let pb = indicatif::ProgressBar::new(100);
-            pb.set_style(
-                indicatif::ProgressStyle::default_bar()
-                    .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
-                    .progress_chars("=> "),
-            );
-            let mut last_message: Option<String> = None;
-            let progress_callback = |l: String, i: usize, total: usize| {
-                pb.set_length(total as u64);
-                pb.set_position(i as u64);
-                if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
-                    last_message = Some(l.clone());
-                    pb.set_message(l);
-                    pb.reset_eta();
-                }
-            };
-
-            runtime
-                .block_on(terra::Terrain::generate_and_new(
-                    &device,
-                    &queue,
-                    dataset_directory,
-                    progress_callback,
-                ))
-                .unwrap()
+    if let Some(opt2) = opt.subcommand {
+        match opt2 {
+            #[cfg(feature = "generate")]
+            SubcommandArgs::Generate { path, download } => {
+                let pb = indicatif::ProgressBar::new(100);
+                pb.set_style(
+                    indicatif::ProgressStyle::default_bar()
+                        .template(
+                            "{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}",
+                        )
+                        .unwrap()
+                        .progress_chars("=> "),
+                );
+                let mut last_message: Option<String> = None;
+                let progress_callback = |l: String, i: usize, total: usize| {
+                    pb.set_length(total as u64);
+                    pb.set_position(i as u64);
+                    if last_message.is_none() || &*l != last_message.as_ref().unwrap() {
+                        last_message = Some(l.clone());
+                        pb.set_message(l);
+                        pb.reset_eta();
+                    }
+                };
+                runtime
+                    .block_on(terra_generate::generate(&path, download, progress_callback))
+                    .unwrap()
+            }
         }
-        None => runtime.block_on(terra::Terrain::new(&device, &queue)).unwrap(),
     };
 
+    let server = opt.server.unwrap_or_else(|| terra::DEFAULT_TILE_SERVER_URL.to_string());
+    let mut terrain = runtime.block_on(terra::Terrain::new(&device, &queue, server)).unwrap();
+
     {
-        while terrain.poll_loading_status(
+        let pb = indicatif::ProgressBar::new(100);
+        pb.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{msg} {pos}/{len} [{wide_bar}] {percent}% {per_sec} {eta_precise}")
+                .unwrap()
+                .progress_chars("=> "),
+        );
+        pb.set_length(100);
+        pb.set_message("Streaming tiles");
+        terrain.poll_loading_status(
             &device,
             &queue,
             camera.anchored_position_view(0.0).0.into(),
-        ) {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+            |n| pb.set_position(n as u64),
+        );
+        pb.finish_and_clear();
     }
+
     let mut last_time = None;
     let start_time = std::time::Instant::now();
     window.set_visible(true);
