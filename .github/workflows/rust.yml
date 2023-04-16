@@ -26,15 +26,18 @@ jobs:
       - name: Install dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: sudo apt-get update && sudo apt-get install -y libegl-dev libudev-dev
-      - uses: actions-rs/cargo@v1
+      - name: Check all targets
+        uses: actions-rs/cargo@v1
         with:
           command: check
           args: --all-targets
-      - uses: actions-rs/cargo@v1
+      - name: Check generate feature
+        uses: actions-rs/cargo@v1
         with:
           command: check
           args: -p terra-preview --features generate
-      - uses: actions-rs/cargo@v1
+      - name: Check smaa feature
+        uses: actions-rs/cargo@v1
         with:
           command: check
           args: -p terra-preview --features smaa
