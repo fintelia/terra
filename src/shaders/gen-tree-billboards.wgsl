@@ -1,10 +1,9 @@
 struct Entry {
     position: vec3<f32>,
+    albedo: u32,
     angle: f32,
-    albedo: vec3<f32>,
     height: f32,
-    padding0: vec4<f32>,
-    padding1: vec4<f32>,
+    padding: vec2<f32>,
 };
 struct Entries {
     entries: array<array<Entry, 1024>>,
@@ -63,7 +62,7 @@ fn main(
 
     let i = atomicAdd(&mesh_indirect.entries[ubo.mesh_base_entry + entry].vertex_count, 6) / 6;
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].position = position.xyz;
-    tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].albedo = vec3<f32>(rnd3, rnd4, rnd5);
+    tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].albedo = pack4x8unorm(vec4<f32>(rnd3, rnd4, rnd5, 1.0));
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].angle = 0.0;
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].height = 10.0;
 }

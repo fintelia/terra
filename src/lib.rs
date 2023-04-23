@@ -136,7 +136,7 @@ impl Terrain {
                 },
                 MeshType::TreeBillboards => MeshCacheDesc {
                     ty,
-                    max_bytes_per_node: 128 * 128 * 64,
+                    max_bytes_per_node: 128 * 128 * 32,
                     entries_per_node: 16,
                     min_level: VNode::LEVEL_SIDE_1KM,
                     max_level: VNode::LEVEL_SIDE_1KM,

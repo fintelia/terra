@@ -11,11 +11,10 @@ layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 
 struct Entry {
     vec3 position;
+    uint albedo;
     float angle;
-    vec3 albedo;
     float height;
-    vec4 padding0;
-    vec4 padding1;
+    vec2 padding0;
 };
 layout(std430, binding = 2) readonly buffer DataBlock {
     Entry entries[];
@@ -72,7 +71,7 @@ void main() {
     if (morph > 0)
         position += 30*(up * (1-uv.y) + right * (uv.x-0.5));
 
-    color = entry.albedo;//vec3(0.33,0.57,0.0)*.13;
+    color = unpackUnorm4x8(entry.albedo).rgb;//vec3(0.33,0.57,0.0)*.13;
     texcoord = uv;
     normal = normalize(cross(right, up));
 
