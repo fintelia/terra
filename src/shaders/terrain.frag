@@ -252,6 +252,8 @@ void main() {
 	// 	shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
 	// }
 
+	//bent_normal = normalize(position + globals.camera);
+
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo_roughness.rgb,
 						albedo_roughness.a,
@@ -261,11 +263,11 @@ void main() {
 						globals.sun_direction,
 						vec3(100000.0)) * (1-shadow);
 
-	float ambient_strength = max(0, dot(normal, globals.sun_direction)) * max(0, tex_normal.y);
-	if (node.layers[BENT_NORMALS_LAYER].slot >= 0)
-		out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * ambient_strength;
-	else
-		out_color.rgb += 15000 * albedo_roughness.rgb * ambient_strength;
+	// float ambient_strength = max(0, dot(normal, globals.sun_direction)) * max(0, tex_normal.y);
+	// if (node.layers[BENT_NORMALS_LAYER].slot >= 0)
+	// 	out_color.rgb += bn_value.a * 15000 * albedo_roughness.rgb * ambient_strength;
+	// else
+	// 	out_color.rgb += 15000 * albedo_roughness.rgb * ambient_strength;
 
 	vec4 ap;
 	if (node.layers[AERIAL_PERSPECTIVE_LAYER].slot >= 0) {

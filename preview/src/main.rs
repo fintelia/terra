@@ -151,6 +151,7 @@ fn main() {
                     max_texture_array_layers: 1024,
                     max_compute_invocations_per_workgroup: 512,
                     max_push_constant_size: 128,
+                    max_storage_buffer_binding_size: 256 * 1024 * 1024,
                     ..wgpu::Limits::default()
                 },
                 label: None,

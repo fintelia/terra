@@ -11,7 +11,7 @@ layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
 
-layout(set = 0, binding = 1) uniform texture2DArray aerial_perspective;
+//layout(set = 0, binding = 1) uniform texture2DArray aerial_perspective;
 layout(set = 0, binding = 3) uniform sampler linear;
 
 layout(binding = 4) uniform texture2DArray billboards_albedo;
@@ -32,6 +32,7 @@ layout(location = 3) in vec3 normal;
 layout(location = 4) flat sample in uint slot;
 layout(location = 5) in vec3 right;
 layout(location = 6) in vec3 up;
+layout(location = 7) in vec4 atmosphere;
 
 vec3 extract_normal(vec2 n) {
 	n = n * 2.0 - vec2(1.0);
@@ -53,7 +54,8 @@ void main() {
 	float ao = texture(sampler2DArray(billboards_ao, linear), vec3(texcoord/6.0+1./6, 0), 0).x;
 	float depth = texture(sampler2DArray(billboards_depth, linear), vec3(texcoord/6.0, 0)).x;
 
-	albedo.rgb *= 0.15;
+	//albedo.rgb *= 0.15;
+	albedo.rgb = vec3(0.01,0.02,0.0);
 	albedo.rgb += (color-0.5) * 0.01;
 
 	float tx_normal_z = sqrt(max(0, 1-dot(tx_normal, tx_normal)));
@@ -72,17 +74,17 @@ void main() {
 #ifndef SHADOWPASS
 
 	float shadow = 0;
-	vec4 proj_position = globals.shadow_view_proj * vec4(position + normal * depth*10, 1);
-	//proj_position.xyz /= proj_position.w;
-	vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
-	if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
-		float depth = proj_position.z - 4.0 / 102400.0;
-		shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
-	}
+	// vec4 proj_position = globals.shadow_view_proj * vec4(position + normal * depth*10, 1);
+	// //proj_position.xyz /= proj_position.w;
+	// vec2 shadow_coord = proj_position.xy * 0.5 * vec2(1,-1) + 0.5;
+	// if (all(greaterThan(shadow_coord,vec2(0))) && all(lessThan(shadow_coord,vec2(1)))) {
+	// 	float depth = proj_position.z - 4.0 / 102400.0;
+	// 	shadow = textureLod(sampler2DShadow(shadowmap, shadow_sampler), vec3(shadow_coord, depth), 0);
+	// }
 
 	out_color = vec4(1);
 	out_color.rgb = pbr(albedo.rgb,
-						0.4,
+						0.8,
 						position,
 						true_normal,
 						globals.camera,
@@ -90,11 +92,11 @@ void main() {
 						vec3(100000.0)) * (1-shadow);
 
 
-	out_color.rgb += (1 - ao) * albedo.rgb * 15000 * max(0, dot(up, globals.sun_direction));// * max(dot(true_normal, up), 0);
+	// out_color.rgb += (1 - ao) * albedo.rgb * 15000 * max(0, dot(up, globals.sun_direction));// * max(dot(true_normal, up), 0);
 
 	// vec4 ap = texture(sampler2DArray(aerial_perspective, linear), layer_to_texcoord(AERIAL_PERSPECTIVE_LAYER));
-	// out_color.rgb *= ap.a * 16.0;
-	// out_color.rgb += ap.rgb * 16.0;
+	out_color.rgb *= atmosphere.a;
+	out_color.rgb += atmosphere.rgb * 16.0;
 
 
 	out_color = tonemap(out_color, globals.exposure, 2.2);

@@ -541,7 +541,7 @@ pub(crate) fn generators(
                 ))
                 .unwrap(),
             ],
-            dimensions: vec![(16, 16, 1), (16, 1, 1)],
+            dimensions: vec![(64, 64, 1), (16, 1, 1)],
             bindgroup_pipeline: vec![None, None],
             inputs: LayerType::Displacements.bit_mask() | LayerType::TreeAttributes.bit_mask(),
             outputs: MeshType::TreeBillboards.bit_mask(),

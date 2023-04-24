@@ -136,13 +136,13 @@ impl Terrain {
                 },
                 MeshType::TreeBillboards => MeshCacheDesc {
                     ty,
-                    max_bytes_per_node: 128 * 128 * 32,
+                    max_bytes_per_node: 512 * 512 * 32,
                     entries_per_node: 16,
-                    min_level: VNode::LEVEL_SIDE_1KM,
-                    max_level: VNode::LEVEL_SIDE_1KM,
+                    min_level: VNode::LEVEL_CELL_10M,
+                    max_level: VNode::LEVEL_CELL_10M,
                     cull_mode: None,
                     render_overlapping_levels: true,
-                    index_buffer: (0..32 * 32)
+                    index_buffer: (0..128 * 128)
                         .flat_map(|i| {
                             IntoIterator::into_iter([0u32, 1, 2, 3, 2, 1]).map(move |j| j + i * 4)
                         })

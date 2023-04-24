@@ -54,13 +54,13 @@ void main() {
     float d3 = dot(sphere.center.xyz - node.relative_position, globals.frustum_planes[3].xyz) + globals.frustum_planes[3].w;
     float d4 = dot(sphere.center.xyz - node.relative_position, globals.frustum_planes[4].xyz) + globals.frustum_planes[4].w;
 
-    if ((d0 < -sphere.radius) ||
-        (d1 < -sphere.radius) ||
-        (d2 < -sphere.radius) ||
-        (d3 < -sphere.radius) ||
-        (d4 < -sphere.radius)) {
-        mesh_indirect.indirect[entry].instance_count = 0;
-    } else {
+    // if ((d0 < -sphere.radius) ||
+    //     (d1 < -sphere.radius) ||
+    //     (d2 < -sphere.radius) ||
+    //     (d3 < -sphere.radius) ||
+    //     (d4 < -sphere.radius)) {
+    //     mesh_indirect.indirect[entry].instance_count = 0;
+    // } else {
         mesh_indirect.indirect[entry].instance_count = 1;
-    }
+    // }
 }

@@ -3,10 +3,11 @@ struct Entry {
     albedo: u32,
     angle: f32,
     height: f32,
-    padding: vec2<f32>,
+    uv: u32,
+    padding: f32,
 };
 struct Entries {
-    entries: array<array<Entry, 1024>>,
+    entries: array<array<Entry, 16384>>,
 };
 
 @group(0) @binding(0) var<uniform> ubo: GenMeshUniforms;
@@ -26,8 +27,8 @@ fn main(
 ) {
     let node = nodes.entries[ubo.slot];
 
-    let index = global_id.xy % vec2<u32>(32u);
-    let entry = 4u * (global_id.y / 32u) + (global_id.x / 32u);
+    let index = global_id.xy % vec2<u32>(128u);
+    let entry = 4u * (global_id.y / 128u) + (global_id.x / 128u);
 
     let rnd1 = random3(vec3<f32>(vec2<f32>(index), 1.0));
     let rnd2 = random3(vec3<f32>(vec2<f32>(index), 2.0));
@@ -38,7 +39,7 @@ fn main(
     let tree_attr = textureSampleLevel(
         tree_attributes,
         nearest,
-        layer_texcoord(node.layers[TREE_ATTRIBUTES_LAYER], vec2<f32>(global_id.xy) / 128.0), 
+        layer_texcoord(node.layers[TREE_ATTRIBUTES_LAYER], vec2<f32>(global_id.xy) / 512.0),
         node.layers[TREE_ATTRIBUTES_LAYER].slot,
         0.0
     );
@@ -48,10 +49,10 @@ fn main(
     }
 
     // Sample displacements texture at random offset (rnd1, rnd).
-    let texcoord = layer_texcoord(node.layers[DISPLACEMENTS_LAYER], (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 128.0);
+    let uv = (vec2<f32>(global_id.xy) + vec2<f32>(rnd1, rnd2)) / 512.0;
     let array_index = node.layers[DISPLACEMENTS_LAYER].slot;
     let dimensions = textureDimensions(displacements);
-    let stexcoord = max(texcoord.xy * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
+    let stexcoord = max(layer_texcoord(node.layers[DISPLACEMENTS_LAYER], uv) * vec2<f32>(dimensions) - vec2<f32>(0.5), vec2<f32>(0.0));
     let f = fract(stexcoord);
     let base_coords = vec2<i32>(stexcoord - f);
     let i00 = textureLoad(displacements, base_coords, array_index, 0);
@@ -65,4 +66,5 @@ fn main(
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].albedo = pack4x8unorm(vec4<f32>(rnd3, rnd4, rnd5, 1.0));
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].angle = 0.0;
     tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].height = 10.0;
+    tree_billboards_storage.entries[ubo.storage_base_entry + entry][i].uv = pack2x16unorm(uv);
 }

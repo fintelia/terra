@@ -8,13 +8,15 @@ layout(set = 0, binding = 0, std140) uniform UniformBlock {
 layout(set = 0, binding = 8, std140) readonly buffer Nodes {
 	Node nodes[];
 };
+layout(set = 0, binding = 1) uniform texture2DArray aerial_perspective;
 
 struct Entry {
     vec3 position;
     uint albedo;
     float angle;
     float height;
-    vec2 padding0;
+    uint uv;
+    float padding0;
 };
 layout(std430, binding = 2) readonly buffer DataBlock {
     Entry entries[];
@@ -30,6 +32,7 @@ layout(location = 3) out vec3 normal;
 layout(location = 4) flat sample out uint slot;
 layout(location = 5) out vec3 right;
 layout(location = 6) out vec3 up;
+layout(location = 7) out vec4 atmosphere;
 
 const vec3 tangents[6] = vec3[6](
 	vec3(0,1,0),
@@ -46,7 +49,7 @@ void main() {
     slot = gl_InstanceIndex / 16;
 
     Node node = nodes[slot];
-    Entry entry = tree_billboards_storage.entries[((slot - TREE_BILLBOARDS_BASE_SLOT) * 16 + gl_InstanceIndex % 16) * 1024 + entry_index];
+    Entry entry = tree_billboards_storage.entries[((slot - TREE_BILLBOARDS_BASE_SLOT) * 16 + gl_InstanceIndex % 16) * 16384 + entry_index];
     position = entry.position - node.relative_position;
 
     up = normalize(position + globals.camera);
@@ -74,6 +77,8 @@ void main() {
     color = unpackUnorm4x8(entry.albedo).rgb;//vec3(0.33,0.57,0.0)*.13;
     texcoord = uv;
     normal = normalize(cross(right, up));
+    atmosphere = textureLod(sampler2DArray(aerial_perspective, linear),
+        layer_texcoord(node.layers[AERIAL_PERSPECTIVE_LAYER], unpackUnorm2x16(entry.uv)), 0);
 
     gl_Position = globals.view_proj * vec4(position, 1.0);
 }
