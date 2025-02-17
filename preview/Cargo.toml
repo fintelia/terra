@@ -10,7 +10,7 @@ env_logger = "0.10.0"
 gilrs = "0.10.1"
 indicatif = "0.17.3"
 mint = "0.5.9"
-open-location-code = {version = "0.2.0", git = "https://github.com/fintelia/open-location-code", rev = "07a4dd0d8fc08619979707c985728c4fd07dacae" }
+open-location-code = "0.1.0"
 planetcam = { path = "../planetcam" }
 smaa = { version = "0.9.0", optional = true }
 terra = { path = "..", default-features = false }
